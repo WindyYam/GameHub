@@ -133,18 +133,18 @@
 
             React.useEffect(() => {
                 const urlParams = new URLSearchParams(window.location.search);
-                const gameIndex = urlParams.get('game');
+                const gameQuery = urlParams.get('game');
 
-                fetch('/api/games?t=' + Date.now())
+                fetch('api/games?t=' + Date.now())
                     .then((response) => response.json())
                     .then((data) => {
                         console.error('Game Length:', data.length);
                         
                         // Set initial game based on URL parameter or random
                         let initialGame;
-                        if (gameIndex !== null) {
-                            // Convert to number and validate
-                            initialGame = parseInt(gameIndex, 10);
+                        if (gameQuery !== null) {
+                            const gameByName = data.findIndex((game) => game.path.split('/').slice(-2, -1)[0] === gameQuery);
+                            initialGame = gameByName !== -1 ? gameByName : parseInt(gameQuery, 10);
                             if (isNaN(initialGame) || initialGame < 0 || initialGame >= data.length) {
                                 initialGame = Math.floor(Math.random() * data.length);
                             }
