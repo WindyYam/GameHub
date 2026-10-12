@@ -120,6 +120,7 @@ const scene = new THREEJS.Scene();
 scene.background = new THREEJS.Color('#e8e9e6');
 const camera = new THREEJS.PerspectiveCamera(34, 1, .1, 250);
 const controls = new THREEJS.OrbitControls(camera, renderer.domElement);
+controls.touches = { ONE: THREEJS.TOUCH.ROTATE, TWO: THREEJS.TOUCH.DOLLY_PAN };
 controls.enableDamping = true;
 controls.dampingFactor = .065;
 controls.maxPolarAngle = Math.PI * .48;

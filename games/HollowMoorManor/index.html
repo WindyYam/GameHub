@@ -6,7 +6,7 @@
 <title>Hollow Moor Manor — a Halloween diorama</title>
 <style>
   html,body{margin:0;height:100%;background:#05060d;overflow:hidden;font-family:Georgia,'Palatino Linotype',serif;color:#e8d9b8;user-select:none}
-  canvas{display:block;outline:none}
+  canvas{display:block;outline:none;touch-action:none}
   #hud{position:fixed;left:26px;top:20px;pointer-events:none;text-shadow:0 2px 14px #000}
   #hud h1{margin:0;font-size:21px;letter-spacing:.18em;font-weight:400;text-transform:uppercase;color:#f3c77a}
   #hud p{margin:5px 0 0;font-size:12px;opacity:.7;font-style:italic;letter-spacing:.04em}
@@ -29,7 +29,7 @@
 <div id="loading"><i></i><span>Lighting the candles…</span></div>
 <div id="hud"><h1>Hollow Moor Manor</h1><p>All Hallows' Eve · a miniature in the forest · full moon</p></div>
 <div id="tools"></div>
-<div id="hint">drag · orbit &nbsp;|&nbsp; wheel · zoom &nbsp;|&nbsp; right-drag · pan &nbsp;|&nbsp; poke things — the night is full of secrets</div>
+<div id="hint">drag · orbit &nbsp;|&nbsp; pinch / wheel · zoom &nbsp;|&nbsp; right-drag · pan &nbsp;|&nbsp; poke things — the night is full of secrets</div>
 <div id="secrets"></div>
 <div id="toast"></div>
 
@@ -104,6 +104,7 @@ const CAM_HOME = V3(-6, 66, 140), CAM_TARGET = V3(4, 17, -3);
 camera.position.copy(CAM_HOME);
 
 const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
 controls.target.copy(CAM_TARGET);
 controls.enableDamping = true; controls.dampingFactor = 0.06;
 controls.minDistance = 12; controls.maxDistance = 190;

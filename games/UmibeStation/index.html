@@ -52,7 +52,7 @@ button:disabled{opacity:.5;cursor:default}
 <div id="vig"></div>
 <div id="title"><span class="jp">海辺駅</span><span class="en">Umibe Station, spring</span></div>
 <div id="status"><i></i><span id="statusTxt">Train arriving</span></div>
-<div id="hint">Drag to orbit, scroll to zoom, tap the train, the tree, the lanterns, the people</div>
+<div id="hint">Drag to orbit, pinch or scroll to zoom, tap the train, the tree, the lanterns, the people</div>
 <div id="tip"></div><div id="bubble"></div><div id="toast" role="status" aria-live="polite"></div>
 <div id="panel">
   <div class="btns">
@@ -2028,6 +2028,7 @@ function updateHover(){
 
 /* ---------- controls ---------- */
 const controls=new T.OrbitControls(camera,canvas);
+controls.touches={ONE:T.TOUCH.ROTATE,TWO:T.TOUCH.DOLLY_PAN};
 controls.enableDamping=true; controls.dampingFactor=0.07; controls.minDistance=5; controls.maxDistance=110; controls.maxPolarAngle=Math.PI*0.495; controls.screenSpacePanning=true;
 controls.autoRotateSpeed=0.7;
 let introDone=false,introT=0,follow=false,followBlend=0;

@@ -76,6 +76,7 @@ const camera = new THREE.PerspectiveCamera(44, innerWidth / innerHeight, .5, 600
 const homeView = new THREE.Vector3(28, 19, 52);
 let viewFit = 1;
 const controls = new THREE.OrbitControls(camera, renderer.domElement);
+controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
 controls.enableDamping = true;
 controls.dampingFactor = .065;
 controls.minDistance = 28;
