@@ -29,22 +29,26 @@
   },
   {
     "id": 7,
-    "path": "games/StoryBook/index.html"
+    "path": "games/StarBattle/index.html"
   },
   {
     "id": 8,
-    "path": "games/Tetris/index.html"
+    "path": "games/StoryBook/index.html"
   },
   {
     "id": 9,
-    "path": "games/TowerBuilding/index.html"
+    "path": "games/Tetris/index.html"
   },
   {
     "id": 10,
-    "path": "games/TowerDefense/index.html"
+    "path": "games/TowerBuilding/index.html"
   },
   {
     "id": 11,
+    "path": "games/TowerDefense/index.html"
+  },
+  {
+    "id": 12,
     "path": "games/UmibeStation/index.html"
   }
 ]
