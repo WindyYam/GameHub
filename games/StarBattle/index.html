@@ -269,29 +269,75 @@ for (let i = 0; i < 4; i++) { const l = new THREE.PointLight(0xff9a50, 0, 190, 2
 
 // ---------- deep-space dome: nebula + stars (follows the camera, never parallaxes) ----------
 const SKY = {};
+// the galactic belt: a great circle spanning the whole sky; the spiral galaxy object sits on it (see BG_POS)
+SKY.beltN = V3(.38, .8, -.46).normalize();
 (() => {
-  SKY.uniforms = { uTime: { value: 0 }, uSunDir: { value: V3(0, 1, 0) }, uGalDir: { value: V3(0, 1, 0) }, uHoleDir: { value: V3(0, 1, 0) } };
+  SKY.uniforms = { uTime: { value: 0 }, uSunDir: { value: V3(0, 1, 0) }, uGalDir: { value: V3(0, 1, 0) }, uHoleDir: { value: V3(0, 1, 0) }, uBeltN: { value: SKY.beltN } };
   const mat = new THREE.ShaderMaterial({
     uniforms: SKY.uniforms, side: THREE.BackSide, depthTest: false, depthWrite: false, fog: false,
     vertexShader: 'varying vec3 vDir; void main(){ vDir=normalize(position); gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }',
     fragmentShader: `
-      varying vec3 vDir; uniform float uTime; uniform vec3 uSunDir,uGalDir,uHoleDir;
-      float h(vec3 p){ p=fract(p*.3183099+.1); p*=17.; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
+      varying vec3 vDir; uniform float uTime;       uniform vec3 uSunDir,uGalDir,uHoleDir,uBeltN;
+      float h(vec3 p){ p=fract(p*.1031); p+=dot(p,p.yzx+33.33); return fract((p.x+p.y)*p.z); }
       float n3(vec3 x){ vec3 i=floor(x),f=fract(x); f=f*f*(3.-2.*f);
         return mix(mix(mix(h(i),h(i+vec3(1,0,0)),f.x),mix(h(i+vec3(0,1,0)),h(i+vec3(1,1,0)),f.x),f.y),
                    mix(mix(h(i+vec3(0,0,1)),h(i+vec3(1,0,1)),f.x),mix(h(i+vec3(0,1,1)),h(i+vec3(1,1,1)),f.x),f.y),f.z); }
-      float fbm(vec3 p){ float a=.5,s=0.; for(int i=0;i<5;i++){ s+=a*n3(p); p=p*2.03+vec3(1.7,9.2,3.1); a*=.5; } return s; }
+      const mat3 RM=mat3(0.,.8,.6,-.8,.36,-.48,-.6,-.48,.64);
+      float fbm(vec3 p){ float a=.5,s=0.; for(int i=0;i<5;i++){ s+=a*n3(p); p=RM*p*2.03+vec3(1.7,9.2,3.1); a*=.5; } return s; }
+      float rid(vec3 p){ float a=.5,s=0.; for(int i=0;i<5;i++){ float n=1.-abs(2.*n3(p)-1.); s+=a*n*n; p=RM*p*2.1+vec3(3.1,1.3,7.7); a*=.5; } return s; }
+      float h2(vec2 p){ vec3 q=fract(vec3(p.xyx)*.1031); q+=dot(q,q.yzx+33.33); return fract((q.x+q.y)*q.z); }
+      float n2(vec2 p){ vec2 i=floor(p),f=fract(p); f=f*f*(3.-2.*f); return mix(mix(h2(i),h2(i+vec2(1,0)),f.x),mix(h2(i+vec2(0,1)),h2(i+vec2(1,1)),f.x),f.y); }
+      float f2(vec2 p){ float a=.5,s=0.; for(int i=0;i<5;i++){ s+=a*n2(p); p=p*2.02+vec2(5.2,1.3); a*=.5; } return s; }
+      // a distant spiral galaxy painted straight onto the sky: fixed in space, tilted, tiny and faint
+      vec3 galaxy(vec3 d){
+        float gz=dot(d,uGalDir); if(gz<.3) return vec3(0.);
+        vec3 gu=normalize(cross(uBeltN,uGalDir)), gv=cross(uGalDir,gu);
+        vec2 p=vec2(dot(d,gu),dot(d,gv))/gz/.17;
+        float len=length(p); if(len>1.) return vec3(0.);
+        float a0=.62; vec2 q=mat2(cos(a0),sin(a0),-sin(a0),cos(a0))*p; q.y/=.45;
+        float r=length(q);
+        float wob=f2(q*3.+7.)*.9;
+        float ph=2.*atan(q.y,q.x)-5.2*log(r+.03)+uTime*.004+wob;
+        float arm=pow(.5+.5*cos(ph),2.2);
+        float fall=smoothstep(1.,.25,r)*smoothstep(0.,.1,r);
+        float bulge=exp(-r*r*34.)*1.9+exp(-r*5.)*.55;
+        float dust=smoothstep(.55,.9,f2(q*6.+vec2(arm*2.,3.)))*smoothstep(.12,.3,r)*.85;
+        float dots=step(.97,h2(floor(q*60.)))*arm*fall*.8;
+        vec3 core=vec3(1.25,.95,.6);
+        vec3 armc=mix(vec3(.28,.42,1.15),vec3(.8,.6,1.),f2(q*3.));
+        vec3 c=core*bulge+armc*arm*fall*.9*(1.-dust)+vec3(.9,.95,1.)*dots;
+        c*=1.-dust*.5;
+        return c*(1.-smoothstep(.75,1.,len))*.45;
+      }
       void main(){
         vec3 d=normalize(vDir);
-        vec3 col=vec3(.002,.003,.009);
-        // dust clouds
-        float c1=fbm(d*2.4+vec3(3.,1.,7.)), c2=fbm(d*5.5+vec3(9.,4.,2.)+c1);
-        float m1=smoothstep(.42,.78,c1);
-        col+=mix(vec3(.004,.01,.03),vec3(.03,.01,.04),fbm(d*1.4+5.))*m1*.4;
-        col+=vec3(.002,.018,.03)*smoothstep(.5,.85,c2)*m1*.35;
-        // thin band of milky haze
-        float band=exp(-pow(dot(d,normalize(vec3(.25,.9,.35)))*3.5,2.));
-        col+=vec3(.025,.03,.05)*band*(.4+fbm(d*8.))*.5;
+        vec3 col=mix(vec3(.002,.004,.012),vec3(.014,.006,.022),fbm(d*1.2+vec3(3.,1.,7.)));
+        // domain-warped nebula field: emission (red/magenta/amber + teal filaments) and blue reflection clouds
+        vec3 w=d*1.7; w+=.7*vec3(fbm(w+vec3(1.,5.,2.)),fbm(w+vec3(7.,3.,9.)),fbm(w+vec3(4.,8.,6.)))-.35;
+        float eA=smoothstep(.46,.72,fbm(w*.9+vec3(2.,4.,1.)));
+        float eB=smoothstep(.5,.75,fbm(w*.9+vec3(11.,2.,5.)));
+        float fil=rid(w*3.2), cl=fbm(w*6.+3.);
+        vec3 hue=mix(vec3(.9,.14,.34),vec3(.95,.5,.15),smoothstep(.3,.7,fbm(w*1.1+9.)));
+        vec3 neb=hue*eA*(.25+fil*.9)*cl*1.4;
+        neb+=vec3(.04,.55,.65)*eA*smoothstep(.62,.9,fil)*.7;
+        neb+=vec3(.12,.28,.9)*eB*(.3+.7*cl)*(.4+.6*fil);
+        col+=neb*.3;
+        // galactic belt: a luminous band wrapping the whole sky, brightest toward the galaxy, split by a dust rift
+        float lat=dot(d,uBeltN);
+        float lon=dot(d,uGalDir);
+        float wide=exp(-pow(lat/.26,2.));
+        float core=exp(-pow(lat/.09,2.));
+        float clump=.45+.9*fbm(d*3.2+vec3(2.,6.,1.));
+        float fine=.6+.8*fbm(d*14.);
+        float rift=smoothstep(.45,.8,fbm(vec3(d*7.+vec3(4.,1.,8.)))) * exp(-pow((lat-.02*sin(lon*9.))/.05,2.));
+        vec3 beltCol=mix(vec3(.18,.22,.5),vec3(.62,.38,.2),smoothstep(-.3,1.,lon)*.8);
+        float belt=(wide*.45+core*.9)*clump*fine;
+        col+=beltCol*belt*.24*(1.-rift*.85);
+        col+=vec3(.55,.35,.2)*pow(max(lon,0.),5.)*core*.14;
+        // dark dust lanes swallow the nebulae and the belt behind them
+        float dustM=smoothstep(.46,.85,fbm(w*2.6+vec3(5.,9.,2.)));
+        col*=1.-dustM*.7;
+        col+=galaxy(d);
         // glows around the big landmarks
         col+=vec3(.03,.045,.14)*pow(max(dot(d,uGalDir),0.),12.)*.5;
         col+=vec3(.3,.16,.07)*pow(max(dot(d,uSunDir),0.),40.)*.15;
@@ -303,13 +349,26 @@ const SKY = {};
   dome.renderOrder = -20; dome.frustumCulled = false; scene.add(dome); SKY.dome = dome;
 
   // star points
-  const N = 9000, pos = new Float32Array(N * 3), col = new Float32Array(N * 3), siz = new Float32Array(N), ph = new Float32Array(N);
-  const tints = [[.75, .85, 1], [1, 1, 1], [1, .92, .8], [1, .75, .55], [.6, .75, 1]];
+  const N_FIELD = 9000, N_BELT = 9000, N = N_FIELD + N_BELT;
+  const pos = new Float32Array(N * 3), col = new Float32Array(N * 3), siz = new Float32Array(N), ph = new Float32Array(N);
+  const tints = [[.62, .76, 1], [1, 1, 1], [1, .88, .7], [1, .68, .45], [.5, .68, 1]];
+  const bn = SKY.beltN, be1 = V3().crossVectors(bn, V3(0, 0, 1)).normalize(), be2 = V3().crossVectors(bn, be1), brand = mulberry32(4242);
   for (let i = 0; i < N; i++) {
-    const u = rand() * 2 - 1, a = rand() * 6.2832, s = Math.sqrt(1 - u * u);
-    pos.set([s * Math.cos(a) * 4400, u * 4400, s * Math.sin(a) * 4400], i * 3);
-    const t = pick(tints), b = Math.pow(rand(), 3.2) * 1.8 + .25; col.set([t[0] * b, t[1] * b, t[2] * b], i * 3);
-    siz[i] = rand() < .03 ? rr(2.6, 4) : rr(.9, 2); ph[i] = rand() * 40;
+    let x, y, z;
+    const belt = i >= N_FIELD, R = belt ? brand : rand;   // belt stars use their own generator so the rest of the scene layout is unchanged
+    if (!belt) {
+      const u = R() * 2 - 1, a = R() * 6.2832, s = Math.sqrt(1 - u * u);
+      x = s * Math.cos(a); y = u; z = s * Math.sin(a);
+    } else {
+      // belt stars: uniform along the great circle, gaussian spread across it (denser, finer, dimmer)
+      const a = R() * 6.2832, g = (R() + R() + R() - 1.5) * (R() < .7 ? .2 : .55), c = Math.cos(g), sg = Math.sin(g);
+      x = c * (Math.cos(a) * be1.x + Math.sin(a) * be2.x) + sg * bn.x;
+      y = c * (Math.cos(a) * be1.y + Math.sin(a) * be2.y) + sg * bn.y;
+      z = c * (Math.cos(a) * be1.z + Math.sin(a) * be2.z) + sg * bn.z;
+    }
+    pos.set([x * 4400, y * 4400, z * 4400], i * 3);
+    const t = tints[Math.floor(R() * tints.length)], b = (Math.pow(R(), 3.2) * 1.8 + .25) * (belt ? .7 : 1); col.set([t[0] * b, t[1] * b, t[2] * b], i * 3);
+    siz[i] = belt ? .8 + R() * .7 : R() < .03 ? 2.6 + R() * 1.4 : .9 + R() * 1.1; ph[i] = R() * 40;
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setAttribute('aCol', new THREE.BufferAttribute(col, 3));
@@ -398,6 +457,8 @@ function skyDir(az, el, dist = BG_DIST) {
 const BG_POS = {
   planet: skyAt(.62, .66), sun: skyDir(-60, 3), hole: skyDir(125, -2), galaxy: skyDir(-145, 4)
 };
+// snap the galaxy onto the galactic belt so the belt visibly runs through it
+{ const gd = BG_POS.galaxy.clone().sub(CAM_HOME).normalize(); gd.addScaledVector(SKY.beltN, -gd.dot(SKY.beltN)).normalize(); BG_POS.galaxy.copy(gd.multiplyScalar(BG_DIST).add(CAM_HOME)); }
 SKY.uniforms.uSunDir.value.copy(BG_POS.sun.clone().sub(CAM_HOME).normalize());
 SKY.uniforms.uGalDir.value.copy(BG_POS.galaxy.clone().sub(CAM_HOME).normalize());
 SKY.uniforms.uHoleDir.value.copy(BG_POS.hole.clone().sub(CAM_HOME).normalize());
@@ -462,28 +523,7 @@ BG.hole = makeBillboard(`
   }`, 620 * BG_K, { blending: THREE.NormalBlending, premult: true, order: -6 });
 BG.hole.position.copy(BG_POS.hole);
 
-// ---------- spiral galaxy ----------
-BG.galaxy = makeBillboard(`
-  void main(){
-    vec2 p=(vUv-.5)*2.;
-    vec2 q=rot2(.62)*p; q.y/=.58;
-    float r=length(q);
-    float wob=f2(q*3.+7.)*.9;
-    float ph=2.*atan(q.y,q.x)-5.2*log(r+.03)+uTime*.015+wob;
-    float arm=pow(.5+.5*cos(ph),2.2);
-    float fall=smoothstep(1.,.25,r)*smoothstep(0.,.1,r);
-    float bulge=exp(-r*r*34.)*1.9+exp(-r*5.)*.55;
-    float dust=smoothstep(.55,.9,f2(q*6.+vec2(arm*2.,3.)))*smoothstep(.12,.3,r)*.85;
-    float dots=step(.965,h21_(floor(q*130.)))*arm*fall*1.6;
-    float hii=step(.93,f2(q*22.+3.))*arm*smoothstep(.3,.8,r);
-    vec3 core=vec3(1.25,.95,.6);
-    vec3 armc=mix(vec3(.28,.42,1.15),vec3(.8,.6,1.),f2(q*3.));
-    vec3 col=core*bulge+armc*arm*fall*.95*(1.-dust)+vec3(1.,.4,.6)*hii*fall*1.3+vec3(.9,.95,1.)*dots;
-    col*=1.-dust*.55;
-    float edge=1.-smoothstep(.82,1.,length(p));
-    gl_FragColor=vec4(col*edge*1.15,1.);
-  }`, 520 * BG_K, { order: -7 });
-BG.galaxy.position.copy(BG_POS.galaxy);
+// ---------- spiral galaxy: painted into the sky dome shader (see SKY), not a billboard ----------
 
 // ---------- the ringed giant (own lighting from the sun, ring shadow on the globe and globe shadow on the rings) ----------
 (() => {
@@ -1979,7 +2019,7 @@ onFrame((dt, t) => {
   const dome = SKY.dome.clone(); dome.position.set(0, 0, 0); env.add(dome);
   const stars = SKY.stars.clone(); stars.position.set(0, 0, 0); env.add(stars);
   const facing = src => { const m = new THREE.Mesh(src.geometry, src.material); m.scale.copy(src.scale); m.position.copy(src.position); m.renderOrder = src.renderOrder; m.lookAt(0, 0, 0); env.add(m); };
-  facing(BG.sun); facing(BG.galaxy); facing(BG.hole);
+  facing(BG.sun); facing(BG.hole);
   env.add(BG.planetGroup.clone());
   const rt = new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType, format: THREE.RGBAFormat, generateMipmaps: false });
   const cc = new THREE.CubeCamera(1.5, 60000, rt);
