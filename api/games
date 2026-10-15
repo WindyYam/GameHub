@@ -29,14 +29,18 @@
   },
   {
     "id": 7,
-    "path": "games/Tetris/index.html"
+    "path": "games/StarOutpost/index.html"
   },
   {
     "id": 8,
-    "path": "games/TowerDefense/index.html"
+    "path": "games/Tetris/index.html"
   },
   {
     "id": 9,
+    "path": "games/TowerDefense/index.html"
+  },
+  {
+    "id": 10,
     "path": "games/UmibeStation/index.html"
   }
 ]
