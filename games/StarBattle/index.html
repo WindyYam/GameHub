@@ -1677,7 +1677,7 @@ onFrame((dt, t) => updateFighters(dt, t));
       void main(){
         vec3 p=position, toC=cameraPosition-p; float dist=length(toC);
         vec3 side=cross(aDir,toC); float sl=length(side); side=sl>1e-5?side/sl:vec3(0.,1.,0.);
-        p+=side*aInfo.x*max(.35,dist*.0013)*(1.-.75*aInfo.y);
+        p+=side*aInfo.x*max(.35,dist*.0013)*(1.-.75*aInfo.y)*step(1e-10,dot(aDir,aDir));
         vV=aInfo.xy; vC=aCol; gl_Position=projectionMatrix*viewMatrix*vec4(p,1.);
       }`,
     fragmentShader: `varying vec2 vV; varying vec3 vC;
@@ -1703,7 +1703,14 @@ onFrame((dt, t) => updateFighters(dt, t));
   let acc = 0;
   onFrame(dt => {
     acc += dt; if (acc >= DT) { acc = 0; tick(); }
-    for (let i = 0; i < n; i++) { const p = F[i].pos, b = i * K * 3; put(i, 0, p.x, p.y, p.z, p.x - hist[b], p.y - hist[b + 1], p.z - hist[b + 2]); }
+    for (let i = 0; i < n; i++) {
+      const p = F[i].pos, b = i * K * 3, dx = p.x - hist[b], dy = p.y - hist[b + 1], dz = p.z - hist[b + 2];
+      if (dx * dx + dy * dy + dz * dz > 3600) {                            // respawn teleport: drop the old path now, not at the next sample, or a ribbon spans the jump
+        for (let j = 0; j < K; j++) { hist[b + j * 3] = p.x; hist[b + j * 3 + 1] = p.y; hist[b + j * 3 + 2] = p.z; }
+        for (let j = 1; j <= K; j++) put(i, j, p.x, p.y, p.z, 0, 0, 0);
+        put(i, 0, p.x, p.y, p.z, 0, 0, 0);
+      } else put(i, 0, p.x, p.y, p.z, dx, dy, dz);
+    }
     aPos.needsUpdate = true; aDir.needsUpdate = true;
   });
 })();
@@ -1813,7 +1820,7 @@ const ROCKS = (() => {
    STEP 8 — CAMERA DIRECTOR: a button (or C) cycles epic angles; any drag or wheel hands control back
    ===================================================================== */
 
-const CAMDIR = { i: 0, pos: V3(), look: V3(), wp: V3(), wl: V3(), tIn: 0, fresh: false, chase: null, until: 0, side: 1 };
+const CAMDIR = { i: 0, pos: V3(), look: V3(), wp: V3(), wl: V3(), tIn: 0, fresh: false, chase: null, until: 0, side: 1, dt: .016, anc: V3(), hdg: V3(0, 0, 1), anchorFor: null };
 const _cc = V3(), _cd = V3(), _cr = V3();
 
 function pickFlight() {
@@ -1832,9 +1839,13 @@ function shotChase(t, o) {
   _cc.set(0, 0, 0); let n = 0;
   for (const f of fl.m) if (f.state === 1) { _cc.add(f.pos); n++; }
   _cc.multiplyScalar(1 / Math.max(n, 1));
-  _cd.copy(fl.lead.dir); _cr.crossVectors(_u, _cd).normalize();
-  o.wp.copy(_cc).addScaledVector(_cd, -26).addScaledVector(_cr, CAMDIR.side * 11).addScaledVector(_u, 8);
-  o.wl.copy(_cc).addScaledVector(_cd, 40);
+  // low-pass the anchor and heading so fighters banking, dying or respawning never jolt the camera
+  const a = 1 - Math.exp(-1.6 * CAMDIR.dt);
+  if (CAMDIR.anchorFor !== fl) { CAMDIR.anchorFor = fl; CAMDIR.anc.copy(_cc); CAMDIR.hdg.copy(fl.lead.dir); }
+  else { CAMDIR.anc.lerp(_cc, a); CAMDIR.hdg.lerp(fl.lead.dir, a * .6); }
+  _cd.copy(CAMDIR.hdg).normalize(); _cr.crossVectors(_u, _cd).normalize();
+  o.wp.copy(CAMDIR.anc).  addScaledVector(_cd, -12).addScaledVector(_cr, CAMDIR.side * 5).addScaledVector(_u, 3.5);
+    o.wl.copy(CAMDIR.anc).addScaledVector(_cd, 28);
 }
 // low over ship A's spine, watching the broadside
 function shotDeckA(t, o) {
@@ -1862,7 +1873,7 @@ function shotGrand(t, o) {
 }
 const SHOTS = [
   { name: 'Free camera' },
-  { name: 'Chase · interceptor flight', fn: shotChase, k: 6, fov: 1.35 },
+  { name: 'Chase · interceptor flight', fn: shotChase, k: 3, fov: 1.35 },
   { name: 'Flagship deck run', fn: shotDeckA, k: 1.6, fov: 1.15 },
   { name: 'Dreadnought orbit', fn: shotDreadnought, k: 1.6, fov: 1 },
   { name: 'Crossfire', fn: shotCrossfire, k: 1.4, fov: 1.1 },
@@ -1884,7 +1895,7 @@ onFrame((dt, t) => {
   fovMul = damp(fovMul, sh.fov || 1, 2.5, dt);
   const f = baseFov() * fovMul; if (Math.abs(camera.fov - f) > .02) { camera.fov = f; camera.updateProjectionMatrix(); }
   if (!sh.fn) return;
-  sh.fn(t, CAMDIR);
+  CAMDIR.dt = dt; sh.fn(t, CAMDIR);
   if (CAMDIR.fresh) { CAMDIR.pos.copy(camera.position); CAMDIR.look.copy(controls.target); CAMDIR.fresh = false; }
   const k = lerp(1.2, sh.k, smooth(0, 3, t - CAMDIR.tIn));
   CAMDIR.pos.lerp(CAMDIR.wp, 1 - Math.exp(-k * dt)); CAMDIR.look.lerp(CAMDIR.wl, 1 - Math.exp(-(k + 2) * dt));
