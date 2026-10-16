@@ -41,10 +41,25 @@ h1{font:400 46px/1.08 'Libre Caslon Display',Georgia,serif;margin:9px 0 9px}
 .speed{display:flex;border:1px solid var(--line);border-radius:5px;overflow:hidden;margin-left:3px}.speed button{border:0;border-left:1px solid var(--line);color:var(--muted);background:transparent;padding:8px 9px;font-size:11px}.speed button:first-child{border:0}.speed button[aria-pressed="true"]{color:var(--accent);background:#e0eee5;font-weight:700}
 .daylight{width:320px;padding:12px 17px 13px}.day-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}.day-label{display:flex;align-items:center;gap:7px;font-size:11px;font-weight:600}.day-label svg{width:15px;height:15px;color:var(--warm)}
 #clock{font-variant-numeric:tabular-nums;font-size:15px;font-weight:500}#time{width:100%;height:14px;accent-color:var(--accent);cursor:pointer;margin:0;display:block}.time-markers{display:flex;justify-content:space-between;font-size:9px;color:var(--muted);margin-top:5px}
+#ar-size{display:none;width:220px;padding:12px 17px 13px;pointer-events:auto;background:var(--paper);border:1px solid var(--line);border-radius:7px;backdrop-filter:blur(16px);box-shadow:var(--shadow)}
+.ar-size-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-size:11px;font-weight:600}
+#ar-size-value{font-variant-numeric:tabular-nums;font-size:15px;font-weight:500}
+#ar-size-range{width:100%;height:14px;accent-color:var(--accent);cursor:pointer;margin:0;display:block}
 #tooltip{position:fixed;pointer-events:none;display:none;background:var(--ink);color:#fff;font-size:11px;padding:6px 9px;border-radius:4px;z-index:10;max-width:210px}
 #toast{position:fixed;bottom:119px;left:50%;transform:translate(-50%,10px);background:var(--ink);color:#fff;padding:9px 15px;border-radius:5px;font-size:12px;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;max-width:80vw;text-align:center}#toast.show{opacity:1;transform:translate(-50%,0)}
 #ambient{position:fixed;left:34px;bottom:119px;color:var(--scene-muted);font-size:10px;display:flex;gap:15px}#ambient span{display:flex;align-items:center;gap:5px}#ambient svg{width:12px;height:12px}
+#ar-status{position:fixed;left:50%;bottom:max(24px,env(safe-area-inset-bottom));transform:translateX(-50%);padding:11px 16px;border:1px solid rgba(255,255,255,.24);border-radius:6px;background:rgba(25,43,39,.82);color:#fff;text-align:center;font-size:12px;backdrop-filter:blur(12px);max-width:calc(100% - 32px);z-index:20}
+body.ar-mode{background:transparent}
+body.ar-mode header,body.ar-mode .live,body.ar-mode #visit,body.ar-mode #ambient{display:none}
+body.ar-mode .top-actions{top:max(16px,env(safe-area-inset-top));right:max(16px,env(safe-area-inset-right));display:block}
+body.ar-mode .top-actions .icon-btn:not(#ar){display:none}
+body.ar-mode #dock{bottom:max(14px,env(safe-area-inset-bottom));left:14px;right:14px;display:flex;flex-direction:row;justify-content:center;align-items:stretch;gap:10px}
+body.ar-mode .simulation{display:none}
+body.ar-mode .daylight,body.ar-mode #ar-size{width:min(320px,calc((100vw - 48px)/2))}
+body.ar-mode #ar-size{display:block}
+body.ar-mode #ar-status{bottom:calc(112px + env(safe-area-inset-bottom))}
 @media(max-width:760px){header{left:20px;top:22px;max-width:calc(100% - 105px)}h1{font-size:35px;margin-top:6px}.eyebrow{font-size:8px}.location{font-size:10px}.top-actions{top:24px;right:17px;gap:5px;display:grid;grid-template-columns:repeat(2,32px)}.top-actions .icon-btn{width:32px;height:32px}.live{left:20px;top:128px;font-size:9px}#dock{bottom:max(14px,env(safe-area-inset-bottom));left:14px;right:14px;gap:8px;flex-direction:column;align-items:stretch}.daylight{width:100%;padding:10px 14px}.simulation{min-height:59px;justify-content:space-between;padding:8px 12px;gap:8px}.sim-info{min-width:100px;padding-right:12px}.sim-buttons{gap:5px}.simulation .icon-btn{width:32px;height:32px}.speed button{padding:7px 8px}#visit{bottom:183px;right:14px;width:195px;padding:12px}#ambient{left:20px;bottom:183px;flex-direction:column;gap:3px}#toast{bottom:190px}#visit:not([hidden])~#ambient{display:none}}
+@media(max-width:760px){body.ar-mode #dock{left:10px;right:10px;gap:8px}body.ar-mode .daylight,body.ar-mode #ar-size{width:0;min-width:0;flex:1;padding:8px 10px}body.ar-mode .time-markers{font-size:7px}body.ar-mode #ar-status{bottom:calc(118px + env(safe-area-inset-bottom))}}
 @media(max-width:380px){h1{font-size:31px}.simulation{gap:4px}.sim-info{min-width:87px;padding-right:7px}.speed button{padding:7px 6px}.sim-info strong{font-size:11px}}
 @media(prefers-reduced-motion:reduce){.loading-line:after{animation:none}*{scroll-behavior:auto}}
 </style>
@@ -53,7 +68,8 @@ h1{font:400 46px/1.08 'Libre Caslon Display',Georgia,serif;margin:9px 0 9px}
 <canvas id="scene" tabindex="0" aria-label="Interactive miniature of a cliffside cafe, a coastal road, visiting cars and the ocean"></canvas>
 <header><div class="eyebrow">Living miniatures / No. 02</div><h1>The Cliffside Cafe</h1><div class="location"><i data-lucide="map-pin"></i> North Atlantic coast &nbsp; / &nbsp; 50° 04′ N</div></header>
 <div class="live"><span class="live-dot"></span><span id="liveText">A little life by the sea</span></div>
-<nav class="top-actions" aria-label="Scene controls">
+<nav class="top-actions" id="topActions" aria-label="Scene controls">
+<button class="icon-btn" id="ar" aria-label="View scene in AR" aria-pressed="false" data-tooltip="View in AR"><i data-lucide="box"></i></button>
 <button class="icon-btn" id="home" aria-label="Reset view" data-tooltip="Reset view"><i data-lucide="scan"></i></button>
 <button class="icon-btn" id="orbit" aria-label="Auto orbit" aria-pressed="false" data-tooltip="Auto orbit"><i data-lucide="orbit"></i></button>
 <button class="icon-btn" id="interior" aria-label="View cafe interior" aria-pressed="false" data-tooltip="Cafe interior"><i data-lucide="store"></i></button>
@@ -78,8 +94,10 @@ h1{font:400 46px/1.08 'Libre Caslon Display',Georgia,serif;margin:9px 0 9px}
 <div class="speed" role="group" aria-label="Simulation speed"><button data-speed="1" aria-pressed="true">1×</button><button data-speed="2" aria-pressed="false">2×</button><button data-speed="4" aria-pressed="false">4×</button></div>
 </section>
 <section class="daylight" aria-label="Daylight settings"><div class="day-head"><label class="day-label" for="time"><i data-lucide="sun"></i><span id="timeName">Afternoon light</span></label><output id="clock" for="time">15:30</output></div><input id="time" type="range" min="0" max="24" value="15.5" step="0.05" aria-label="Time of day"><div class="time-markers"><span>Midnight</span><span>Sunrise</span><span>Noon</span><span>Sunset</span><span>Midnight</span></div></section>
+<section id="ar-size" aria-label="AR scene size"><div class="ar-size-head"><label for="ar-size-range">Scene size</label><output id="ar-size-value" for="ar-size-range">1.0×</output></div><input id="ar-size-range" type="range" min="0.1" max="2" value="1" step="0.05" aria-label="Scene size"></section>
 </div>
 <div id="tooltip"></div><div id="toast" role="status" aria-live="polite"></div>
+<div id="ar-status" role="status" aria-live="polite" hidden>Move your device slowly to find a level surface.</div>
 <div id="loading"><div><h2>The coast is waking up.</h2><div class="loading-line"></div><p id="loadText">Preparing your little corner of the Atlantic</p></div></div>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
@@ -107,17 +125,19 @@ function random(low = 0, high = 1) {
 const choose = options => options[Math.floor(random(0, options.length))];
 const smallScreen = matchMedia('(max-width:760px)').matches;
 const reducedMotion = matchMedia('(prefers-reduced-motion:reduce)').matches;
-let renderer;
-try { renderer = new THREEJS.WebGLRenderer({canvas: element('scene'), antialias: true, alpha: false, powerPreference: 'high-performance'}); }
+let renderer, arSession = null, arHitTestSource = null, arLightProbe = null, arPlacementReady = false, arControlsEnabled = true, arAutoRotate = false, arSize = 1;
+try { renderer = new THREEJS.WebGLRenderer({canvas: element('scene'), antialias: !smallScreen, alpha: true, powerPreference: 'high-performance'}); }
 catch (error) { element('loadText').textContent = 'WebGL is unavailable. Enable hardware acceleration in your browser and reload.'; return; }
-renderer.setPixelRatio(Math.min(devicePixelRatio || 1, smallScreen ? 1.5 : 1.8));
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, smallScreen ? 1 : 1.8));
 renderer.outputEncoding = THREEJS.sRGBEncoding;
 renderer.toneMapping = THREEJS.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.15;
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREEJS.PCFSoftShadowMap;
+renderer.shadowMap.type = smallScreen ? THREEJS.PCFShadowMap : THREEJS.PCFSoftShadowMap;
+renderer.shadowMap.autoUpdate = !smallScreen;
 const scene = new THREEJS.Scene();
 scene.background = new THREEJS.Color('#e8e9e6');
+renderer.setClearColor(0x000000, 0);
 const camera = new THREEJS.PerspectiveCamera(34, 1, .1, 250);
 const controls = new THREEJS.OrbitControls(camera, renderer.domElement);
 controls.touches = { ONE: THREEJS.TOUCH.ROTATE, TWO: THREEJS.TOUCH.DOLLY_PAN };
@@ -130,19 +150,47 @@ controls.enablePan = true;
 controls.autoRotateSpeed = .6;
 const world = new THREEJS.Group();
 scene.add(world);
+const AR_SCENE_SCALE = .035;
+const arGroundShadow = new THREEJS.Mesh(new THREEJS.PlaneGeometry(36,30),new THREEJS.ShadowMaterial({opacity:.24}));
+arGroundShadow.rotation.x=-Math.PI/2;arGroundShadow.position.y=-1.56;arGroundShadow.receiveShadow=true;arGroundShadow.visible=false;world.add(arGroundShadow);
+const arReticle = new THREEJS.Group();
+arReticle.matrixAutoUpdate = true;
+const arReticleRing = new THREEJS.Mesh(new THREEJS.RingGeometry(.34, .39, 40), new THREEJS.MeshBasicMaterial({color: '#ffffff', side: THREEJS.DoubleSide, transparent: true, opacity: .9, depthWrite: false}));
+arReticleRing.rotation.x = -Math.PI / 2;
+arReticle.add(arReticleRing);
+arReticle.visible = false;
+scene.add(arReticle);
 const sun = new THREEJS.DirectionalLight('#fff0ce', 3);
 sun.position.set(-25, 38, 22);
 sun.castShadow = true;
-sun.shadow.mapSize.set(smallScreen ? 1024 : 2048, smallScreen ? 1024 : 2048);
+sun.shadow.mapSize.set(smallScreen ? 512 : 2048, smallScreen ? 512 : 2048);
 Object.assign(sun.shadow.camera, {left: -30, right: 30, top: 30, bottom: -30, near: 1, far: 120});
 sun.shadow.bias = -.0002;
 sun.shadow.normalBias = .035;
+if(smallScreen){sun.shadow.needsUpdate=true;renderer.shadowMap.needsUpdate=true;}
+const defaultSunShadow = {left: sun.shadow.camera.left, right: sun.shadow.camera.right, top: sun.shadow.camera.top, bottom: sun.shadow.camera.bottom, near: sun.shadow.camera.near, far: sun.shadow.camera.far};
+const defaultSunNormalBias = sun.shadow.normalBias;
+const arBaseSunColor = new THREEJS.Color();
+const arEstimatedLightColor = new THREEJS.Color();
+const arLightDirection = new THREEJS.Vector3();
 scene.add(sun, sun.target);
 const hemisphere = new THREEJS.HemisphereLight('#c6e4ed', '#8b825d', 1.1);
 scene.add(hemisphere);
 const fill = new THREEJS.DirectionalLight('#b1dce5', .4);
 fill.position.set(25, 18, -25); scene.add(fill);
 const nightLights = [];
+const arPointLights = [];
+function registerARPointLight(light){
+  arPointLights.push({light,distance:light.distance,intensity:light.intensity});
+  return light;
+}
+function updateARPointLights(){
+  const scale=arSession&&world.visible?world.scale.x:1;
+  arPointLights.forEach(({light,distance,intensity})=>{
+    light.distance=distance*scale;
+    light.intensity=light.userData.daylightIntensity??intensity;
+  });
+}
 const emissiveMaterials = [];
 const pickables = [];
 const swaying = [];
@@ -290,6 +338,7 @@ function interactive(object, name, action, visitor = null) {
 }
 
 const atmosphere=new THREEJS.Group();atmosphere.name='Coastal sky';scene.add(atmosphere);
+const cloudGroup=new THREEJS.Group();cloudGroup.name='Coastal clouds';world.add(cloudGroup);
 const sunOrbitPosition=new THREEJS.Vector3(),moonOrbitPosition=new THREEJS.Vector3();
 const moonLight=new THREEJS.DirectionalLight('#a4c7ed',0);scene.add(moonLight,moonLight.target);
 const skyUniforms={day:{value:1},dusk:{value:0},skyTime:{value:0},sunDirection:{value:new THREEJS.Vector3()},moonDirection:{value:new THREEJS.Vector3()},sunVisibility:{value:1},moonVisibility:{value:0},dayTop:{value:new THREEJS.Color('#398ed0').convertSRGBToLinear()},dayHorizon:{value:new THREEJS.Color('#b3d8ef').convertSRGBToLinear()},nightTop:{value:new THREEJS.Color('#03091d').convertSRGBToLinear()},nightHorizon:{value:new THREEJS.Color('#172840').convertSRGBToLinear()}};
@@ -399,20 +448,21 @@ const cloudFragmentShader=`
 `;
 const clouds=[[-11,20,-7,10,8,6],[-5,19,3,9,8,6],[1,22,-10,11,9,6],[7,21,-1,10,8,6],[12,19,5,9,7,6]].map(([horizontal,vertical,depth,width,height,length],index)=>{
   const material=new THREEJS.ShaderMaterial({uniforms:{densityAtlas:{value:cloudDensity},localCamera:{value:new THREEJS.Vector3()},lightDirection:{value:new THREEJS.Vector3()},cloudDay:skyUniforms.day,cloudOpacity:{value:1},twilight:skyUniforms.twilight,twilightRose:skyUniforms.twilightRose,twilightGold:skyUniforms.twilightGold},defines:{CLOUD_STEPS:smallScreen?22:32},vertexShader:cloudVertexShader,fragmentShader:cloudFragmentShader,transparent:true,side:THREEJS.BackSide,depthWrite:false});
-  const object=new THREEJS.Mesh(boxGeometry,material);object.name=`Cloud ${index+1}`;object.scale.set(width,height,length);object.rotation.y=index*.47;object.renderOrder=5;object.frustumCulled=false;atmosphere.add(object);
+  const object=new THREEJS.Mesh(boxGeometry,material);object.name=`Cloud ${index+1}`;object.scale.set(width,height,length);object.rotation.y=index*.47;object.renderOrder=5;object.frustumCulled=false;cloudGroup.add(object);
   return {object,horizontal,vertical,depth,speed:random(.22,.36),phase:random(0,TAU)};
 });
 seed=atmosphereSeed;
-function updateAtmosphere(time){
-  skyDome.position.copy(camera.position);skyUniforms.skyTime.value=time;
+function updateAtmosphere(time,cameraPosition=camera.position){
+  skyDome.position.copy(cameraPosition);skyUniforms.skyTime.value=time;
   skyUniforms.sunDirection.value.copy(sunOrbitPosition).sub(camera.position).normalize();
   skyUniforms.moonDirection.value.copy(moonOrbitPosition).sub(camera.position).normalize();
   clouds.forEach(cloud=>{
     const horizontal=((cloud.horizontal+17+time*cloud.speed)%34)-17;
     cloud.object.position.set(horizontal,cloud.vertical+Math.sin(time*.25+cloud.phase)*.08,cloud.depth+Math.sin(time*.06+cloud.phase)*.3);cloud.object.updateMatrixWorld(true);
-    cloud.object.material.uniforms.localCamera.value.copy(camera.position);cloud.object.worldToLocal(cloud.object.material.uniforms.localCamera.value);
+    cloud.object.material.uniforms.localCamera.value.copy(cameraPosition);cloud.object.worldToLocal(cloud.object.material.uniforms.localCamera.value);
     const light=skyUniforms.sunVisibility.value>.1?sun.position:moonLight.position;
-    cloud.object.material.uniforms.lightDirection.value.copy(light);cloud.object.worldToLocal(cloud.object.material.uniforms.lightDirection.value).normalize();
+    const lightPosition=cloud.object.worldToLocal(light.clone()),cloudOrigin=cloud.object.worldToLocal(new THREEJS.Vector3());
+    cloud.object.material.uniforms.lightDirection.value.subVectors(lightPosition,cloudOrigin).normalize();
     cloud.object.material.uniforms.cloudOpacity.value=smooth((horizontal+17)/2)*smooth((17-horizontal)/2);
   });
 }
@@ -458,7 +508,7 @@ for (let index = 0; index < 75; index++) {
   const rock = ball(random(.25, .85), horizontal, random(.05, .35), depth, materials.rock, world, rockGeometry); rock.scale.y = random(.35, 1.2); rock.rotation.y = random(0, TAU);
 }
 
-const waterGeometry = new THREEJS.PlaneGeometry(11.8, 26, 85, 100); waterGeometry.rotateX(-Math.PI / 2);
+const waterGeometry = new THREEJS.PlaneGeometry(11.8, 26, 64, 72); waterGeometry.rotateX(-Math.PI / 2);
 const waterMaterial = mat('#398f97', {roughness: .26, metalness: .16, transparent:true, opacity:.9});
 const waterUniforms = {coastTime: {value: 0}};
 waterMaterial.onBeforeCompile = shader => {
@@ -875,7 +925,7 @@ for(const horizontal of [-1.5,0,1.5]){
   const shade=mesh(new THREEJS.ConeGeometry(.16,.14,12,1,true),materials.metal,cafeInterior);shade.position.set(horizontal,2.035,0);
   ball(.052,horizontal,1.996,0,materials.glow,cafeInterior);
 }
-const interiorLight=new THREEJS.PointLight('#ffe2b5',.8,5,2);interiorLight.position.set(0,1.9,.2);cafeInterior.add(interiorLight);
+const interiorLight=registerARPointLight(new THREEJS.PointLight('#ffe2b5',.8,5,2));interiorLight.position.set(0,1.9,.2);cafeInterior.add(interiorLight);
 
 const terrace = new THREEJS.Group(); terrace.position.set(4.05,YARD,3.5);world.add(terrace);
 box(3.4,.23,5.9,0,-.01,0,materials.stone,terrace);
@@ -920,10 +970,10 @@ for(const depth of [4.0,7.8]){
   cylinder(.045,1.65,horizontal,YARD+.85,depth,materials.metal);
   box(.24,.32,.24,horizontal,YARD+1.73,depth,materials.glow);
   const cap=mesh(new THREEJS.ConeGeometry(.23,.17,4),materials.metal);cap.position.set(horizontal,YARD+1.96,depth);cap.rotation.y=Math.PI/4;
-  const lamp=new THREEJS.PointLight('#ffb967',0,5,2);lamp.position.set(horizontal,YARD+1.6,depth);world.add(lamp);nightLights.push(lamp);
+  const lamp=registerARPointLight(new THREEJS.PointLight('#ffb967',0,5,2));lamp.position.set(horizontal,YARD+1.6,depth);world.add(lamp);nightLights.push(lamp);
   interactive(cap,'Terrace lantern',()=>{lanternsEnabled=!lanternsEnabled;applyDaylight(dayHour);toast(lanternsEnabled?'Lanterns on':'Lanterns off');});
 }
-const cafeLight=new THREEJS.PointLight('#ffb365',0,8,2);cafeLight.position.set(.8,YARD+1.4,3);world.add(cafeLight);nightLights.push(cafeLight);
+const cafeLight=registerARPointLight(new THREEJS.PointLight('#ffb365',0,8,2));cafeLight.position.set(.8,YARD+1.4,3);world.add(cafeLight);nightLights.push(cafeLight);
 
 const vegetation=new THREEJS.Group();vegetation.name='Wind-swept coastal planting';world.add(vegetation);
 const vegetationBatches=[],leafInstances=[],stemInstances=[],petalInstances=[],flowerCenters=[],bladeInstances=[],plumeInstances=[];
@@ -933,7 +983,7 @@ const flowerPalette=['#e6bf58','#eee4cb','#c77d91','#9b99ba'].map(color=>new THR
 const bladePalette=['#667648','#899354','#b6ae76','#52715d'].map(color=>new THREEJS.Color(color).convertSRGBToLinear());
 const plumePalette=['#e9ddba','#cfbd91','#f1e7cc'].map(color=>new THREEJS.Color(color).convertSRGBToLinear());
 function foliageGeometry(blade=false){
-  const positions=[],colors=[],indices=[],segments=blade?8:10;
+  const positions=[],colors=[],indices=[],segments=4;
   for(let segment=0;segment<=segments;segment++){
     const amount=segment/segments,width=blade?.5*(1-amount)**.8:.5*Math.sin(Math.PI*amount)**.8;
     const bend=blade?amount*amount*.34:Math.sin(amount*Math.PI)*.12+amount*amount*.16;
@@ -950,10 +1000,10 @@ function foliageGeometry(blade=false){
 const leafGeometry=foliageGeometry(),bladeGeometry=foliageGeometry(true);
 const petalShape=new THREEJS.Shape();petalShape.moveTo(0,0);petalShape.bezierCurveTo(-.52,.34,-.43,.91,0,1);petalShape.bezierCurveTo(.43,.91,.52,.34,0,0);
 const petalGeometry=new THREEJS.ShapeGeometry(petalShape,5);petalGeometry.rotateX(-Math.PI/2);
-const stemGeometry=new THREEJS.CylinderGeometry(1,1,1,5,4);stemGeometry.translate(0,.5,0);
-const centerGeometry=new THREEJS.SphereGeometry(1,7,4);
+const stemGeometry=new THREEJS.CylinderGeometry(1,1,1,4,1,true);stemGeometry.translate(0,.5,0);
+const centerGeometry=new THREEJS.SphereGeometry(1,5,3);
 const plumePositions=[],plumeColors=[];
-for(let index=0;index<160;index++){
+for(let index=0;index<80;index++){
   const amount=random(.04,1),angle=random(0,TAU),radius=.45*Math.sin(Math.PI*amount)**.7*random(.5,1),height=random(.1,.23),width=random(.006,.016);
   const horizontal=Math.cos(angle)*radius,depth=Math.sin(angle)*radius;
   const tipX=horizontal+Math.cos(angle)*height*.75,tipZ=depth+Math.sin(angle)*height*.75;
@@ -1020,7 +1070,7 @@ function leafySprig(root,size,angle,phase,flowers=false,windRoot=root,flex=.32){
   }
 }
 function grassTuft(horizontal,depth,size=.4,pampas=false,vertical=terrainHeight(horizontal,depth)){
-  const root=new THREEJS.Vector3(horizontal,vertical,depth),phase=random(0,TAU),count=pampas?24:8;
+  const root=new THREEJS.Vector3(horizontal,vertical,depth),phase=random(0,TAU),count=pampas?20:8;
   for(let blade=0;blade<count;blade++){
     const angle=random(0,TAU),height=size*random(.55,1.12);
     foliageItem(bladeInstances,root.clone().add(new THREEJS.Vector3(random(-.07,.07),0,random(-.07,.07))),[height*(pampas?.038:.065),height,height],new THREEJS.Euler(random(.12,.42),angle,random(-.24,.24)),root,Math.floor(random(0,4)),pampas?.25:.6,phase+blade*.17,.6);
@@ -1095,8 +1145,8 @@ function vegetationBatch(name,items,geometry,palette,parent=vegetation){
     roots.push(item.root.x,item.root.y,item.root.z);motion.push(item.flex,item.phase,item.flutter);
   });
   instanceGeometry.setAttribute('vegetationRoot',new THREEJS.InstancedBufferAttribute(new Float32Array(roots),3));instanceGeometry.setAttribute('vegetationMotion',new THREEJS.InstancedBufferAttribute(new Float32Array(motion),3));
-  batch.customDepthMaterial=new THREEJS.MeshDepthMaterial({depthPacking:THREEJS.RGBADepthPacking,side:THREEJS.DoubleSide});attachWind(batch.customDepthMaterial);
-  batch.castShadow=true;batch.receiveShadow=true;batch.frustumCulled=false;parent.add(batch);vegetationBatches.push(batch);return batch;
+  if(!smallScreen){batch.customDepthMaterial=new THREEJS.MeshDepthMaterial({depthPacking:THREEJS.RGBADepthPacking,side:THREEJS.DoubleSide});attachWind(batch.customDepthMaterial);}
+  batch.castShadow=!smallScreen;batch.receiveShadow=true;batch.frustumCulled=false;parent.add(batch);vegetationBatches.push(batch);return batch;
 }
 for(let index=0;index<3700;index++){
   const horizontal=random(-15.9,7),depth=random(-12.9,12.9);if(horizontal>coast(depth))continue;
@@ -1118,7 +1168,7 @@ const interiorLeafItems=[],interiorRoot=new THREEJS.Vector3(1.91,.72,-1.36);
 for(let leaf=0;leaf<12;leaf++)foliageItem(interiorLeafItems,interiorRoot.clone(),[.085,random(.28,.44),.3],new THREEJS.Euler(random(.15,.65),leaf*2.4,random(-.3,.3)),interiorRoot,leaf%5,.04,1,.15);
 vegetationBatch('Interior planter leaves',interiorLeafItems,leafGeometry,foliagePalette,cafeInterior);
 function palmTrunkGeometry(){
-  const positions=[],colors=[],indices=[],rings=64,sides=12;
+  const positions=[],colors=[],indices=[],rings=40,sides=8;
   for(let ring=0;ring<=rings;ring++){
     const amount=ring/rings,radius=(.043-.022*amount)*(1+.025*Math.cos(amount*TAU*32)),bend=.28*(2*amount-amount*amount);
     for(let side=0;side<=sides;side++){
@@ -1130,7 +1180,7 @@ function palmTrunkGeometry(){
   const geometry=new THREEJS.BufferGeometry();geometry.setAttribute('position',new THREEJS.Float32BufferAttribute(positions,3));geometry.setAttribute('color',new THREEJS.Float32BufferAttribute(colors,3));geometry.setIndex(indices);geometry.computeVertexNormals();return geometry;
 }
 function palmFrondGeometry(){
-  const positions=[],colors=[],indices=[],pairs=42,rows=7;
+  const positions=[],colors=[],indices=[],pairs=28,rows=5;
   const spine=amount=>new THREEJS.Vector3(amount,.48*Math.sin(Math.PI*amount)-.58*amount*amount,.025*Math.sin(Math.PI*amount));
   for(let pair=0;pair<pairs;pair++)for(const side of [-1,1]){
     const amount=.06+pair/(pairs-1)*.91,origin=spine(amount),offset=positions.length/3;
@@ -1155,8 +1205,8 @@ const palmTrunks=[],palmFronds=[],palmSeed=seed;
 for(const [horizontal,depth,height,angle] of [[-4.7,-2.6,4.2,2.6],[-1.7,-4.1,3.8,1.5],[5.9,8.9,4.1,-.5],[-3.5,10.6,3.4,-1.7]]){
   const root=new THREEJS.Vector3(horizontal,terrainHeight(horizontal,depth),depth),phase=random(0,TAU),up=new THREEJS.Vector3(0,1,0),crown=root.clone().add(new THREEJS.Vector3(.28*height,height,.04*height).applyAxisAngle(up,angle));
   foliageItem(palmTrunks,root,[height,height,height],new THREEJS.Euler(0,angle,0),root,0,.025,phase,0);
-  for(let frond=0;frond<18;frond++){
-    const tier=frond<8?0:frond<14?1:2,tierIndex=tier===0?frond:tier===1?frond-8:frond-14,tierCount=tier===0?8:tier===1?6:4;
+  for(let frond=0;frond<16;frond++){
+    const tier=frond<7?0:frond<12?1:2,tierIndex=tier===0?frond:tier===1?frond-7:frond-12,tierCount=tier===0?7:tier===1?5:4;
     const length=height*random(tier===2?.32:.44,tier===2?.44:.58),pitch=tier===0?random(-.16,.1):tier===1?random(.25,.52):random(.7,1.12);
     const yaw=angle+tierIndex*TAU/tierCount+tier*.7+random(-.13,.13);
     foliageItem(palmFronds,crown.clone(),[length,length,length],new THREEJS.Euler(0,yaw,pitch,'YXZ'),root,tier===2?3:frond%5,.025,phase,.55);
@@ -1690,6 +1740,9 @@ function applyDaylight(hour){
   moonOrbitPosition.set(-9-across*.783,3-altitude*30,-12+across*.622);
   sun.position.copy(sunOrbitPosition);moonLight.position.copy(moonOrbitPosition);
   sun.intensity=sunlight*mix(2.1,1.65,gold);sun.color.set('#fff5dc').lerp(new THREEJS.Color(dawn?'#ffc08b':'#ff9258'),twilight*.8);
+  arBaseSunColor.copy(sun.color);
+  if(smallScreen){sun.shadow.needsUpdate=true;renderer.shadowMap.needsUpdate=true;}
+  if(arSession)updateARLighting();
   floor.material.opacity=.19*sunlight;
   skyUniforms.sunVisibility.value=smooth(altitude/.055);
   skyUniforms.moonVisibility.value=smooth(-altitude/.055);
@@ -1698,12 +1751,13 @@ function applyDaylight(hour){
   hemisphere.color.lerp(new THREEJS.Color(dawn?'#efb0aa':'#db8c9a'),twilight*.65);
   fill.intensity=mix(.22,.35,day);renderer.toneMappingExposure=mix(.9,1.1,day);
   fill.color.set('#b1dce5').lerp(new THREEJS.Color('#9aaccf'),twilight*.7);
-  const background=new THREEJS.Color('#081426').lerp(new THREEJS.Color('#75b8e4'),day);background.lerp(new THREEJS.Color('#e0b7a0'),gold*day*.3);scene.background=background;
+  const background=new THREEJS.Color('#081426').lerp(new THREEJS.Color('#75b8e4'),day);background.lerp(new THREEJS.Color('#e0b7a0'),gold*day*.3);if(!arSession)scene.background=background;
   skyUniforms.day.value=day;skyUniforms.dusk.value=gold*day;
   updateAtmosphere(skyUniforms.skyTime.value);
   const night=(1-day)*2.3;
   emissiveMaterials.forEach(material=>material.emissiveIntensity=.08+night*.8);
-  nightLights.forEach(light=>light.intensity=lanternsEnabled?.8+night*2:0);
+  nightLights.forEach(light=>{light.userData.daylightIntensity=lanternsEnabled?.8+night*2:0;light.intensity=light.userData.daylightIntensity;});
+  updateARPointLights();
   const hours=Math.floor(hour)%24,minutes=Math.round((hour-Math.floor(hour))*60);
   element('clock').textContent=`${String((hours+Math.floor(minutes/60))%24).padStart(2,'0')}:${String(minutes%60).padStart(2,'0')}`;
   element('timeName').textContent=hour<5||hour>=21?'Moonlit coast':hour<8?'First light':hour<12?'Morning light':hour<17?'Afternoon light':hour<20?'Golden hour':'Blue hour';
@@ -1753,6 +1807,103 @@ function showCafeInterior(open){
 function resize(){renderer.setSize(innerWidth,innerHeight);camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();}
 addEventListener('resize',()=>{resize();if(interiorView)showCafeInterior(true);else if(!followVisitor)homeView();});
 function setIcon(id,name){element(id).innerHTML=`<i data-lucide="${name}"></i>`;if(window.lucide)lucide.createIcons();}
+function updateARFrame(xrFrame){
+  if(!arSession||!arHitTestSource||!xrFrame)return;
+  const referenceSpace=renderer.xr.getReferenceSpace();
+  const hit=xrFrame.getHitTestResults(arHitTestSource)[0];
+  const pose=hit&&referenceSpace?hit.getPose(referenceSpace):null;
+  arReticle.visible=!!pose;
+  if(!pose){
+    if(arPlacementReady)element('ar-status').textContent='Move your device slowly to find a level surface.';
+    arPlacementReady=false;return;
+  }
+  arReticle.position.set(pose.transform.position.x,pose.transform.position.y,pose.transform.position.z);
+  arReticle.quaternion.set(pose.transform.orientation.x,pose.transform.orientation.y,pose.transform.orientation.z,pose.transform.orientation.w);
+  arReticle.updateMatrixWorld(true);
+  if(!arPlacementReady)element('ar-status').textContent='Tap to place the miniature. Tap again to move it.';
+  arPlacementReady=true;
+}
+function placeARScene(){
+  if(!arPlacementReady||!arReticle.visible){element('ar-status').textContent='Move your device to find a level surface first.';return;}
+  const up=new THREEJS.Vector3(0,1,0).applyQuaternion(arReticle.quaternion);
+  world.position.copy(arReticle.position).addScaledVector(up,1.56*AR_SCENE_SCALE*arSize);
+  world.quaternion.copy(arReticle.quaternion);
+  world.scale.setScalar(AR_SCENE_SCALE*arSize);
+  world.updateMatrixWorld(true);
+  world.visible=true;
+  updateARLighting();
+  element('ar-status').textContent='Miniature placed. Tap a new surface point to move it.';
+}
+function updateARLighting(xrFrame=null){
+  if(!arSession||!world.visible)return;
+  const estimate=arLightProbe&&xrFrame&&typeof xrFrame.getLightEstimate==='function'?xrFrame.getLightEstimate(arLightProbe):null;
+  const estimatedIntensity=estimate?.primaryLightIntensity;
+  const hasEstimatedSun=estimatedIntensity&&estimatedIntensity.x+estimatedIntensity.y+estimatedIntensity.z>0.0001;
+  if(hasEstimatedSun){
+    const average=(estimatedIntensity.x+estimatedIntensity.y+estimatedIntensity.z)/3;
+    arEstimatedLightColor.setRGB(estimatedIntensity.x/average,estimatedIntensity.y/average,estimatedIntensity.z/average);
+    sun.color.copy(arBaseSunColor).lerp(arEstimatedLightColor,.35);
+  }else{
+    sun.color.copy(arBaseSunColor);
+  }
+  if(xrFrame)return;
+  arLightDirection.copy(sunOrbitPosition).normalize().applyQuaternion(world.quaternion);
+  sun.target.position.copy(world.position);
+  sun.position.copy(world.position).addScaledVector(arLightDirection,12);
+  sun.target.updateMatrixWorld(true);
+  const extent=Math.max(16*world.scale.x,13*world.scale.z,9*world.scale.y)+.08;
+  Object.assign(sun.shadow.camera,{left:-extent,right:extent,top:extent,bottom:-extent,near:.05,far:25});
+  sun.shadow.camera.updateProjectionMatrix();
+  sun.shadow.normalBias=.035*world.scale.x;
+  sun.shadow.needsUpdate=true;renderer.shadowMap.needsUpdate=true;
+  updateARPointLights();
+}
+function endAR(){
+  arSession=null;arHitTestSource=null;arLightProbe=null;arPlacementReady=false;
+  arReticle.visible=false;arGroundShadow.visible=false;world.visible=true;world.position.set(0,0,0);world.quaternion.identity();world.scale.setScalar(1);
+  floor.visible=true;skyDome.visible=true;renderer.xr.enabled=false;
+  sun.target.position.set(0,0,0);Object.assign(sun.shadow.camera,defaultSunShadow);sun.shadow.camera.updateProjectionMatrix();sun.shadow.normalBias=defaultSunNormalBias;
+  controls.enabled=arControlsEnabled;controls.autoRotate=arAutoRotate;
+  element('orbit').setAttribute('aria-pressed',String(controls.autoRotate));
+  element('ar').setAttribute('aria-pressed','false');element('ar').setAttribute('aria-label','View scene in AR');element('ar').dataset.tooltip='View in AR';setIcon('ar','box');
+  element('ar-status').hidden=true;document.body.classList.remove('ar-mode');
+  applyDaylight(dayHour);homeView();
+}
+async function toggleAR(){
+  if(arSession){
+    try{await arSession.end();}
+    catch(error){toast(`Could not exit AR: ${error.message||'session error'}`);}
+    return;
+  }
+  if(!navigator.xr||!navigator.xr.requestSession){toast('AR requires a supported mobile browser over HTTPS.');return;}
+  let session=null;
+  try{
+    session=await navigator.xr.requestSession('immersive-ar',{requiredFeatures:['hit-test'],optionalFeatures:['dom-overlay','light-estimation'],domOverlay:{root:document.body}});
+    arSession=session;session.addEventListener('end',endAR,{once:true});session.addEventListener('select',placeARScene);
+    arControlsEnabled=controls.enabled;arAutoRotate=controls.autoRotate;
+    if(interiorView)showCafeInterior(false);
+    controls.enabled=false;controls.autoRotate=false;
+    renderer.xr.enabled=true;renderer.xr.setReferenceSpaceType('local');
+    scene.background=null;skyDome.visible=false;sun.visible=true;moonLight.visible=true;floor.visible=false;arGroundShadow.visible=true;world.visible=false;
+    document.body.classList.add('ar-mode');element('ar').setAttribute('aria-pressed','true');element('ar').setAttribute('aria-label','Exit AR');element('ar').dataset.tooltip='Exit AR';setIcon('ar','x');
+    element('ar-status').textContent='Move your device slowly to find a level surface.';element('ar-status').hidden=false;
+    await renderer.xr.setSession(session);
+    const viewerSpace=await session.requestReferenceSpace('viewer');
+    arHitTestSource=await session.requestHitTestSource({space:viewerSpace});
+    if(typeof session.requestLightProbe==='function'){
+      try{arLightProbe=await session.requestLightProbe();}
+      catch(error){console.warn('AR light estimation is unavailable; using time-of-day sunlight.',error);toast('Using time-of-day sunlight because device light estimation is unavailable.');}
+    }
+  }catch(error){
+    if(session){
+      try{await session.end();}
+      catch(endError){console.error('Could not close the incomplete AR session.',endError);}
+      if(arSession===session)endAR();
+    }
+    toast(error.name==='NotSupportedError'?'AR with surface detection is not supported on this device or browser.':`Could not start AR: ${error.message||'session error'}`);
+  }
+}
+element('ar').addEventListener('click',toggleAR);
 element('play').addEventListener('click',()=>{paused=!paused;element('play').setAttribute('aria-pressed',String(paused));element('play').setAttribute('aria-label',paused?'Play simulation':'Pause simulation');element('play').dataset.tooltip=paused?'Play':'Pause';setIcon('play',paused?'play':'pause');updateVisitPanel();});
 if(paused){setIcon('play','play');element('play').setAttribute('aria-pressed','true');element('play').setAttribute('aria-label','Play simulation');element('play').dataset.tooltip='Play';}
 element('home').addEventListener('click',()=>showCafeInterior(false));
@@ -1768,6 +1919,17 @@ controls.addEventListener('start',()=>{if(followVisitor){followVisitor=false;ele
 element('closeVisit').addEventListener('click',()=>{element('visit').hidden=true;selectedVisitor=null;followVisitor=false;element('follow').setAttribute('aria-pressed','false');});
 document.querySelectorAll('[data-speed]').forEach(button=>button.addEventListener('click',()=>{speed=Number(button.dataset.speed);document.querySelectorAll('[data-speed]').forEach(option=>option.setAttribute('aria-pressed',String(option===button)));}));
 element('time').addEventListener('input',event=>applyDaylight(Number(event.target.value)));
+element('ar-size-range').addEventListener('input',event=>{
+  const previousScale=world.scale.x;
+  arSize=Number(event.target.value);
+  const nextScale=AR_SCENE_SCALE*arSize;
+  element('ar-size-value').textContent=`${arSize.toFixed(1)}×`;
+  if(arSession&&world.visible){
+    const up=new THREEJS.Vector3(0,1,0).applyQuaternion(world.quaternion);
+    world.position.addScaledVector(up,1.56*(nextScale-previousScale));
+    world.scale.setScalar(nextScale);world.updateMatrixWorld(true);updateARLighting();
+  }
+});
 let audioContext=null,audioGain=null,soundEnabled=false;
 element('sound').addEventListener('click',async()=>{
   try{
@@ -1799,15 +1961,14 @@ function pick(clientX,clientY){
   return null;
 }
 element('scene').addEventListener('pointerdown',event=>{pointerStart={x:event.clientX,y:event.clientY};});
-element('scene').addEventListener('pointerup',event=>{if(pointerStart&&Math.hypot(event.clientX-pointerStart.x,event.clientY-pointerStart.y)<6){const item=pick(event.clientX,event.clientY);if(item)item.action();}pointerStart=null;});
+element('scene').addEventListener('pointerup',event=>{if(!arSession&&pointerStart&&Math.hypot(event.clientX-pointerStart.x,event.clientY-pointerStart.y)<6){const item=pick(event.clientX,event.clientY);if(item)item.action();}pointerStart=null;});
 element('scene').addEventListener('pointermove',event=>{lastPointer={x:event.clientX,y:event.clientY};pointerDirty=true;});
 element('scene').addEventListener('pointerleave',()=>{element('tooltip').style.display='none';pointerDirty=false;});
 element('scene').addEventListener('keydown',event=>{if(event.code==='Space'){event.preventDefault();element('play').click();}if(event.key==='Escape')showCafeInterior(false);});
-let lastFrame=performance.now(),uiElapsed=0,renderTime=0;
-function frame(now){
-  requestAnimationFrame(frame);
+let lastFrame=performance.now(),uiElapsed=0,renderTime=0,nextMobileShadowUpdate=0;
+function frame(now,xrFrame){
   const rawDelta=Math.min((now-lastFrame)/1000,.06);lastFrame=now;
-  if(document.hidden)return;
+  if(document.hidden&&!arSession)return;
   const delta=paused?0:rawDelta*speed;simTime+=delta;renderTime+=delta;
   waterUniforms.coastTime.value=renderTime;
   windUniforms.time.value=renderTime;
@@ -1825,10 +1986,15 @@ function frame(now){
     const target=guestStates.has(selectedVisitor.state)?selectedVisitor.guests[0].group.position:selectedVisitor.car.group.position;
     const offset=new THREEJS.Vector3().subVectors(camera.position,controls.target);offset.lerp(offset.clone().normalize().multiplyScalar(25),.025);const next=target.clone().add(new THREEJS.Vector3(0,.5,0));controls.target.lerp(next,.055);camera.position.copy(controls.target).add(offset);
   }
-  controls.update();
-  updateAtmosphere(renderTime);
+  if(!arSession)controls.update();
+  const viewerPose=arSession&&xrFrame?xrFrame.getViewerPose(renderer.xr.getReferenceSpace()):null;
+  const viewPosition=viewerPose?new THREEJS.Vector3(viewerPose.transform.position.x,viewerPose.transform.position.y,viewerPose.transform.position.z):camera.position;
+  updateAtmosphere(renderTime,viewPosition);
+  updateARFrame(xrFrame);
+  updateARLighting(xrFrame);
   if(pointerDirty&&!pointerStart){const item=pick(lastPointer.x,lastPointer.y);const tooltip=element('tooltip');tooltip.style.display=item?'block':'none';if(item){tooltip.textContent=item.name;tooltip.style.left=`${Math.min(lastPointer.x+14,innerWidth-220)}px`;tooltip.style.top=`${Math.min(lastPointer.y+17,innerHeight-45)}px`;}element('scene').style.cursor=item?'pointer':'grab';pointerDirty=false;}
   uiElapsed+=rawDelta;if(uiElapsed>.25){updateVisitPanel();uiElapsed=0;}
+  if(smallScreen&&now>=nextMobileShadowUpdate){sun.shadow.needsUpdate=true;renderer.shadowMap.needsUpdate=true;nextMobileShadowUpdate=now+250;}
   renderer.render(scene,camera);
 }
 function batchStaticGeometry(){
@@ -1853,7 +2019,7 @@ resize();homeView();applyDaylight(dayHour);carVisitors.forEach(visitor=>updateVi
 if(window.lucide)lucide.createIcons();
 renderer.render(scene,camera);
 element('loading').style.opacity='0';setTimeout(()=>element('loading').remove(),750);
-requestAnimationFrame(frame);
+renderer.setAnimationLoop(frame);
 window.coastalDiorama={scene,camera,renderer,controls,visitors:carVisitors,sky:{dome:skyDome,uniforms:skyUniforms,clouds,density:cloudDensity,sunPosition:sunOrbitPosition,moonPosition:moonOrbitPosition,sunLight:sun,moonLight},ocean:{water,seabed,waterEdges,breakingWaves,seaSpray,seaHeight,whales,fishes,birds,wreck,fishBodies,fishRipples,floatingDebris},get simulationTime(){return simTime;},get completedVisits(){return completedVisits;},get paused(){return paused;},setTime:applyDaylight,selectVisitor,sendArrival};
 window.coastalDiorama.cafe={building:cafe,interior:cafeInterior,facade:cafeFacade,roof:cafeRoof,counter,door:cafeDoor,waiter:cafeWaiter,showInterior:showCafeInterior,get interiorView(){return interiorView;}};
 window.coastalDiorama.vegetation={group:vegetation,batches:vegetationBatches,wind:windUniforms};
