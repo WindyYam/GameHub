@@ -18,7 +18,7 @@ const P = NA.P = {
   tireMu: 1.15, driveTq: 1150, brakeTq: 2300, vDrive: 17, vCap: 12.5,
   kHold: .7, tiltMax: .45, vLand: 7, kvz: 2.5, kpz: .6,
   runDist: 30, stackAt: 38, stackAtManual: 32, jBurst: 1.3, jBurstK: .85, jRoll: 1.9, jRollK: .45,
-  manRise: 4.5, manFall: 9, manBoost: 1.4, trackBoost: 2, crashUp: .5, softVy: 9, stackClear: 11
+  manRise: 4.5, manFall: 9, manBoost: 1.4, trackBoost: 2, crashUp: .5, softVy: 9, bodyCrashVy: 8, stackClear: 11
 };
 const x0 = P.m0 * G / 4 / P.k;                                 // static suspension compression at launch mass
 P.yA = -(P.comH - P.R) + (P.Lmax - x0);                         // suspension top mount, body frame
@@ -227,27 +227,72 @@ class Sim {
     const ex = this.ex, ey = this.ey, ez = this.ez, p = this.pos, tw = T.tower, gt = T.gantry;
     const checkDeck = this.t - this.tLaunch > 1;
     const stackOn = this.act === 2 && this.stackC && this.state !== 'RUN';
-    const deck = checkDeck ? deckSamples() : null, loc = V3();
+    const deck = checkDeck ? deckSamples() : null, loc = V3(), omega = this.w.clone().applyQuaternion(this.q), pointVel = V3();
     for (let k = 0; k < BODY_ALL.length; k++) {
       const b = BODY_ALL[k];
-      _w.set(p.x + ex.x * b[0] + ey.x * b[1] + ez.x * b[2], p.y + ex.y * b[0] + ey.y * b[1] + ez.y * b[2], p.z + ex.z * b[0] + ey.z * b[1] + ez.z * b[2]);
-      if (k >= BODY_ALL.length - BODY_UP.length && _w.y < .06) return 'Body hit the ground';
-      if (_w.x > tw.x0 && _w.x < tw.x1 && Math.abs(_w.z) < tw.z && _w.y < tw.h) return 'Hit the steel tower';
+      const rx = ex.x * b[0] + ey.x * b[1] + ez.x * b[2], ry = ex.y * b[0] + ey.y * b[1] + ez.y * b[2], rz = ex.z * b[0] + ey.z * b[1] + ez.z * b[2];
+      _w.set(p.x + rx, p.y + ry, p.z + rz);
+      pointVel.set(this.vel.x + omega.y * rz - omega.z * ry, this.vel.y + omega.z * rx - omega.x * rz, this.vel.z + omega.x * ry - omega.y * rx);
+      const impactReason = (reason, nx, ny, nz) => {
+        const speed = Math.max(0, -(pointVel.x * nx + pointVel.y * ny + pointVel.z * nz));
+        return speed > P.bodyCrashVy ? reason + ' · ' + speed.toFixed(1) + ' m/s' : null;
+      };
+      if (k >= BODY_ALL.length - BODY_UP.length && _w.y < .06) {
+        const reason = impactReason('Body hit the ground', 0, 1, 0);
+        if (reason) return reason;
+      }
+      if (_w.x > tw.x0 && _w.x < tw.x1 && Math.abs(_w.z) < tw.z && _w.y < tw.h) {
+        const faces = [
+          [_w.x - tw.x0, -1, 0, 0], [tw.x1 - _w.x, 1, 0, 0],
+          [_w.z + tw.z, 0, 0, -1], [tw.z - _w.z, 0, 0, 1],
+          [tw.h - _w.y, 0, 1, 0]
+        ].sort((a, b) => a[0] - b[0]);
+        const reason = impactReason('Hit the steel tower', faces[0][1], faces[0][2], faces[0][3]);
+        if (reason) return reason;
+      }
       if (Math.abs(_w.x - gt.x) < .7) {
-        if (_w.y > gt.beamY0 && _w.y < gt.beamY1 && Math.abs(_w.z) < gt.z + .8) return 'Hit the start gantry';
-        if (_w.y < gt.beamY0 && Math.abs(Math.abs(_w.z) - gt.z) < .7) return 'Hit the start gantry';
+        if (_w.y > gt.beamY0 && _w.y < gt.beamY1 && Math.abs(_w.z) < gt.z + .8) {
+          const faces = [
+            [.7 - Math.abs(_w.x - gt.x), Math.sign(_w.x - gt.x) || 1, 0, 0],
+            [_w.y - gt.beamY0, 0, -1, 0], [gt.beamY1 - _w.y, 0, 1, 0],
+            [gt.z + .8 - Math.abs(_w.z), 0, 0, Math.sign(_w.z) || 1]
+          ].sort((a, b) => a[0] - b[0]);
+          const reason = impactReason('Hit the start gantry', faces[0][1], faces[0][2], faces[0][3]);
+          if (reason) return reason;
+        }
+        if (_w.y < gt.beamY0 && Math.abs(Math.abs(_w.z) - gt.z) < .7) {
+          const zSide = Math.sign(_w.z) || 1;
+          const faces = [
+            [.7 - Math.abs(_w.x - gt.x), Math.sign(_w.x - gt.x) || 1, 0, 0],
+            [.7 - Math.abs(Math.abs(_w.z) - gt.z), 0, 0, zSide]
+          ].sort((a, b) => a[0] - b[0]);
+          const reason = impactReason('Hit the start gantry', faces[0][1], faces[0][2], faces[0][3]);
+          if (reason) return reason;
+        }
       }
       if (deck && Math.abs(_w.z) < T.WIDTH + .3) {
-        let bd = 1e9, bn = 0;
+        let bd = 1e9, bn = 0, nearest = null;
         for (let j = 0; j < deck.length; j++) {
           const d = deck[j], dx = _w.x - d[0], dy = _w.y - d[1], d2 = dx * dx + dy * dy;
-          if (d2 < bd) { bd = d2; bn = dx * d[2] + dy * d[3]; }
+          if (d2 < bd) { bd = d2; bn = dx * d[2] + dy * d[3]; nearest = d; }
         }
-        if (bd < 2.5 && bn > -.45 && bn < .03) return 'Hit the ramp deck';
+        if (bd < 2.5 && bn > -.45 && bn < .03) {
+          const reason = impactReason('Hit the ramp deck', -nearest[2], -nearest[3], 0);
+          if (reason) return reason;
+        }
       }
       if (stackOn) {
         this.stackLocal(_w, loc);
-        for (const s of STACK_BOXES) if (loc.x > s.x0 && loc.x < s.x1 && loc.z > s.z0 && loc.z < s.z1 && loc.y > s.y0 && loc.y < s.y1) return 'Crashed into the vehicle stack';
+        for (const s of STACK_BOXES) if (loc.x > s.x0 && loc.x < s.x1 && loc.z > s.z0 && loc.z < s.z1 && loc.y > s.y0 && loc.y < s.y1) {
+          const faces = [
+            [loc.x - s.x0, -1, 0, 0], [s.x1 - loc.x, 1, 0, 0],
+            [loc.y - s.y0, 0, -1, 0], [s.y1 - loc.y, 0, 1, 0],
+            [loc.z - s.z0, 0, 0, -1], [s.z1 - loc.z, 0, 0, 1]
+          ].sort((a, b) => a[0] - b[0]);
+          const f = faces[0], nx = f[1] * this.dirH.x - f[3] * this.dirH.z, ny = f[2], nz = f[1] * this.dirH.z + f[3] * this.dirH.x;
+          const reason = impactReason('Crashed into the vehicle stack', nx, ny, nz);
+          if (reason) return reason;
+        }
       }
     }
     return null;

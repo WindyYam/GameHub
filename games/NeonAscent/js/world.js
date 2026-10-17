@@ -164,6 +164,7 @@ let crowdMat = null, cheerK = .15;
 function buildCrowd() {
   const rand = NA.M.mulberry32(31337), geo = personGeometry();
   const skins = [[.9, .7, .56], [.75, .55, .42], [.55, .38, .28], [.36, .24, .17], [.95, .78, .66]];
+  const suits = [0x152033, 0x25272b, 0x30343a, 0x302a2b, 0x29323a];
   const spots = [], groups = [];
   for (let x = -350; x < 40; x += 13 + rand() * 6) groups.push({ x, n: 26 + Math.floor(rand() * 22), len: 9 + rand() * 4 });
   for (const gp of groups) for (let i = 0; i < gp.n; i++) spots.push([gp.x + (rand() - .5) * gp.len, 25.4 + Math.pow(rand(), .9) * 8, rand()]);
@@ -172,7 +173,7 @@ function buildCrowd() {
   spots.forEach((s, i) => {
     pp.set(s[0], 0, s[1]); q.setFromAxisAngle(V3(0, 1, 0), Math.PI + (rand() - .5) * .9);
     const k = .93 + rand() * .17; sc.set(k * (.95 + rand() * .15), k, k); m.compose(pp, q, sc); im.setMatrixAt(i, m);
-    seed[i] = rand(); col.setHSL(rand(), .25 + rand() * .5, .18 + rand() * .3); cloth.set([col.r, col.g, col.b], i * 3);
+    seed[i] = rand(); col.setHex(suits[Math.floor(rand() * suits.length)]); cloth.set([col.r, col.g, col.b], i * 3);
     skin.set(skins[Math.floor(rand() * skins.length)], i * 3);
   });
   geo.setAttribute('iSeed', new THREE.InstancedBufferAttribute(seed, 1)); geo.setAttribute('iCloth', new THREE.InstancedBufferAttribute(cloth, 3)); geo.setAttribute('iSkin', new THREE.InstancedBufferAttribute(skin, 3));
@@ -200,8 +201,8 @@ function buildCrowd() {
       void main(){
         vec3 n=normalize(vN);
         float moon=max(dot(n,normalize(vec3(-.3,.17,-.95))),0.);
-        float amb=.3+.2*n.y;
-        vec3 c=vC*(amb*.9+moon*.55)+vC*carLight(vWp)*.5+vec3(.02,.03,.06);
+        float amb=.22+.14*n.y;
+        vec3 c=vC*(amb*.9+moon*.35)+vC*carLight(vWp)*.25+vec3(.008,.01,.018);
         gl_FragColor=vec4(applyFog(c,vWp),1.);
       }`
   });
