@@ -19,7 +19,7 @@ NA.director.init(rh);
 let sim = new NA.Sim({ manual: isManual() });
 let timeScale = 1, paused = false, fadeT = 0, fadeDir = 0, restartAt = -1;
 let lastCount = '', hudOn = true;
-const speedSlider = document.getElementById('speedSlider'), speedVal = document.getElementById('speedVal'), speedCtl = document.getElementById('speedCtl');
+const speedSlider = document.getElementById('speedSlider'), speedVal = document.getElementById('speedVal');
 const applySpeed = () => { P.vCruise = speedSlider.value / 3.6; speedVal.textContent = speedSlider.value; };
 speedSlider.addEventListener('input', applySpeed);
 speedSlider.addEventListener('change', () => speedSlider.blur());
@@ -30,7 +30,33 @@ const ex = V3();
 // ---- manual mode: Q E A D = front-left, front-right, rear-left, rear-right nozzle (keyboard or on-screen buttons) ----
 const ENGINE_KEYS = { q: 0, e: 1, a: 2, d: 3 };
 const keyDown = [false, false, false, false], padDown = [false, false, false, false];
-const modeBtn = document.getElementById('modeBtn'), engBtns = [...document.querySelectorAll('.eng')];
+const steerKeys = { left: false, right: false };
+let joystickSteer = 0, steerPointer = null;
+const steerPad = document.getElementById('steerPad'), steerStick = document.getElementById('steerStick');
+function canSteerOnGround() {
+  return sim.phase === 'GRID' || sim.phase === 'ASCENT' ||
+    ((sim.phase === 'FLIGHT' || sim.phase === 'LANDED') && sim.contacts > 0);
+}
+function updateSteerPad(e) {
+  const r = steerPad.getBoundingClientRect(), limit = Math.max((r.width - steerStick.offsetWidth - 2) / 2, 1);
+  joystickSteer = clamp((e.clientX - (r.left + r.width / 2)) / limit, -1, 1);
+  steerStick.style.setProperty('--sx', (joystickSteer * limit) + 'px');
+  steerPad.setAttribute('aria-valuenow', joystickSteer.toFixed(2));
+}
+function releaseSteerPad() {
+  steerPointer = null; joystickSteer = 0;
+  steerStick.style.setProperty('--sx', '0px');
+  steerPad.setAttribute('aria-valuenow', '0');
+}
+steerPad.addEventListener('pointerdown', e => {
+  if (!canSteerOnGround()) return;
+  e.preventDefault(); NA.director.audio.init(); steerPointer = e.pointerId;
+  try { steerPad.setPointerCapture(e.pointerId); } catch (err) { /* synthetic pointer */ }
+  updateSteerPad(e);
+});
+steerPad.addEventListener('pointermove', e => { if (e.pointerId === steerPointer && canSteerOnGround()) updateSteerPad(e); });
+for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) steerPad.addEventListener(ev, releaseSteerPad);
+const modeBtn = document.getElementById('modeBtn'), cameraBtn = document.getElementById('cameraBtn'), engBtns = [...document.querySelectorAll('.eng')];
 function isManual() {
   const p = Q.get('manual');
   if (p !== null) return p === '1';
@@ -41,20 +67,29 @@ function syncModeUi() {
   modeBtn.textContent = sim.manual ? 'Manual · Q E A D' : 'Auto pilot';
   modeBtn.classList.toggle('on', sim.manual);
 }
+function syncCameraUi() {
+  const rear = NA.director.cameraMode === 'rear';
+  cameraBtn.textContent = rear ? 'Camera · rear' : 'Camera · side';
+  cameraBtn.classList.toggle('on', rear);
+  cameraBtn.setAttribute('aria-pressed', String(rear));
+}
 function setManual(on) {
   if (on === sim.manual) return;
   try { localStorage.setItem('neonAscentManual', on ? '1' : '0'); } catch (e) { /* storage unavailable */ }
   keyDown.fill(false); padDown.fill(false);
-  resetShow(on);
+  sim.setManual(on);
+  syncModeUi();
 }
 modeBtn.addEventListener('click', () => { setManual(!sim.manual); modeBtn.blur(); });
+cameraBtn.addEventListener('click', () => { NA.director.toggleCamera(); cameraBtn.blur(); });
+document.addEventListener('neon-camera-mode-change', syncCameraUi);
 engBtns.forEach(b => {
   const i = +b.dataset.i;
   const set = v => { padDown[i] = v; b.classList.toggle('down', v); };
   b.addEventListener('pointerdown', e => { e.preventDefault(); NA.director.audio.init(); try { b.setPointerCapture(e.pointerId); } catch (err) { /* synthetic pointer */ } set(true); });
   for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) b.addEventListener(ev, () => set(false));
 });
-addEventListener('blur', () => { keyDown.fill(false); padDown.fill(false); engBtns.forEach(b => b.classList.remove('down')); });
+addEventListener('blur', () => { keyDown.fill(false); padDown.fill(false); steerKeys.left = steerKeys.right = false; releaseSteerPad(); engBtns.forEach(b => b.classList.remove('down')); });
 
 function resetShow(manual = sim.manual) {
   sim = new NA.Sim({ manual }); lastCount = '';
@@ -65,6 +100,7 @@ function resetShow(manual = sim.manual) {
   fadeDir = -1; restartAt = -1;
 }
 syncModeUi();
+syncCameraUi();
 
 function tick(dt, render) {
   const S = NA.shared, t = performance.now() / 1000;
@@ -84,9 +120,12 @@ function tick(dt, render) {
     if (count === 'GO') NA.director.audio.beep(1040, .5, .3);
     lastCount = count;
   }
+  sim.steerInput = canSteerOnGround() ? clamp((steerKeys.right ? 1 : 0) - (steerKeys.left ? 1 : 0) + joystickSteer, -1, 1) : 0;
   if (sim.manual) for (let i = 0; i < 4; i++) sim.input[i] = keyDown[i] || padDown[i] ? 1 : 0;
   sim.advance(sdt);
-  speedCtl.classList.toggle('locked', !(sim.phase === 'GRID' || sim.phase === 'ASCENT'));
+  const steeringAvailable = canSteerOnGround();
+  steerPad.classList.toggle('off', !steeringAvailable);
+  if (!steeringAvailable && steerPointer !== null) releaseSteerPad();
   const ev = sim.events;
   if (ev.crash) { NA.fx.explode(ev.crash.pos, ev.crash.vel); NA.director.audio.boom(); car.setWreck(true); ev.crash = null; }
   if (ev.touchdown) { ev.touchdown = false; NA.fx.burst(); NA.director.audio.thump(); }
@@ -115,7 +154,7 @@ function tick(dt, render) {
   S.uCarPos.value.copy(sim.pos);
   ex.set(1, 0, 0).applyQuaternion(sim.q); S.uCarFwd.value.copy(ex);
   if (NA.fx.wreck()) NA.fx.wreckLight(S.uCarPos.value, S.uGlow.value);
-  NA.world.update(S.uTime.value, NA.camera);
+  NA.world.update(S.uTime.value, NA.camera, sim);
   NA.world.updateShow(sdt, sim);
   NA.fx.update(sdt, sim, car, S.uTime.value);
   NA.director.update(dt, sim);
@@ -152,15 +191,22 @@ document.getElementById('loading').classList.add('gone');
 // ---- input ----
 addEventListener('keydown', e => {
   NA.director.audio.init();
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    steerKeys[e.key === 'ArrowLeft' ? 'left' : 'right'] = true; e.preventDefault(); return;
+  }
   const k = e.key.toLowerCase();
   if (k in ENGINE_KEYS && !e.ctrlKey && !e.metaKey && !e.altKey) { keyDown[ENGINE_KEYS[k]] = true; e.preventDefault(); return; }
   if (k === ' ') { paused = !paused; e.preventDefault(); }
   else if (k === 'r') { resetShow(); }
   else if (k === 'c') { setManual(!sim.manual); }
+  else if (k === 'b') { NA.director.toggleCamera(); }
   else if (k === 't') { timeScale = timeScale === 1 ? .25 : timeScale === .25 ? 2 : 1; }
   else if (k === 'm') { NA.director.audio.muted = !NA.director.audio.muted; }
   else if (k === 'h') { hudOn = !hudOn; document.getElementById('hud').classList.toggle('off', !hudOn); }
 });
-addEventListener('keyup', e => { const k = e.key.toLowerCase(); if (k in ENGINE_KEYS) keyDown[ENGINE_KEYS[k]] = false; });
+addEventListener('keyup', e => {
+  if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { steerKeys[e.key === 'ArrowLeft' ? 'left' : 'right'] = false; return; }
+  const k = e.key.toLowerCase(); if (k in ENGINE_KEYS) keyDown[ENGINE_KEYS[k]] = false;
+});
 addEventListener('pointerdown', () => NA.director.audio.init());
 })();

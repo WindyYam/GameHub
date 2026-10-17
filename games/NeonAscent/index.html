@@ -13,7 +13,6 @@
   #speedCtl input{width:130px;accent-color:#38c0ff;cursor:pointer}
   #speedCtl b{min-width:30px;text-align:right;font-weight:400;font-variant-numeric:tabular-nums;letter-spacing:.04em;font-size:15px;color:#fff}
   #speedCtl em{font-style:normal;opacity:.6}
-  #speedCtl.locked{opacity:.4;pointer-events:none}
   #hud.off #speedCtl{pointer-events:none}
   #title{position:absolute;left:26px;top:20px;text-shadow:0 2px 14px #000}
   #title h1{margin:0;font-size:20px;letter-spacing:.3em;font-weight:300;text-transform:uppercase;color:#9fe8ff}
@@ -41,13 +40,24 @@
   #loading.gone{opacity:0;pointer-events:none}
   #loading i{width:46px;height:2px;background:linear-gradient(90deg,transparent,#8fe0ff,transparent);box-shadow:0 0 14px 3px rgba(120,200,255,.6);animation:ld .9s infinite alternate}
   @keyframes ld{from{transform:scaleX(.3);opacity:.4}to{transform:scaleX(1.4);opacity:1}}
-  #modeBtn{position:absolute;right:24px;top:118px;pointer-events:auto;cursor:pointer;font:inherit;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:#bff3ff;padding:8px 14px;border:1px solid rgba(120,220,255,.3);background:rgba(6,14,28,.45);backdrop-filter:blur(2px);text-shadow:0 1px 8px #000;-webkit-tap-highlight-color:transparent}
+  #modeBtn,#cameraBtn{position:absolute;right:24px;pointer-events:auto;cursor:pointer;font:inherit;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:#bff3ff;padding:8px 14px;border:1px solid rgba(120,220,255,.3);background:rgba(6,14,28,.45);backdrop-filter:blur(2px);text-shadow:0 1px 8px #000;-webkit-tap-highlight-color:transparent}
+  #modeBtn{top:118px}
   #modeBtn.on{color:#fff;border-color:rgba(255,170,80,.7);background:rgba(60,26,6,.55);box-shadow:0 0 14px rgba(255,140,40,.35)}
-  #hud.off #modeBtn,#hud.off .eng{pointer-events:none}
+  #cameraBtn{top:166px}
+  #cameraBtn.on{color:#fff;border-color:rgba(120,220,255,.7);box-shadow:0 0 14px rgba(56,192,255,.35)}
+  #hud.off #modeBtn,#hud.off #cameraBtn,#hud.off .eng{pointer-events:none}
   .pad{position:absolute;bottom:78px;display:none;flex-direction:column;gap:14px}
   #padL{left:max(14px,env(safe-area-inset-left))}
   #padR{right:max(14px,env(safe-area-inset-right))}
   body.manual .pad{display:flex}
+  #steerPad{position:absolute;left:calc(max(14px,env(safe-area-inset-left)) + clamp(60px,15vmin,96px) + 14px);bottom:88px;width:76px;height:76px;border:1px solid rgba(120,220,255,.38);border-radius:50%;background:rgba(6,14,28,.58);box-shadow:inset 0 0 18px rgba(56,192,255,.12);color:#cfe6ff;pointer-events:auto;touch-action:none;-webkit-tap-highlight-color:transparent;display:none}
+  #steerPad::before,#steerPad::after{position:absolute;top:45%;transform:translateY(-50%);font-size:14px;opacity:.65}
+  #steerPad::before{content:'‹';left:8px}
+  #steerPad::after{content:'›';right:8px}
+  #steerPad span{position:absolute;left:0;right:0;bottom:6px;text-align:center;font-size:7px;letter-spacing:.16em;opacity:.65}
+  #steerStick{--sx:0px;position:absolute;left:50%;top:45%;width:30px;height:30px;transform:translate(calc(-50% + var(--sx)),-50%);border-radius:50%;background:rgba(120,220,255,.38);border:1px solid rgba(200,245,255,.8);box-shadow:0 0 12px rgba(56,192,255,.55);pointer-events:none}
+  #steerPad.off{display:none}
+  #hud.off #steerPad{pointer-events:none}
   .eng{--k:0;width:clamp(60px,15vmin,96px);height:clamp(60px,15vmin,96px);border-radius:50%;pointer-events:auto;cursor:pointer;touch-action:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;font:inherit;color:#e9f9ff;
     display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:0;
     border:1px solid rgba(120,220,255,calc(.3 + var(--k)*.6));background:rgba(6,14,28,calc(.45 - var(--k)*.15));
@@ -61,7 +71,9 @@
   #bannerS{margin-top:8px;font-size:clamp(11px,2.4vw,15px);letter-spacing:.24em;text-transform:uppercase;color:#cfe6ff;text-shadow:0 1px 10px #000}
   #banner.crash #bannerT{color:#ff7a33;text-shadow:0 0 36px #ff3a00,0 0 90px #ff9a00}
   .st.bad b{color:#ff5a3c;text-shadow:0 0 10px #ff3a00}
-  @media (max-width:600px){#panel{gap:6px;padding:4px 8px;flex-wrap:wrap;justify-content:center;width:calc(100vw - 16px);box-sizing:border-box;bottom:6px}.st{min-width:38px}#air{width:56px}#modeBtn{right:14px}#speedCtl{right:14px}#hint,#title p{display:none}.pad{bottom:110px}#mode{top:60px;font-size:11px;letter-spacing:.2em}}
+  #steerPad{display:block}
+  #steerPad.off{display:none}
+  @media (max-width:600px){#panel{gap:6px;padding:4px 8px;flex-wrap:wrap;justify-content:center;width:calc(100vw - 16px);box-sizing:border-box;bottom:6px}.st{min-width:38px}#air{width:56px}#modeBtn,#cameraBtn{right:14px}#speedCtl{right:14px}#hint,#title p{display:none}.pad{bottom:110px}#mode{top:60px;font-size:11px;letter-spacing:.2em}}
   @media (pointer:coarse){#hint{display:none}}
 </style>
 </head>
@@ -70,12 +82,14 @@
 <div id="hud">
   <div id="title"><h1>Tesla Roadster Show</h1><p>Tesla Roadster · air-jet stunt show</p></div>
   <div id="mode">STANDBY</div>
-  <div id="speedCtl"><span>charge speed</span><input id="speedSlider" type="range" min="58" max="122" step="1" value="86"><b id="speedVal">86</b><em>km/h</em></div>
+  <div id="speedCtl"><span>cruise speed</span><input id="speedSlider" type="range" min="58" max="122" step="1" value="86" aria-label="Cruising speed"><b id="speedVal">86</b><em>km/h</em></div>
   <div id="count"></div>
   <div id="banner"><div id="bannerT"></div><div id="bannerS"></div></div>
   <button id="modeBtn" class="ui" type="button" title="Toggle auto pilot / manual air-jet control (C)">Auto pilot</button>
+  <button id="cameraBtn" class="ui" type="button" title="Switch between side and rear camera (B)" aria-pressed="false">Camera · side</button>
   <div id="padL" class="pad"><button class="eng ui" data-i="0" type="button"><b>Q</b><span>FRONT L</span></button><button class="eng ui" data-i="2" type="button"><b>A</b><span>REAR L</span></button></div>
   <div id="padR" class="pad"><button class="eng ui" data-i="1" type="button"><b>E</b><span>FRONT R</span></button><button class="eng ui" data-i="3" type="button"><b>D</b><span>REAR R</span></button></div>
+  <div id="steerPad" class="ui" role="slider" aria-label="Ground steering" aria-valuemin="-1" aria-valuemax="1" aria-valuenow="0"><i id="steerStick"></i><span>STEER</span></div>
   <div id="panel">
     <div class="st"><b id="vSpd">0</b><span>km/h</span></div>
     <div class="st"><b id="vAlt">0</b><span>alt · m</span></div>
@@ -85,7 +99,7 @@
     <div class="st"><div id="jets"><i></i><i></i><i></i><i></i></div><span>air jets</span></div>
     <div class="st" id="air"><div><i id="vAir"></i></div><span>air tank <em id="vAirP" style="font-style:normal">100</em>%</span></div>
   </div>
-  <details id="hint"><summary>Controls &amp; help</summary><div class="hintBody">R · restart &nbsp;|&nbsp; Space · pause &nbsp;|&nbsp; T · slow-mo &nbsp;|&nbsp; M · sound &nbsp;|&nbsp; H · hide HUD &nbsp;|&nbsp; C · auto / manual<br>manual: Q · front-left jet &nbsp;E · front-right &nbsp;A · rear-left &nbsp;D · rear-right (or the on-screen buttons) — jets work any time: on the ramp, in the air, after landing. Land on your wheels (not the side or roof) and don't hit anything<br>drag · orbit &nbsp;|&nbsp; right-drag / shift-drag / two-finger drag · move pivot &nbsp;|&nbsp; wheel / pinch · distance &nbsp;|&nbsp; double-click / V · reset view</div></details>
+  <details id="hint"><summary>Controls &amp; help</summary><div class="hintBody">R · restart &nbsp;|&nbsp; Space · pause &nbsp;|&nbsp; T · slow-mo &nbsp;|&nbsp; M · sound &nbsp;|&nbsp; H · hide HUD &nbsp;|&nbsp; C · auto / manual &nbsp;|&nbsp; B · side / rear camera<br>← / → · ground steering (mobile joystick in manual mode) &nbsp;|&nbsp; cruise speed slider · set track speed; steer too far and you'll leave the track<br>manual: Q · front-left jet &nbsp;E · front-right &nbsp;A · rear-left &nbsp;D · rear-right (or the on-screen buttons) — jets work any time: on the ramp, in the air, after landing. Land on your wheels (not the side or roof) and don't hit anything<br>drag · orbit &nbsp;|&nbsp; right-drag / shift-drag / two-finger drag · move pivot &nbsp;|&nbsp; wheel / pinch · distance &nbsp;|&nbsp; double-click / V · reset view</div></details>
 </div>
 <div id="fade"></div>
 

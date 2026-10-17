@@ -208,7 +208,7 @@ onResize();
 
 // ---------- lights ----------
 scene.add(new THREE.HemisphereLight(0x3a4f88, 0x0a0a14, 0.55));
-const moon = new THREE.DirectionalLight(0x7f9bdc, 0.55); moon.position.set(-300, 500, 200); scene.add(moon);
+const moon = new THREE.DirectionalLight(0x7f9bdc, 0.55); moon.position.set(-150, 500, 200); scene.add(moon);
 
 // ---------- neon environment map (reflections on the paint / glass) ----------
 NA.makeEnv = function () {

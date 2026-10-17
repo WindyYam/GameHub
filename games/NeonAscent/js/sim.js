@@ -1,6 +1,5 @@
 /* SIM — deterministic fixed-step physics.
-   1) ASCENT : 1-D vehicle dynamics along the track (engine power & traction limits, drag, rolling resistance, gravity on the gradient,
-               load from path curvature). Banking is derived from the speed this model actually reaches.
+   1) ASCENT : free 2-D surface motion over the curved track, with steering, traction, drag, rolling resistance, and gravity on the gradient.
    2) FLIGHT : full 6-DOF rigid body — gravity, quadratic drag, four wheel-mounted compressed-air nozzles (thrust differential gives
                roll/pitch torque, a small cant gives yaw), finite air tank (mass & inertia fall as air is spent), PD attitude +
                descent-rate guidance.
@@ -13,9 +12,10 @@ const P = NA.P = {
   dry: 1400, air0: 260, ve: 1300, Tmax: 7600, tau: .07,
   R: .34, Iw: 1.6, wbHalf: 1.375, trackHalf: .825, nozzleZ: .70, nozzleY: -.27,
   comH: .52, CdA: .62, Crr: .012, power: 520e3, mu: 1.0, vCruise: 24, aLat: 14,
+  trackTurnRate: 1.4, steerRate: 1.4, targetTimeout: 120,
   k: 67000, c: 4300, Lmax: .12, kStop: 420000,
   Ixx: 640, Iyy: 3100, Izz: 2800, m0: 1660,
-  tireMu: 1.15, driveTq: 1150, brakeTq: 2300, vDrive: 17, vCap: 12.5,
+  tireMu: 1.15, driveTq: 1150, brakeTq: 2300, vDrive: 17, vCruiseDefault: 86 / 3.6, vCap: 12.5,
   kHold: .7, tiltMax: .45, vLand: 7, kvz: 2.5, kpz: .6,
   runDist: 30, stackAt: 38, stackAtManual: 32, jBurst: 1.3, jBurstK: .85, jRoll: 1.9, jRollK: .45,
   manRise: 4.5, manFall: 9, manBoost: 1.4, trackBoost: 2, crashUp: .5, softVy: 9, bodyCrashVy: 8, stackClear: 11
@@ -26,21 +26,22 @@ const SX = [1, 1, -1, -1], SZ = [-1, 1, -1, 1];                 // FL FR RL RR  
 
 const _f0 = T.newFrame(), _fF = T.newFrame(), _fR = T.newFrame();
 const _m4 = new THREE.Matrix4();
+const _steerUp = V3(0, 1, 0), _steerQ = new THREE.Quaternion();
 
 // ---------- pure 1-D track dynamics ----------
-function trackAccel(s, v, mass, lift = 0) {
-  const th = T.theta(s), cth = Math.cos(th), sth = Math.sin(th), kv = T.kv(s), kh = T.kh(s);
-  const nLoad0 = Math.max(mass * (G * cth + v * v * kv), mass * G * .15), nLoad = Math.max(nLoad0 - lift, 0);
+function trackAccel(s, v, mass, heading, lift = 0) {
+  const th = T.theta(s), cth = Math.cos(th), sth = Math.sin(th), kv = T.kv(s), kh = T.kh(s), along = Math.cos(heading);
+  const nLoad0 = Math.max(mass * (G * cth + v * v * along * along * kv), mass * G * .15), nLoad = Math.max(nLoad0 - lift, 0);
   const vt = Math.min(P.vCruise, Math.sqrt(P.aLat / Math.max(Math.abs(kh), 1e-4)));
   const drag = .5 * RHO * P.CdA * v * v, roll = P.Crr * nLoad;
-  const ff = drag + roll + mass * G * sth;
+  const ff = drag + roll + mass * G * sth * along;
   const fCmd = ff + mass * 2.2 * (vt - v);
   const fMax = Math.min(P.power / Math.max(v, 4), P.mu * nLoad);
   const F = clamp(fCmd, -P.mu * nLoad * .8, fMax);
-  return { a: (F - drag - roll - mass * G * sth) / mass, nLoad, nLoad0, F };
+  return { a: (F - drag - roll - mass * G * sth * along) / mass, nLoad, nLoad0, F };
 }
 
-// ---------- manual-mode collision model ----------
+// ---------- body collision model ----------
 // body points relative to the centre of mass (x forward, y up, z right)
 const BODY_UP = [], BODY_ALL = [];
 for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
@@ -60,45 +61,83 @@ let deckPts = null;
 function deckSamples() {
   if (deckPts) return deckPts;
   deckPts = []; const f = T.newFrame();
-  for (let s = T.S_RUN + 10; s <= T.S_END; s += .5) { T.frame(s, f); deckPts.push([f.p.x, f.p.y, f.u.x, f.u.y]); }
+  for (let s = T.S_RUN; s <= T.S_END; s += .5) { T.frame(s, f); deckPts.push([f.p.x, f.p.y, f.u.x, f.u.y, s]); }
   return deckPts;
 }
 const _w = V3();
+const _trackFrame = T.newFrame(), _trackSurface = { p: V3(), u: V3(), t: V3(), s: 0 };
+const _reboardQ = new THREE.Quaternion(), _reboardP = V3();
+function nearestTrackSurface(x, y, out) {
+  const pts = deckSamples();
+  let best = Infinity, sBest = 0;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i], b = pts[i + 1], dx = b[0] - a[0], dy = b[1] - a[1];
+    const u = clamp(((x - a[0]) * dx + (y - a[1]) * dy) / (dx * dx + dy * dy), 0, 1);
+    const px = a[0] + dx * u, py = a[1] + dy * u, ex = x - px, ey = y - py, d2 = ex * ex + ey * ey;
+    if (d2 < best) { best = d2; sBest = lerp(a[4], b[4], u); }
+  }
+  if (best > 9) return null;
+  out.s = sBest;
+  T.frame(sBest, _trackFrame);
+  out.u.copy(_trackFrame.u);
+  out.t.copy(_trackFrame.t);
+  out.p.copy(_trackFrame.p).addScaledVector(out.u, .03);
+  return out;
+}
 
 class Sim {
   constructor(opts = {}) {
     this.manual = !!opts.manual; this.input = [0, 0, 0, 0]; this.man = [0, 0, 0, 0];
     this.crashed = false; this.tCrash = -1; this.banner = null; this.stepN = 0;
     this.t = 0; this.phase = 'GRID'; this.mode = 'STANDBY';
-    this.s = 6; this.v = 0; this.air = P.air0;
+    this.s = 6; this.v = 0; this.air = P.air0; this.steerInput = 0; this.trackOffset = 0; this.trackSteerAngle = 0; this.leftTrack = false; this.arcCompleted = false;
+    this.targetStartedAt = null; this.targetExpired = false;
     this.pos = V3(); this.vel = V3(); this.q = new THREE.Quaternion(); this.w = V3();   // w: body-frame angular velocity
     this.wheelW = [0, 0, 0, 0]; this.wheelA = [0, 0, 0, 0]; this.L = [P.Lmax - x0, P.Lmax - x0, P.Lmax - x0, P.Lmax - x0];
     this.thr = [0, 0, 0, 0]; this.gim = [[0, 0], [0, 0], [0, 0], [0, 0]]; this.cmd = [0, 0, 0, 0];
-    this.tLaunch = -1; this.tTouch = -1; this.touched = false; this.armed = false;
+    this.tLaunch = -1; this.tTouch = -1; this.touched = false; this.touchStableSince = null; this.armed = false;
     this.nLoad = P.m0 * G; this.gload = 1; this.alt = 0; this.hAGL = 0;
     this.purge = 0; this.brake = 0; this.drive = 0; this.contacts = 0; this.impact = 0; this.slip = 0;
     this.events = {};
     this.ex = V3(); this.ey = V3(); this.ez = V3(); this.dirH = V3(-1, 0, 0); this.posRef = V3();
     this.act = 1; this.state = ''; this.flying = false; this.jump = null; this.cheered = false; this.runStart = V3();
+    this.stackLastX = null; this.stackCrossed = false; this.stackJumpCleared = false;
     this.poseTrack();
     this.acc = 0;
   }
   mass() { return P.dry + this.air; }
-  go() { if (this.phase === 'GRID') { this.phase = 'ASCENT'; this.mode = 'ASCENT'; this.tGo = this.t; } }
+  go() {
+    if (this.phase === 'GRID') {
+      this.phase = 'ASCENT'; this.mode = 'ASCENT'; this.tGo = this.t;
+      this.targetStartedAt = this.t; this.targetExpired = false;
+    }
+  }
+  setManual(on) {
+    if (on === this.manual) return;
+    this.manual = on;
+    this.input.fill(0); this.man.fill(0); this.cmd.fill(0);
+    this.touchStableSince = null;
+    if (!on && this.phase === 'FLIGHT') {
+      this.jump = null;
+      this.mode = this.air > 0 ? 'AIR-JET STABILIZING' : 'TANK EMPTY';
+    }
+  }
 
   // ----- pose of the car riding on the track at arc length s -----
   poseTrack(s = this.s, outQ = this.q, outP = this.pos) {
     T.frame(s, _f0); T.frame(s + P.wbHalf, _fF); T.frame(s - P.wbHalf, _fR);
     const fwd = V3().subVectors(_fF.p, _fR.p).normalize();
+    fwd.multiplyScalar(Math.cos(this.trackSteerAngle)).addScaledVector(_f0.r, Math.sin(this.trackSteerAngle)).normalize();
     const r = V3().crossVectors(fwd, _f0.u).normalize(), up = V3().crossVectors(r, fwd);
     _m4.makeBasis(fwd, up, r); outQ.setFromRotationMatrix(_m4);
     const sq = this.nLoad / 4 / P.k;
-    outP.copy(_f0.p).addScaledVector(up, P.comH - (sq - x0));
-    return { t: _f0.t.clone() };
+    outP.copy(_f0.p).addScaledVector(up, P.comH - (sq - x0)).addScaledVector(_f0.r, this.trackOffset);
+    return { t: fwd.clone() };
   }
 
   step(dt) {
     this.t += dt;
+    if (this.targetStartedAt !== null && this.t - this.targetStartedAt >= P.targetTimeout) this.targetExpired = true;
     this.impact *= Math.exp(-dt * 5);
     if (this.phase === 'ASCENT') this.stepTrack(dt);
     else if (this.phase === 'GRID') { if (this.manual) this.stepGrid(dt); }
@@ -110,8 +149,14 @@ class Sim {
   }
 
   stepTrack(dt) {
-    const m = this.mass(), thrust = this.manual ? this.trackJets(dt) : 0, r = trackAccel(this.s, this.v, m, thrust * P.trackBoost);
-    this.v = Math.max(0, this.v + r.a * dt); this.s += this.v * dt; this.nLoad = r.nLoad;
+    this.trackSteerAngle += this.steerInput * P.trackTurnRate * (this.v / P.vCruiseDefault) * dt;
+    const m = this.mass(), thrust = this.manual ? this.trackJets(dt) : 0;
+    const r = trackAccel(this.s, this.v, m, this.trackSteerAngle, thrust * P.trackBoost);
+    this.v = Math.max(0, this.v + r.a * dt);
+    this.s += this.v * Math.cos(this.trackSteerAngle) * dt;
+    this.trackOffset += this.v * Math.sin(this.trackSteerAngle) * dt;
+    if (Math.abs(this.trackOffset) > T.WIDTH - 1) this.leftTrack = true;
+    this.nLoad = r.nLoad;
     for (let i = 0; i < 4; i++) { this.wheelW[i] = this.v / P.R; this.wheelA[i] += this.v / P.R * dt; this.L[i] = P.Lmax - r.nLoad / 4 / P.k; }
     const tg = this.poseTrack();
     this.vel.copy(tg.t).multiplyScalar(this.v);
@@ -119,7 +164,8 @@ class Sim {
     this.alt = this.pos.y - P.comH;
     // the jets peel the car off the track once they carry most of its weight (or 40 % of the extra load on the curve)
     const peel = thrust > 0 && thrust >= Math.max(.9 * m * G, .4 * r.nLoad0) && this.t - this.tGo > .3;
-    if (this.s >= T.S_END - P.wbHalf || peel) this.launch(m);
+    if (this.s >= T.S_END - P.wbHalf) this.arcCompleted = !this.leftTrack;
+    if (this.s >= T.S_END - P.wbHalf || this.s < 0 || peel || Math.abs(this.trackOffset) > T.WIDTH - 1) this.launch(m);
   }
 
   // manual jets while still driving on the track: they unload the tyres (see trackBoost) and may peel the car off
@@ -151,22 +197,62 @@ class Sim {
     if (!isFinite(this.w.x + this.w.y + this.w.z)) this.w.set(0, 0, 0);
     this.vel.copy(tg.t).multiplyScalar(this.v);
     this.dirH = V3(this.vel.x, 0, this.vel.z).normalize();
+    this.arcCompleted = this.arcCompleted && !this.leftTrack;
     this.phase = 'FLIGHT'; this.mode = 'LAUNCH'; this.tLaunch = this.t; this.flying = true; this.events.launched = true;
+  }
+
+  reboardTrack() {
+    if (this.act !== 1 || !nearestTrackSurface(this.pos.x, this.pos.y, _trackSurface)) return false;
+    const { p, u, t, s } = _trackSurface;
+    const height = V3().subVectors(this.pos, p).dot(u);
+    const bodyUp = V3(0, 1, 0).applyQuaternion(this.q);
+    const bodyForward = V3(1, 0, 0).applyQuaternion(this.q);
+    const normalSpeed = this.vel.dot(u), forwardSpeed = this.vel.dot(bodyForward);
+    const movingAway = this.phase === 'FLIGHT' ? normalSpeed > -.5 : normalSpeed > 3;
+    if (s >= T.S_END - P.wbHalf - 2 || Math.abs(this.pos.z) > T.WIDTH - .6 || height < .25 || height > 1.15 ||
+        bodyUp.dot(u) < .82 || bodyForward.dot(t) < .2 || movingAway || normalSpeed < -12) return false;
+    this.s = s;
+    this.trackOffset = this.pos.z;
+    this.trackSteerAngle = Math.atan2(bodyForward.dot(_trackFrame.r), bodyForward.dot(t));
+    this.v = Math.max(0, forwardSpeed);
+    this.nLoad = this.mass() * G;
+    this.poseTrack(this.s, _reboardQ, _reboardP);
+    this.q.copy(_reboardQ);
+    this.pos.copy(_reboardP);
+    this.vel.copy(_trackFrame.t).multiplyScalar(this.v * Math.cos(this.trackSteerAngle))
+      .addScaledVector(_trackFrame.r, this.v * Math.sin(this.trackSteerAngle));
+    this.flying = false;
+    this.touched = false;
+    this.jump = null;
+    this.phase = 'ASCENT';
+    this.mode = 'ASCENT';
+    return true;
   }
 
   // ----- encore: after the first landing the car drives off again and air-jumps a stack of vehicles with a full roll -----
   startAct2() {
+    const timedOutArc = this.targetExpired && !this.arcCompleted;
     this.act = 2; this.state = 'RUN'; this.touched = false; this.flying = false; this.purge = 0; this.brake = 0; this.drive = 1;
+    this.touchStableSince = null;
+    this.targetStartedAt = this.t; this.targetExpired = false;
+    this.banner = timedOutArc ? ['TARGET TIMED OUT', 'The judges are moving on to the encore.'] : null;
+    this.stackLastX = null; this.stackCrossed = false; this.stackJumpCleared = false;
     this.dirH.set(this.ex.x, 0, this.ex.z).normalize();
     this.posRef.copy(this.pos).setY(0); this.runStart.copy(this.pos);
     this.mode = 'ENCORE · RUN-UP';
-    if (this.manual) { this.air = P.air0; this.banner = null; }
+    if (this.manual) this.air = P.air0;
     const at = this.manual ? P.stackAtManual : P.stackAt;           // closer stack in manual mode: the car cannot slow its run-up in the air
     this.stackC = V3(this.pos.x + this.dirH.x * (P.runDist + at), 0, this.pos.z + this.dirH.z * (P.runDist + at));
     this.events.stack = { x: this.stackC.x, z: this.stackC.z, dir: this.dirH.clone() };
   }
   beginJump() {
     this.state = 'JUMP'; this.drive = 0; this.flying = true; this.touched = false; this.tLaunch = this.t; this.phase = 'FLIGHT';
+    this.banner = null;
+    this.touchStableSince = null;
+    if (this.act === 2 && this.stackC) {
+      this.stackLastX = this.stackLocal(this.pos, V3()).x;
+      this.stackCrossed = false; this.stackJumpCleared = false;
+    }
     this.jump = this.manual ? null : { t0: this.t, tBurst: P.jBurst, tRoll0: P.jBurst + .12, tRoll: P.jRoll };
     this.mode = this.manual ? 'MANUAL · AIR JUMP' : 'ENCORE · AIR JUMP'; this.events.jump = true;
   }
@@ -222,12 +308,21 @@ class Sim {
     return out.set(dx * this.dirH.x + dz * this.dirH.z, p.y, -dx * this.dirH.z + dz * this.dirH.x);
   }
 
+  lowestPointY() {
+    const ex = V3(1, 0, 0).applyQuaternion(this.q), ey = V3(0, 1, 0).applyQuaternion(this.q), ez = V3(0, 0, 1).applyQuaternion(this.q);
+    let y = Infinity;
+    for (const b of BODY_ALL) y = Math.min(y, this.pos.y + ex.y * b[0] + ey.y * b[1] + ez.y * b[2]);
+    for (let i = 0; i < 4; i++) {
+      y = Math.min(y, this.pos.y + ex.y * SX[i] * P.wbHalf + ey.y * P.yA + ez.y * SZ[i] * P.trackHalf - P.Lmax * ey.y - P.R);
+    }
+    return y;
+  }
+
   // first solid thing the car's body touches, as a human-readable reason
   bodyHit() {
     const ex = this.ex, ey = this.ey, ez = this.ez, p = this.pos, tw = T.tower, gt = T.gantry;
-    const checkDeck = this.t - this.tLaunch > 1;
     const stackOn = this.act === 2 && this.stackC && this.state !== 'RUN';
-    const deck = checkDeck ? deckSamples() : null, loc = V3(), omega = this.w.clone().applyQuaternion(this.q), pointVel = V3();
+    const deck = deckSamples(), loc = V3(), omega = this.w.clone().applyQuaternion(this.q), pointVel = V3();
     for (let k = 0; k < BODY_ALL.length; k++) {
       const b = BODY_ALL[k];
       const rx = ex.x * b[0] + ey.x * b[1] + ez.x * b[2], ry = ex.y * b[0] + ey.y * b[1] + ez.y * b[2], rz = ex.z * b[0] + ey.z * b[1] + ez.z * b[2];
@@ -241,7 +336,7 @@ class Sim {
         const reason = impactReason('Body hit the ground', 0, 1, 0);
         if (reason) return reason;
       }
-      if (_w.x > tw.x0 && _w.x < tw.x1 && Math.abs(_w.z) < tw.z && _w.y < tw.h) {
+      if (tw && _w.x > tw.x0 && _w.x < tw.x1 && Math.abs(_w.z) < tw.z && _w.y < tw.h) {
         const faces = [
           [_w.x - tw.x0, -1, 0, 0], [tw.x1 - _w.x, 1, 0, 0],
           [_w.z + tw.z, 0, 0, -1], [tw.z - _w.z, 0, 0, 1],
@@ -250,7 +345,7 @@ class Sim {
         const reason = impactReason('Hit the steel tower', faces[0][1], faces[0][2], faces[0][3]);
         if (reason) return reason;
       }
-      if (Math.abs(_w.x - gt.x) < .7) {
+      if (gt && Math.abs(_w.x - gt.x) < .7) {
         if (_w.y > gt.beamY0 && _w.y < gt.beamY1 && Math.abs(_w.z) < gt.z + .8) {
           const faces = [
             [.7 - Math.abs(_w.x - gt.x), Math.sign(_w.x - gt.x) || 1, 0, 0],
@@ -305,7 +400,7 @@ class Sim {
     if (vy > P.softVy) this.vel.y = -P.softVy;                // crumple zone soaks up the rest
     const rough = vy > P.softVy ? 'rough touchdown · ' : 'touchdown ', info = rough + vy.toFixed(1) + ' m/s · ' + tilt.toFixed(0) + '° tilt';
     if (this.act === 2) this.banner = this.stackLocal(this.pos, V3()).x < P.stackClear ? ['LANDED SHORT', 'the stack is still standing · ' + info] : ['ENCORE CLEARED', info];
-    else this.banner = ['SAFE LANDING', info];
+    else this.banner = this.arcCompleted ? ['SAFE LANDING', info] : null;
     return null;
   }
 
@@ -361,7 +456,14 @@ class Sim {
     const minB = P.Tmax * (.05 + .25 * smooth(.05, .55, ang));
     let base = clamp(Tc / 4, minB, P.Tmax);
     if (jumping) base = jt < J.tBurst ? P.Tmax * P.jBurstK * smooth(0, .12, jt) : P.Tmax * P.jRollK;   // lift-off burst, then just enough air to spin
-    if (this.touched) base *= 1 - smooth(0, .45, this.t - this.tTouch);
+    if (this.touched) {
+      const settled = ang < .08 && this.w.length() < .12;
+      if (settled) {
+        if (this.touchStableSince === null) this.touchStableSince = this.t;
+      } else this.touchStableSince = null;
+      const stableFor = this.touchStableSince === null ? 0 : this.t - this.touchStableSince;
+      base *= 1 - smooth(.25, .7, stableFor);
+    }
     // differential allocation (pitch lever = wheelbase/2, roll lever = nozzle offset) with saturation-aware scaling
     const lx = P.wbHalf, lz = P.nozzleZ;
     const d = [0, 0, 0, 0]; let sc = 1;
@@ -379,6 +481,13 @@ class Sim {
 
   stepFree(dt) {
     const q = this.q, m = this.mass(), sc = m / P.m0;
+    const hSpeed = Math.hypot(this.vel.x, this.vel.z);
+    if (this.contacts > 0 && hSpeed > .5 && this.steerInput !== 0) {
+      const turn = -this.steerInput * P.steerRate * (hSpeed / P.vCruiseDefault) * dt;
+      _steerQ.setFromAxisAngle(_steerUp, turn);
+      q.premultiply(_steerQ);
+      this.vel.applyQuaternion(_steerQ);
+    }
     const I = { x: P.Ixx * sc, y: P.Iyy * sc, z: P.Izz * sc };
     this.ex.set(1, 0, 0).applyQuaternion(q); this.ey.set(0, 1, 0).applyQuaternion(q); this.ez.set(0, 0, 1).applyQuaternion(q);
     const ex = this.ex, ey = this.ey, ez = this.ez;
@@ -411,6 +520,7 @@ class Sim {
     // wheel contacts
     const tauW = V3(), Ac = V3(), vA = V3(), rel = V3(), Pp = V3(), vp = V3(), fw = V3(), rw = V3(), Ff = V3();
     const wW = this.w.clone().applyQuaternion(q);
+    const driveSpeed = P.vDrive * P.vCruise / P.vCruiseDefault;
     let contacts = 0, avgS = 0;
     for (let i = 0; i < 4; i++) {
       const lx = SX[i] * P.wbHalf, lz = SZ[i] * P.trackHalf;
@@ -443,7 +553,7 @@ class Sim {
         if (Math.abs(Fl) > sync) Fl = Math.sign(Fl) * sync;
         avgS += Math.abs(slip);
         // wheel torque: drive/brake and tyre reaction
-        let tq = -Fl * P.R + this.drive * P.driveTq * (this.wheelW[i] * P.R < P.vDrive ? 1 : 0);
+        let tq = -Fl * P.R + this.drive * P.driveTq * (this.wheelW[i] * P.R < driveSpeed ? 1 : 0);
         let w1 = this.wheelW[i] + tq / P.Iw * dt;
         if (this.brake > 0) { const dw = this.brake * P.brakeTq / P.Iw * dt; w1 = Math.abs(w1) <= dw ? 0 : w1 - Math.sign(w1) * dw; }
         this.wheelW[i] = w1;
@@ -454,8 +564,8 @@ class Sim {
         Fw.add(Ff);
         tauW.add(V3().crossVectors(rp, Ff));
         if (this.flying && !this.touched && this.t - this.tLaunch > 1 && Fn > 50) {
-          if (this.manual) { const why = this.landingFault(); if (why) { this.crash(why); return; } }
-          this.touched = true; this.flying = false; this.tTouch = this.t; this.phase = 'LANDED'; this.mode = 'TOUCHDOWN'; this.events.touchdown = true;
+          const why = this.landingFault(); if (why) { this.crash(why); return; }
+          this.touched = true; this.touchStableSince = null; this.flying = false; this.tTouch = this.t; this.phase = 'LANDED'; this.mode = 'TOUCHDOWN'; this.events.touchdown = true;
           this.impact = Math.min(1, Math.abs(Math.min(this.vel.y, 0)) / 4);
         }
       } else {
@@ -478,14 +588,23 @@ class Sim {
     if (this.touched) {
       const tt = this.t - this.tTouch, hs = Math.hypot(this.vel.x, this.vel.z);
       this.purge = tt < .15 ? tt / .15 : (tt < 3.6 ? 1 : Math.max(0, 1 - (tt - 3.6) / 1.2));
-      this.brake = tt > .25 ? (hs > 9 && !this.manual ? .55 : 1) : 0;     // brake to a standstill and stay put
-      this.drive = 0;
+      const missedArc = this.act === 1 && !this.arcCompleted;
+      this.brake = missedArc ? 0 : (tt > .25 ? (hs > 9 && !this.manual ? .55 : 1) : 0);
+      this.drive = missedArc ? 1 : 0;
       if (tt > 1.4 && this.mode === 'TOUCHDOWN') this.mode = 'AIR PURGE';
       if (tt > 3.0) this.mode = this.act === 1 ? 'LANDED' : 'ENCORE COMPLETE';
-      if (this.act === 1) { if (tt > 4.9) this.startAct2(); }
+      if (this.act === 1) { if (tt > 4.9 && (this.arcCompleted || this.targetExpired)) this.startAct2(); }
       else {
         if (tt > .9 && !this.cheered) { this.cheered = true; this.events.cheer = true; }
-        if (tt > 12 && this.phase !== 'DONE') { this.phase = 'DONE'; this.events.done = true; }
+        if (tt > 12 && this.phase !== 'DONE') {
+          this.phase = 'DONE'; this.events.done = true;
+          if (this.stackLocal(this.pos, V3()).x >= P.stackClear) {
+            const shortcuts = [];
+            if (!this.arcCompleted) shortcuts.push('skipped the track arc');
+            if (!this.stackJumpCleared) shortcuts.push('went around the blocker');
+            if (shortcuts.length) this.banner = ['WISE CHOICE', 'You ' + shortcuts.join(' and ') + '. The judges call that “creative.”'];
+          }
+        }
       }
     } else if (this.state === 'RUN') {
       this.drive = 1; this.brake = 0;
@@ -502,9 +621,23 @@ class Sim {
     w.x += gx * dt; w.y += gy * dt; w.z += gz * dt;
     const wl = w.length();
     if (wl > 1e-9) { const half = wl * dt / 2, s = Math.sin(half) / wl; q.multiply(new THREE.Quaternion(w.x * s, w.y * s, w.z * s, Math.cos(half))).normalize(); }
-    if (this.manual && !this.crashed && (++this.stepN & 3) === 0) {
+    if ((this.phase === 'FLIGHT' || this.phase === 'LANDED') && this.reboardTrack()) return;
+    if (this.act === 2 && this.state === 'JUMP' && this.stackC) {
+      const local = this.stackLocal(this.pos, V3());
+      if (this.stackLastX !== null && this.stackLastX < 0 && local.x >= 0) {
+        this.stackCrossed = true;
+        this.stackJumpCleared = Math.abs(local.z) <= T.WIDTH && this.lowestPointY() > 5.3;
+      }
+      this.stackLastX = local.x;
+    }
+    if (!this.crashed && (++this.stepN & 3) === 0) {
       this.ex.set(1, 0, 0).applyQuaternion(q); this.ey.set(0, 1, 0).applyQuaternion(q); this.ez.set(0, 0, 1).applyQuaternion(q);
       const why = this.bodyHit(); if (why) this.crash(why);
+    }
+    if (this.act === 2 && this.targetExpired && !this.stackJumpCleared && !this.crashed && this.phase !== 'DONE') {
+      this.phase = 'DONE'; this.mode = 'TARGET TIMED OUT';
+      this.banner = ['TARGET TIMED OUT', 'The judges are moving on to the next stunt.'];
+      this.events.done = true;
     }
   }
 

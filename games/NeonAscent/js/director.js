@@ -2,24 +2,53 @@
 (function () {
 'use strict';
 const NA = window.NA, P = NA.P, { clamp, damp } = NA.M, cam = NA.camera;
-const D = NA.director = { rig: '', label: 'side follow' };
+const D = NA.director = { rig: '', label: 'side follow', cameraMode: 'orbit', viewBlend: 0 };
 const FOV = 34;
 const DIST_MIN = 22, DIST_MAX = 220;                // camera stands `dist` metres from its pivot, which follows the car
+const REAR_GROUND_CLEARANCE = 1.25;
 const HOME = { dist: 62, yaw: 0, pitch: .08 };       // yaw 0 = side view of the track plane; the slight downward pitch keeps the camera above the crowd's heads
+const REAR_HOME = { dist: 14, yaw: 0, pitch: .19 };
+const REAR_DIST_MIN = 4, REAR_DIST_MAX = 45;
 let dist = HOME.dist, yaw = HOME.yaw, pitch = HOME.pitch;
 const tgt = { dist: HOME.dist, yaw: HOME.yaw, pitch: HOME.pitch }, pan = new THREE.Vector3(), panCur = new THREE.Vector3();
+let rearDist = REAR_HOME.dist, rearYaw = REAR_HOME.yaw, rearPitch = REAR_HOME.pitch;
+const rearTgt = { ...REAR_HOME }, rearPan = new THREE.Vector3(), rearPanCur = new THREE.Vector3();
+D.setCameraMode = function (mode) {
+  if (D.cameraMode === mode) return;
+  D.cameraMode = mode;
+  document.dispatchEvent(new Event('neon-camera-mode-change'));
+};
+D.toggleCamera = function () { D.setCameraMode(D.cameraMode === 'rear' ? 'orbit' : 'rear'); };
 
 // controls: wheel / pinch = distance, drag = orbit around the pivot, right-drag / shift-drag / two-finger drag = move the pivot, double-click or V = reset
-const zoomBy = k => { tgt.dist = clamp(tgt.dist * k, DIST_MIN, DIST_MAX); };
-const orbitBy = (dx, dy) => { tgt.yaw -= dx * .0055; tgt.pitch = clamp(tgt.pitch + dy * .0055, -.04, 1.45); };
-const _r = new THREE.Vector3(), _u = new THREE.Vector3();
-const panBy = (dx, dy) => {
-  const k = 2 * tgt.dist * Math.tan(FOV * Math.PI / 360) / innerHeight;
-  _r.setFromMatrixColumn(cam.matrixWorld, 0); _u.setFromMatrixColumn(cam.matrixWorld, 1);
-  pan.addScaledVector(_r, -dx * k).addScaledVector(_u, dy * k);
-  if (pan.length() > 90) pan.setLength(90);
+const zoomBy = k => {
+  if (D.cameraMode === 'rear') rearTgt.dist = clamp(rearTgt.dist * k, REAR_DIST_MIN, REAR_DIST_MAX);
+  else tgt.dist = clamp(tgt.dist * k, DIST_MIN, DIST_MAX);
 };
-const resetView = () => { Object.assign(tgt, HOME); pan.set(0, 0, 0); };
+const orbitBy = (dx, dy) => {
+  if (D.cameraMode === 'rear') {
+    rearTgt.yaw -= dx * .0055;
+    rearTgt.pitch = clamp(rearTgt.pitch + dy * .0055, -.35, 1.2);
+  } else {
+    tgt.yaw -= dx * .0055;
+    tgt.pitch = clamp(tgt.pitch + dy * .0055, -.04, 1.45);
+  }
+};
+const _r = new THREE.Vector3(), _u = new THREE.Vector3(), panDelta = new THREE.Vector3();
+const carFrame = new THREE.Quaternion(), invCarFrame = new THREE.Quaternion();
+const panBy = (dx, dy) => {
+  const rear = D.cameraMode === 'rear', d = rear ? rearTgt.dist : tgt.dist, fov = rear ? 48 : FOV;
+  const k = 2 * d * Math.tan(fov * Math.PI / 360) / innerHeight;
+  _r.setFromMatrixColumn(cam.matrixWorld, 0); _u.setFromMatrixColumn(cam.matrixWorld, 1);
+  panDelta.set(0, 0, 0).addScaledVector(_r, -dx * k).addScaledVector(_u, dy * k);
+  const offset = rear ? rearPan.add(panDelta.applyQuaternion(invCarFrame.copy(carFrame).invert())) : pan.add(panDelta);
+  if (offset.length() > (rear ? 25 : 90)) offset.setLength(rear ? 25 : 90);
+};
+const resetView = () => {
+  Object.assign(tgt, HOME); pan.set(0, 0, 0);
+  Object.assign(rearTgt, REAR_HOME); rearPan.set(0, 0, 0);
+  D.setCameraMode('orbit');
+};
 addEventListener('wheel', e => { e.preventDefault(); zoomBy(Math.exp(e.deltaY * .0012)); }, { passive: false });
 addEventListener('contextmenu', e => e.preventDefault());
 const onUI = e => !!(e.target.closest && e.target.closest('#speedCtl,.ui'));
@@ -45,20 +74,46 @@ addEventListener('pointerup', release); addEventListener('pointercancel', releas
 D.init = function (rh) { D.rh = rh; };
 
 const _o = new THREE.Vector3(), piv = new THREE.Vector3();
+const orbitPos = new THREE.Vector3(), orbitTarget = new THREE.Vector3(), rearPos = new THREE.Vector3(), rearTarget = new THREE.Vector3();
+const rearOffset = new THREE.Vector3(), rearAim = new THREE.Vector3(3, .8, 0), rearLookOffset = new THREE.Vector3();
+const rearPosCur = new THREE.Vector3(), rearTargetCur = new THREE.Vector3(), viewTarget = new THREE.Vector3();
+const cameraFrameQ = new THREE.Quaternion(), worldFrameQ = new THREE.Quaternion();
+const carUp = new THREE.Vector3(0, 1, 0);
 let pivInit = false;
+let rearInit = false;
 D.update = function (dt, sim) {
   const p = sim.pos;                                  // pivot = centre of the car, followed softly
   if (!pivInit || D.rig !== 'side') { piv.copy(p); pivInit = true; D.rig = 'side'; dist = tgt.dist; yaw = tgt.yaw; pitch = tgt.pitch; panCur.copy(pan); }
   else { piv.x = damp(piv.x, p.x, 5, dt); piv.y = damp(piv.y, p.y, 5, dt); piv.z = damp(piv.z, p.z, 5, dt); }
   dist = damp(dist, tgt.dist, 8, dt); yaw = damp(yaw, tgt.yaw, 14, dt); pitch = damp(pitch, tgt.pitch, 14, dt);
   panCur.x = damp(panCur.x, pan.x, 14, dt); panCur.y = damp(panCur.y, pan.y, 14, dt); panCur.z = damp(panCur.z, pan.z, 14, dt);
+  rearDist = damp(rearDist, rearTgt.dist, 8, dt); rearYaw = damp(rearYaw, rearTgt.yaw, 14, dt); rearPitch = damp(rearPitch, rearTgt.pitch, 14, dt);
+  rearPanCur.x = damp(rearPanCur.x, rearPan.x, 8, dt); rearPanCur.y = damp(rearPanCur.y, rearPan.y, 8, dt); rearPanCur.z = damp(rearPanCur.z, rearPan.z, 8, dt);
+  carFrame.copy(sim.q);
   // shake: engine buzz on the track, hard knock on touchdown
   const sh = (sim.phase === 'ASCENT' ? .012 * sim.v / 30 : 0) + sim.impact * .18, tm = sim.t * 41;
   const px = piv.x + panCur.x, py = piv.y + panCur.y, pz = piv.z + panCur.z;
   _o.set(Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), Math.cos(yaw) * Math.cos(pitch)).multiplyScalar(dist);
-  cam.position.set(px + _o.x + Math.sin(tm * 1.3) * sh, Math.max(py + _o.y + Math.sin(tm * 1.7 + 1) * sh, .6), pz + _o.z);
-  cam.lookAt(px, py, pz);
-  if (Math.abs(cam.fov - FOV) > .01) { cam.fov = FOV; cam.updateProjectionMatrix(); }
+  orbitPos.set(px + _o.x + Math.sin(tm * 1.3) * sh, Math.max(py + _o.y + Math.sin(tm * 1.7 + 1) * sh, .6), pz + _o.z);
+  orbitTarget.set(px, py, pz);
+  rearLookOffset.copy(rearAim).add(rearPanCur).applyQuaternion(sim.q).add(p);
+  rearOffset.set(-Math.cos(rearYaw) * Math.cos(rearPitch) * rearDist, Math.sin(rearPitch) * rearDist, Math.sin(rearYaw) * Math.cos(rearPitch) * rearDist);
+  rearPos.copy(rearLookOffset).add(rearOffset.applyQuaternion(sim.q));
+  rearPos.x += Math.sin(tm * 1.3) * sh; rearPos.y += Math.sin(tm * 1.7 + 1) * sh;
+  rearTarget.copy(rearLookOffset);
+  if (!rearInit) { rearPosCur.copy(rearPos); rearTargetCur.copy(rearTarget); rearInit = true; }
+  else {
+    rearPosCur.lerp(rearPos, 1 - Math.exp(-5 * dt));
+    rearTargetCur.lerp(rearTarget, 1 - Math.exp(-7 * dt));
+  }
+  D.viewBlend = damp(D.viewBlend, D.cameraMode === 'rear' ? 1 : 0, 5, dt);
+  cam.position.lerpVectors(orbitPos, rearPosCur, D.viewBlend);
+  cam.position.y = Math.max(cam.position.y, .6 + (REAR_GROUND_CLEARANCE - .6) * D.viewBlend);
+  cameraFrameQ.slerpQuaternions(worldFrameQ, sim.q, D.viewBlend);
+  cam.up.copy(carUp).applyQuaternion(cameraFrameQ).normalize();
+  cam.lookAt(viewTarget.lerpVectors(orbitTarget, rearTargetCur, D.viewBlend));
+  const fov = FOV + (48 - FOV) * D.viewBlend;
+  if (Math.abs(cam.fov - fov) > .01) { cam.fov = fov; cam.updateProjectionMatrix(); }
 };
 
 // =====================  HUD  =====================

@@ -110,7 +110,7 @@ function skyMaterial() {
         float tw=.6+.4*sin(uTime*2.+hs*80.);
         c+=vec3(.8,.9,1.)*st*tw*(.35+.9*h3(q+7.));
         // big crescent moon
-        vec3 mc=normalize(vec3(-.3,.17,-.95));
+        vec3 mc=normalize(vec3(-.15,.17,-.95));
         float md=dot(d,mc);
         if(md>.2){
           vec3 mr=normalize(cross(mc,vec3(0.,1.,0.))), mu=cross(mr,mc);
@@ -160,7 +160,7 @@ function personGeometry() {
   g.setIndex(I);
   return g;
 }
-let crowdMat = null, cheerK = .15;
+let crowdMat = null, crowdMesh = null, crowdSpots = null, crowdLaunchTime = null, crowdLaunchVel = null, cheerK = .15;
 function buildCrowd() {
   const rand = NA.M.mulberry32(31337), geo = personGeometry();
   const skins = [[.9, .7, .56], [.75, .55, .42], [.55, .38, .28], [.36, .24, .17], [.95, .78, .66]];
@@ -169,6 +169,8 @@ function buildCrowd() {
   for (let x = -350; x < 40; x += 13 + rand() * 6) groups.push({ x, n: 26 + Math.floor(rand() * 22), len: 9 + rand() * 4 });
   for (const gp of groups) for (let i = 0; i < gp.n; i++) spots.push([gp.x + (rand() - .5) * gp.len, 25.4 + Math.pow(rand(), .9) * 8, rand()]);
   const n = spots.length, im = new THREE.InstancedMesh(geo, null, n), seed = new Float32Array(n), cloth = new Float32Array(n * 3), skin = new Float32Array(n * 3);
+  crowdSpots = spots; crowdMesh = im;
+  crowdLaunchTime = new Float32Array(n).fill(-1000); crowdLaunchVel = new Float32Array(n * 3);
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), pp = V3(), sc = V3(), col = new THREE.Color();
   spots.forEach((s, i) => {
     pp.set(s[0], 0, s[1]); q.setFromAxisAngle(V3(0, 1, 0), Math.PI + (rand() - .5) * .9);
@@ -177,21 +179,32 @@ function buildCrowd() {
     skin.set(skins[Math.floor(rand() * skins.length)], i * 3);
   });
   geo.setAttribute('iSeed', new THREE.InstancedBufferAttribute(seed, 1)); geo.setAttribute('iCloth', new THREE.InstancedBufferAttribute(cloth, 3)); geo.setAttribute('iSkin', new THREE.InstancedBufferAttribute(skin, 3));
+  geo.setAttribute('iLaunch', new THREE.InstancedBufferAttribute(crowdLaunchTime, 1).setUsage(THREE.DynamicDrawUsage));
+  geo.setAttribute('iLaunchVel', new THREE.InstancedBufferAttribute(crowdLaunchVel, 3).setUsage(THREE.DynamicDrawUsage));
   crowdMat = new THREE.ShaderMaterial({
     uniforms: { ...NA.shared, uCheer: { value: cheerK } },
     vertexShader: `
       uniform float uTime; uniform float uCheer;
       attribute float aPart; attribute float aArm; attribute float iSeed; attribute vec3 iCloth; attribute vec3 iSkin;
+      attribute float iLaunch; attribute vec3 iLaunchVel;
       varying vec3 vWp; varying vec3 vN; varying vec3 vC; varying float vPart;
       void main(){
-        vec3 p=position; float ph=iSeed*6.283;
+        vec3 p=position; float ph=iSeed*6.283, launched=step(-999.,iLaunch), flightT=max(uTime-iLaunch,0.)*launched;
         if(aArm!=0.){
-          float ang=mix(.12+.05*sin(uTime*1.3+ph),2.55,uCheer)+sin(uTime*(8.+iSeed*5.)+ph)*.38*uCheer;
+          float ang=mix(.12+.05*sin(uTime*1.3+ph),2.55,uCheer*(1.-launched))+sin(uTime*(8.+iSeed*5.)+ph)*.38*uCheer*(1.-launched);
           vec3 sh=vec3(aArm*.235,1.46,0.); vec3 r=p-sh; float th=aArm*ang;
           p=sh+vec3(r.x*cos(th)-r.y*sin(th), r.x*sin(th)+r.y*cos(th), r.z);
         }
-        p.y+=abs(sin(uTime*(5.+iSeed*3.)+ph))*.2*uCheer*uCheer;
-        vec4 wp=modelMatrix*instanceMatrix*vec4(p,1.); vWp=wp.xyz;
+        p.y+=abs(sin(uTime*(5.+iSeed*3.)+ph))*.2*uCheer*uCheer*(1.-launched);
+        if(launched>.5){
+          vec3 pivot=vec3(0.,.85,0.), r=p-pivot, axis=normalize(vec3(sin(ph*1.7),cos(ph*2.1),sin(ph*3.3)));
+          float angle=flightT*(6.+iSeed*6.);
+          p=pivot+r*cos(angle)+cross(axis,r)*sin(angle)+axis*dot(axis,r)*(1.-cos(angle));
+          p*=1.-smoothstep(5.,9.,flightT);
+        }
+        vec4 wp=modelMatrix*instanceMatrix*vec4(p,1.);
+        wp.xyz+=iLaunchVel*flightT+vec3(0.,10.*flightT+.45*flightT*flightT,0.);
+        vWp=wp.xyz;
         vN=normalize(mat3(modelMatrix)*mat3(instanceMatrix)*normal);
         vPart=aPart; vC=aPart<.5?iCloth:(aPart<1.5?iSkin:vec3(.05,.055,.09));
         gl_Position=projectionMatrix*viewMatrix*wp;
@@ -200,7 +213,7 @@ function buildCrowd() {
       varying vec3 vWp; varying vec3 vN; varying vec3 vC; varying float vPart;
       void main(){
         vec3 n=normalize(vN);
-        float moon=max(dot(n,normalize(vec3(-.3,.17,-.95))),0.);
+        float moon=max(dot(n,normalize(vec3(-.15,.17,-.95))),0.);
         float amb=.22+.14*n.y;
         vec3 c=vC*(amb*.9+moon*.35)+vC*carLight(vWp)*.25+vec3(.008,.01,.018);
         gl_FragColor=vec4(applyFog(c,vWp),1.);
@@ -269,9 +282,28 @@ W.build = function (rh) {
   buildStack(); buildSpot(); buildCrowd();
 };
 
-W.update = function (t, cam) {
+W.update = function (t, cam, sim) {
   W.ground.position.set(cam.position.x, 0, cam.position.z);
   W.sky.position.copy(cam.position);
+  if (!sim || !crowdMesh) return;
+  let changed = false;
+  for (let i = 0; i < crowdSpots.length; i++) {
+    if (crowdLaunchTime[i] > -999) continue;
+    const [x, z] = crowdSpots[i];
+    if (Math.abs(sim.pos.x - x) > 2.5 || Math.abs(sim.pos.z - z) > 2 || sim.pos.y < -1 || sim.pos.y > 2.8) continue;
+    const dx = x - sim.pos.x, dz = z - sim.pos.z, d = Math.hypot(dx, dz) || 1, o = i * 3;
+    crowdLaunchTime[i] = t;
+    const speed = Math.hypot(sim.vel.x, sim.vel.z), dirX = speed > 2 ? sim.vel.x / speed : dx / d, dirZ = speed > 2 ? sim.vel.z / speed : dz / d;
+    const launchSpeed = Math.max(speed * 2.4, 32);
+    crowdLaunchVel[o] = dirX * launchSpeed;
+    crowdLaunchVel[o + 1] = 0;
+    crowdLaunchVel[o + 2] = dirZ * launchSpeed;
+    changed = true;
+  }
+  if (changed) {
+    crowdMesh.geometry.attributes.iLaunch.needsUpdate = true;
+    crowdMesh.geometry.attributes.iLaunchVel.needsUpdate = true;
+  }
 };
 
 // =====================  ENCORE PROPS: stack of trucks + cars, overhead spotlight  =====================
@@ -437,5 +469,12 @@ W.updateShow = function (dt, sim) {
   spot.cone.visible = spot.k > .01; spot.cone.position.set(sx, 0, sz); spot.cone.material.uniforms.uK.value = spot.k;
   NA.shared.uSpot.value.set(sx, sz, 5.5, spot.k);
 };
-W.resetShow = function () { stackInfo = null; stack.visible = false; spot.k = 0; };
+W.resetShow = function () {
+  stackInfo = null; stack.visible = false; spot.k = 0;
+  if (crowdLaunchTime) {
+    crowdLaunchTime.fill(-1000); crowdLaunchVel.fill(0);
+    crowdMesh.geometry.attributes.iLaunch.needsUpdate = true;
+    crowdMesh.geometry.attributes.iLaunchVel.needsUpdate = true;
+  }
+};
 })();
