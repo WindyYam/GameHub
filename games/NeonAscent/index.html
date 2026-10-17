@@ -30,7 +30,12 @@
   #air i{display:block;height:100%;width:100%;background:linear-gradient(90deg,#1b88ff,#aef3ff);box-shadow:0 0 10px #38c0ff}
   #count{position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);font-size:140px;font-weight:200;color:#fff;text-shadow:0 0 40px #19b4ff,0 0 90px #ff2bd6;opacity:0;transition:opacity .25s}
   #count.show{opacity:1}
-  #hint{position:absolute;left:26px;top:74px;max-width:46vw;font-size:10.5px;opacity:.42;letter-spacing:.07em;text-shadow:0 1px 8px #000;line-height:1.7}
+  #hint{position:absolute;left:26px;top:74px;width:fit-content;max-width:min(360px,44vw);font-size:10px;opacity:.92;letter-spacing:.04em;text-shadow:0 1px 8px #000;line-height:1.6;pointer-events:auto}
+  #hint summary{cursor:pointer;list-style:none;padding:6px 10px;border:1px solid rgba(120,200,255,.22);background:rgba(4,9,19,.7);backdrop-filter:blur(4px);color:#cfe6ff;letter-spacing:.12em;text-transform:uppercase}
+  #hint summary::-webkit-details-marker{display:none}
+  #hint[open]{width:min(360px,44vw);max-height:min(45vh,300px);overflow:auto;border:1px solid rgba(120,200,255,.22);background:rgba(4,9,19,.78);backdrop-filter:blur(4px)}
+  #hint[open] summary{border:0;border-bottom:1px solid rgba(120,200,255,.16)}
+  #hint .hintBody{padding:8px 10px}
   #fade{position:fixed;inset:0;background:#000;opacity:0;pointer-events:none;transition:opacity 1.2s}
   #loading{position:fixed;inset:0;background:#02030a;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;color:#7fd8ff;letter-spacing:.3em;font-size:12px;text-transform:uppercase;transition:opacity 1.2s;z-index:9}
   #loading.gone{opacity:0;pointer-events:none}
@@ -80,7 +85,7 @@
     <div class="st"><div id="jets"><i></i><i></i><i></i><i></i></div><span>air jets</span></div>
     <div class="st" id="air"><div><i id="vAir"></i></div><span>air tank <em id="vAirP" style="font-style:normal">100</em>%</span></div>
   </div>
-  <div id="hint">R · restart &nbsp;|&nbsp; Space · pause &nbsp;|&nbsp; T · slow-mo &nbsp;|&nbsp; M · sound &nbsp;|&nbsp; H · hide HUD &nbsp;|&nbsp; C · auto / manual<br>manual: Q · front-left jet &nbsp;E · front-right &nbsp;A · rear-left &nbsp;D · rear-right (or the on-screen buttons) — jets work any time: on the ramp, in the air, after landing. Land on your wheels (not the side or roof) and don't hit anything<br>drag · orbit &nbsp;|&nbsp; right-drag / shift-drag / two-finger drag · move pivot &nbsp;|&nbsp; wheel / pinch · distance &nbsp;|&nbsp; double-click / V · reset view</div>
+  <details id="hint"><summary>Controls &amp; help</summary><div class="hintBody">R · restart &nbsp;|&nbsp; Space · pause &nbsp;|&nbsp; T · slow-mo &nbsp;|&nbsp; M · sound &nbsp;|&nbsp; H · hide HUD &nbsp;|&nbsp; C · auto / manual<br>manual: Q · front-left jet &nbsp;E · front-right &nbsp;A · rear-left &nbsp;D · rear-right (or the on-screen buttons) — jets work any time: on the ramp, in the air, after landing. Land on your wheels (not the side or roof) and don't hit anything<br>drag · orbit &nbsp;|&nbsp; right-drag / shift-drag / two-finger drag · move pivot &nbsp;|&nbsp; wheel / pinch · distance &nbsp;|&nbsp; double-click / V · reset view</div></details>
 </div>
 <div id="fade"></div>
 

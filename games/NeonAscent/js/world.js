@@ -210,8 +210,7 @@ function buildCrowd() {
 }
 
 function skylineMesh(center, rand) {
-  const n = 300, geo = new THREE.BoxGeometry(1, 1, 1); geo.translate(0, .5, 0);
-  const im = new THREE.InstancedMesh(geo, new THREE.ShaderMaterial({
+  const n = 300, material = new THREE.ShaderMaterial({
     uniforms: { ...NA.shared },
     vertexShader: 'varying vec3 vWp; varying vec3 vN; void main(){ vec4 p=instanceMatrix*vec4(position,1.); p=modelMatrix*p; vWp=p.xyz; vN=normalize(mat3(instanceMatrix)*normal); gl_Position=projectionMatrix*viewMatrix*p; }',
     fragmentShader: glsl + `varying vec3 vWp; varying vec3 vN;
@@ -219,19 +218,44 @@ function skylineMesh(center, rand) {
         float u=abs(vN.x)>.5?vWp.z:vWp.x;
         vec2 cell=vec2(floor(u/3.4),floor(vWp.y/4.2));
         vec2 f=vec2(fract(u/3.4),fract(vWp.y/4.2));
-        float lit=step(.62,h21(cell))*step(.25,f.x)*step(f.x,.75)*step(.2,f.y)*step(f.y,.7)*step(.5,abs(vN.x)+abs(vN.z));
-        vec3 tint=mix(vec3(1.,.8,.5),vec3(.5,.8,1.),h21(cell+9.));
-        vec3 c=vec3(.01,.012,.02)+tint*lit*.8*(.5+.5*h21(cell+3.));
+        float lit=step(.52,h21(cell))*step(.15,f.x)*step(f.x,.85)*step(.12,f.y)*step(f.y,.82)*step(.5,abs(vN.x)+abs(vN.z));
+        float palette=h21(cell+9.);
+        vec3 tint=mix(vec3(1.,.62,.32),vec3(.28,.72,1.),smoothstep(.15,.62,palette));
+        tint=mix(tint,vec3(1.,.38,.58),smoothstep(.72,.98,palette));
+        vec3 c=vec3(.01,.012,.02)+tint*lit*1.05*(.6+.4*h21(cell+3.));
         gl_FragColor=vec4(applyFog(c,vWp),1.);
       }`
-  }), n);
+  });
+  const stepped = new THREE.BufferGeometry(), positions = [], normals = [], indices = [];
+  let base = 0;
+  for (const [part, y] of [[new THREE.BoxGeometry(.88, .68, .88), .34], [new THREE.BoxGeometry(.66, .22, .66), .79], [new THREE.BoxGeometry(.38, .1, .38), .95]]) {
+    part.translate(0, y, 0);
+    const pos = part.attributes.position, norm = part.attributes.normal;
+    for (let i = 0; i < pos.count; i++) {
+      positions.push(pos.getX(i), pos.getY(i), pos.getZ(i));
+      normals.push(norm.getX(i), norm.getY(i), norm.getZ(i));
+    }
+    for (const index of part.index.array) indices.push(index + base);
+    base += pos.count;
+  }
+  stepped.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  stepped.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  stepped.setIndex(indices);
+  const box = new THREE.BoxGeometry(1, 1, 1); box.translate(0, .5, 0);
+  const tapered = new THREE.CylinderGeometry(.3, .5, 1, 8); tapered.translate(0, .5, 0);
+  const round = new THREE.CylinderGeometry(.5, .5, 1, 12); round.translate(0, .5, 0);
+  const geometries = [box, tapered, round, stepped], group = new THREE.Group();
+  const instances = geometries.map(geo => new THREE.InstancedMesh(geo, material, n)), counts = geometries.map(() => 0);
   const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = V3(), s = V3();
   for (let i = 0; i < n; i++) {
     const a = rand() * Math.PI * 2, r = 1500 + rand() * 1100, w = 40 + rand() * 70, h = 50 + Math.pow(rand(), 2.2) * 260;
+    const style = rand(), type = style < .48 ? 0 : style < .66 ? 1 : style < .8 ? 2 : 3;
     p.set(center.x + Math.cos(a) * r, 0, center.z + Math.sin(a) * r); s.set(w, h, w * (.6 + rand() * .8));
-    q.setFromAxisAngle(V3(0, 1, 0), 0); m.compose(p, q, s); im.setMatrixAt(i, m);
+    q.setFromAxisAngle(V3(0, 1, 0), rand() * Math.PI * 2);
+    m.compose(p, q, s); instances[type].setMatrixAt(counts[type]++, m);
   }
-  im.frustumCulled = false; return im;
+  instances.forEach((im, i) => { im.count = counts[i]; im.frustumCulled = false; group.add(im); });
+  return group;
 }
 
 W.build = function (rh) {
