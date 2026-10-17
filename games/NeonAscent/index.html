@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tesla Roadster Show — air-jet stunt show</title>
+<style>
+  html,body{margin:0;height:100%;background:#02030a;overflow:hidden;font-family:'Segoe UI','Trebuchet MS',Tahoma,sans-serif;color:#cfe6ff;user-select:none}
+  canvas{display:block;outline:none;touch-action:none}
+  #hud{position:fixed;inset:0;pointer-events:none;transition:opacity .4s}
+  #hud.off{opacity:0}
+  #speedCtl{position:absolute;right:24px;top:70px;display:flex;align-items:center;gap:10px;padding:7px 14px;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:#bff3ff;text-shadow:0 1px 8px #000;border:1px solid rgba(120,220,255,.3);background:rgba(6,14,28,.45);backdrop-filter:blur(2px);pointer-events:auto;transition:opacity .3s}
+  #speedCtl input{width:130px;accent-color:#38c0ff;cursor:pointer}
+  #speedCtl b{min-width:30px;text-align:right;font-weight:400;font-variant-numeric:tabular-nums;letter-spacing:.04em;font-size:15px;color:#fff}
+  #speedCtl em{font-style:normal;opacity:.6}
+  #speedCtl.locked{opacity:.4;pointer-events:none}
+  #hud.off #speedCtl{pointer-events:none}
+  #title{position:absolute;left:26px;top:20px;text-shadow:0 2px 14px #000}
+  #title h1{margin:0;font-size:20px;letter-spacing:.3em;font-weight:300;text-transform:uppercase;color:#9fe8ff}
+  #title p{margin:6px 0 0;font-size:11px;opacity:.6;letter-spacing:.14em;text-transform:uppercase}
+  #mode{position:absolute;left:50%;top:22px;transform:translateX(-50%);font-size:13px;letter-spacing:.34em;text-transform:uppercase;color:#bff3ff;text-shadow:0 0 16px #19b4ff,0 2px 8px #000;padding:7px 18px;border:1px solid rgba(120,220,255,.3);background:rgba(6,14,28,.45);backdrop-filter:blur(2px)}
+  #panel{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);display:flex;gap:12px;align-items:flex-end;padding:5px 14px;background:linear-gradient(180deg,rgba(6,14,28,.15),rgba(6,14,28,.45));border:1px solid rgba(120,200,255,.2);backdrop-filter:blur(1.5px);text-shadow:0 1px 6px #000}
+  .st{text-align:center;min-width:54px}
+  .st b{display:block;font-size:17px;font-weight:300;letter-spacing:.04em;color:#e9f9ff;font-variant-numeric:tabular-nums}
+  .st span{font-size:8px;letter-spacing:.18em;text-transform:uppercase;opacity:.6}
+  #jets{display:grid;grid-template-columns:repeat(2,10px);gap:3px;align-items:end;height:36px}
+  #jets i{display:block;width:10px;height:2px;background:linear-gradient(180deg,#e6fbff,#2fb7ff);box-shadow:0 0 8px #2fb7ff;transition:height .06s}
+  #air{width:80px}
+  #air div{height:4px;background:rgba(120,200,255,.16);border:1px solid rgba(120,200,255,.3)}
+  #air i{display:block;height:100%;width:100%;background:linear-gradient(90deg,#1b88ff,#aef3ff);box-shadow:0 0 10px #38c0ff}
+  #count{position:absolute;left:50%;top:42%;transform:translate(-50%,-50%);font-size:140px;font-weight:200;color:#fff;text-shadow:0 0 40px #19b4ff,0 0 90px #ff2bd6;opacity:0;transition:opacity .25s}
+  #count.show{opacity:1}
+  #hint{position:absolute;left:26px;top:74px;max-width:46vw;font-size:10.5px;opacity:.42;letter-spacing:.07em;text-shadow:0 1px 8px #000;line-height:1.7}
+  #fade{position:fixed;inset:0;background:#000;opacity:0;pointer-events:none;transition:opacity 1.2s}
+  #loading{position:fixed;inset:0;background:#02030a;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px;color:#7fd8ff;letter-spacing:.3em;font-size:12px;text-transform:uppercase;transition:opacity 1.2s;z-index:9}
+  #loading.gone{opacity:0;pointer-events:none}
+  #loading i{width:46px;height:2px;background:linear-gradient(90deg,transparent,#8fe0ff,transparent);box-shadow:0 0 14px 3px rgba(120,200,255,.6);animation:ld .9s infinite alternate}
+  @keyframes ld{from{transform:scaleX(.3);opacity:.4}to{transform:scaleX(1.4);opacity:1}}
+  #modeBtn{position:absolute;right:24px;top:118px;pointer-events:auto;cursor:pointer;font:inherit;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:#bff3ff;padding:8px 14px;border:1px solid rgba(120,220,255,.3);background:rgba(6,14,28,.45);backdrop-filter:blur(2px);text-shadow:0 1px 8px #000;-webkit-tap-highlight-color:transparent}
+  #modeBtn.on{color:#fff;border-color:rgba(255,170,80,.7);background:rgba(60,26,6,.55);box-shadow:0 0 14px rgba(255,140,40,.35)}
+  #hud.off #modeBtn,#hud.off .eng{pointer-events:none}
+  .pad{position:absolute;bottom:78px;display:none;flex-direction:column;gap:14px}
+  #padL{left:max(14px,env(safe-area-inset-left))}
+  #padR{right:max(14px,env(safe-area-inset-right))}
+  body.manual .pad{display:flex}
+  .eng{--k:0;width:clamp(60px,15vmin,96px);height:clamp(60px,15vmin,96px);border-radius:50%;pointer-events:auto;cursor:pointer;touch-action:none;-webkit-user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;font:inherit;color:#e9f9ff;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:0;
+    border:1px solid rgba(120,220,255,calc(.3 + var(--k)*.6));background:rgba(6,14,28,calc(.45 - var(--k)*.15));
+    box-shadow:0 0 calc(4px + var(--k)*26px) rgba(56,192,255,calc(.1 + var(--k)*.8)),inset 0 0 calc(var(--k)*24px) rgba(120,220,255,calc(var(--k)*.7))}
+  .eng b{font-size:clamp(20px,5vmin,30px);font-weight:300}
+  .eng span{font-size:9px;letter-spacing:.14em;opacity:.65}
+  .eng.down{border-color:#fff;background:rgba(40,120,170,.55)}
+  #banner{position:absolute;left:50%;top:32%;transform:translate(-50%,-50%);text-align:center;opacity:0;transition:opacity .35s;width:90vw}
+  #banner.show{opacity:1}
+  #bannerT{font-size:clamp(34px,9vw,84px);font-weight:200;letter-spacing:.2em;color:#fff;text-shadow:0 0 30px #19ff9a,0 0 80px #19b4ff}
+  #bannerS{margin-top:8px;font-size:clamp(11px,2.4vw,15px);letter-spacing:.24em;text-transform:uppercase;color:#cfe6ff;text-shadow:0 1px 10px #000}
+  #banner.crash #bannerT{color:#ff7a33;text-shadow:0 0 36px #ff3a00,0 0 90px #ff9a00}
+  .st.bad b{color:#ff5a3c;text-shadow:0 0 10px #ff3a00}
+  @media (max-width:600px){#panel{gap:6px;padding:4px 8px;flex-wrap:wrap;justify-content:center;width:calc(100vw - 16px);box-sizing:border-box;bottom:6px}.st{min-width:38px}#air{width:56px}#modeBtn{right:14px}#speedCtl{right:14px}#hint,#title p{display:none}.pad{bottom:110px}#mode{top:60px;font-size:11px;letter-spacing:.2em}}
+  @media (pointer:coarse){#hint{display:none}}
+</style>
+</head>
+<body>
+<div id="loading"><i></i><span>Powering up the Roadster…</span></div>
+<div id="hud">
+  <div id="title"><h1>Tesla Roadster Show</h1><p>Tesla Roadster · air-jet stunt show</p></div>
+  <div id="mode">STANDBY</div>
+  <div id="speedCtl"><span>charge speed</span><input id="speedSlider" type="range" min="58" max="122" step="1" value="86"><b id="speedVal">86</b><em>km/h</em></div>
+  <div id="count"></div>
+  <div id="banner"><div id="bannerT"></div><div id="bannerS"></div></div>
+  <button id="modeBtn" class="ui" type="button" title="Toggle auto pilot / manual air-jet control (C)">Auto pilot</button>
+  <div id="padL" class="pad"><button class="eng ui" data-i="0" type="button"><b>Q</b><span>FRONT L</span></button><button class="eng ui" data-i="2" type="button"><b>A</b><span>REAR L</span></button></div>
+  <div id="padR" class="pad"><button class="eng ui" data-i="1" type="button"><b>E</b><span>FRONT R</span></button><button class="eng ui" data-i="3" type="button"><b>D</b><span>REAR R</span></button></div>
+  <div id="panel">
+    <div class="st"><b id="vSpd">0</b><span>km/h</span></div>
+    <div class="st"><b id="vAlt">0</b><span>alt · m</span></div>
+    <div class="st"><b id="vVs">0</b><span>vert · m/s</span></div>
+    <div class="st"><b id="vTilt">0</b><span>tilt · °</span></div>
+    <div class="st"><b id="vG">1.0</b><span>g-load</span></div>
+    <div class="st"><div id="jets"><i></i><i></i><i></i><i></i></div><span>air jets</span></div>
+    <div class="st" id="air"><div><i id="vAir"></i></div><span>air tank <em id="vAirP" style="font-style:normal">100</em>%</span></div>
+  </div>
+  <div id="hint">R · restart &nbsp;|&nbsp; Space · pause &nbsp;|&nbsp; T · slow-mo &nbsp;|&nbsp; M · sound &nbsp;|&nbsp; H · hide HUD &nbsp;|&nbsp; C · auto / manual<br>manual: Q · front-left jet &nbsp;E · front-right &nbsp;A · rear-left &nbsp;D · rear-right (or the on-screen buttons) — jets work any time: on the ramp, in the air, after landing. Land on your wheels (not the side or roof) and don't hit anything<br>drag · orbit &nbsp;|&nbsp; right-drag / shift-drag / two-finger drag · move pivot &nbsp;|&nbsp; wheel / pinch · distance &nbsp;|&nbsp; double-click / V · reset view</div>
+</div>
+<div id="fade"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.min.js"></script>
+<script src="js/core.js"></script>
+<script src="js/track.js"></script>
+<script src="js/sim.js"></script>
+<script src="js/car.js"></script>
+<script src="js/world.js"></script>
+<script src="js/fx.js"></script>
+<script src="js/director.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
