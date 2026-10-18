@@ -52,6 +52,13 @@ body{
 .stats b{ display:block; font:600 26px/1 'Barlow Condensed', sans-serif; font-variant-numeric: tabular-nums; }
 .stats span{ font-size:12px; color:var(--ink-dim); }
 .stats .lost b{ color:var(--alarm); }
+#shop{ position:fixed; top:calc(112px + env(safe-area-inset-top, 0px)); right:12px; width:min(270px,calc(100vw - 24px)); padding:6px; display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; z-index:3; }
+#shopInfo{ grid-column:1/-1; display:flex; justify-content:space-between; align-items:baseline; gap:6px; font-size:11px; color:var(--ink-dim); }
+#shopCash{ font:600 17px/1 'Barlow Condensed',sans-serif; color:var(--signal); font-variant-numeric:tabular-nums; }
+#shop button{ min-height:30px; padding:5px 4px; border:1px solid var(--panel-line); border-radius:5px; background:rgba(16,17,15,.88); color:var(--ink); font:600 12px/1.1 'Barlow Condensed',sans-serif; white-space:nowrap; cursor:pointer; }
+#shop button:hover:not(:disabled){ border-color:rgba(255,244,214,.45); }
+#shop button:disabled{ opacity:.48; cursor:default; }
+#shop #bombBtn{ border-color:rgba(226,88,62,.6); }
 #tr{
   position:fixed; top:calc(12px + env(safe-area-inset-top, 0px)); right:12px;
   display:flex; flex-wrap:wrap; gap:6px; justify-content:flex-end; max-width:min(440px, calc(100vw - 280px));
@@ -115,7 +122,7 @@ body{ touch-action:manipulation; }
   #tl, #bt{ position:static; transform:none; width:auto; }
   #tl{ padding:6px 10px; min-width:0; }
   #tl h1{ display:none; }
-  .stats{ grid-template-columns:repeat(4,1fr); gap:0 8px; }
+  .stats{ grid-template-columns:repeat(5,1fr); gap:0 8px; }
   .stats b{ font-size:20px; }
   .stats span{ display:block; margin-top:2px; font-size:10.5px; line-height:1.15; }
   #tr{ position:static; max-width:none; justify-content:stretch; gap:5px; }
@@ -134,6 +141,10 @@ body{ touch-action:manipulation; }
   body.playing #toast{ top:calc(64px + env(safe-area-inset-top, 0px)); }
   #who em{ display:none; }
   #fireBtn{ width:88px; height:88px; }
+  #shop{ position:fixed; left:8px; right:auto; top:auto; bottom:calc(150px + env(safe-area-inset-bottom, 0px)); width:min(250px,calc(100vw - 130px)); margin:0; grid-template-columns:1fr 1fr; }
+  #shop #bombBtn{ grid-column:1/-1; }
+  #shop button{ min-height:30px; font-size:12px; }
+  body.playing #shop{ bottom:calc(8px + env(safe-area-inset-bottom, 0px)); }
 }
 /* portrait phones: stats on top, camera buttons wrap in two rows */
 @media (max-width:760px) and (orientation:portrait){
@@ -143,11 +154,17 @@ body{ touch-action:manipulation; }
 @media (max-width:760px) and (orientation:landscape), (max-height:520px) and (orientation:landscape){
   #top{ flex-direction:row; align-items:flex-start; justify-content:space-between; }
   #tl{ flex:0 0 auto; }
-  .stats{ grid-template-columns:repeat(4,auto); gap:0 10px; }
+  .stats{ grid-template-columns:repeat(5,auto); gap:0 10px; }
   #tr{ flex:1 1 auto; flex-wrap:nowrap; justify-content:flex-start; min-width:0; overflow-x:auto; scrollbar-width:none; }
   #tr::-webkit-scrollbar{ display:none; }
   #tr button{ flex:0 0 auto; padding:9px 9px; }
   #bottom{ left:50%; right:auto; transform:translateX(-50%); width:min(560px, calc(100vw - 16px)); }
+  #shop{ position:fixed; left:auto; top:calc(58px + env(safe-area-inset-top, 0px)); right:8px; bottom:auto; width:min(270px,calc(100vw - 16px)); margin:0; padding:6px; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; }
+  #shopInfo{ font-size:10px; }
+  #shopCash{ font-size:16px; }
+  #shop button{ min-height:28px; padding:4px 3px; font-size:11px; }
+  #shop #bombBtn{ grid-column:auto; }
+  body.playing #shop{ left:auto; right:8px; top:calc(58px + env(safe-area-inset-top, 0px)); bottom:auto; margin:0; }
   #hint{ display:none; }
   #toast{ top:calc(64px + env(safe-area-inset-top, 0px)); }
 }
@@ -165,7 +182,8 @@ body{ touch-action:manipulation; }
     <div><b id="sKills">0</b><span>Bugs killed</span></div>
     <div><b id="sBugs">0</b><span>Bugs on the field</span></div>
     <div class="lost"><b id="sKia">0</b><span>Troopers lost</span></div>
-    <div><b id="sRes">0</b><span>Reserves in camp</span></div>
+    <div><b id="sRes">0</b><span>Riflemen trained</span></div>
+    <div><b id="sCash">$0</b><span>Cash</span></div>
   </div>
 </div>
 
@@ -178,6 +196,13 @@ body{ touch-action:manipulation; }
   <button id="bPause">Pause</button>
   <button id="bSound">Sound: off</button>
 </div>
+</div>
+
+<div id="shop" class="panel" aria-label="Outpost upgrades">
+  <div id="shopInfo"><span id="recruitInfo">Kills +$10 · $60 auto-recruit · hold $250</span><strong id="shopCash">$0</strong></div>
+  <button id="powerBtn" type="button"></button>
+  <button id="rateBtn" type="button"></button>
+  <button id="bombBtn" type="button" title="Spend $250 to destroy all bugs currently on the field">BOMB $250</button>
 </div>
 
 <div id="bottom">
@@ -1322,6 +1347,44 @@ function makeInst(geo,mat,n){
 let lightLevel=1;
 const whiteC=new T.Color(1,1,1);
 
+const NEXP=IS_SMALL?95:150, explosionMesh=makeInst(new T.SphereGeometry(1,10,8),new T.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:.8,blending:T.AdditiveBlending,depthWrite:false,toneMapped:false,fog:false}),NEXP);
+const explosionFlareMesh=makeInst(new T.PlaneGeometry(1,1),new T.MeshBasicMaterial({map:flashTex,color:0xffd28a,transparent:true,opacity:.9,blending:T.AdditiveBlending,depthWrite:false,toneMapped:false,fog:false,side:T.DoubleSide}),NEXP);
+explosionFlareMesh.renderOrder=12;
+const explosions=Array.from({length:NEXP},()=>({life:0,max:1.2,pos:new T.Vector3(),scale:1}));
+const _explosionColor=new T.Color(), _explosionScale=V(1,1,1), _explosionQ=new T.Quaternion(), _explosionMatrix=new T.Matrix4();
+let explosionPtr=0;
+function spawnExplosion(pos,scale){
+  let idx=explosionPtr;
+  for(let k=0;k<NEXP;k++){ const candidate=(explosionPtr+k)%NEXP; if(explosions[candidate].life<=0){ idx=candidate; break; } }
+  explosionPtr=(idx+1)%NEXP;
+  const e=explosions[idx]; e.life=e.max; e.pos.copy(pos); e.scale=scale;
+  _explosionColor.setRGB(1,.82,.36); explosionMesh.setColorAt(idx,_explosionColor);
+  _explosionScale.setScalar(scale*.25); _explosionMatrix.compose(pos,_explosionQ,_explosionScale);
+  explosionMesh.setMatrixAt(idx,_explosionMatrix); explosionMesh.instanceColor.needsUpdate=true; explosionMesh.instanceMatrix.needsUpdate=true;
+  _explosionScale.set(scale*.8,scale*.8,1); _explosionMatrix.compose(pos,camera.quaternion,_explosionScale);
+  explosionFlareMesh.setMatrixAt(idx,_explosionMatrix); explosionFlareMesh.setColorAt(idx,_explosionColor); explosionFlareMesh.instanceColor.needsUpdate=true; explosionFlareMesh.instanceMatrix.needsUpdate=true;
+}
+function updateExplosions(dt){
+  let dirty=false;
+  for(let i=0;i<NEXP;i++){
+    const e=explosions[i]; if(e.life<=0) continue;
+    e.life-=dt; dirty=true;
+    if(e.life<=0){ explosionMesh.setMatrixAt(i,ZERO); explosionFlareMesh.setMatrixAt(i,ZERO); continue; }
+    const t=1-e.life/e.max, radius=e.scale*(.25+4.5*t);
+    _explosionScale.setScalar(radius);
+    _explosionColor.setRGB(1,.82*(1-t),.36*(1-t)).multiplyScalar(1-t*.82);
+    _explosionMatrix.compose(e.pos,_explosionQ,_explosionScale);
+    explosionMesh.setMatrixAt(i,_explosionMatrix); explosionMesh.setColorAt(i,_explosionColor);
+    const flareRadius=e.scale*(.8+5*t);
+    _explosionScale.set(flareRadius,flareRadius,1); _explosionMatrix.compose(e.pos,camera.quaternion,_explosionScale);
+    explosionFlareMesh.setMatrixAt(i,_explosionMatrix); explosionFlareMesh.setColorAt(i,_explosionColor);
+  }
+  if(dirty){
+    explosionMesh.instanceMatrix.needsUpdate=true; explosionMesh.instanceColor.needsUpdate=true;
+    explosionFlareMesh.instanceMatrix.needsUpdate=true; explosionFlareMesh.instanceColor.needsUpdate=true;
+  }
+}
+
 // tracers
 const NB=620, BSPEED=230;
 const tracerMat=new T.MeshBasicMaterial({color:C(0xffe39a),transparent:true,opacity:.95,blending:T.AdditiveBlending,depthWrite:false,fog:false});
@@ -1364,6 +1427,27 @@ function updateBullets(dt){
     else{ _p3.copy(b.p).addScaledVector(b.d,-1.1); _s3.set(b.sc,b.sc,b.sc); _m4.compose(_p3,b.q,_s3); tracerMesh.setMatrixAt(i,_m4); }
   }
   tracerMesh.instanceMatrix.needsUpdate=true;
+}
+
+const NLB=180, laserMesh=makeInst(new T.CylinderGeometry(.035,.035,1,6),new T.MeshBasicMaterial({color:0x50eaff,transparent:true,opacity:.95,blending:T.AdditiveBlending,depthWrite:false,toneMapped:false}),NLB);
+const laserLife=new Float32Array(NLB), _laserEnd=new T.Vector3(), _laserAxis=V(0,1,0), _laserDir=new T.Vector3(), _laserMid=new T.Vector3(), _laserScale=V(1,1,1), _laserQ=new T.Quaternion(), _laserMatrix=new T.Matrix4();
+let laserPtr=0;
+function showLaser(from,to){
+  _laserDir.subVectors(to,from); const len=_laserDir.length(); if(len<.01) return;
+  _laserDir.divideScalar(len);
+  let idx=laserPtr;
+  for(let k=0;k<NLB;k++){ const candidate=(laserPtr+k)%NLB; if(laserLife[candidate]<=0){ idx=candidate; break; } }
+  laserPtr=(idx+1)%NLB; laserLife[idx]=.1;
+  _laserMid.copy(from).add(to).multiplyScalar(.5); _laserQ.setFromUnitVectors(_laserAxis,_laserDir); _laserScale.y=len;
+  _laserMatrix.compose(_laserMid,_laserQ,_laserScale); laserMesh.setMatrixAt(idx,_laserMatrix); laserMesh.instanceMatrix.needsUpdate=true;
+}
+function updateLasers(dt){
+  for(let i=0;i<NLB;i++){
+    if(laserLife[i]<=0) continue;
+    laserLife[i]-=dt;
+    if(laserLife[i]<=0) laserMesh.setMatrixAt(i,ZERO);
+  }
+  laserMesh.instanceMatrix.needsUpdate=true;
 }
 
 // shell casings
@@ -1409,6 +1493,7 @@ const parts=Array.from({length:NP},()=>({life:0,max:1,sz:.1,p:new T.Vector3(),v:
 let partPtr=0;
 const SPLAT=[C(0x587a22),C(0x486418),C(0x6c8a2a)];
 const GOO=[C(0x9acd2f),C(0x5c8a1e),C(0xd2cf3a)], BLOOD=[C(0x8a1414),C(0x5e0e0e)];
+const BOMBC=[C(0xffa32b),C(0xffe16b),C(0xfff4c2)];
 const _col=new T.Color();
 function spawnBurst(pos,n,palette,speed,size,up){
   for(let k=0;k<n;k++){
@@ -1703,7 +1788,7 @@ function updateMuzzleLights(dt){
    ============================================================ */
 const HITMAT=new T.MeshBasicMaterial({visible:false});
 const slots=[];
-function addSlot(x,z,yaw,type,y){ const s={x,z,yaw,type:type||'rifle',y:y||DY,soldier:null,respT:0}; slots.push(s); return s; }
+function addSlot(x,z,yaw,type,y){ const s={x,z,yaw,type:type||'rifle',y:y||DY,soldier:null,respT:0,trained:false}; slots.push(s); return s; }
 for(const s of wallSegs){
   const cnt=Math.max(1,Math.floor(s.L/2.8));
   for(let k=0;k<cnt;k++){
@@ -1840,13 +1925,13 @@ class Soldier{
       else{
         this.shotT-=dt;
         while(this.shotT<=0){
-          this.shotT+=this.interval*rand(.85,1.2); fire(this);
+          this.shotT+=this.interval/rateMultiplier()*rand(.85,1.2); fire(this);
           if(--this.burst<=0){ this.burst=Math.floor(rand(5,16)); this.pauseT=rand(.15,.8)+(Math.random()<.08?2:0); break; }
         }
       }
     }
     if(this.isPlayer){
-      if(inp.mouse||inp.btn||inp.key){ this.shotT-=dt; while(this.shotT<=0){ this.shotT+=this.interval*rand(.95,1.05); playerShot(this); } }
+      if(inp.mouse||inp.btn||inp.key){ this.shotT-=dt; while(this.shotT<=0){ this.shotT+=this.interval/rateMultiplier()*rand(.95,1.05); playerShot(this); } }
       else this.shotT=0;
     }
   }
@@ -1858,12 +1943,21 @@ function playerShot(s){
   const cp=Math.cos(pl.pitch), fx=Math.sin(pl.yaw)*cp, fy=Math.sin(pl.pitch), fz=Math.cos(pl.yaw)*cp;
   const dir=new T.Vector3(camera.position.x+fx*90-_mz.x,camera.position.y+fy*90-_mz.y,camera.position.z+fz*90-_mz.z).normalize();
   const sp=s.gun?.014:.008; dir.x+=rand(-sp,sp); dir.y+=rand(-sp,sp); dir.z+=rand(-sp,sp); dir.normalize();
-  const b=spawnBullet(_mz,dir,null,230,s.gun); if(b){ b.player=true; b.dmg=s.gun?6.5:2.6; }
+  let laserHit=null;
+  if(economy.powerLevel===economy.maxLevel){
+    _laserEnd.copy(_mz).addScaledVector(dir,230);
+    laserHit=playerHit(_mz,_laserEnd);
+    if(laserHit){ _laserEnd.copy(laserHit.root.position); _laserEnd.y+=BC*laserHit.sc; }
+    showLaser(_mz,_laserEnd);
+  } else {
+    const b=spawnBullet(_mz,dir,null,230,s.gun); if(b){ b.player=true; b.dmg=(s.gun?6.5:2.6)*damageMultiplier(); }
+  }
   s.kick=1; s.flashT=.055; s.flash.visible=true; s.flash.material.rotation=Math.random()*TAU; s.flash.scale.setScalar(rand(.55,.95)*(s.gun?1.5:1));
   muzzleLight(_mz);
   if(Math.random()<.3) spawnShell(s);
   if(Math.random()<(s.gun?.35:.12)) spawnSmoke(_mz);
   sfxShot(s.gun,_mz);
+  if(laserHit) laserHit.hit((s.gun?6.5:2.6)*damageMultiplier(),_laserEnd);
 }
 function fire(s){
   const tb=s.target; if(!tb||!tb.targetable()) return;
@@ -1875,13 +1969,16 @@ function fire(s){
   const base=s.gun?.58:.34; let ph=clamp(base-dist*.0032,.07,base); if(dist<32) ph=Math.min(.96,ph+(1-dist/32)*.55);
   const hit=Math.random()<ph;
   if(!hit){ const m=rand(1.2,3.4), a=Math.random()*TAU; ap.x+=Math.cos(a)*m; ap.z+=Math.sin(a)*m; ap.y+=rand(-1.8,1.2); }
-  const dir=ap.sub(_mz); const dd=dir.length(); dir.divideScalar(dd);
-  const bl=spawnBullet(_mz,dir,hit?tb:null,hit?dd:160,s.gun); if(bl&&hit) bl.dmg=(s.gun?4.5:1)*(1+Math.max(0,1-dd/26)*1.8);
+  const dir=ap.clone().sub(_mz); const dd=dir.length(); dir.divideScalar(dd);
+  const laser=economy.powerLevel===economy.maxLevel;
+  if(laser) showLaser(_mz,ap);
+  else{ const bl=spawnBullet(_mz,dir,hit?tb:null,hit?dd:160,s.gun); if(bl&&hit) bl.dmg=(s.gun?4.5:1)*(1+Math.max(0,1-dd/26)*1.8)*damageMultiplier(); }
   s.kick=1; s.flashT=.055; s.flash.visible=true; s.flash.material.rotation=Math.random()*TAU; s.flash.scale.setScalar(rand(.55,.95)*(s.gun?1.5:1));
   muzzleLight(_mz);
   if(Math.random()<.3) spawnShell(s);
   if(Math.random()<(s.gun?.35:.12)) spawnSmoke(_mz);
   sfxShot(s.gun,_mz);
+  if(laser&&hit) tb.hit((s.gun?4.5:1)*(1+Math.max(0,1-dd/26)*1.8)*damageMultiplier(),ap);
 }
 function pushOut(p,rad){
   for(const o of OBST){
@@ -1905,7 +2002,7 @@ function buildPath(from,slot){
 }
 const soldiers=[];
 for(let i=0;i<slots.length+26;i++) soldiers.push(new Soldier());
-slots.forEach((s,i)=>soldiers[i].deploy(s,'post'));
+slots.forEach((s,i)=>{ if(s.type==='gun') soldiers[i].deploy(s,'post'); });
 function freeSoldier(){ for(const s of soldiers) if(s.state==='off') return s; return null; }
 function nearestSoldier(x,z,rad,onlyGround){
   let best=null,bd=rad;
@@ -1917,7 +2014,7 @@ function nearestSoldier(x,z,rad,onlyGround){
 }
 function updateReinforcements(dt){
   for(const sl of slots){
-    if(sl.soldier) continue;
+    if(sl.soldier||(sl.type!=='gun'&&!sl.trained)) continue;
     sl.respT-=dt; if(sl.respT>0) continue;
     const s=freeSoldier(); if(!s){ sl.respT=.5; continue; }
     let from;
@@ -1976,21 +2073,26 @@ class Bug{
     spawnBurst(_mz,3,GOO,2.6,.07,2.2); sfxHit(_mz);
     if(this.hp<=0) this.die();
   }
-  die(){
-    stats.kills++; this.state='off'; this.root.visible=false;
+  die(carpetBomb=false){
+    stats.kills++; awardBugKill(); this.state='off'; this.root.visible=false;
     const r=this.root, sc=this.sc, yaw=this.heading, vx=this.vx*.4, vz=this.vz*.4;
     this.rig.getWorldPosition(_wp);
     const c=_wp.clone();
-    spawnBurst(c,36,GOO,7.5,.13,7); spawnBurst(c,10,[C(0xd2cf3a)],4,.1,5);
-    spawnShards(c,16,vx,vz,9); spawnDust(c.x,c.y-.8,c.z,3,1.5); spawnMist(c.x,c.y,c.z,4,1.4); sfxSplat(c);
-    if(Math.random()<.35) muzzleLight(c);
-    const legs=this.legs.slice().sort(()=>Math.random()-.5).slice(0,2+(Math.random()<.4?1:0));
-    for(const l of legs){ l.piv.getWorldPosition(_wp2); launchPiece('leg',_wp2,yaw+l.piv.rotation.y,sc,l.side,vx,vz,7,8); }
-    if(Math.random()<.6){ const a=this.arms[Math.random()<.5?0:1]; a.piv.getWorldPosition(_wp2); launchPiece('arm',_wp2,yaw,sc,a.side,vx,vz,7,7); }
-    if(Math.random()<.75) launchPiece('head',c,yaw,sc,1,vx,vz,6.5,5);
-    if(Math.random()<.65) launchPiece('hub',c,yaw,sc,1,vx,vz,5.5,4);
-    spawnDecal(r.position.x,r.position.z,rand(1.1,1.9),SPLAT);
-    for(let k=0;k<3;k++) spawnDecal(r.position.x+rand(-2.4,2.4),r.position.z+rand(-2.4,2.4),rand(.35,.8),SPLAT);
+    if(carpetBomb){
+      spawnExplosion(c,sc); spawnBurst(c,Math.max(4,Math.floor(NP/NEXP)),BOMBC,16,.45,16);
+      spawnShards(c,2,vx,vz,14); spawnSmoke(c); spawnDust(c.x,c.y-.8,c.z,3,1.1);
+    } else {
+      spawnBurst(c,36,GOO,7.5,.13,7); spawnBurst(c,10,[C(0xd2cf3a)],4,.1,5);
+      spawnShards(c,16,vx,vz,9); spawnDust(c.x,c.y-.8,c.z,3,1.5); spawnMist(c.x,c.y,c.z,4,1.4); sfxSplat(c);
+      if(Math.random()<.35) muzzleLight(c);
+      const legs=this.legs.slice().sort(()=>Math.random()-.5).slice(0,2+(Math.random()<.4?1:0));
+      for(const l of legs){ l.piv.getWorldPosition(_wp2); launchPiece('leg',_wp2,yaw+l.piv.rotation.y,sc,l.side,vx,vz,7,8); }
+      if(Math.random()<.6){ const a=this.arms[Math.random()<.5?0:1]; a.piv.getWorldPosition(_wp2); launchPiece('arm',_wp2,yaw,sc,a.side,vx,vz,7,7); }
+      if(Math.random()<.75) launchPiece('head',c,yaw,sc,1,vx,vz,6.5,5);
+      if(Math.random()<.65) launchPiece('hub',c,yaw,sc,1,vx,vz,5.5,4);
+      spawnDecal(r.position.x,r.position.z,rand(1.1,1.9),SPLAT);
+      for(let k=0;k<3;k++) spawnDecal(r.position.x+rand(-2.4,2.4),r.position.z+rand(-2.4,2.4),rand(.35,.8),SPLAT);
+    }
   }
   update(dt,t){
     const st=this.state; if(st==='off') return;
@@ -2272,6 +2374,25 @@ function releasePlayer(note){
    UI
    ============================================================ */
 const stats={kills:0,lost:0,reinf:0};
+const economy={cash:0,powerLevel:0,rateLevel:0,maxLevel:5};
+const KILL_REWARD=10, RECRUIT_COST=60, UPGRADE_BASE_COST=100, BOMB_COST=250;
+function damageMultiplier(){ return Math.pow(1.35,economy.powerLevel); }
+function rateMultiplier(){ return 1+economy.rateLevel*.15; }
+function recruitReserve(){
+  const powerReserve=economy.powerLevel<economy.maxLevel?UPGRADE_BASE_COST*(economy.powerLevel+1):0;
+  const rateReserve=economy.rateLevel<economy.maxLevel?UPGRADE_BASE_COST*(economy.rateLevel+1):0;
+  return Math.max(BOMB_COST,powerReserve,rateReserve);
+}
+function autoTrain(){
+  const purchaseReserve=recruitReserve();
+  while(economy.cash>=RECRUIT_COST+purchaseReserve){
+    const slot=slots.find(s=>s.type!=='gun'&&!s.trained&&!s.soldier);
+    if(!slot) break;
+    const recruit=freeSoldier(); if(!recruit) break;
+    economy.cash-=RECRUIT_COST; slot.trained=true;
+  }
+}
+function awardBugKill(){ economy.cash+=KILL_REWARD; autoTrain(); updateEconomyUI(); }
 let paused=false, swarm=6;
 const btnViews=[...document.querySelectorAll('#tr [data-view]')], bOrbit=document.getElementById('bOrbit'), bPause=document.getElementById('bPause');
 let currentView='overview';
@@ -2309,11 +2430,47 @@ todIn.addEventListener('input',()=>applyTime(parseFloat(todIn.value)));
 swIn.addEventListener('input',()=>{ swarm=parseInt(swIn.value,10); swOut.textContent=swarm; });
 let hintGone=false; function hideHint(){ if(hintGone) return; hintGone=true; document.getElementById('hint').style.opacity=0; }
 setTimeout(hideHint,9000);
-const el={k:document.getElementById('sKills'),b:document.getElementById('sBugs'),l:document.getElementById('sKia'),r:document.getElementById('sRes')};
+const el={k:document.getElementById('sKills'),b:document.getElementById('sBugs'),l:document.getElementById('sKia'),r:document.getElementById('sRes'),cash:document.getElementById('sCash')};
+const shopCash=document.getElementById('shopCash'), recruitInfo=document.getElementById('recruitInfo');
+const powerBtn=document.getElementById('powerBtn'), rateBtn=document.getElementById('rateBtn'), bombBtn=document.getElementById('bombBtn');
+function updateEconomyUI(){
+  const cash='$'+economy.cash.toLocaleString();
+  const powerCost=UPGRADE_BASE_COST*(economy.powerLevel+1), rateCost=UPGRADE_BASE_COST*(economy.rateLevel+1);
+  el.cash.textContent=cash; shopCash.textContent=cash;
+  recruitInfo.textContent=`Kills +$10 · $60 auto-recruit · hold $${recruitReserve()}`;
+  powerBtn.textContent=economy.powerLevel===economy.maxLevel?'PWR MAX · LASER':`PWR ${economy.powerLevel}/${economy.maxLevel} · $${powerCost}`;
+  rateBtn.textContent=economy.rateLevel===economy.maxLevel?'RATE MAX':`RATE ${economy.rateLevel}/${economy.maxLevel} · $${rateCost}`;
+  bombBtn.textContent='BOMB $'+BOMB_COST;
+  powerBtn.disabled=economy.powerLevel===economy.maxLevel||economy.cash<powerCost;
+  rateBtn.disabled=economy.rateLevel===economy.maxLevel||economy.cash<rateCost;
+  bombBtn.disabled=economy.cash<BOMB_COST||!liveBugs.some(b=>b.targetable());
+  powerBtn.title='Increase all units’ damage by 35%; max power fires lasers';
+  rateBtn.title='Increase all units’ fire rate by 15%';
+  bombBtn.title='Spend $250 to destroy all bugs currently on the field';
+}
+function buyUpgrade(key){
+  const level=economy[key], cost=UPGRADE_BASE_COST*(level+1);
+  if(level>=economy.maxLevel||economy.cash<cost) return;
+  economy.cash-=cost; economy[key]++;
+  autoTrain(); updateEconomyUI();
+  toast(key==='powerLevel'?'Firepower upgraded':'Fire rate upgraded',1800);
+}
+function buyCarpetBomb(){
+  const targets=liveBugs.filter(b=>b.targetable());
+  if(economy.cash<BOMB_COST||!targets.length) return;
+  economy.cash-=BOMB_COST;
+  for(const bug of targets) bug.die(true);
+  updateEconomyUI(); toast(`Carpet bomb destroyed ${targets.length} bugs`,2400);
+}
+powerBtn.addEventListener('click',()=>buyUpgrade('powerLevel'));
+rateBtn.addEventListener('click',()=>buyUpgrade('rateLevel'));
+bombBtn.addEventListener('click',buyCarpetBomb);
 function refreshHud(){
   el.k.textContent=stats.kills; el.b.textContent=liveBugs.length; el.l.textContent=stats.lost;
-  let res=0; for(const s of soldiers) if(s.state==='off') res++; el.r.textContent=res;
+  el.r.textContent=slots.filter(s=>s.trained).length;
+  updateEconomyUI();
 }
+updateEconomyUI();
 
 function resize(){
   const w=window.innerWidth,h=window.innerHeight; renderer.setSize(w,h,false); if(composer){ composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(w,h); setFxaa(); } camera.aspect=w/h; camera.updateProjectionMatrix();
@@ -2426,7 +2583,7 @@ function frame(now){
     for(const b of bugPool) b.update(dt,simT);
     for(const s of soldiers) s.update(dt,simT);
     updateReinforcements(dt);
-    updateBullets(dt); updateShells(dt); updateParticles(dt); updateShards(dt); updatePieces(dt); updateMuzzleLights(dt);
+    updateBullets(dt); updateLasers(dt); updateShells(dt); updateParticles(dt); updateExplosions(dt); updateShards(dt); updatePieces(dt); updateMuzzleLights(dt);
     // ambient dust
     for(let i=0;i<ND2;i++){
       dustPos[i*3]+=(3.2+Math.sin(simT*.3+i)*.8)*dt; dustPos[i*3+1]+=Math.sin(simT*.5+i*1.7)*.15*dt;
