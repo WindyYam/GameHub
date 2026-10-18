@@ -101,6 +101,7 @@ body{ touch-action:manipulation; }
   input[type=range]{ box-sizing:content-box; height:8px; padding:12px 0; background-clip:content-box; }
   input[type=range]::-webkit-slider-thumb{ width:28px; height:28px; }
   input[type=range]::-moz-range-thumb{ width:22px; height:22px; }
+  .hint-desktop{ display:none; } .hint-touch{ display:inline; }
 }
 /* phones and small windows: stack the HUD in two containers so nothing overlaps */
 @media (max-width:760px), (max-height:520px){
@@ -180,7 +181,7 @@ body{ touch-action:manipulation; }
 </div>
 
 <div id="bottom">
-<div id="hint"><span class="hint-desktop">Click any trooper or machine gunner to take control · drag to orbit · scroll or pinch to zoom · Space to pause · − / + brightness · M mute · click anywhere to switch sound on</span><span class="hint-touch">Tap a trooper to take control · drag to orbit · pinch to zoom</span></div>
+<div id="hint"><span class="hint-desktop">Click any trooper or machine gunner to take control · drag to orbit · scroll or pinch to zoom · Space to pause · − / + brightness · M mute · click anywhere to switch sound on</span><span class="hint-touch">Tap a trooper to take control · drag or two-finger swipe to orbit · pinch to zoom</span></div>
 <div id="bt" class="panel">
   <div class="ctl">
     <label for="tod"><span>Time of day <em id="todName" style="font-style:normal"></em></span><strong id="todOut">16:30</strong></label>
@@ -194,7 +195,7 @@ body{ touch-action:manipulation; }
 </div>
 </div>
 <div id="cross" aria-hidden="true"><svg viewBox="0 0 48 48" width="48" height="48"><circle cx="24" cy="24" r="10" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M24 2v14M24 32v14M2 24h14M32 24h14" stroke="currentColor" stroke-width="1.6" fill="none"/><circle cx="24" cy="24" r="1.6" fill="currentColor"/></svg></div>
-<div id="who" class="panel"><span id="whoText"></span><em>Drag to aim · hold to fire</em><button id="leave">Leave</button></div>
+<div id="who" class="panel"><span id="whoText"></span><em><span class="hint-desktop">Drag to aim · hold to fire</span><span class="hint-touch">Drag to aim · two-finger drag to look · hold FIRE</span></em><button id="leave">Leave</button></div>
 <button id="fireBtn" aria-label="Fire">Fire</button>
 <div id="toast" role="status"></div>
 
@@ -1495,6 +1496,7 @@ function updateSmoke(dt){
 
 // ---------- sound: everything is synthesised, nothing is downloaded ----------
 const AUD={ctx:null,master:null,dry:null,wet:null,buf:{},muted:false,voices:0,frameVoices:0,px:0,py:0,pz:0,rx:1,rz:0,screechT:2,initAt:-1e9,wind:null,rumble:null};
+const AUDIO_LIMITS=window.matchMedia('(pointer: coarse)').matches?{voices:8,perFrame:2}:{voices:26,perFrame:6};
 function mkBuf(ctx,dur,fn){
   const sr=ctx.sampleRate, n=Math.floor(sr*dur), b=ctx.createBuffer(1,n,sr), d=new Float32Array(n); let mx=1e-6;
   fn(d,sr,n); for(let i=0;i<n;i++) mx=Math.max(mx,Math.abs(d[i]));
@@ -1565,18 +1567,20 @@ function initAudio(){
 }
 function playAt(buf,x,y,z,ref,vol,rate,wetAmt){
   const ctx=AUD.ctx; if(!ctx||AUD.muted||ctx.state!=='running'||!buf) return;
-  if(AUD.voices>=26||AUD.frameVoices>=6) return;
+  if(AUD.voices>=AUDIO_LIMITS.voices||AUD.frameVoices>=AUDIO_LIMITS.perFrame) return;
   const dx=x-AUD.px, dy=y-AUD.py, dz=z-AUD.pz, d=Math.sqrt(dx*dx+dy*dy+dz*dz);
   const g=vol/(1+Math.pow(d/ref,1.35)); if(g<.012) return;
   const src=ctx.createBufferSource(); src.buffer=buf; src.playbackRate.value=rate;
   const gn=ctx.createGain(); gn.gain.value=g;
   const lp=ctx.createBiquadFilter(); lp.type='lowpass'; lp.frequency.value=clamp(16000/(1+d/28),700,16000);
+  const nodes=[src,gn,lp];
   src.connect(gn); gn.connect(lp); let last=lp;
-  if(ctx.createStereoPanner){ const pn=ctx.createStereoPanner(); pn.pan.value=clamp((dx*AUD.rx+dz*AUD.rz)/Math.max(d,1)*.9,-1,1); last.connect(pn); last=pn; }
+  if(ctx.createStereoPanner){ const pn=ctx.createStereoPanner(); pn.pan.value=clamp((dx*AUD.rx+dz*AUD.rz)/Math.max(d,1)*.9,-1,1); last.connect(pn); last=pn; nodes.push(pn); }
   last.connect(AUD.dry);
-  if(wetAmt>0){ const w=ctx.createGain(); w.gain.value=wetAmt*Math.min(1,.35+d/80); last.connect(w); w.connect(AUD.wet); }
-  AUD.voices++; AUD.frameVoices++; src.onended=()=>{ AUD.voices--; try{ gn.disconnect(); }catch(e){} };
+  if(wetAmt>0){ const w=ctx.createGain(); w.gain.value=wetAmt*Math.min(1,.35+d/80); last.connect(w); w.connect(AUD.wet); nodes.push(w); }
+  src.onended=()=>{ AUD.voices--; for(const node of nodes) node.disconnect(); };
   src.start(ctx.currentTime+Math.min(d/343,.8));
+  AUD.voices++; AUD.frameVoices++;
 }
 const pick_=a=>a[Math.floor(Math.random()*a.length)];
 function sfxShot(gun,p){ if(!AUD.ctx||Math.random()<.3) return; playAt(pick_(gun?AUD.buf.hmg:AUD.buf.rifle),p.x,p.y,p.z,gun?34:20,gun?1:.8,rand(.92,1.08),.5); }
@@ -2197,19 +2201,28 @@ function updateCam(dt){
 }
 setView(VIEWS.overview.pos,VIEWS.overview.tgt,true);
 
-const ptrs=new Map(); let pinch0=0;
+const ptrs=new Map(); let gesture=null;
 let down=null, lastHover=0;
-canvas.addEventListener('pointerdown',e=>{ canvas.setPointerCapture(e.pointerId); down={x:e.clientX,y:e.clientY,t:performance.now(),moved:0,id:e.pointerId}; if(player&&e.pointerType!=='touch'&&e.button===0) inp.mouse=true; ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY,b:e.button}); canvas.classList.add('drag'); if(!player){ orbiting=false; syncButtons(); } if(ptrs.size===2){ const a=[...ptrs.values()]; pinch0=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y); } hideHint(); });
+canvas.addEventListener('pointerdown',e=>{ canvas.setPointerCapture(e.pointerId); down={x:e.clientX,y:e.clientY,t:performance.now(),moved:0,id:e.pointerId}; if(player&&e.pointerType!=='touch'&&e.button===0) inp.mouse=true; ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY,b:e.button}); canvas.classList.add('drag'); if(!player){ orbiting=false; syncButtons(); } if(ptrs.size>=2){ const a=[...ptrs.values()]; const midX=(a[0].x+a[1].x)*.5, midY=(a[0].y+a[1].y)*.5; gesture={x:midX,y:midY,d:Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y)}; if(down) down.moved=Infinity; } hideHint(); });
 canvas.addEventListener('pointermove',e=>{
   const p=ptrs.get(e.pointerId);
   if(!p){ const now=performance.now(); if(!player&&now-lastHover>90){ lastHover=now; canvas.style.cursor=pickAt(e.clientX,e.clientY)?'pointer':''; } return; }
   const dx=e.clientX-p.x, dy=e.clientY-p.y; p.x=e.clientX; p.y=e.clientY;
   if(down&&e.pointerId===down.id) down.moved+=Math.abs(dx)+Math.abs(dy);
+  if(ptrs.size>=2){
+    const a=[...ptrs.values()], midX=(a[0].x+a[1].x)*.5, midY=(a[0].y+a[1].y)*.5;
+    const d=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y);
+    if(gesture){
+      const gx=midX-gesture.x, gy=midY-gesture.y;
+      if(player){ pl.yaw-=gx*.0042; pl.pitch=clamp(pl.pitch-gy*.0042,-.55,.6); clampAim(); }
+      else{ goal.th-=gx*.0055; goal.ph=clamp(goal.ph-gy*.0055,.12,1.72); if(gesture.d>0) goal.r=clamp(goal.r*gesture.d/d,6,200); }
+    }
+    gesture={x:midX,y:midY,d};
+    return;
+  }
+  gesture=null;
   if(player){ pl.yaw-=dx*.0042; pl.pitch=clamp(pl.pitch-dy*.0042,-.55,.6); clampAim(); return; }
-  if(ptrs.size===2){
-    const a=[...ptrs.values()], d=Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y);
-    if(pinch0>0) goal.r=clamp(goal.r*pinch0/d,6,200); pinch0=d;
-  } else if(p.b===2||e.shiftKey){
+  if(p.b===2||e.shiftKey){
     const s=goal.r*.0016, sp=Math.sin(goal.th), cp=Math.cos(goal.th);
     goal.t.x-=(cp*dx)*s; goal.t.z+=(sp*dx)*s; goal.t.y=clamp(goal.t.y+dy*s,0,60);
   } else {
@@ -2219,7 +2232,10 @@ canvas.addEventListener('pointermove',e=>{
 const endPtr=e=>{
   if(player) inp.mouse=false;
   else if(down&&down.id===e.pointerId&&e.type==='pointerup'&&down.moved<8&&performance.now()-down.t<450){ const s=pickAt(e.clientX,e.clientY); if(s) takeControl(s); }
-  ptrs.delete(e.pointerId); if(!ptrs.size) canvas.classList.remove('drag'); pinch0=0; };
+  ptrs.delete(e.pointerId); if(!ptrs.size) canvas.classList.remove('drag');
+  if(ptrs.size>=2){ const a=[...ptrs.values()]; gesture={x:(a[0].x+a[1].x)*.5,y:(a[0].y+a[1].y)*.5,d:Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y)}; }
+  else gesture=null;
+};
 canvas.addEventListener('pointerup',endPtr); canvas.addEventListener('pointercancel',endPtr);
 canvas.addEventListener('contextmenu',e=>e.preventDefault());
 canvas.addEventListener('wheel',e=>{ e.preventDefault(); if(player) return; goal.r=clamp(goal.r*Math.exp(e.deltaY*.0011),6,200); hideHint(); },{passive:false});
