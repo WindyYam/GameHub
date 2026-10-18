@@ -206,7 +206,7 @@ body{ touch-action:manipulation; }
 </div>
 
 <div id="bottom">
-<div id="hint"><span class="hint-desktop">Click any trooper or machine gunner to take control · drag to orbit · scroll or pinch to zoom · Space to pause · − / + brightness · M mute · click anywhere to switch sound on</span><span class="hint-touch">Tap a trooper to take control · drag or two-finger swipe to orbit · pinch to zoom</span></div>
+<div id="hint"><span class="hint-desktop">Click any trooper or machine gunner to take control · drag to orbit · scroll or pinch to zoom · Space to pause · − / + brightness · M mute · click anywhere to switch sound on</span><span class="hint-touch">Tap a trooper to take control · drag to orbit · two-finger drag to move · pinch to zoom</span></div>
 <div id="bt" class="panel">
   <div class="ctl">
     <label for="tod"><span>Time of day <em id="todName" style="font-style:normal"></em></span><strong id="todOut">16:30</strong></label>
@@ -2305,6 +2305,10 @@ setView(VIEWS.overview.pos,VIEWS.overview.tgt,true);
 
 const ptrs=new Map(); let gesture=null;
 let down=null, lastHover=0;
+function panCamera(dx,dy){
+  const s=goal.r*.0016, sp=Math.sin(goal.th), cp=Math.cos(goal.th);
+  goal.t.x-=(cp*dx)*s; goal.t.z+=(sp*dx)*s; goal.t.y=clamp(goal.t.y+dy*s,0,60);
+}
 canvas.addEventListener('pointerdown',e=>{ canvas.setPointerCapture(e.pointerId); down={x:e.clientX,y:e.clientY,t:performance.now(),moved:0,id:e.pointerId}; if(player&&e.pointerType!=='touch'&&e.button===0) inp.mouse=true; ptrs.set(e.pointerId,{x:e.clientX,y:e.clientY,b:e.button}); canvas.classList.add('drag'); if(!player){ orbiting=false; syncButtons(); } if(ptrs.size>=2){ const a=[...ptrs.values()]; const midX=(a[0].x+a[1].x)*.5, midY=(a[0].y+a[1].y)*.5; gesture={x:midX,y:midY,d:Math.hypot(a[0].x-a[1].x,a[0].y-a[1].y)}; if(down) down.moved=Infinity; } hideHint(); });
 canvas.addEventListener('pointermove',e=>{
   const p=ptrs.get(e.pointerId);
@@ -2317,17 +2321,15 @@ canvas.addEventListener('pointermove',e=>{
     if(gesture){
       const gx=midX-gesture.x, gy=midY-gesture.y;
       if(player){ pl.yaw-=gx*.0042; pl.pitch=clamp(pl.pitch-gy*.0042,-.55,.6); clampAim(); }
-      else{ goal.th-=gx*.0055; goal.ph=clamp(goal.ph-gy*.0055,.12,1.72); if(gesture.d>0) goal.r=clamp(goal.r*gesture.d/d,6,200); }
+      else{ panCamera(gx,gy); if(gesture.d>0) goal.r=clamp(goal.r*gesture.d/d,6,200); }
     }
     gesture={x:midX,y:midY,d};
     return;
   }
   gesture=null;
   if(player){ pl.yaw-=dx*.0042; pl.pitch=clamp(pl.pitch-dy*.0042,-.55,.6); clampAim(); return; }
-  if(p.b===2||e.shiftKey){
-    const s=goal.r*.0016, sp=Math.sin(goal.th), cp=Math.cos(goal.th);
-    goal.t.x-=(cp*dx)*s; goal.t.z+=(sp*dx)*s; goal.t.y=clamp(goal.t.y+dy*s,0,60);
-  } else {
+  if(p.b===2||e.shiftKey) panCamera(dx,dy);
+  else {
     goal.th-=dx*.0055; goal.ph=clamp(goal.ph-dy*.0055,.12,1.72);
   }
 });
