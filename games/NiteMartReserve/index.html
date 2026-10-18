@@ -85,25 +85,19 @@ input[type=range]{ width:110px; accent-color:var(--gold); }
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/objects/Reflector.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/lights/RectAreaLightUniformsLib.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/math/SimplexNoise.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/CopyShader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/LuminosityHighPassShader.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/SSAOShader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/GammaCorrectionShader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/FXAAShader.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/EffectComposer.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/RenderPass.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/ShaderPass.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/UnrealBloomPass.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/SSAOPass.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/shaders/SSRShader.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/postprocessing/SSRPass.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/utils/BufferGeometryUtils.js"></script>
 <script>
 (async function(){
 'use strict';
 if(!window.THREE){ document.getElementById('err').style.display='grid'; return; }
-try{ if(document.fonts&&document.fonts.load) await Promise.race([Promise.all([document.fonts.load('700 120px "Playfair Display"'),document.fonts.load('italic 500 60px "Playfair Display"')]), new Promise(r=>setTimeout(r,2000))]); }catch(e){}
 const V3=THREE.Vector3, TAU=Math.PI*2;
 const F=0.15, CEIL=4.4, HW=12, DEP=16, FL2=5.0, CEIL2=8.7, ROOF=9.0;
 const HOLE={x0:2,x1:6,z0:-6,z1:-2}, KEEP=[];          // store floor height, ceiling, half width, depth
@@ -124,7 +118,6 @@ renderer.toneMapping=THREE.ACESFilmicToneMapping; renderer.toneMappingExposure=1
 renderer.shadowMap.enabled=true; renderer.shadowMap.type=THREE.PCFSoftShadowMap; renderer.shadowMap.autoUpdate=false;
 document.getElementById('app').appendChild(renderer.domElement);
 const WGL2=renderer.capabilities.isWebGL2, maxAniso=renderer.capabilities.getMaxAnisotropy();
-const HF=WGL2?THREE.HalfFloatType:THREE.UnsignedByteType;
 const scene=new THREE.Scene(); scene.background=new THREE.Color(0x05070f); scene.fog=new THREE.FogExp2(0x0a0d1c,0.022);
 const camera=new THREE.PerspectiveCamera(52,innerWidth/innerHeight,0.1,260);
 
@@ -148,7 +141,7 @@ function normalFrom(canvas,strength=3,ds=1,wrap){ const w=Math.max(4,Math.floor(
   for(let y=0;y<h;y++) for(let x=0;x<w;x++){ const xl=(x-1+w)%w,xr=(x+1)%w,yu=(y-1+h)%h,yd=(y+1)%h; const dx=(L[y*w+xr]-L[y*w+xl])*strength, dy=(L[yd*w+x]-L[yu*w+x])*strength, len=Math.hypot(dx,dy,1), i=(y*w+x)*4; d[i]=(-dx/len*.5+.5)*255; d[i+1]=(dy/len*.5+.5)*255; d[i+2]=(1/len*.5+.5)*255; d[i+3]=255; }
   g.putImageData(out,0,0); const t=new THREE.CanvasTexture(c); t.anisotropy=Math.min(8,maxAniso); if(wrap){ t.wrapS=t.wrapT=THREE.RepeatWrapping; } return t; }
 function withNormal(mat,strength=3,scale=0.6,ds=1){ mat.normalMap=normalFrom(mat.map.image,strength,ds,mat.map.wrapS===THREE.RepeatWrapping); mat.normalScale.set(scale,scale); return mat; }
-const glassMeshes=[], clickables=[];
+const clickables=[];
 function interactive(obj,ia){ obj.userData.ia=ia; clickables.push(obj); return obj; }
 
 // ---------- luxury textures & materials
@@ -180,7 +173,7 @@ const M={
 M.glass.userData.noGI=true;
 const glowTex=makeTex(128,128,g=>{ const gr=g.createRadialGradient(64,64,0,64,64,64); gr.addColorStop(0,'rgba(255,255,255,1)'); gr.addColorStop(.22,'rgba(255,255,255,.5)'); gr.addColorStop(.55,'rgba(255,255,255,.12)'); gr.addColorStop(1,'rgba(255,255,255,0)'); g.fillStyle=gr; g.fillRect(0,0,128,128); });
 function glow(color,size,x,y,z,op=.6,parent){ const s=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTex,color,transparent:true,opacity:op,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false})); s.scale.set(size,size,1); s.position.set(x,y,z); (parent||scene).add(s); return s; }
-function glassPane(w,h,x,y,z,ry=0,parent){ const m=plane(w,h,M.glass,x,y,z,ry,parent); m.material.side=THREE.DoubleSide; glassMeshes.push(m); return m; }
+function glassPane(w,h,x,y,z,ry=0,parent){ const m=plane(w,h,M.glass,x,y,z,ry,parent); m.material.side=THREE.DoubleSide; return m; }
 const neonMat=tex=>basic({map:tex,transparent:true,blending:THREE.AdditiveBlending,depthWrite:false,toneMapped:false,side:THREE.DoubleSide});
 function neonTex(w,h,color,draw){ return makeTex(w,h,g=>{ g.lineCap='round'; g.lineJoin='round'; for(const [c,lw,blur,a] of [[color,h*.07,h*.25,.35],[color,h*.035,h*.09,.95],['#ffffff',h*.012,h*.02,.9]]){ g.save(); g.strokeStyle=c; g.fillStyle=c; g.lineWidth=lw; g.shadowColor=color; g.shadowBlur=blur; g.globalAlpha=a; draw(g,w,h); g.restore(); } }); }
 const haloTex=makeTex(8,64,g=>{ const gr=g.createLinearGradient(0,0,0,64); gr.addColorStop(0,'rgba(255,255,255,0)'); gr.addColorStop(.5,'rgba(255,255,255,1)'); gr.addColorStop(1,'rgba(255,255,255,0)'); g.fillStyle=gr; g.fillRect(0,0,8,64); });
@@ -270,7 +263,7 @@ const streetSpot=new THREE.SpotLight(0xffae5c,3.2,22,0.8,0.55,1.6); streetSpot.p
 const shadowSpots=[];
 for(const x of [-6,6]){ const s=new THREE.SpotLight(0xffe6c8,0.75,16,1.2,0.9,2); s.position.set(x,3.98,-8); s.target.position.set(x,0,-8); s.userData.base=0.75; s.userData.offK=0; interiorLights.push(s); scene.add(s,s.target); shadowSpots.push(s); }
 const canopySpot=new THREE.SpotLight(0xffe2b8,0.7,10,1.3,0.9,2); canopySpot.position.set(0,4.45,1.2); canopySpot.target.position.set(0,0,2); scene.add(canopySpot,canopySpot.target);
-for(const [l,s] of [[streetSpot,1024],[canopySpot,1024],...shadowSpots.map(x=>[x,isMobile?1024:2048])]){ l.castShadow=true; l.shadow.mapSize.set(s,s); l.shadow.bias=-0.0004; l.shadow.normalBias=0.025; l.shadow.camera.near=0.2; }
+for(const [l,s] of [[streetSpot,512],[canopySpot,512],...shadowSpots.map(x=>[x,512])]){ l.castShadow=true; l.shadow.mapSize.set(s,s); l.shadow.bias=-0.0004; l.shadow.normalBias=0.025; l.shadow.camera.near=0.2; }
 
 // ============================================================ STORE SHELL (bigger, luxury)
 const instMesh=(geo,mat,list,cols)=>{ const m=new THREE.InstancedMesh(geo,mat,list.length); list.forEach((mm,i)=>{ m.setMatrixAt(i,mm); if(cols) m.setColorAt(i,cols[i]); }); m.instanceMatrix.needsUpdate=true; m.frustumCulled=false; scene.add(m); return m; };
@@ -658,7 +651,7 @@ gondola(GX[4],GZ0,GZ1,li=>pick(li===0?['soap','tissue']:li===1?['tissue','soap',
   // dessert dome case on the counter
   const dc=new THREE.Group(); dc.position.set(x-0.05,F+1.0,-4.2); scene.add(dc);
   boxB(0.7,0.05,1.1,M.walnut,0,0,0,dc); boxB(0.72,0.015,1.12,M.brass,0,0.05,0,dc);
-  const dome=add(new THREE.CylinderGeometry(0.33,0.33,0.4,32,1,true),M.glass,0,0.27,0,dc); dome.scale.z=1.6; dome.material.side=THREE.DoubleSide; glassMeshes.push(dome);
+  const dome=add(new THREE.CylinderGeometry(0.33,0.33,0.4,32,1,true),M.glass,0,0.27,0,dc); dome.scale.z=1.6; dome.material.side=THREE.DoubleSide;
   boxB(0.68,0.012,1.08,M.brass,0,0.47,0,dc); add(new THREE.SphereGeometry(0.03,12,8),M.brass,0,0.5,0,dc);
   macTier(x-0.05,F+1.065,-4.38,0.13,3); macTier(x-0.05,F+1.065,-4.0,0.11,3);
   // espresso back bar
@@ -1191,31 +1184,8 @@ for(const [k,e] of instGroups){ if(!e.mats.length) continue; const m=new THREE.I
   m.frustumCulled=false; m.userData.items=e.items; m.userData.base=e.cols.map(c=>(c||WHITE).clone()); m.userData.mats=e.mats; m.userData.ia={product:true}; scene.add(m); productMeshes.push(m); clickables.push(m); }
 
 // ============================================================ SHARP REFLECTIONS (glass, car)
-const cubeRT=new THREE.WebGLCubeRenderTarget(isMobile?128:256,{format:THREE.RGBFormat,generateMipmaps:true,minFilter:THREE.LinearMipmapLinearFilter,stencilBuffer:true});
-const cubeCam=new THREE.CubeCamera(0.2,120,cubeRT); cubeCam.position.set(0,1.8,3.0); scene.add(cubeCam);
-const sharpEnvMats=[M.glass,carPaint,carGlass];
-function withHidden(fn){ const list=[...glassMeshes,glassDrops,glassStreaks,rain,splash,...reflectors]; const v=list.map(o=>o.visible); list.forEach(o=>o.visible=false); fn(); list.forEach((o,i)=>o.visible=v[i]); }
-function captureEnv(){ withHidden(()=>cubeCam.update(renderer,scene)); for(const m of sharpEnvMats){ m.envMap=cubeRT.texture; m.needsUpdate=true; } }
-
-// ============================================================ GLOBAL ILLUMINATION
-// Irradiance probes render the lit scene into cube maps; each is prefiltered (PMREM) and fed back as
-// image-based lighting to nearby surfaces. Two passes give a second bounce of light.
-const pmrem=new THREE.PMREMGenerator(renderer);
-const PROBE_RES=isMobile?48:96;
-const PROBES=[[-8,1.7,-3.5,1],[-2.5,1.7,-3.5,1],[3.5,1.7,-3.5,1],[9,1.7,-3.5,1],[-8,1.7,-11.5,1],[-2.5,1.7,-11.5,1],[3.5,1.7,-11.5,1],[9,1.7,-11.5,1],
-  [-7,6.6,-4,2],[7,6.6,-4,2],[-7,6.6,-12,2],[7,6.6,-12,2],[0,6.6,-8.5,2],
-  [0,1.6,3.0,0],[13.9,1.5,2.2,0],[-15,1.6,3.5,0],[3,1.8,12.5,0],[21,1.6,3.5,0],[-7,1.8,12.5,0]].map((p,idx)=>{
-  const rt=new THREE.WebGLCubeRenderTarget(PROBE_RES,{format:THREE.RGBAFormat,type:HF,generateMipmaps:false,minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter,stencilBuffer:true});
-  const cam=new THREE.CubeCamera(0.05,150,rt); cam.position.set(p[0],p[1],p[2]); scene.add(cam); return {idx,pos:new V3(p[0],p[1],p[2]),inside:p[3],rt,cam,env:null,mats:[]}; });
-function nearestProbe(p,inside){ let best=null,bd=1e9; for(const pr of PROBES){ if(pr.inside!==inside) continue; const d=pr.pos.distanceToSquared(p); if(d<bd){ bd=d; best=pr; } } return best; }
-const insideStore=p=>(p.x>-HW-0.05&&p.x<HW+0.05&&p.z<-0.05&&p.z>-DEP-0.1&&p.y<CEIL2+0.3)?(p.y<(CEIL+FL2)/2?1:2):0;
-const giClones=new Map(), _bb=new THREE.Box3(), _cc=new V3();
-function centerOf(o){ if(o.isInstancedMesh){ const a=o.instanceMatrix.array; let x=0,y=0,z=0; for(let i=0;i<o.count;i++){ x+=a[i*16+12]; y+=a[i*16+13]; z+=a[i*16+14]; } return _cc.set(x/o.count,y/o.count,z/o.count); } _bb.setFromObject(o); return _bb.getCenter(_cc); }
-function giMat(mat,pr){ if(!mat||!mat.isMeshStandardMaterial||mat.userData.noGI||!pr) return mat; const key=mat.uuid+'|'+pr.idx; let m=giClones.get(key); if(!m){ m=mat.clone(); m.envMapIntensity=mat.envMapIntensity*(pr.inside?0.9:1.0); pr.mats.push(m); giClones.set(key,m); } return m; }
 scene.traverse(o=>{ if(!o.isMesh) return; if(reflectors.includes(o)){ o.receiveShadow=false; return; }
-  const c=centerOf(o), ins=insideStore(c), mats=Array.isArray(o.material)?o.material:[o.material];
-  const out=mats.map(m=>giMat(m,nearestProbe(c,m===intWall?1:m===intWall2?2:m===extWall?0:ins)));
-  o.material=Array.isArray(o.material)?out:out[0]; o.receiveShadow=true;
+  const mats=Array.isArray(o.material)?o.material:[o.material]; o.receiveShadow=true;
   o.castShadow=!o.userData.noCast && mats.every(m=>m&&m.isMeshStandardMaterial&&(!m.transparent||m.alphaTest>0)); });
 // merge static meshes that share a material into single draw calls (keeps the big store fast)
 (function(){ if(!THREE.BufferGeometryUtils) return; scene.updateMatrixWorld(true);
@@ -1235,50 +1205,19 @@ scene.traverse(o=>{ if(!o.isMesh) return; if(reflectors.includes(o)){ o.receiveS
   for(const o of victims) o.parent.remove(o);
   for(const gr of groups.values()){ const mg=THREE.BufferGeometryUtils.mergeBufferGeometries(gr.geos,false); if(!mg) continue; const m=new THREE.Mesh(mg,gr.mat); m.castShadow=gr.cast; m.receiveShadow=gr.recv; scene.add(m); }
 })();
-const marbleFloorLive=floorMesh.material;
-function bakeProbe(pr){ withHidden(()=>pr.cam.update(renderer,scene)); const t=pmrem.fromCubemap(pr.rt.texture); if(pr.env) pr.env.dispose(); pr.env=t; for(const m of pr.mats){ const first=!m.envMap; m.envMap=t.texture; if(first) m.needsUpdate=true; } }
-const giQueue=[];
-function bakeAll(b){ renderer.shadowMap.needsUpdate=true; for(let k=0;k<b;k++) for(const p of PROBES) bakeProbe(p); }
-
-// ============================================================ POST (SSAO, bloom, FXAA) — 24-bit depth everywhere
-let composer=null, ssao=null, ssr=null, fxaa=null, renderPass=null, hq=!isMobile;
+// ============================================================ POST (bloom, FXAA)
+let composer=null, fxaa=null, hq=!isMobile;
 function setupPost(){ if(!THREE.EffectComposer||!THREE.UnrealBloomPass||!THREE.GammaCorrectionShader) return;
   try{ const pr=renderer.getPixelRatio(), W=Math.floor(innerWidth*pr), H=Math.floor(innerHeight*pr);
-    composer=new THREE.EffectComposer(renderer,new THREE.WebGLRenderTarget(W,H,{type:HF,format:THREE.RGBAFormat,minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter,stencilBuffer:true}));
-    renderPass=new THREE.RenderPass(scene,camera); composer.addPass(renderPass);
-    // screen-space reflections on the marble floor (the only reflective surface inside)
-    if(THREE.SSRPass&&THREE.SSRShader){ ssr=new THREE.SSRPass({renderer,scene,camera,width:W,height:H,selects:[floorMesh,...L2floor]});
-      ssr.thickness=0.03; ssr.maxDistance=12; ssr.opacity=0.55; ssr.blur=true; ssr.fresnel=true; ssr.distanceAttenuation=true;
-      ssr.beautyRenderTarget.texture.type=HF; if(WGL2) ssr.beautyRenderTarget.depthTexture.type=THREE.UnsignedIntType;
-      ssr.normalRenderTarget.stencilBuffer=true; ssr.metalnessRenderTarget.stencilBuffer=true;
-      const capSteps=()=>{ ssr.ssrMaterial.defines.MAX_STEP=Math.min(isMobile?220:420,Math.round(Math.hypot(ssr.width,ssr.height))); ssr.ssrMaterial.needsUpdate=true; }; capSteps();
-      const ss=ssr.setSize.bind(ssr); ssr.setSize=(w,h)=>{ ss(w,h); capSteps(); };
-      const ro=ssr.renderOverride.bind(ssr); ssr.renderOverride=(...a)=>hideForAux(false,()=>ro(...a));
-      const rm=ssr.renderMetalness.bind(ssr); ssr.renderMetalness=(...a)=>hideForAux(true,()=>rm(...a));
-      composer.addPass(ssr); }
-    // ambient occlusion reusing the SSR pass's depth & normals and compositing over the incoming image
-    if(THREE.SSAOPass&&THREE.SSAOShader&&THREE.SimplexNoise){ ssao=new THREE.SSAOPass(scene,camera,W,H); ssao.kernelRadius=0.32; ssao.minDistance=0.00004; ssao.maxDistance=0.0016;
-      if(WGL2) ssao.normalRenderTarget.depthTexture.type=THREE.UnsignedIntType;
-      ssao.render=function(rd,writeBuffer,readBuffer){
-        if(ssr&&ssr.enabled){ this.ssaoMaterial.uniforms.tNormal.value=ssr.normalRenderTarget.texture; this.ssaoMaterial.uniforms.tDepth.value=ssr.beautyRenderTarget.depthTexture; }
-        else { this.ssaoMaterial.uniforms.tNormal.value=this.normalRenderTarget.texture; this.ssaoMaterial.uniforms.tDepth.value=this.normalRenderTarget.depthTexture; hideForAux(false,()=>this.renderOverride(rd,this.normalMaterial,this.normalRenderTarget,0x7777ff,1.0)); }
-        this.ssaoMaterial.uniforms.kernelRadius.value=this.kernelRadius; this.ssaoMaterial.uniforms.minDistance.value=this.minDistance; this.ssaoMaterial.uniforms.maxDistance.value=this.maxDistance;
-        this.renderPass(rd,this.ssaoMaterial,this.ssaoRenderTarget); this.renderPass(rd,this.blurMaterial,this.blurRenderTarget);
-        this.copyMaterial.uniforms.tDiffuse.value=readBuffer.texture; this.copyMaterial.blending=THREE.NoBlending; this.renderPass(rd,this.copyMaterial,this.renderToScreen?null:writeBuffer);
-        this.copyMaterial.uniforms.tDiffuse.value=this.blurRenderTarget.texture; this.copyMaterial.blending=THREE.CustomBlending; this.renderPass(rd,this.copyMaterial,this.renderToScreen?null:writeBuffer); };
-      composer.addPass(ssao); }
+    composer=new THREE.EffectComposer(renderer,new THREE.WebGLRenderTarget(W,H,{minFilter:THREE.LinearFilter,magFilter:THREE.LinearFilter,stencilBuffer:true}));
+    composer.addPass(new THREE.RenderPass(scene,camera));
     composer.addPass(new THREE.UnrealBloomPass(new THREE.Vector2(W,H),0.7,0.55,0.92));
     composer.addPass(new THREE.ShaderPass(THREE.GammaCorrectionShader));
     if(THREE.FXAAShader){ fxaa=new THREE.ShaderPass(THREE.FXAAShader); composer.addPass(fxaa); }
   }catch(e){ console.warn('Post-processing unavailable',e); composer=null; } }
-// each mirror skips the normal-pass and hides the other mirror while it renders
-for(const r of reflectors){ const ob=r.onBeforeRender; r.onBeforeRender=function(rd,s,c){ if(s.overrideMaterial) return; const others=reflectors.filter(o=>o!==r), vis=others.map(o=>o.visible); others.forEach(o=>o.visible=false); ob.call(this,rd,s,c); others.forEach((o,i)=>o.visible=vis[i]); }; }
 function syncPost(){ if(!composer) return; const pr=renderer.getPixelRatio(); composer.setPixelRatio(pr); composer.setSize(innerWidth,innerHeight);
   if(fxaa) fxaa.material.uniforms.resolution.value.set(1/(innerWidth*pr),1/(innerHeight*pr));
-  if(ssr){ ssr.enabled=hq; renderPass.enabled=!hq; ssr.ssrMaterial.uniforms.cameraProjectionMatrix.value.copy(camera.projectionMatrix); ssr.ssrMaterial.uniforms.cameraInverseProjectionMatrix.value.copy(camera.projectionMatrixInverse); }
-  if(ssao){ ssao.enabled=hq; ssao.ssaoMaterial.uniforms.cameraProjectionMatrix.value.copy(camera.projectionMatrix); ssao.ssaoMaterial.uniforms.cameraInverseProjectionMatrix.value.copy(camera.projectionMatrixInverse); } }
-// normal / mask passes skip glass, glows, rain and decals so they never block the floor
-function hideForAux(hideMirrors,fn){ const list=[]; scene.traverse(o=>{ if(o.visible&&(o.isPoints||o.isLine||o.isSprite||(o.material&&!Array.isArray(o.material)&&o.material.transparent&&!o.material.alphaTest)||(hideMirrors&&reflectors.includes(o)))) list.push(o); }); list.forEach(o=>o.visible=false); fn(); list.forEach(o=>o.visible=true); }
+}
 function setQuality(h){ hq=h; renderer.setPixelRatio(Math.min(devicePixelRatio,h?1.25:0.85)); renderer.setSize(innerWidth,innerHeight);
   syncPost(); const b=document.getElementById('quality'); b.setAttribute('aria-pressed',String(h)); b.textContent=h?'High quality':'Fast'; }
 
@@ -1288,7 +1227,7 @@ const coveMats=[M.ledWarm,dlMat];
 function setLights(on){ lightsOn=on; document.getElementById('lights').setAttribute('aria-pressed',String(on));
   M.ledWarm.color.setRGB(on?1.9:.06,on?1.45:.05,on?0.95:.04); dlMat.color.setRGB(on?2.2:.08,on?1.9:.07,on?1.5:.06);
   interiorLights.forEach(l=>l.intensity=on?l.userData.base:l.userData.base*(l.userData.offK??0.02)); buzz();
-  giQueue.length=0; for(let b=0;b<2;b++) PROBES.forEach(p=>{ if(p.inside||p.idx===13) giQueue.push(p); }); setTimeout(captureEnv,80); }
+  renderer.shadowMap.needsUpdate=true; }
 let flash=0, flashSeq=[], nextBolt=R(12,22);
 function lightning(){ flashSeq=[0,.08,.16,.32,.4].map(t=>performance.now()/1000+t); thunder(R(0.8,2.2)); }
 
@@ -1352,7 +1291,7 @@ document.getElementById('rain').addEventListener('input',e=>{ rainAmt=e.target.v
 addEventListener('resize',()=>{ camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); syncPost(); });
 
 // ============================================================ LOOP
-const clock=new THREE.Clock(); let T=0, envTimer=0;
+const clock=new THREE.Clock(); let T=0;
 const tmpM=new THREE.Matrix4(), tmpQ=new THREE.Quaternion(), tmpP=new V3(), tmpS=new V3(), UP=new V3(0,1,0), spinQ=new THREE.Quaternion();
 function frame(){
   const dt=Math.min(clock.getDelta(),0.05); T+=dt;
@@ -1382,13 +1321,13 @@ function frame(){
   if(carT<0&&carNext<=0){ carT=0; carDir=Math.random()<.5?1:-1; car.visible=true; carPaint.color.setHex(pick([0x1d2a44,0x6b0f1a,0xd8d9de,0x161616,0x2f4f3f,0xe0b100])); car.rotation.y=carDir>0?0:Math.PI; }
   if(carT>=0){ carT+=dt; const x=-54*carDir+carDir*carT*11; car.position.set(x,0,carDir>0?9.5:15.0); if(Math.abs(x)>56&&carT>1){ carT=-1; car.visible=false; carNext=R(7,16); } }
   const active=Math.floor(MAXD*rainAmt), curtain=Math.floor(CURT*Math.min(1,rainAmt*1.4)); wind=0.6+Math.sin(T*0.3)*0.5;
-  for(let i=0;i<TOT;i++){ const d=drops[i], j=i*6, isC=i>=MAXD;
-    if((!isC&&i>=active)||(isC&&i-MAXD>=curtain)){ rp[j]=rp[j+3]=0; rp[j+1]=rp[j+4]=-50; rp[j+2]=rp[j+5]=0; continue; }
+  for(let i=0;i<active+curtain;i++){ const isC=i>=active, d=drops[isC?MAXD+i-active:i], j=i*6;
     if(isC){ d.v+=9.8*dt; d.y-=d.v*dt; if(d.y<=0.02){ if(Math.random()<.35) addSplash(d.x,d.z); spawnCurtain(d,true);} }
     else { d.y-=d.v*dt; d.x+=wind*dt; if(d.y<=0.02||blocked(d.x,d.y,d.z)){ if(d.y<=0.05&&Math.random()<.5&&Math.abs(d.x-rc.x)<18&&Math.abs(d.z-rc.z)<13) addSplash(d.x,d.z); spawnDrop(d,true); }
       if(Math.abs(d.x-rc.x)>28) d.x=rc.x-Math.sign(d.x-rc.x)*26; if(Math.abs(d.z-rc.z)>20) d.z=rc.z-Math.sign(d.z-rc.z)*18; }
     rp[j]=d.x; rp[j+1]=d.y; rp[j+2]=d.z; rp[j+3]=d.x-wind*0.035; rp[j+4]=d.y+d.len; rp[j+5]=d.z; }
-  rainGeo.attributes.position.needsUpdate=true;
+  rainGeo.setDrawRange(0,(active+curtain)*2);
+  if(active+curtain){ rainGeo.attributes.position.updateRange.count=(active+curtain)*6; rainGeo.attributes.position.needsUpdate=true; }
   for(let i=0;i<SPL;i++){ const s=spl[i]; if(s.life>=1) continue; s.life=Math.min(1,s.life+dt*3.2); const sc=0.02+s.life*0.13; splash.setMatrixAt(i,mtx(s.x,0.014,s.z,sc,1,sc)); const f=(1-s.life)*0.9; HL.setRGB(f,f,f*1.1); splash.setColorAt(i,HL); }
   splash.instanceMatrix.needsUpdate=true; splash.instanceColor.needsUpdate=true;
   streakTex.offset.y-=dt*0.05*(0.3+rainAmt); glassDrops.material.opacity=0.2+0.45*rainAmt; glassStreaks.material.opacity=0.12+0.3*rainAmt;
@@ -1398,13 +1337,11 @@ function frame(){
   flash+=(fl-flash)*0.6; hemi.intensity=0.26+flash*5; skyMat.color.setScalar(1+flash*4); scene.fog.color.setRGB(0.04+flash*.25,0.05+flash*.27,0.11+flash*.4);
   if(wet) wet.material.uniforms.time.value=T;
   for(const f of CITY.upd) f(dt,T);
-  if(giQueue.length) bakeProbe(giQueue.shift());
   if(needPick&&pointers.size===0){ needPick=false; const h=pick3(mouse.x,mouse.y); const same=h&&hover&&h.obj===hover.obj&&(!h.ia.product||h.hit.instanceId===hover.hit.instanceId); if(!same) setHover(h); updateTip(h); }
-  envTimer+=dt; if(envTimer>2&&envTimer<2.1){ envTimer=3; captureEnv(); }
   if(composer) composer.render(dt); else renderer.render(scene,camera);
   requestAnimationFrame(frame);
 }
-bakeAll(2); captureEnv(); setupPost(); setQuality(hq);
+renderer.shadowMap.needsUpdate=true; setupPost(); setQuality(hq);
 setView('street'); ctl.th=ctl.gth+0.5; ctl.r=ctl.gr+6; ctl.target.copy(ctl.goal);
 document.getElementById('loading').classList.add('gone');
 requestAnimationFrame(frame);

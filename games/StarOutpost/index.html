@@ -1397,7 +1397,7 @@ function spawnBullet(pos,dir,tgt,maxT,heavy){
   let b=null;
   for(let k=0;k<NB;k++){ const i=(bulletPtr+k)%NB; if(!bullets[i].act){ b=bullets[i]; bulletPtr=(i+1)%NB; b.idx=i; break; } }
   if(!b) return null;
-  b.player=false; b.act=true; b.p.copy(pos); b.d.copy(dir); b.q.setFromUnitVectors(_zA,dir); b.trav=0; b.maxT=maxT; b.tgt=tgt; b.dmg=heavy?2:1; b.sc=heavy?1.35:1;
+  b.player=false; b.act=true; b.p.copy(pos); b.d.copy(dir); b.q.setFromUnitVectors(_zA,dir); b.trav=0; b.maxT=maxT; b.tgt=tgt; b.dmg=heavy?2:1; b.sc=heavy?2:1;
   return b;
 }
 const _bp0=new T.Vector3(), _pd=new T.Vector3();
@@ -1424,22 +1424,22 @@ function updateBullets(dt){
       else if(b.p.y<48){ const gy=floorH(b.p.x,b.p.z); if(b.p.y<gy){ kill=true; spawnDust(b.p.x,gy,b.p.z,2,.6); } }
     }
     if(kill){ b.act=false; tracerMesh.setMatrixAt(i,ZERO); }
-    else{ _p3.copy(b.p).addScaledVector(b.d,-1.1); _s3.set(b.sc,b.sc,b.sc); _m4.compose(_p3,b.q,_s3); tracerMesh.setMatrixAt(i,_m4); }
+    else{ _p3.copy(b.p).addScaledVector(b.d,-1.1); _s3.set(b.sc,b.sc,1); _m4.compose(_p3,b.q,_s3); tracerMesh.setMatrixAt(i,_m4); }
   }
   tracerMesh.instanceMatrix.needsUpdate=true;
 }
 
-const NLB=180, laserMesh=makeInst(new T.CylinderGeometry(.035,.035,1,6),new T.MeshBasicMaterial({color:0x50eaff,transparent:true,opacity:.95,blending:T.AdditiveBlending,depthWrite:false,toneMapped:false}),NLB);
-const laserLife=new Float32Array(NLB), _laserEnd=new T.Vector3(), _laserAxis=V(0,1,0), _laserDir=new T.Vector3(), _laserMid=new T.Vector3(), _laserScale=V(1,1,1), _laserQ=new T.Quaternion(), _laserMatrix=new T.Matrix4();
+const NLB=180, laserMesh=makeInst(new T.CylinderGeometry(.035,.035,1,6),new T.MeshBasicMaterial({color:0xffffff,transparent:true,opacity:.95,blending:T.AdditiveBlending,depthWrite:false,toneMapped:false}),NLB);
+const laserLife=new Float32Array(NLB), _laserEnd=new T.Vector3(), _laserAxis=V(0,1,0), _laserDir=new T.Vector3(), _laserMid=new T.Vector3(), _laserScale=V(1,1,1), _laserQ=new T.Quaternion(), _laserMatrix=new T.Matrix4(), _laserColor=new T.Color();
 let laserPtr=0;
-function showLaser(from,to){
+function showLaser(from,to,heavy=false){
   _laserDir.subVectors(to,from); const len=_laserDir.length(); if(len<.01) return;
   _laserDir.divideScalar(len);
   let idx=laserPtr;
   for(let k=0;k<NLB;k++){ const candidate=(laserPtr+k)%NLB; if(laserLife[candidate]<=0){ idx=candidate; break; } }
   laserPtr=(idx+1)%NLB; laserLife[idx]=.1;
-  _laserMid.copy(from).add(to).multiplyScalar(.5); _laserQ.setFromUnitVectors(_laserAxis,_laserDir); _laserScale.y=len;
-  _laserMatrix.compose(_laserMid,_laserQ,_laserScale); laserMesh.setMatrixAt(idx,_laserMatrix); laserMesh.instanceMatrix.needsUpdate=true;
+  _laserMid.copy(from).add(to).multiplyScalar(.5); _laserQ.setFromUnitVectors(_laserAxis,_laserDir); _laserScale.set(heavy?2:1,len,heavy?2:1);
+  _laserMatrix.compose(_laserMid,_laserQ,_laserScale); laserMesh.setMatrixAt(idx,_laserMatrix); laserMesh.setColorAt(idx,_laserColor.setHex(heavy?0xff3030:0x50eaff)); laserMesh.instanceMatrix.needsUpdate=true; laserMesh.instanceColor.needsUpdate=true;
 }
 function updateLasers(dt){
   for(let i=0;i<NLB;i++){
@@ -1948,7 +1948,7 @@ function playerShot(s){
     _laserEnd.copy(_mz).addScaledVector(dir,230);
     laserHit=playerHit(_mz,_laserEnd);
     if(laserHit){ _laserEnd.copy(laserHit.root.position); _laserEnd.y+=BC*laserHit.sc; }
-    showLaser(_mz,_laserEnd);
+    showLaser(_mz,_laserEnd,s.gun);
   } else {
     const b=spawnBullet(_mz,dir,null,230,s.gun); if(b){ b.player=true; b.dmg=(s.gun?6.5:2.6)*damageMultiplier(); }
   }
@@ -1971,7 +1971,7 @@ function fire(s){
   if(!hit){ const m=rand(1.2,3.4), a=Math.random()*TAU; ap.x+=Math.cos(a)*m; ap.z+=Math.sin(a)*m; ap.y+=rand(-1.8,1.2); }
   const dir=ap.clone().sub(_mz); const dd=dir.length(); dir.divideScalar(dd);
   const laser=economy.powerLevel===economy.maxLevel;
-  if(laser) showLaser(_mz,ap);
+  if(laser) showLaser(_mz,ap,s.gun);
   else{ const bl=spawnBullet(_mz,dir,hit?tb:null,hit?dd:160,s.gun); if(bl&&hit) bl.dmg=(s.gun?4.5:1)*(1+Math.max(0,1-dd/26)*1.8)*damageMultiplier(); }
   s.kick=1; s.flashT=.055; s.flash.visible=true; s.flash.material.rotation=Math.random()*TAU; s.flash.scale.setScalar(rand(.55,.95)*(s.gun?1.5:1));
   muzzleLight(_mz);
