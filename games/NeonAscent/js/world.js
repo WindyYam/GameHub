@@ -79,7 +79,7 @@ function groundMaterial() {
         float kr=F*mix(.5,1.,wet);
         float alb=.7+.6*vn(p*2.3)*vn(p*.45+4.);
         vec3 base=vec3(.05,.052,.06)*alb*mix(1.,.45,wet);
-        vec3 L=normalize(vec3(-.3,.17,-.95)), H=normalize(L+V);
+        vec3 L=normalize(vec3(-.15,.17,-.95)), H=normalize(L+V);
         float dif=max(dot(N,L),0.);
         float spec=pow(max(dot(N,H),0.),mix(70.,500.,wet))*mix(.35,2.,wet);
         vec3 col=base*(.45+dif*2.)+refl*kr+vec3(.55,.62,.9)*spec*.25;
