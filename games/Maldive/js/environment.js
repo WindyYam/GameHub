@@ -139,14 +139,16 @@ function createCumulusPatches() {
             uCumulusSeed: { value: CUMULUS_SEED },
             uSunDir: { value: STATE.sunDirection },
             uMoonDir: { value: STATE.moonDirection },
-            uSunColor: { value: STATE.sunColor }
+            uSunColor: { value: STATE.sunColor },
+            uSkyHorizonColor: { value: STATE.skyHorizonColor }
         },
         side: THREE.DoubleSide,
         transparent: true,
-        depthWrite: false
+        depthWrite: false,
+        depthTest: true
     });
     cumulusMesh = new THREE.Mesh(patchGeometry, cumulusMat);
-    cumulusMesh.renderOrder = 11;
+    cumulusMesh.renderOrder = 2; // Rendered in sky pass before ocean (10) to eliminate water-surface ripple superposition
     scene.add(cumulusMesh);
 }
 

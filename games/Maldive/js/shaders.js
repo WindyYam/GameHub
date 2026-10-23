@@ -55,7 +55,7 @@ const CUMULUS_DENSITY_GLSL = `
     }
 
     float sampleGiantCumulus3D(vec3 pos, out float outHeightFrac, out float outTowerCore) {
-        float hFrac = (pos.y - 100.0) / 460.0;
+        float hFrac = (pos.y - 30.0) / 530.0;
         outHeightFrac = clamp(hFrac, 0.0, 1.0);
         outTowerCore = 0.0;
         if (hFrac <= 0.001 || uCumulusCoverage <= 0.01) return 0.0;
@@ -134,7 +134,7 @@ const CUMULUS_DENSITY_GLSL = `
                     + (sideLobes - 0.5) * 0.10
                 ) * covBoost;
                 float topCap = 1.0 - smoothstep(topHeight - 0.045, topHeight + 0.035, hFrac);
-                float flatBase = smoothstep(0.0, 0.045, hFrac);
+                float flatBase = smoothstep(0.0, 0.16, hFrac);
                 float towerMass = bodyMask * topCap * flatBase;
                 cloudMass = max(cloudMass, towerMass);
                 towerCore = max(towerCore, towerMass);
@@ -472,6 +472,7 @@ const CUMULUS_PATCH_FRAGMENT_SHADER = `
     uniform vec3 uSunDir;
     uniform vec3 uMoonDir;
     uniform vec3 uSunColor;
+    uniform vec3 uSkyHorizonColor;
     varying vec3 vWorldPos;
 
     float hash(vec2 p) {
@@ -485,7 +486,6 @@ const CUMULUS_PATCH_FRAGMENT_SHADER = `
     void main() {
         if (uCumulusCoverage <= 0.01) discard;
         vec3 dir = normalize(vWorldPos - cameraPosition);
-        if (dir.y <= 0.002) discard;
 
         float sunAlt = uSunDir.y;
         float dayFactor = smoothstep(-0.10, 0.28, sunAlt);
@@ -505,11 +505,13 @@ const CUMULUS_PATCH_FRAGMENT_SHADER = `
         float hgMoon = pow(max(dot(dir, uMoonDir), 0.0), 6.0) * nightFactor;
 
         float tMin = 340.0;
-        float tMax = min(1800.0, 780.0 / max(dir.y, 0.002));
+        float tMaxTop = dir.y > 0.002 ? 850.0 / dir.y : 1800.0;
+        float tMax = min(1800.0, tMaxTop);
         if (tMax <= tMin) discard;
+
         const int PATCH_STEPS = 64;
         float stepSize = (tMax - tMin) / float(PATCH_STEPS);
-        float dither = 0.5 + (hash(floor(gl_FragCoord.xy)) - 0.5) * 0.2;
+        float dither = hash(gl_FragCoord.xy);
         float tRay = tMin + dither * stepSize;
         vec3 accumColor = vec3(0.0);
         float transmittance = 1.0;
@@ -534,8 +536,8 @@ const CUMULUS_PATCH_FRAGMENT_SHADER = `
                 voxelColor += mieTint * rimScatter * hgSun * 1.15;
                 voxelColor += vec3(0.56, 0.74, 1.0) * rimScatter * hgMoon * 0.65;
 
-                float distHaze = smoothstep(450.0, 1300.0, tRay) * 0.30;
-                voxelColor = mix(voxelColor, vec3(0.24, 0.42, 0.68), distHaze);
+                float distHaze = smoothstep(450.0, 1300.0, tRay) * 0.35;
+                voxelColor = mix(voxelColor, uSkyHorizonColor, distHaze);
                 float stepAlpha = 1.0 - exp(-density * stepSize * 0.024);
                 accumColor += transmittance * voxelColor * stepAlpha;
                 transmittance *= (1.0 - stepAlpha);
@@ -543,7 +545,7 @@ const CUMULUS_PATCH_FRAGMENT_SHADER = `
             tRay += stepSize;
         }
 
-        float cloudAlpha = (1.0 - transmittance) * smoothstep(0.002, 0.022, dir.y);
+        float cloudAlpha = 1.0 - transmittance;
         if (cloudAlpha < 0.003) discard;
         gl_FragColor = vec4(accumColor / max(cloudAlpha, 0.0001), cloudAlpha);
     }
@@ -893,7 +895,7 @@ const OCEAN_FRAGMENT_SHADER = `
             if (tMax > tMin) {
                 const int REFLECTION_STEPS = 40;
                 float stepSize = (tMax - tMin) / float(REFLECTION_STEPS);
-                float dither = 0.5 + (hash(floor(gl_FragCoord.xy)) - 0.5) * 0.2;
+                float dither = hash(gl_FragCoord.xy);
                 float tRay = tMin + dither * stepSize;
                 vec3 accumColor = vec3(0.0);
                 float transmittance = 1.0;
