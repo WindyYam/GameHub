@@ -9,42 +9,50 @@
   },
   {
     "id": 2,
-    "path": "games/HollowMoorManor/index.html"
+    "path": "games/HauntedHouse/index.html"
   },
   {
     "id": 3,
-    "path": "games/NeonAscent/index.html"
+    "path": "games/HollowMoorManor/index.html"
   },
   {
     "id": 4,
-    "path": "games/NiteMartReserve/index.html"
+    "path": "games/Maldive/index.html"
   },
   {
     "id": 5,
-    "path": "games/Qingxi/index.html"
+    "path": "games/NeonAscent/index.html"
   },
   {
     "id": 6,
-    "path": "games/SolarSys/index.html"
+    "path": "games/NiteMartReserve/index.html"
   },
   {
     "id": 7,
-    "path": "games/StarBattle/index.html"
+    "path": "games/Qingxi/index.html"
   },
   {
     "id": 8,
-    "path": "games/StarOutpost/index.html"
+    "path": "games/SolarSys/index.html"
   },
   {
     "id": 9,
-    "path": "games/Tetris/index.html"
+    "path": "games/StarBattle/index.html"
   },
   {
     "id": 10,
-    "path": "games/TowerDefense/index.html"
+    "path": "games/StarOutpost/index.html"
   },
   {
     "id": 11,
+    "path": "games/Tetris/index.html"
+  },
+  {
+    "id": 12,
+    "path": "games/TowerDefense/index.html"
+  },
+  {
+    "id": 13,
     "path": "games/UmibeStation/index.html"
   }
 ]
