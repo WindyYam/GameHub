@@ -134,7 +134,7 @@ const CUMULUS_DENSITY_GLSL = `
                     + (sideLobes - 0.5) * 0.10
                 ) * covBoost;
                 float topCap = 1.0 - smoothstep(topHeight - 0.045, topHeight + 0.035, hFrac);
-                float flatBase = smoothstep(0.0, 0.16, hFrac);
+                float flatBase = smoothstep(0.0, 0.04, hFrac);
                 float towerMass = bodyMask * topCap * flatBase;
                 cloudMass = max(cloudMass, towerMass);
                 towerCore = max(towerCore, towerMass);
@@ -504,9 +504,12 @@ const CUMULUS_PATCH_FRAGMENT_SHADER = `
         float hgSun = pow(max(dot(dir, uSunDir), 0.0), 5.0) * smoothstep(-0.1, 0.4, sunAlt);
         float hgMoon = pow(max(dot(dir, uMoonDir), 0.0), 6.0) * nightFactor;
 
+        float tOcean = dir.y < -0.0001 ? -cameraPosition.y / dir.y : 200000.0;
+        if (tOcean <= 340.0) discard;
+
         float tMin = 340.0;
         float tMaxTop = dir.y > 0.002 ? 850.0 / dir.y : 1800.0;
-        float tMax = min(1800.0, tMaxTop);
+        float tMax = min(min(1800.0, tMaxTop), tOcean);
         if (tMax <= tMin) discard;
 
         const int PATCH_STEPS = 64;
@@ -517,7 +520,7 @@ const CUMULUS_PATCH_FRAGMENT_SHADER = `
         float transmittance = 1.0;
 
         for (int i = 0; i < PATCH_STEPS; i++) {
-            if (transmittance < 0.025) break;
+            if (transmittance < 0.015) break;
             vec3 p = cameraPosition + dir * tRay;
             float hFrac, towerCore;
             float density = sampleGiantCumulus3D(p, hFrac, towerCore);
@@ -538,16 +541,17 @@ const CUMULUS_PATCH_FRAGMENT_SHADER = `
 
                 float distHaze = smoothstep(450.0, 1300.0, tRay) * 0.35;
                 voxelColor = mix(voxelColor, uSkyHorizonColor, distHaze);
-                float stepAlpha = 1.0 - exp(-density * stepSize * 0.024);
+                float stepAlpha = 1.0 - exp(-density * stepSize * 0.080);
                 accumColor += transmittance * voxelColor * stepAlpha;
                 transmittance *= (1.0 - stepAlpha);
             }
             tRay += stepSize;
         }
 
-        float cloudAlpha = 1.0 - transmittance;
+        float rawAlpha = 1.0 - transmittance;
+        float cloudAlpha = smoothstep(0.005, 0.20, rawAlpha);
         if (cloudAlpha < 0.003) discard;
-        gl_FragColor = vec4(accumColor / max(cloudAlpha, 0.0001), cloudAlpha);
+        gl_FragColor = vec4(accumColor / max(rawAlpha, 0.0001), cloudAlpha);
     }
 `;
 

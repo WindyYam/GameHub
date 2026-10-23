@@ -145,10 +145,10 @@ function createCumulusPatches() {
         side: THREE.DoubleSide,
         transparent: true,
         depthWrite: false,
-        depthTest: true
+        depthTest: false
     });
     cumulusMesh = new THREE.Mesh(patchGeometry, cumulusMat);
-    cumulusMesh.renderOrder = 2; // Rendered in sky pass before ocean (10) to eliminate water-surface ripple superposition
+    cumulusMesh.renderOrder = 11; // Drawn after ocean (10) so volumetric cloud in front of distant water is visible without cutoff
     scene.add(cumulusMesh);
 }
 
