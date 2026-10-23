@@ -41,7 +41,7 @@ function animate() {
     oceanMesh.position.x = camera.position.x;
     oceanMesh.position.z = camera.position.z;
     camera.getWorldDirection(cumulusForward);
-    cumulusMesh.position.copy(camera.position).addScaledVector(cumulusForward, 400);
+    cumulusMesh.position.copy(camera.position).addScaledVector(cumulusForward, 290);
     cumulusMesh.quaternion.copy(camera.quaternion);
 
     // Update Shader Uniforms

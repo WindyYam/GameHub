@@ -505,9 +505,9 @@ const CUMULUS_PATCH_FRAGMENT_SHADER = `
         float hgMoon = pow(max(dot(dir, uMoonDir), 0.0), 6.0) * nightFactor;
 
         float tOcean = dir.y < -0.0001 ? -cameraPosition.y / dir.y : 200000.0;
-        if (tOcean <= 340.0) discard;
+        if (tOcean <= 310.0) discard;
 
-        float tMin = 340.0;
+        float tMin = 310.0;
         float tMaxTop = dir.y > 0.002 ? 850.0 / dir.y : 1800.0;
         float tMax = min(min(1800.0, tMaxTop), tOcean);
         if (tMax <= tMin) discard;

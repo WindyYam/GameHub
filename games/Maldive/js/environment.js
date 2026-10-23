@@ -145,7 +145,7 @@ function createCumulusPatches() {
         side: THREE.DoubleSide,
         transparent: true,
         depthWrite: false,
-        depthTest: false
+        depthTest: true
     });
     cumulusMesh = new THREE.Mesh(patchGeometry, cumulusMat);
     cumulusMesh.renderOrder = 11; // Drawn after ocean (10) so volumetric cloud in front of distant water is visible without cutoff
