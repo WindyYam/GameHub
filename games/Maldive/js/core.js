@@ -17,6 +17,7 @@ const CONFIG = {
     bushFronds: IS_MOBILE ? 9 : 13,
     coralCount: IS_MOBILE ? 120 : 240,
     skyRaymarchSteps: IS_MOBILE ? 16 : 32,
+    cumulusRaymarchSteps: IS_MOBILE ? 24 : 48,
     oceanReflectionSteps: IS_MOBILE ? 4 : 12,
     shadowMapSize: IS_MOBILE ? 1024 : 2048,
     shadowType: THREE.PCFSoftShadowMap

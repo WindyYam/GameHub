@@ -128,7 +128,7 @@ function createCumulusPatches() {
     const patchGeometry = new THREE.PlaneGeometry(1200, 800);
     const cumulusFragShader = CUMULUS_PATCH_FRAGMENT_SHADER.replace(
         'const int PATCH_STEPS = 64;',
-        'const int PATCH_STEPS = ' + CONFIG.skyRaymarchSteps + ';'
+        'const int PATCH_STEPS = ' + CONFIG.cumulusRaymarchSteps + ';'
     );
     cumulusMat = new THREE.ShaderMaterial({
         vertexShader: CUMULUS_PATCH_VERTEX_SHADER,

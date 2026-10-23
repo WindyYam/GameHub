@@ -513,14 +513,14 @@ const CUMULUS_PATCH_FRAGMENT_SHADER = `
         if (tMax <= tMin) discard;
 
         const int PATCH_STEPS = 64;
-        float stepSize = (tMax - tMin) / float(PATCH_STEPS);
-        float dither = hash(gl_FragCoord.xy);
-        float tRay = tMin + dither * stepSize;
+        float stepSize = 1490.0 / float(PATCH_STEPS);
+        float rayPhase = mod(dot(cameraPosition, dir) + tMin, stepSize);
+        float tRay = tMin + mod(stepSize - rayPhase, stepSize);
         vec3 accumColor = vec3(0.0);
         float transmittance = 1.0;
 
         for (int i = 0; i < PATCH_STEPS; i++) {
-            if (transmittance < 0.015) break;
+            if (transmittance < 0.015 || tRay > tMax) break;
             vec3 p = cameraPosition + dir * tRay;
             float hFrac, towerCore;
             float density = sampleGiantCumulus3D(p, hFrac, towerCore);
@@ -899,8 +899,8 @@ const OCEAN_FRAGMENT_SHADER = `
             if (tMax > tMin) {
                 const int REFLECTION_STEPS = 40;
                 float stepSize = (tMax - tMin) / float(REFLECTION_STEPS);
-                float dither = hash(gl_FragCoord.xy);
-                float tRay = tMin + dither * stepSize;
+                float rayPhase = mod(dot(vWorldPos, R) + tMin, stepSize);
+                float tRay = tMin + mod(stepSize - rayPhase, stepSize);
                 vec3 accumColor = vec3(0.0);
                 float transmittance = 1.0;
 
@@ -912,7 +912,7 @@ const OCEAN_FRAGMENT_SHADER = `
                 towerDarkBase = mix(towerDarkBase, vec3(0.20, 0.11, 0.24), twilight * 0.92);
 
                 for (int i = 0; i < REFLECTION_STEPS; i++) {
-                    if (transmittance < 0.025) break;
+                    if (transmittance < 0.025 || tRay > tMax) break;
                     float hFrac, towerCore;
                     float density = sampleGiantCumulus3D(vWorldPos + R * tRay, hFrac, towerCore);
                     if (density > 0.008) {
