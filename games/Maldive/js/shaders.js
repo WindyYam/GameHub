@@ -299,11 +299,12 @@ const SKY_FRAGMENT_SHADER = `
 
         vec3 horizonCol = uSkyHorizonColor;
 
-        // Keep any pixels exposed below the finite ocean mesh aligned with the water horizon.
+        // Match the ocean's horizon color exactly, then fade atmospheric scattering in above it.
         if (dir.y < 0.0) {
             gl_FragColor = vec4(horizonCol, 1.0);
             return;
         }
+        float horizonVisibility = smoothstep(0.0, 0.04, dir.y);
 
         float horizonGlow = pow(1.0 - y, 2.8);
         vec3 skyCol = mix(zenithCol, horizonCol, horizonGlow);
@@ -311,13 +312,13 @@ const SKY_FRAGMENT_SHADER = `
         // Mie forward scattering around the sun
         float sunDot = max(dot(dir, uSunDir), 0.0);
         vec3 mieTint = mix(vec3(1.0, 0.36, 0.10), vec3(1.0, 0.92, 0.78), smoothstep(-0.05, 0.35, sunAlt));
-        float mieScatter = pow(sunDot, 5.0) * (0.30 + 0.70 * twilightFactor) * smoothstep(-0.18, 0.2, sunAlt);
+        float mieScatter = pow(sunDot, 5.0) * (0.30 + 0.70 * twilightFactor) * smoothstep(-0.18, 0.2, sunAlt) * horizonVisibility;
         skyCol += mieTint * mieScatter * (0.25 + 0.75 * horizonGlow);
 
         // Solar disc + soft corona
         float sunDisc = smoothstep(0.99945, 0.99985, dot(dir, uSunDir));
         float sunCorona = pow(sunDot, 180.0) * 1.1;
-        skyCol += (sunDisc * 8.0 + sunCorona) * mieTint * smoothstep(-0.08, 0.02, sunAlt);
+        skyCol += (sunDisc * 8.0 + sunCorona) * mieTint * smoothstep(-0.08, 0.02, sunAlt) * horizonVisibility;
 
         // Epic Nighttime Milky Way Galaxy Belt, Nebulae, Starfield & Moon
         if (nightFactor > 0.01 && dir.y > 0.0) {
@@ -964,18 +965,18 @@ const OCEAN_FRAGMENT_SHADER = `
         foamColor = mix(foamColor, vec3(0.92, 0.60, 0.46), twilight * 0.75);
         surfaceColor = mix(surfaceColor, foamColor, totalFoam);
 
-        float horizonAtmosphere = 1.0 - smoothstep(0.0, 0.055, NdotV);
-        surfaceColor = mix(surfaceColor, uSkyHorizonColor, horizonAtmosphere * 0.45);
         surfaceColor += uSunColor * distantSunReflection * 1.8;
+        float horizonAtmosphere = 1.0 - smoothstep(0.0, 0.055, NdotV);
+        surfaceColor = mix(surfaceColor, uSkyHorizonColor, horizonAtmosphere);
 
         // Keep distant water up to the visual horizon, even from elevated viewpoints.
-        float horizonEdgeBlend = smoothstep(198000.0, 200000.0, camDist);
-        float horizonFade = horizonEdgeBlend * 0.02;
+        float horizonEdgeBlend = smoothstep(50000.0, 200000.0, camDist);
+        float horizonFade = horizonEdgeBlend;
 
         // Semi-transparent crystal-clear lagoon water in the shallows so 3D underwater corals & swimming marine life are visible!
         float underwaterVisibility = mix(0.66, 0.97, clamp(clampedDepth / 4.2, 0.0, 1.0));
         float shoreAlpha = smoothstep(-0.12, 0.08, waterDepth) * mix(underwaterVisibility, 1.0, clamp(fresnel * 1.2 + totalFoam, 0.0, 1.0));
-        shoreAlpha = max(shoreAlpha * (1.0 - horizonFade), distantSunReflection * 0.8);
+        shoreAlpha = max(shoreAlpha, distantSunReflection * 0.8) * (1.0 - horizonFade);
 
         gl_FragColor = vec4(surfaceColor, shoreAlpha);
     }
