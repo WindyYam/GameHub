@@ -78,6 +78,18 @@ function setupLighting() {
     // Secondary Moon Directional Light
     moonLight = new THREE.DirectionalLight(0x8ab4f8, 0.0);
     moonLight.position.copy(STATE.moonDirection).multiplyScalar(CELESTIAL_LIGHT_DISTANCE);
+    moonLight.castShadow = true;
+    moonLight.shadow.mapSize.width = 2048;
+    moonLight.shadow.mapSize.height = 2048;
+    moonLight.shadow.camera.near = CELESTIAL_LIGHT_DISTANCE - 800;
+    moonLight.shadow.camera.far = CELESTIAL_LIGHT_DISTANCE + 800;
+    moonLight.shadow.camera.left = -d;
+    moonLight.shadow.camera.right = d;
+    moonLight.shadow.camera.top = d;
+    moonLight.shadow.camera.bottom = -d;
+    moonLight.shadow.camera.updateProjectionMatrix();
+    moonLight.shadow.bias = -0.0004;
+    moonLight.shadow.normalBias = 0.02;
     scene.add(moonLight);
 
     // Physically balanced Hemisphere Light

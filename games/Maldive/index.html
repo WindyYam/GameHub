@@ -15,37 +15,6 @@
     <!-- 3D WebGL Canvas Container -->
     <div id="canvas-container"></div>
 
-    <!-- Top Right Camera Presets -->
-    <div class="fixed top-4 right-4 z-10 flex flex-wrap gap-1.5 justify-end max-w-[290px] sm:max-w-none">
-        <button onclick="setCameraPreset('overview')" id="cam-overview" class="preset-btn active glass-panel px-3 py-1.5 rounded-xl text-xs font-medium text-slate-200">
-            Aerial Lagoon
-        </button>
-        <button onclick="setCameraPreset('beach')" id="cam-beach" class="preset-btn glass-panel px-3 py-1.5 rounded-xl text-xs font-medium text-slate-200">
-            Shoreline Cove
-        </button>
-        <button onclick="setCameraPreset('reef')" id="cam-reef" class="preset-btn glass-panel px-3 py-1.5 rounded-xl text-xs font-medium text-slate-200">
-            Coral Reef & Marine Life
-        </button>
-        <button onclick="setCameraPreset('shipwreck')" id="cam-shipwreck" class="preset-btn glass-panel px-3 py-1.5 rounded-xl text-xs font-medium text-slate-200">
-            Reef Shipwreck
-        </button>
-        <button onclick="setCameraPreset('village')" id="cam-village" class="preset-btn glass-panel px-3 py-1.5 rounded-xl text-xs font-medium text-slate-200">
-            Lagoon Pier & Camp
-        </button>
-        <button onclick="setCameraPreset('cabin')" id="cam-cabin" class="preset-btn glass-panel px-3 py-1.5 rounded-xl text-xs font-medium text-amber-200 border-amber-400/30">
-            Tribal Cabin
-        </button>
-        <button onclick="setCameraPreset('cabinInterior')" id="cam-cabinInterior" class="preset-btn glass-panel px-3 py-1.5 rounded-xl text-xs font-medium text-amber-200 border-amber-400/30">
-            Cabin Interior
-        </button>
-        <button onclick="setCameraPreset('sky')" id="cam-sky" class="preset-btn glass-panel px-3 py-1.5 rounded-xl text-xs font-medium text-slate-200">
-            Beach Look-Up
-        </button>
-        <button onclick="setCameraPreset('horizon')" id="cam-horizon" class="preset-btn glass-panel px-3 py-1.5 rounded-xl text-xs font-medium text-sky-200 border-sky-400/30">
-            Giant Cumulus Horizon
-        </button>
-    </div>
-
     <!-- Bottom Interactive Control Deck -->
     <div class="fixed bottom-3 left-1/2 -translate-x-1/2 z-10 w-[92vw] max-w-md">
         <div class="glass-panel rounded-2xl p-3 sm:p-4 text-white transition-all duration-300">
@@ -102,9 +71,9 @@
                     <div class="flex flex-col gap-1">
                         <div class="flex justify-between text-[11px]">
                             <span class="text-slate-300">High Clouds</span>
-                            <span id="cloud-val" class="text-cyan-300 font-mono">45%</span>
+                            <span id="cloud-val" class="text-cyan-300 font-mono">10%</span>
                         </div>
-                        <input id="cloud-slider" type="range" min="0.0" max="0.95" step="0.02" value="0.45">
+                        <input id="cloud-slider" type="range" min="0.0" max="0.95" step="0.02" value="0.1">
                     </div>
 
                     <div class="flex flex-col gap-1">

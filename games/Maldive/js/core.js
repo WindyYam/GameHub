@@ -7,7 +7,7 @@ const STATE = {
     autoCycle: true,
     cycleSpeed: 0.6,        // Hours per real second when auto-cycling
     waveScale: 1.15,
-    cloudCoverage: 0.45,    // Controls high-altitude texture cloud deck
+    cloudCoverage: 0.1,     // Controls high-altitude texture cloud deck
     cumulusCoverage: 0.75,  // Controls isolated 3D volumetric giant cumulus mountains
     elapsedTime: 0,
     sunDirection: new THREE.Vector3(0, 1, 0),
