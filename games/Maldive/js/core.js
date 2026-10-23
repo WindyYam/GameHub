@@ -1,6 +1,27 @@
 // ============================================================================
 // 1. GLOBAL STATE & CONFIGURATION
 // ============================================================================
+const IS_MOBILE = typeof window !== 'undefined' && (
+    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
+    (window.innerWidth <= 840 && ('ontouchstart' in window || (navigator.maxTouchPoints && navigator.maxTouchPoints > 0)))
+);
+
+const CONFIG = {
+    isMobile: IS_MOBILE,
+    maxPixelRatio: IS_MOBILE ? 1.5 : 2.0,
+    terrainSegments: IS_MOBILE ? 128 : 200,
+    oceanSegments: IS_MOBILE ? 128 : 240,
+    totalTrees: IS_MOBILE ? 70 : 135,
+    totalBushes: IS_MOBILE ? 90 : 210,
+    treeFronds: IS_MOBILE ? 16 : 22,
+    bushFronds: IS_MOBILE ? 9 : 13,
+    coralCount: IS_MOBILE ? 120 : 240,
+    skyRaymarchSteps: IS_MOBILE ? 16 : 32,
+    oceanReflectionSteps: IS_MOBILE ? 4 : 12,
+    shadowMapSize: IS_MOBILE ? 1024 : 2048,
+    shadowType: THREE.PCFSoftShadowMap
+};
+
 const CUMULUS_SEED = Math.random() * 1000;
 const STATE = {
     timeOfDay: 13.5,        // 0.0 to 24.0 hours
@@ -25,7 +46,7 @@ const CAMPFIRE_POS = { x: 52.0, z: 22.0 };
 const CABIN_SITE = { x: 40.5, z: 10.5, rotY: 0.74, scale: 1.85 };
 
 let scene, camera, renderer, controls, clock;
-let skyMat, skyMesh, oceanMat, oceanMesh, sandMat;
+let skyMat, skyMesh, cumulusMat, cumulusMesh, oceanMat, oceanMesh, sandMat;
 let sunLight, moonLight, hemiLight;
 let frondMaterials = [];
 let trunkMaterials = [];
@@ -43,8 +64,9 @@ let bbqSpitRod = null;
 let batchableMeshes = []; // static meshes collected during the build, merged into instanced batches at startup
 const smokeCameraPosition = new THREE.Vector3();
 const smokeWorldPosition = new THREE.Vector3();
+const cumulusForward = new THREE.Vector3();
 const CELESTIAL_LIGHT_DISTANCE = 10000;
-const MAX_PIXEL_RATIO = 1.5; // caps fragment cost of the full-screen sky and ocean shaders
+let MAX_PIXEL_RATIO = CONFIG.maxPixelRatio;
 
 // ============================================================================
 // 2. DETERMINISTIC NOISE & TERRAIN HEIGHT FUNCTION (JS + GLSL MATCHED)

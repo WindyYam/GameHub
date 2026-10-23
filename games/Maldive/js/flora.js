@@ -8,7 +8,7 @@ function createPalmLeafMaterial(isPalmFrond = true) {
         metalness: 0.02,
         vertexColors: true,
         side: THREE.DoubleSide,
-        alphaTest: 0.5
+        alphaTest: 0.0
     });
 
     mat.onBeforeCompile = (shader) => {
@@ -288,7 +288,7 @@ function createPalmTree(x, z, scale, leanAngle, leanAmount, heightMultiplier = 1
         batchableMeshes.push(coco);
     }
 
-    const numFronds = 22;
+    const numFronds = CONFIG.treeFronds;
     for (let f = 0; f < numFronds; f++) {
         const frondMesh = new THREE.Mesh(sharedFrondGeo, sharedFrondMat);
         const azimuth = (f / numFronds) * Math.PI * 2 + hash2D(f, x) * 0.24;
@@ -327,7 +327,7 @@ function createCoastalBush(x, z, scale, hasFlowers = false) {
     bushGroup.position.set(x, groundY - 0.06, z);
     bushGroup.scale.setScalar(scale);
 
-    const frondCount = 13;
+    const frondCount = CONFIG.bushFronds;
     for (let i = 0; i < frondCount; i++) {
         const frond = new THREE.Mesh(sharedFrondGeo, sharedFrondMat);
         const ang = (i / frondCount) * Math.PI * 2 + hash2D(i, x) * 0.35;
@@ -362,7 +362,7 @@ function createCoastalBush(x, z, scale, hasFlowers = false) {
 
 function createTropicalVegetation() {
     // 135 Coconut Palm Trees with dramatic height variation (young palms, medium groves, and towering 24m king palms)
-    const totalTrees = 135;
+    const totalTrees = CONFIG.totalTrees;
     const palmGroves = [
         { x: -48.0, z: -32.0, spread: 24.0, count: 25 },
         { x: -70.0, z:  30.0, spread: 22.0, count: 23 },
@@ -413,7 +413,7 @@ function createTropicalVegetation() {
     }
 
     // 210 Lush Coastal Bushes, Scaevola Shrubs, and Flowering Hibiscus thickets
-    const totalBushes = 210;
+    const totalBushes = CONFIG.totalBushes;
     for (let i = 0; i < totalBushes; i++) {
         const angle = i * 2.39996 + hash2D(i, 9.1) * 0.35;
         const radius = 3.0 + Math.sqrt(i / totalBushes) * 84.0;

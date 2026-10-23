@@ -1,5 +1,5 @@
 // ============================================================================
-// 3. CUSTOM GLSL SHADERS (SKY DOME + GIANT VOLUMETRIC CUMULUS, AAA OCEAN, SAND)
+// 3. CUSTOM GLSL SHADERS (SKY DOME, CUMULUS PATCH, AAA OCEAN, SAND)
 // ============================================================================
 
 const SKY_VERTEX_SHADER = `
@@ -55,7 +55,7 @@ const CUMULUS_DENSITY_GLSL = `
     }
 
     float sampleGiantCumulus3D(vec3 pos, out float outHeightFrac, out float outTowerCore) {
-        float hFrac = (pos.y - 52.0) / 460.0;
+        float hFrac = (pos.y - 100.0) / 460.0;
         outHeightFrac = clamp(hFrac, 0.0, 1.0);
         outTowerCore = 0.0;
         if (hFrac <= 0.001 || uCumulusCoverage <= 0.01) return 0.0;
@@ -70,6 +70,25 @@ const CUMULUS_DENSITY_GLSL = `
         float towerCount = 1.0 + floor(hash(vec2(uCumulusSeed + 17.2, 3.8)) * 2.0);
         float towerOffset = hash(vec2(uCumulusSeed + 4.7, 12.1)) * 6.2831853;
         float ang = atan(xz.y, xz.x) + uTime * 0.0075;
+
+        float minTowerDist = 9999.0;
+        for (int i = 0; i < 2; i++) {
+            float towerIndex = float(i);
+            if (towerIndex < towerCount) {
+                float towerSeed = hash(vec2(uCumulusSeed + towerIndex + 2.1, 12.1));
+                float towerSpread = towerCount > 1.5 ? (towerIndex - 0.5) * 0.42 : 0.0;
+                float towerJitter = (hash(vec2(uCumulusSeed + towerIndex + 6.2, 13.4)) - 0.5) * 0.18;
+                float towerAngle = towerOffset + towerSpread + towerJitter;
+                float radialOffset = cloudDist - (680.0 + towerSeed * 150.0 + towerSpread * 40.0);
+                float tangentOffset = sin(ang - towerAngle) * cloudDist;
+                float radialRadius = 195.0 + towerSeed * 49.0;
+                float tangentRadius = 218.0 + towerSeed * 62.0;
+                float localRadius = length(vec2(radialOffset / radialRadius, tangentOffset / tangentRadius));
+                minTowerDist = min(minTowerDist, localRadius);
+            }
+        }
+        if (minTowerDist > 1.35) return 0.0;
+
         vec3 sampleP = vec3(xz.x, pos.y - uTime * 1.65, xz.y) * 0.0058;
         float broadShapeNoise = fbm3DLow(sampleP * 0.85);
         float billowMacro = fbm3DLow(sampleP * 1.7);
@@ -141,8 +160,6 @@ const SKY_FRAGMENT_SHADER = `
     uniform float uSkyRotation;
     uniform float uTime;
     uniform float uCloudCoverage;
-    uniform float uCumulusCoverage;
-    uniform float uCumulusSeed;
     varying vec3 vWorldPos;
 
     float hash(vec2 p) {
@@ -162,8 +179,24 @@ const SKY_FRAGMENT_SHADER = `
         return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
     }
 
-    // Sample galactic & 3D volumetric cloud detail in 3D
-    ${CUMULUS_DENSITY_GLSL}
+    float hash(vec3 p) {
+        p = fract(p * 0.1031);
+        p += dot(p, p.yzx + 33.33);
+        return fract((p.x + p.y) * p.z);
+    }
+
+    float noise(vec3 p) {
+        vec3 i = floor(p);
+        vec3 f = fract(p);
+        f = f * f * (3.0 - 2.0 * f);
+        float lower = mix(
+            mix(hash(i), hash(i + vec3(1.0, 0.0, 0.0)), f.x),
+            mix(hash(i + vec3(0.0, 1.0, 0.0)), hash(i + vec3(1.0, 1.0, 0.0)), f.x), f.y);
+        float upper = mix(
+            mix(hash(i + vec3(0.0, 0.0, 1.0)), hash(i + vec3(1.0, 0.0, 1.0)), f.x),
+            mix(hash(i + vec3(0.0, 1.0, 1.0)), hash(i + vec3(1.0, 1.0, 1.0)), f.x), f.y);
+        return mix(lower, upper, f.z);
+    }
 
     float fbm(vec3 p) {
         float v = 0.0;
@@ -172,31 +205,6 @@ const SKY_FRAGMENT_SHADER = `
             v += a * noise(p);
             p = p.yzx * 2.03 + vec3(13.4, 7.1, 9.2);
             a *= 0.5;
-        }
-        return v;
-    }
-
-    // Fast 4-octave 3D FBM for real-time volumetric cumulus raymarching
-    float fbmCloud3D(vec3 p) {
-        float v = 0.0;
-        float a = 0.52;
-        for (int i = 0; i < 4; i++) {
-            v += a * noise(p);
-            p = p.yzx * 2.05 + vec3(11.3, 17.9, 5.7);
-            a *= 0.49;
-        }
-        return v;
-    }
-
-    // Crisp cauliflower billow noise (inverted ridged/billow lobes for cumulus congestus domes)
-    float billowNoise3D(vec3 p) {
-        float v = 0.0;
-        float a = 0.54;
-        for (int i = 0; i < 4; i++) {
-            float n = abs(noise(p) * 2.0 - 1.0);
-            v += a * (1.0 - n * n);
-            p = p.yzx * 2.12 + vec3(7.4, 19.2, 13.8);
-            a *= 0.48;
         }
         return v;
     }
@@ -442,112 +450,101 @@ const SKY_FRAGMENT_SHADER = `
             }
         }
 
-        // LAYER 2: Isolated 3D Volumetric Tropical Cumulus Congestus & Cumulonimbus Mountains
-        if (dir.y > 0.002 && dir.y < 0.999 && uCumulusCoverage > 0.01) {
-            vec3 primaryLightDir = normalize(sunAlt > -0.04 ? uSunDir : uMoonDir);
+        gl_FragColor = vec4(skyCol, 1.0);
+    }
+`;
 
-            // Palette calibrated to tropical cumulus towers: dazzling white sunlit cauliflower tops,
-            // crisp sky-blue mid-shadow folds, and deep slate-blue flat condensation bases
-            vec3 towerSunTop = mix(vec3(0.14, 0.22, 0.38), vec3(1.0, 0.99, 0.98), dayFactor);
-            towerSunTop = mix(towerSunTop, vec3(1.0, 0.56, 0.26), twilightFactor * 0.95);
+const CUMULUS_PATCH_VERTEX_SHADER = `
+    varying vec3 vWorldPos;
 
-            vec3 towerMidShadow = mix(vec3(0.04, 0.07, 0.15), vec3(0.50, 0.65, 0.84), dayFactor);
-            towerMidShadow = mix(towerMidShadow, vec3(0.45, 0.24, 0.38), twilightFactor * 0.90);
+    void main() {
+        vec4 worldPosition = modelMatrix * vec4(position, 1.0);
+        vWorldPos = worldPosition.xyz;
+        gl_Position = projectionMatrix * viewMatrix * worldPosition;
+    }
+`;
 
-            vec3 towerDarkBase = mix(vec3(0.015, 0.03, 0.07), vec3(0.24, 0.36, 0.54), dayFactor);
-            towerDarkBase = mix(towerDarkBase, vec3(0.20, 0.11, 0.24), twilightFactor * 0.92);
+const CUMULUS_PATCH_FRAGMENT_SHADER = `
+    uniform float uTime;
+    uniform float uCumulusCoverage;
+    uniform float uCumulusSeed;
+    uniform vec3 uSunDir;
+    uniform vec3 uMoonDir;
+    uniform vec3 uSunColor;
+    varying vec3 vWorldPos;
 
-            // Raymarch through the distant cloud mountain belt (r = 340m .. 1220m)
-            float tMin = 340.0;
-            float tMax = min(1800.0, 780.0 / max(dir.y, 0.002));
+    float hash(vec2 p) {
+        vec3 p3 = fract(vec3(p.xyx) * 0.1031);
+        p3 += dot(p3, p3.yzx + 33.33);
+        return fract((p3.x + p3.y) * p3.z);
+    }
 
-            if (tMax > tMin) {
-                const int STEPS = 64;
-                float stepSize = (tMax - tMin) / float(STEPS);
-                float dither = 0.5 + (hash(floor(gl_FragCoord.xy)) - 0.5) * 0.2;
-                float tRay = tMin + dither * stepSize;
+    ${CUMULUS_DENSITY_GLSL}
 
-                vec3 accumColor = vec3(0.0);
-                float transmittance = 1.0;
+    void main() {
+        if (uCumulusCoverage <= 0.01) discard;
+        vec3 dir = normalize(vWorldPos - cameraPosition);
+        if (dir.y <= 0.002) discard;
 
-                float hgSun = pow(sunDot, 5.0) * smoothstep(-0.1, 0.4, sunAlt);
-                float hgMoon = pow(max(dot(dir, uMoonDir), 0.0), 6.0) * nightFactor;
+        float sunAlt = uSunDir.y;
+        float dayFactor = smoothstep(-0.10, 0.28, sunAlt);
+        float twilightFactor = smoothstep(-0.20, 0.06, sunAlt)
+                             * (1.0 - smoothstep(0.04, 0.34, sunAlt));
+        float nightFactor = 1.0 - smoothstep(-0.14, 0.04, sunAlt);
+        vec3 primaryLightDir = normalize(sunAlt > -0.04 ? uSunDir : uMoonDir);
 
-                for (int i = 0; i < STEPS; i++) {
-                    if (transmittance < 0.025) break;
-                    vec3 p = cameraPosition + dir * tRay;
-                    float hFrac, towerCore;
-                    float dens = sampleGiantCumulus3D(p, hFrac, towerCore);
+        vec3 towerSunTop = mix(vec3(0.14, 0.22, 0.38), vec3(1.0, 0.99, 0.98), dayFactor);
+        towerSunTop = mix(towerSunTop, vec3(1.0, 0.56, 0.26), twilightFactor * 0.95);
+        vec3 towerMidShadow = mix(vec3(0.04, 0.07, 0.15), vec3(0.50, 0.65, 0.84), dayFactor);
+        towerMidShadow = mix(towerMidShadow, vec3(0.45, 0.24, 0.38), twilightFactor * 0.90);
+        vec3 towerDarkBase = mix(vec3(0.015, 0.03, 0.07), vec3(0.24, 0.36, 0.54), dayFactor);
+        towerDarkBase = mix(towerDarkBase, vec3(0.20, 0.11, 0.24), twilightFactor * 0.92);
+        vec3 mieTint = mix(vec3(0.72, 0.84, 1.0), uSunColor, twilightFactor);
+        float hgSun = pow(max(dot(dir, uSunDir), 0.0), 5.0) * smoothstep(-0.1, 0.4, sunAlt);
+        float hgMoon = pow(max(dot(dir, uMoonDir), 0.0), 6.0) * nightFactor;
 
-                    if (dens > 0.008) {
-                        // Two-tap volumetric self-shadowing toward the sun or moon
-                        float dummyH, dummyCore;
-                        float shadowDensity = sampleGiantCumulus3D(p + primaryLightDir * 72.0, dummyH, dummyCore);
-                        float shadowOD = shadowDensity * 3.1;
-                        float lightTrans = exp(-shadowOD);
+        float tMin = 340.0;
+        float tMax = min(1800.0, 780.0 / max(dir.y, 0.002));
+        if (tMax <= tMin) discard;
+        const int PATCH_STEPS = 64;
+        float stepSize = (tMax - tMin) / float(PATCH_STEPS);
+        float dither = 0.5 + (hash(floor(gl_FragCoord.xy)) - 0.5) * 0.2;
+        float tRay = tMin + dither * stepSize;
+        vec3 accumColor = vec3(0.0);
+        float transmittance = 1.0;
 
-                        // Beer-Powder sugar law gives crisp, sculpted cauliflower edges & bright sunlit domes
-                        float powder = 1.0 - exp(-dens * 4.2);
-                        float directLight = lightTrans * (0.42 + 0.58 * powder);
+        for (int i = 0; i < PATCH_STEPS; i++) {
+            if (transmittance < 0.025) break;
+            vec3 p = cameraPosition + dir * tRay;
+            float hFrac, towerCore;
+            float density = sampleGiantCumulus3D(p, hFrac, towerCore);
 
-                        // Vertical ambient gradient: dark slate-blue condensation base to bright upper turret
-                        float baseDarkening = smoothstep(0.0, 0.26, hFrac);
-                        vec3 ambientVoxel = mix(towerDarkBase, towerMidShadow, baseDarkening);
+            if (density > 0.008) {
+                float shadowH, shadowCore;
+                float shadowDensity = sampleGiantCumulus3D(p + primaryLightDir * 72.0, shadowH, shadowCore);
+                float shadowOD = shadowDensity * 3.1;
+                float powder = 1.0 - exp(-density * 4.2);
+                float directLight = exp(-shadowOD) * (0.42 + 0.58 * powder);
+                float baseDarkening = smoothstep(0.0, 0.26, hFrac);
+                vec3 ambientVoxel = mix(towerDarkBase, towerMidShadow, baseDarkening);
+                ambientVoxel += vec3(0.03, 0.14, 0.18) * (1.0 - baseDarkening) * dayFactor * 0.45;
+                vec3 voxelColor = mix(ambientVoxel, towerSunTop, clamp(directLight + hFrac * 0.18, 0.0, 1.0));
+                float rimScatter = (1.0 - exp(-density * 2.8)) * exp(-shadowOD * 0.65);
+                voxelColor += mieTint * rimScatter * hgSun * 1.15;
+                voxelColor += vec3(0.56, 0.74, 1.0) * rimScatter * hgMoon * 0.65;
 
-                        // Subtle turquoise lagoon bounce light illuminating the flat cloud undersides during the day
-                        ambientVoxel += vec3(0.03, 0.14, 0.18) * (1.0 - baseDarkening) * dayFactor * 0.45;
-
-                        vec3 voxelCol = mix(ambientVoxel, towerSunTop, clamp(directLight + hFrac * 0.18, 0.0, 1.0));
-
-                        // Silver-lining forward scatter along billowing turret rims
-                        float rimScatter = (1.0 - exp(-dens * 2.8)) * exp(-shadowOD * 0.65);
-                        voxelCol += mieTint * rimScatter * hgSun * 1.15;
-                        voxelCol += vec3(0.56, 0.74, 1.0) * rimScatter * hgMoon * 0.65;
-
-                        // Subtle tropical atmospheric perspective blend with distance
-                        float distHaze = smoothstep(450.0, 1300.0, tRay) * 0.30;
-                        voxelCol = mix(voxelCol, horizonCol, distHaze);
-
-                        float stepAlpha = 1.0 - exp(-dens * stepSize * 0.024);
-                        accumColor += transmittance * voxelCol * stepAlpha;
-                        transmittance *= (1.0 - stepAlpha);
-                    }
-                    tRay += stepSize;
-                }
-
-                float towerAlpha = (1.0 - transmittance) * smoothstep(0.002, 0.022, dir.y);
-                if (towerAlpha > 0.001) {
-                    vec3 finalTowerCol = accumColor / max(1.0 - transmittance, 0.0001);
-                    skyCol = mix(skyCol, finalTowerCol, towerAlpha);
-                }
+                float distHaze = smoothstep(450.0, 1300.0, tRay) * 0.30;
+                voxelColor = mix(voxelColor, vec3(0.24, 0.42, 0.68), distHaze);
+                float stepAlpha = 1.0 - exp(-density * stepSize * 0.024);
+                accumColor += transmittance * voxelColor * stepAlpha;
+                transmittance *= (1.0 - stepAlpha);
             }
-
-            // Subtle distant rain-shaft & dark condensation base haze right under the largest tropical cloud mountains
-            if (dir.y < 0.095) {
-                float angHaze = atan(dir.z, dir.x) + uTime * 0.0075;
-                float hazeTowerCount = 1.0 + floor(hash(vec2(uCumulusSeed + 17.2, 3.8)) * 2.0);
-                float hazeTowerOffset = hash(vec2(uCumulusSeed + 4.7, 12.1)) * 6.2831853;
-                float cloudHazeMask = 0.0;
-                for (int i = 0; i < 2; i++) {
-                    float towerIndex = float(i);
-                    if (towerIndex < hazeTowerCount) {
-                        float towerJitter = (hash(vec2(uCumulusSeed + towerIndex + 6.2, 13.4)) - 0.5) * 0.18;
-                        float towerSpread = hazeTowerCount > 1.5 ? (towerIndex - 0.5) * 0.42 : 0.0;
-                        float towerAngle = hazeTowerOffset + towerSpread + towerJitter;
-                        float towerWidth = 0.23 + hash(vec2(uCumulusSeed + towerIndex + 2.1, 12.1)) * 0.065;
-                        float towerDistance = acos(clamp(cos(angHaze - towerAngle), -1.0, 1.0));
-                        cloudHazeMask = max(cloudHazeMask, 1.0 - smoothstep(towerWidth * 0.65, towerWidth * 1.35, towerDistance));
-                    }
-                }
-                float shaftMask = cloudHazeMask
-                                * smoothstep(0.002, 0.035, dir.y)
-                                * (1.0 - smoothstep(0.042, 0.092, dir.y))
-                                * smoothstep(0.15, 0.65, uCumulusCoverage);
-                skyCol = mix(skyCol, towerDarkBase * 0.88, shaftMask * 0.46);
-            }
+            tRay += stepSize;
         }
 
-        gl_FragColor = vec4(skyCol, 1.0);
+        float cloudAlpha = (1.0 - transmittance) * smoothstep(0.002, 0.022, dir.y);
+        if (cloudAlpha < 0.003) discard;
+        gl_FragColor = vec4(accumColor / max(cloudAlpha, 0.0001), cloudAlpha);
     }
 `;
 
@@ -558,6 +555,7 @@ const OCEAN_VERTEX_SHADER = `
     varying vec3 vNormal;
     varying float vFoamCrest;
     varying float vWaveHeight;
+    varying float vSeabedY;
 
     float vHash(vec2 p) {
         vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -638,6 +636,7 @@ const OCEAN_VERTEX_SHADER = `
         vec2 xz = worldInitial.xz;
 
         float seabedY = sampleSeabed(xz);
+        vSeabedY = seabedY;
         float waterDepth = max(0.0, -seabedY);
         float shoalingFactor = smoothstep(0.0, 3.2, waterDepth);
         float camDist = length(cameraPosition.xz - xz);
@@ -699,6 +698,7 @@ const OCEAN_FRAGMENT_SHADER = `
     varying vec3 vNormal;
     varying float vFoamCrest;
     varying float vWaveHeight;
+    varying float vSeabedY;
 
     float hash(vec2 p) {
         vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -817,7 +817,7 @@ const OCEAN_FRAGMENT_SHADER = `
         vec3 V = viewVec / camDist;
 
         // Bathymetry test first: pixels over land or beyond the shoreline exit before any wave work
-        float seabedY = getExactSeabedHeight(vWorldPos.xz);
+        float seabedY = vSeabedY;
         float waterDepth = vWorldPos.y - seabedY;
         if (waterDepth < -0.18) discard;
         float clampedDepth = max(0.0, waterDepth);
@@ -886,7 +886,7 @@ const OCEAN_FRAGMENT_SHADER = `
         vec3 skyReflection = mix(uSkyHorizonColor, uSkyTopColor, pow(reflY, 0.58));
 
         // Raymarch the same cumulus density field as the sky along the reflected view ray.
-        if (reflY > 0.002 && reflY < 0.999 && uCumulusCoverage > 0.01) {
+        if (fresnel > 0.04 && reflY > 0.002 && reflY < 0.999 && uCumulusCoverage > 0.01) {
             float tMin = 340.0;
             float tMax = min(1800.0, 780.0 / max(reflY, 0.002));
             if (tMax > tMin) {

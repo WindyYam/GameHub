@@ -43,6 +43,10 @@ function updateDayNightAtmosphere(hours) {
 
     moonLight.intensity = nightFactor * 1.05;
 
+    // Dynamically toggle shadow casting so Three.js only renders a shadow pass for the active celestial light
+    sunLight.castShadow = sunLight.intensity > 0.12;
+    moonLight.castShadow = moonLight.intensity > 0.12;
+
     // Sky Top & Horizon Colors synced for Ocean Fresnel reflections
     const dayTop = DAY_NIGHT_COLORS.dayTop;
     const dayHor = DAY_NIGHT_COLORS.dayHor;

@@ -42,7 +42,7 @@ function setupUIControls() {
 
     cumulusSlider.addEventListener('input', (e) => {
         STATE.cumulusCoverage = parseFloat(e.target.value);
-        skyMat.uniforms.uCumulusCoverage.value = STATE.cumulusCoverage;
+        cumulusMat.uniforms.uCumulusCoverage.value = STATE.cumulusCoverage;
         oceanMat.uniforms.uCumulusCoverage.value = STATE.cumulusCoverage;
         document.getElementById('cumulus-val').textContent = Math.round(STATE.cumulusCoverage * 100) + '%';
     });
@@ -50,6 +50,54 @@ function setupUIControls() {
     speedSlider.addEventListener('input', (e) => {
         STATE.cycleSpeed = parseFloat(e.target.value);
         document.getElementById('speed-val').textContent = STATE.cycleSpeed.toFixed(1) + 'x';
+    });
+
+    setResolutionScale(CONFIG.maxPixelRatio);
+}
+
+function setResolutionScale(scale) {
+    const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+    const effectiveDPR = Math.min(dpr, scale);
+    CONFIG.maxPixelRatio = scale;
+    if (typeof MAX_PIXEL_RATIO !== 'undefined') {
+        MAX_PIXEL_RATIO = scale;
+    }
+    if (typeof renderer !== 'undefined' && renderer) {
+        renderer.setPixelRatio(effectiveDPR);
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+    const resValEl = document.getElementById('res-val');
+    const isNative = (scale >= dpr && dpr > 2.0);
+    if (resValEl) {
+        if (isNative) {
+            resValEl.textContent = 'Native (' + dpr.toFixed(1) + 'x)';
+        } else if (Math.abs(scale - 2.0) < 0.1) {
+            resValEl.textContent = 'High (2x)';
+        } else if (Math.abs(scale - 1.5) < 0.1) {
+            resValEl.textContent = 'Med (1.5x)';
+        } else {
+            resValEl.textContent = 'Low (1x)';
+        }
+    }
+
+    const btnKeys = ['low', 'med', 'high', 'native'];
+    btnKeys.forEach(key => {
+        const btn = document.getElementById('res-' + key);
+        if (!btn) return;
+        let isTarget = false;
+        if (isNative) {
+            isTarget = (key === 'native');
+        } else {
+            if (key === 'low' && Math.abs(scale - 1.0) < 0.1) isTarget = true;
+            else if (key === 'med' && Math.abs(scale - 1.5) < 0.1) isTarget = true;
+            else if (key === 'high' && Math.abs(scale - 2.0) < 0.1) isTarget = true;
+        }
+
+        if (isTarget) {
+            btn.className = 'flex-1 py-1 rounded bg-cyan-500/25 border border-cyan-400/50 text-[10px] text-cyan-200 font-bold transition';
+        } else {
+            btn.className = 'flex-1 py-1 rounded bg-white/5 hover:bg-white/15 border border-white/10 text-[10px] text-slate-300 transition';
+        }
     });
 }
 

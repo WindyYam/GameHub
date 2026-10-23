@@ -2,6 +2,7 @@ function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, CONFIG.maxPixelRatio));
 }
 
 // ============================================================================
@@ -39,9 +40,13 @@ function animate() {
     skyMesh.position.copy(camera.position);
     oceanMesh.position.x = camera.position.x;
     oceanMesh.position.z = camera.position.z;
+    camera.getWorldDirection(cumulusForward);
+    cumulusMesh.position.copy(camera.position).addScaledVector(cumulusForward, 400);
+    cumulusMesh.quaternion.copy(camera.quaternion);
 
     // Update Shader Uniforms
     skyMat.uniforms.uTime.value = STATE.elapsedTime;
+    cumulusMat.uniforms.uTime.value = STATE.elapsedTime;
     oceanMat.uniforms.uTime.value = STATE.elapsedTime;
 
     if (sandMat && sandMat.userData.shader) {
@@ -163,8 +168,22 @@ function animate() {
 }
 
 window.onload = function () {
-    initScene();
-    setupUIControls();
-    updateDayNightAtmosphere(STATE.timeOfDay);
-    animate();
+    const loadingScreen = document.getElementById('loading-screen');
+    // Yield a frame so browser paints the loading screen immediately
+    requestAnimationFrame(() => {
+        setTimeout(() => {
+            initScene();
+            setupUIControls();
+            updateDayNightAtmosphere(STATE.timeOfDay);
+            animate();
+
+            // Smoothly dismiss the loading overlay
+            if (loadingScreen) {
+                loadingScreen.classList.add('loading-fade-out');
+                setTimeout(() => {
+                    loadingScreen.remove();
+                }, 500);
+            }
+        }, 20);
+    });
 };

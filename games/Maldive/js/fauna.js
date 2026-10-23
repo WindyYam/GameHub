@@ -46,7 +46,8 @@ function createUnderwaterCoralReefs() {
     branchGeo.translate(0, 0.65, 0);
 
     // Distribute 240 coral reef colonies in the crystal-clear shallow lagoon around the island
-    for (let i = 0; i < 240; i++) {
+    const totalCoral = (typeof CONFIG !== 'undefined' && CONFIG.coralCount) ? CONFIG.coralCount : 240;
+    for (let i = 0; i < totalCoral; i++) {
         const angle = i * 2.39996 + (hash2D(i, 3.3) - 0.5) * 0.25;
         const dist = 70.0 + hash2D(i, 7.1) * 145.0;
         let cx = Math.cos(angle) * dist;

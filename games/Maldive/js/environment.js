@@ -12,13 +12,13 @@ function initScene() {
 
     renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, CONFIG.maxPixelRatio));
     renderer.physicallyCorrectLights = true;
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 0.85;
     renderer.outputEncoding = THREE.sRGBEncoding;
     renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.shadowMap.type = CONFIG.shadowType;
     container.appendChild(renderer.domElement);
 
     // OrbitControls allowing full upward sky tilt & canopy inspection
@@ -39,6 +39,7 @@ function initScene() {
 
     setupLighting();
     createSkyDome();
+    createCumulusPatches();
     createTropicalVegetation();
     createIslandTerrain();
     createUnderwaterCoralReefs();
@@ -61,8 +62,8 @@ function setupLighting() {
     sunLight = new THREE.DirectionalLight(0xfff5e0, 2.15);
     sunLight.position.copy(STATE.sunDirection).multiplyScalar(CELESTIAL_LIGHT_DISTANCE);
     sunLight.castShadow = true;
-    sunLight.shadow.mapSize.width = 2048;
-    sunLight.shadow.mapSize.height = 2048;
+    sunLight.shadow.mapSize.width = CONFIG.shadowMapSize;
+    sunLight.shadow.mapSize.height = CONFIG.shadowMapSize;
     sunLight.shadow.camera.near = CELESTIAL_LIGHT_DISTANCE - 800;
     sunLight.shadow.camera.far = CELESTIAL_LIGHT_DISTANCE + 800;
     const d = 145;
@@ -79,8 +80,8 @@ function setupLighting() {
     moonLight = new THREE.DirectionalLight(0x8ab4f8, 0.0);
     moonLight.position.copy(STATE.moonDirection).multiplyScalar(CELESTIAL_LIGHT_DISTANCE);
     moonLight.castShadow = true;
-    moonLight.shadow.mapSize.width = 2048;
-    moonLight.shadow.mapSize.height = 2048;
+    moonLight.shadow.mapSize.width = CONFIG.shadowMapSize;
+    moonLight.shadow.mapSize.height = CONFIG.shadowMapSize;
     moonLight.shadow.camera.near = CELESTIAL_LIGHT_DISTANCE - 800;
     moonLight.shadow.camera.far = CELESTIAL_LIGHT_DISTANCE + 800;
     moonLight.shadow.camera.left = -d;
@@ -99,18 +100,20 @@ function setupLighting() {
 
 function createSkyDome() {
     const skyGeo = new THREE.SphereGeometry(1200, 64, 48);
+    const skyFragShader = SKY_FRAGMENT_SHADER.replace(
+        'const int STEPS = 64;',
+        'const int STEPS = ' + CONFIG.skyRaymarchSteps + ';'
+    );
     skyMat = new THREE.ShaderMaterial({
         vertexShader: SKY_VERTEX_SHADER,
-        fragmentShader: SKY_FRAGMENT_SHADER,
+        fragmentShader: skyFragShader,
         uniforms: {
             uSunDir: { value: STATE.sunDirection },
             uMoonDir: { value: STATE.moonDirection },
             uSkyHorizonColor: { value: STATE.skyHorizonColor },
             uSkyRotation: { value: 0 },
             uTime: { value: 0 },
-            uCloudCoverage: { value: STATE.cloudCoverage },
-            uCumulusCoverage: { value: STATE.cumulusCoverage },
-            uCumulusSeed: { value: CUMULUS_SEED }
+            uCloudCoverage: { value: STATE.cloudCoverage }
         },
         side: THREE.BackSide,
         depthWrite: false
@@ -121,45 +124,83 @@ function createSkyDome() {
     scene.add(skyMesh);
 }
 
+function createCumulusPatches() {
+    const patchGeometry = new THREE.PlaneGeometry(1200, 800);
+    const cumulusFragShader = CUMULUS_PATCH_FRAGMENT_SHADER.replace(
+        'const int PATCH_STEPS = 64;',
+        'const int PATCH_STEPS = ' + CONFIG.skyRaymarchSteps + ';'
+    );
+    cumulusMat = new THREE.ShaderMaterial({
+        vertexShader: CUMULUS_PATCH_VERTEX_SHADER,
+        fragmentShader: cumulusFragShader,
+        uniforms: {
+            uTime: { value: 0 },
+            uCumulusCoverage: { value: STATE.cumulusCoverage },
+            uCumulusSeed: { value: CUMULUS_SEED },
+            uSunDir: { value: STATE.sunDirection },
+            uMoonDir: { value: STATE.moonDirection },
+            uSunColor: { value: STATE.sunColor }
+        },
+        side: THREE.DoubleSide,
+        transparent: true,
+        depthWrite: false
+    });
+    cumulusMesh = new THREE.Mesh(patchGeometry, cumulusMat);
+    cumulusMesh.renderOrder = 11;
+    scene.add(cumulusMesh);
+}
+
 function createIslandTerrain() {
-    // High-resolution terrain mesh covering the much larger island and expansive shallow lagoon floor
+    // Optimized terrain mesh covering island and shallow lagoon floor
     const size = 860;
-    const segments = 320;
+    const segments = CONFIG.terrainSegments;
     const geo = new THREE.PlaneGeometry(size, size, segments, segments);
     geo.rotateX(-Math.PI / 2);
 
     const posAttr = geo.attributes.position;
     const colors = new Float32Array(posAttr.count * 3);
+    colors.fill(1.0);
 
     for (let i = 0; i < posAttr.count; i++) {
         const x = posAttr.getX(i);
         const z = posAttr.getZ(i);
-        const y = getIslandHeight(x, z);
-        posAttr.setY(i, y);
-
-        // Subtle, natural soft ground ambient occlusion under palm trunks, coastal shrubs & tribal cabin
-        let ao = 1.0;
-        const cabDx = x - CABIN_SITE.x;
-        const cabDz = z - CABIN_SITE.z;
-        const cabD2 = cabDx * cabDx + cabDz * cabDz;
-        if (cabD2 < 120.0) ao *= 1.0 - 0.30 * Math.exp(-cabD2 / 48.0);
-
-        for (let t = 0; t < treeLocations.length; t++) {
-            const dx = x - treeLocations[t].x;
-            const dz = z - treeLocations[t].z;
-            const d2 = dx * dx + dz * dz;
-            if (d2 < 36.0) ao *= 1.0 - 0.16 * Math.exp(-d2 / 5.0);
-        }
-        for (let b = 0; b < bushLocations.length; b++) {
-            const dx = x - bushLocations[b].x;
-            const dz = z - bushLocations[b].z;
-            const d2 = dx * dx + dz * dz;
-            if (d2 < 16.0) ao *= 1.0 - 0.18 * Math.exp(-d2 / 2.2);
-        }
-        colors[i * 3]     = ao;
-        colors[i * 3 + 1] = ao;
-        colors[i * 3 + 2] = ao;
+        posAttr.setY(i, getIslandHeight(x, z));
     }
+
+    // High-performance O(K) spatial bounding-box AO (thousands of times faster than O(N*M) brute force loop)
+    function applyGroundAO(cx, cz, radius, maxDistSq, factor, expDiv) {
+        const minIx = Math.max(0, Math.floor(((cx - radius) / size + 0.5) * segments));
+        const maxIx = Math.min(segments, Math.ceil(((cx + radius) / size + 0.5) * segments));
+        const minIz = Math.max(0, Math.floor(((cz - radius) / size + 0.5) * segments));
+        const maxIz = Math.min(segments, Math.ceil(((cz + radius) / size + 0.5) * segments));
+
+        for (let iz = minIz; iz <= maxIz; iz++) {
+            const rowOffset = iz * (segments + 1);
+            for (let ix = minIx; ix <= maxIx; ix++) {
+                const idx = rowOffset + ix;
+                const vx = posAttr.getX(idx);
+                const vz = posAttr.getZ(idx);
+                const dx = vx - cx;
+                const dz = vz - cz;
+                const d2 = dx * dx + dz * dz;
+                if (d2 < maxDistSq) {
+                    const aoMod = 1.0 - factor * Math.exp(-d2 / expDiv);
+                    colors[idx * 3]     *= aoMod;
+                    colors[idx * 3 + 1] *= aoMod;
+                    colors[idx * 3 + 2] *= aoMod;
+                }
+            }
+        }
+    }
+
+    applyGroundAO(CABIN_SITE.x, CABIN_SITE.z, 11.0, 120.0, 0.30, 48.0);
+    for (let t = 0; t < treeLocations.length; t++) {
+        applyGroundAO(treeLocations[t].x, treeLocations[t].z, 6.0, 36.0, 0.16, 5.0);
+    }
+    for (let b = 0; b < bushLocations.length; b++) {
+        applyGroundAO(bushLocations[b].x, bushLocations[b].z, 4.0, 16.0, 0.18, 2.2);
+    }
+
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
     geo.computeVertexNormals();
 
@@ -292,7 +333,8 @@ function createAAAOcean() {
     // Preserve dense near-shore water while stretching the outer mesh well beyond the visible horizon.
     const oceanRadius = 3200;
     const oceanFarRadius = 200000;
-    const oceanGeo = new THREE.PlaneGeometry(oceanRadius * 2, oceanRadius * 2, 520, 520);
+    const oceanSegments = CONFIG.oceanSegments;
+    const oceanGeo = new THREE.PlaneGeometry(oceanRadius * 2, oceanRadius * 2, oceanSegments, oceanSegments);
     oceanGeo.rotateX(-Math.PI / 2);
 
     // Keep the detailed inner waves unchanged and progressively spread only the distant vertices.
@@ -313,9 +355,14 @@ function createAAAOcean() {
     }
     oceanGeo.computeVertexNormals();
 
+    const oceanFragShader = OCEAN_FRAGMENT_SHADER.replace(
+        'const int REFLECTION_STEPS = 40;',
+        'const int REFLECTION_STEPS = ' + CONFIG.oceanReflectionSteps + ';'
+    );
+
     oceanMat = new THREE.ShaderMaterial({
         vertexShader: OCEAN_VERTEX_SHADER,
-        fragmentShader: OCEAN_FRAGMENT_SHADER,
+        fragmentShader: oceanFragShader,
         uniforms: {
             uTime: { value: 0 },
             uWaveScale: { value: STATE.waveScale },
