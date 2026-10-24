@@ -1,11 +1,6 @@
 // ============================================================================
 // 1. GLOBAL STATE & CONFIGURATION
 // ============================================================================
-const DETECTED_MOBILE = typeof window !== 'undefined' && (
-    /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
-    (window.innerWidth <= 840 && ('ontouchstart' in window || (navigator.maxTouchPoints && navigator.maxTouchPoints > 0)))
-);
-
 const urlParams = typeof window !== 'undefined' && window.location ? new URLSearchParams(window.location.search) : null;
 let savedMobile = null;
 try {
@@ -14,7 +9,7 @@ try {
 
 let IS_MOBILE = urlParams && urlParams.has('mobile')
     ? (urlParams.get('mobile') === '1' || urlParams.get('mobile') === 'true')
-    : (savedMobile !== null ? (savedMobile === 'true') : DETECTED_MOBILE);
+    : savedMobile === 'true';
 
 const CONFIG = {
     isMobile: IS_MOBILE,

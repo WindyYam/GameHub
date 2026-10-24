@@ -56,11 +56,20 @@ function setupUIControls() {
 }
 
 function setIsMobile(isMobile, reload = false) {
-    CONFIG.isMobile = isMobile;
-    IS_MOBILE = isMobile;
     try {
         localStorage.setItem('isMobile', String(isMobile));
     } catch (e) {}
+
+    if (reload) {
+        // The ?mobile= URL param overrides the saved mode on load, so it must match the choice.
+        const url = new URL(window.location.href);
+        url.searchParams.set('mobile', isMobile ? '1' : '0');
+        window.location.href = url.href;
+        return;
+    }
+
+    CONFIG.isMobile = isMobile;
+    IS_MOBILE = isMobile;
 
     const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
     const targetDPR = isMobile ? 1.0 : Math.min(dpr, CONFIG.maxPixelRatio || 1.5);
@@ -78,10 +87,6 @@ function setIsMobile(isMobile, reload = false) {
         }
     }
     updateMobileUI(isMobile);
-
-    if (reload) {
-        window.location.reload();
-    }
 }
 
 function updateMobileUI(isMobile) {

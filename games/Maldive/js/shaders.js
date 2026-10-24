@@ -54,6 +54,11 @@ const CUMULUS_DENSITY_GLSL = `
         return v;
     }
 
+    const vec2 BASE_CUMULUS_AREA_CENTER = vec2(-130.0, -510.0);
+    const vec2 BASE_CUMULUS_WIND_DIR = vec2(0.682, -0.731);
+    const vec2 BASE_CUMULUS_WIND_PERP = vec2(0.731, 0.682);
+    const float BASE_CUMULUS_WIND_SPEED = 16.0;
+
     bool getCloudRayBounds(vec3 origin, vec3 dir, float Rout, float Rin, float Ymin, float Ymax, out float tStart, out float tEnd) {
         float tyMin = 0.0;
         float tyMax = 100000.0;
@@ -103,18 +108,21 @@ const CUMULUS_DENSITY_GLSL = `
         float hFrac = (pos.y - 30.0) / 530.0;
         outHeightFrac = clamp(hFrac, 0.0, 1.0);
         outTowerCore = 0.0;
-        if (hFrac <= 0.001 || uCumulusCoverage <= 0.01) return 0.0;
+        if (pos.y <= 8.0 || uCumulusCoverage <= 0.01) return 0.0;
+
+        vec2 relP = pos.xz - BASE_CUMULUS_AREA_CENTER;
+        float posU = dot(relP, BASE_CUMULUS_WIND_DIR);
+        float posV = dot(relP, BASE_CUMULUS_WIND_PERP);
 
         // Polar horizontal coordinates relative to island center (0, 0)
         float r = max(length(pos.xz), 0.001);
         float distBounds = smoothstep(320.0, 520.0, r) * (1.0 - smoothstep(1050.0, 1350.0, r));
-        if (distBounds <= 0.001) return 0.0;
 
         float theta = atan(pos.z, pos.x);
         // Gentle orbital flow rate circulating around the island (~16 min per full orbit)
         float flowRate = 0.0065;
         // Upper-altitude wind shear tilting plumes downwind along the flow direction
-        float windShearAngle = pow(hFrac, 1.45) * 0.14;
+        float windShearAngle = pow(max(hFrac, 0.0), 1.45) * 0.14;
         float relAngle = theta - (uTime * flowRate + windShearAngle);
 
         // Generate 2 distinct, separate cumulus cloud formations spaced around the island
@@ -140,16 +148,27 @@ const CUMULUS_DENSITY_GLSL = `
 
         // Expansive base bounds up to 3.15, while convective towers above hFrac 0.38 taper to 1.65
         float maxRadiusLimit = mix(3.15, 1.65, smoothstep(0.08, 0.38, hFrac));
-        if (minTowerDist > maxRadiusLimit) return 0.0;
+        bool towerActive = distBounds > 0.001 && minTowerDist <= maxRadiusLimit;
 
         // Local co-rotating coordinates so the cloud body and detail noises travel together smoothly around the island
         float cosA = cos(relAngle);
         float sinA = sin(relAngle);
         vec2 localXZ = vec2(r * cosA, r * sinA);
-        vec3 sampleP = vec3(localXZ.x, pos.y - uTime * 0.85, localXZ.y) * 0.0058;
-        float broadShapeNoise = fbm3DLow(sampleP * 0.85);
-        float billowMacro = fbm3DLow(sampleP * 1.7);
-        float cauliflower = ridged3DLow(sampleP * 3.1 + vec3(0.0, -uTime * 0.10, 0.0));
+        vec3 sampleP = vec3(0.0);
+        float broadShapeNoise = 0.5;
+        float billowMacro = 0.5;
+        float cauliflower = 0.5;
+        float underMeters = 0.0;
+        if (towerActive) {
+            sampleP = vec3(localXZ.x, pos.y - uTime * 0.85, localXZ.y) * 0.0058;
+            broadShapeNoise = fbm3DLow(sampleP * 0.85);
+            billowMacro = fbm3DLow(sampleP * 1.7);
+            cauliflower = ridged3DLow(sampleP * 3.1 + vec3(0.0, -uTime * 0.10, 0.0));
+            // Underside offset in metres: broad sag, ragged detail, and vapour wisps
+            underMeters = (noise(vec3(localXZ * 0.0105, 0.0)) - 0.5) * 26.0
+                        + (noise(vec3(localXZ * 0.031, 1.7)) - 0.5) * 12.0
+                        + (noise(sampleP * 4.6 + vec3(uTime * 0.05, 0.0, 0.0)) - 0.42) * 8.0;
+        }
         float cloudMass = 0.0;
         float towerCore = 0.0;
         float covBoost = smoothstep(0.0, 0.18, uCumulusCoverage) * mix(0.72, 1.12, uCumulusCoverage);
@@ -210,25 +229,124 @@ const CUMULUS_DENSITY_GLSL = `
             float effectiveTop = topHeight - domeDrop;
             float topCap = 1.0 - smoothstep(effectiveTop - 0.045, effectiveTop + 0.035, hFrac);
 
-            // Sharp, flat condensation base hovering parallel to the horizon
-            float flatBase = smoothstep(0.0, 0.035, hFrac);
+            float bottomY = 30.0 + underMeters + (towerSeed - 0.5) * 8.0;
+            float underBase = smoothstep(bottomY - 8.0, bottomY + 16.0, pos.y);
 
-            float towerMass = bodyMask * topCap * flatBase;
+            float towerMass = bodyMask * topCap * underBase * (towerActive ? 1.0 : 0.0);
             cloudMass = max(cloudMass, towerMass);
             towerCore = max(towerCore, towerMass);
         }
-        float macroEnvelope = cloudMass * distBounds;
+
+        float baseCloudMass = 0.0;
+        vec3 baseP = vec3(0.0);
+        float baseBillow = 0.5;
+        float baseCauli = 0.5;
+        bool baseNoiseReady = false;
+        for (int j = 0; j < 5; j++) {
+            float slotIdx = float(j);
+            float lifeDuration = 115.0 + slotIdx * 18.0;
+            float slotRand = hash(vec2(uCumulusSeed * 0.19 + slotIdx * 31.7, 47.9));
+            float globalPhase = hash(vec2(uCumulusSeed * 0.29 + 11.3, 73.1));
+            float initStage = mix(0.08, 0.94, fract(slotIdx * 0.20 + slotRand * 0.16 + globalPhase));
+            float slotTime = uTime + initStage * lifeDuration;
+            float epoch = floor(slotTime / lifeDuration);
+            float localLifeTime = mod(slotTime, lifeDuration);
+            float tau = localLifeTime / lifeDuration;
+            float growFactor = smoothstep(0.0, 0.28, tau);
+            float shrinkFactor = 1.0 - smoothstep(0.68, 1.0, tau);
+            float lifeAlpha = growFactor * shrinkFactor;
+            if (lifeAlpha <= 0.005) continue;
+
+            vec2 randSeed = vec2(slotIdx * 19.3 + 3.1, epoch * 17.1 + 7.7 + uCumulusSeed * 0.1);
+            float cloudBaseY = mix(152.0, 215.0, hash(randSeed + vec2(2.7, 9.4)));
+            float ceilingScale = mix(0.40, 1.0, growFactor) * mix(0.30, 1.0, shrinkFactor);
+            float cloudTopSpan = mix(85.0, 150.0, hash(randSeed + vec2(9.3, 11.5))) * ceilingScale * covBoost;
+            if (pos.y < cloudBaseY - 25.0 || pos.y > cloudBaseY + cloudTopSpan + 25.0) continue;
+
+            float centerU = mix(-750.0, 750.0, hash(randSeed + vec2(1.1, 2.3)));
+            float initU = centerU - 0.5 * lifeDuration * BASE_CUMULUS_WIND_SPEED;
+            float curU = initU + localLifeTime * BASE_CUMULUS_WIND_SPEED;
+            float curV = mix(-1150.0, 1150.0, hash(randSeed + vec2(3.7, 4.9)));
+            float du = posU - curU;
+            float dv = posV - curV;
+            if (abs(du) > 550.0 || abs(dv) > 420.0) continue;
+
+            float sizeNorm = hash(randSeed + vec2(5.5, 6.7));
+            float rBase = mix(120.0, 240.0, sizeNorm);
+            float aspect = mix(1.20, 1.65, hash(randSeed + vec2(7.1, 8.3)));
+            float sizeScale = mix(0.24, 1.0, growFactor) * mix(0.18, 1.0, shrinkFactor);
+            float radU = max(10.0, rBase * aspect * sizeScale);
+            float radV = max(10.0, rBase * sizeScale);
+            if (length(vec2(du / radU, dv / radV)) > 2.1) continue;
+
+            if (!baseNoiseReady) {
+                baseP = vec3(relP.x * 0.0055, (pos.y - uTime * 0.65) * 0.0062, relP.y * 0.0055);
+                baseBillow = fbm3DLow(baseP * 1.7);
+                baseCauli = ridged3DLow(baseP * 3.1 + vec3(0.0, -uTime * 0.08, 0.0));
+                baseNoiseReady = true;
+            }
+
+            vec2 warpedOffset = vec2(du, dv);
+            vec2 warp = vec2(
+                noise(baseP * 3.4 + vec3(randSeed.x, 0.0, 0.0)),
+                noise(baseP * 3.4 + vec3(0.0, 0.0, randSeed.y))
+            ) - 0.5;
+            warpedOffset += warp * (radV * 0.45);
+
+            float baseWave = sin(du * 0.022 + slotIdx * 1.7) * 6.5 + cos(dv * 0.026 + slotIdx * 2.9) * 5.0;
+            float baseWisps = (noise(baseP * 5.2 + vec3(randSeed.x, 0.0, uTime * 0.06)) - 0.44) * 14.0;
+            float bottomSag = (baseBillow - 0.42) * 10.0;
+            float effectiveBaseY = cloudBaseY + baseWave + baseWisps + bottomSag;
+            float naturalBottom = smoothstep(effectiveBaseY - 14.0, effectiveBaseY + 18.0, pos.y);
+            naturalBottom *= smoothstep(effectiveBaseY - 20.0, effectiveBaseY + 4.0, pos.y + (baseCauli - 0.38) * 7.0);
+
+            // Puff count, size and top height vary per cloud for a lumpy silhouette
+            float lobeCount = 3.0 + floor(hash(randSeed + vec2(9.1, 2.6)) * 2.0);
+            float combinedLobeMass = 0.0;
+            for (int l = 0; l < 4; l++) {
+                float lobeId = float(l);
+                if (lobeId >= lobeCount) break;
+                float lobeAngle = hash(randSeed + vec2(lobeId * 4.3, 1.7)) * 6.28318;
+                float lobeDistFrac = (lobeId == 0.0) ? 0.0 : mix(0.25, 0.75, hash(randSeed + vec2(lobeId * 2.1, 8.4)));
+                vec2 lobeCenter = vec2(cos(lobeAngle) * radU * lobeDistFrac, sin(lobeAngle) * radV * lobeDistFrac);
+                vec2 toLobe = warpedOffset - lobeCenter;
+                float lobeRadius = (lobeId == 0.0) ? 1.0 : mix(0.45, 0.95, hash(randSeed + vec2(lobeId * 5.7, 3.2)));
+                float lobeDist = length(vec2(toLobe.x / (radU * lobeRadius), toLobe.y / (radV * lobeRadius)));
+                float billowPerturb = (baseBillow - 0.42) * 0.38 + (baseCauli - 0.38) * 0.26;
+                float dryAirBite = pow(max(0.0, noise(baseP * 5.2 + vec3(lobeId * 2.3, 0.0, 0.0)) - 0.38), 1.6) * 0.32;
+                float lobeShape = lobeDist + billowPerturb + dryAirBite;
+                float lobeMask = 1.0 - smoothstep(0.52, 1.04, lobeShape);
+                float lobeCeilingSpan = cloudTopSpan * mix(0.85, 1.0, lobeRadius);
+                float domeDrop = pow(clamp(lobeDist, 0.0, 1.05), 1.6) * 0.58 * lobeCeilingSpan;
+                float puffBump = (noise(baseP * 4.1 + vec3(lobeId * 6.7, 0.0, randSeed.y)) - 0.5) * 0.5 * lobeCeilingSpan;
+                float effectiveTopY = cloudBaseY + lobeCeilingSpan - domeDrop + (baseCauli - 0.40) * 14.0 + puffBump;
+                float topCap = 1.0 - smoothstep(effectiveTopY - 16.0, effectiveTopY + 12.0, pos.y);
+                combinedLobeMass = max(combinedLobeMass, lobeMask * topCap * naturalBottom);
+            }
+
+            float dissolveShred = (1.0 - shrinkFactor) * (baseBillow - 0.42) * 0.40;
+            float finalBaseMass = max(0.0, combinedLobeMass - dissolveShred) * lifeAlpha;
+            baseCloudMass = max(baseCloudMass, finalBaseMass);
+        }
+
+        float towerEnvelope = cloudMass * distBounds;
+        float baseEnvelope = baseCloudMass * distBounds;
+        float macroEnvelope = max(towerEnvelope, baseEnvelope);
         outTowerCore = clamp(towerCore * distBounds, 0.0, 1.0);
         if (macroEnvelope <= 0.01) return 0.0;
 
         float wispyPlume = noise(sampleP * 5.6 + vec3(uTime * 0.14, 0.0, 0.0));
         float anvilSoftness = smoothstep(0.72, 0.98, hFrac);
         float baseSoftness = 1.0 - smoothstep(0.06, 0.28, hFrac);
-        float detailNoise = mix(
+        float towerDetail = mix(
             mix(billowMacro * 0.40 + cauliflower * 0.60, billowMacro * 0.65 + wispyPlume * 0.35, anvilSoftness),
             billowMacro * 0.70 + broadShapeNoise * 0.30,
             baseSoftness * 0.65
         );
+        // Layer-weighted erosion avoids a seam where tower and base clouds meet
+        float baseDetail = baseCauli * 0.5 + noise(baseP * 9.0 + vec3(0.0, 0.0, uTime * 0.04)) * 0.5;
+        float towerWeight = towerEnvelope / max(towerEnvelope + baseEnvelope, 0.0001);
+        float detailNoise = mix(baseDetail, towerDetail, towerWeight);
         float density = smoothstep(0.28, 0.68, macroEnvelope * 0.82 + detailNoise * 0.48);
         return density * macroEnvelope;
     }
@@ -614,12 +732,27 @@ const CUMULUS_PATCH_FRAGMENT_SHADER = `
         for (int i = 0; i < PATCH_STEPS; i++) {
             if (transmittance < 0.015 || tRay > tMax) break;
             vec3 p = cameraPosition + dir * tRay;
-            float hFrac, towerCore;
-            float density = sampleGiantCumulus3D(p, hFrac, towerCore);
+            float density = 0.0;
+            float hFrac = 0.0;
+            float towerCore = 0.0;
+            float shadowDensity = 0.0;
+            // One call site: inlining the density body twice doubles shader compile time
+            for (int k = 0; k < 2; k++) {
+                if (k == 1 && density <= 0.008) break;
+                vec3 q = k == 0 ? p : p + primaryLightDir * 72.0;
+                float h = 0.0;
+                float c = 0.0;
+                float d = sampleGiantCumulus3D(q, h, c);
+                if (k == 0) {
+                    density = d;
+                    hFrac = h;
+                    towerCore = c;
+                } else {
+                    shadowDensity = d;
+                }
+            }
 
             if (density > 0.008) {
-                float shadowH, shadowCore;
-                float shadowDensity = sampleGiantCumulus3D(p + primaryLightDir * 72.0, shadowH, shadowCore);
                 float shadowOD = shadowDensity * 3.1;
                 float powder = 1.0 - exp(-density * 4.2);
                 float directLight = exp(-shadowOD) * (0.42 + 0.58 * powder);
