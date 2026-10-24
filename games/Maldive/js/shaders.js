@@ -724,8 +724,7 @@ const CUMULUS_PATCH_FRAGMENT_SHADER = `
 
         const int PATCH_STEPS = 64;
         float stepSize = (tMax - tMin) / float(PATCH_STEPS);
-        float dither = hash(gl_FragCoord.xy);
-        float tRay = tMin + mix(0.5, dither, 0.25) * stepSize;
+        float tRay = tMin + 0.5 * stepSize;
         vec3 accumColor = vec3(0.0);
         float transmittance = 1.0;
 
@@ -1249,8 +1248,7 @@ const OCEAN_FRAGMENT_SHADER = `
             if (getCloudRayBounds(vWorldPos, R, 1350.0, 320.0, 28.0, 560.0, tMin, tMax)) {
                 const int REFLECTION_STEPS = 40;
                 float stepSize = (tMax - tMin) / float(REFLECTION_STEPS);
-                float dither = hash(gl_FragCoord.xy);
-                float tRay = tMin + mix(0.5, dither, 0.25) * stepSize;
+                float tRay = tMin + 0.5 * stepSize;
                 vec3 accumColor = vec3(0.0);
                 float transmittance = 1.0;
 
