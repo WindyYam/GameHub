@@ -54,5 +54,9 @@
   {
     "id": 13,
     "path": "games/UmibeStation/index.html"
+  },
+  {
+    "id": 14,
+    "path": "games/WCFinal2026/index.html"
   }
 ]
