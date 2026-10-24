@@ -125,15 +125,14 @@ const CUMULUS_DENSITY_GLSL = `
         float windShearAngle = pow(max(hFrac, 0.0), 1.45) * 0.14;
         float relAngle = theta - (uTime * flowRate + windShearAngle);
 
-        // Generate 2 distinct, separate cumulus cloud formations spaced around the island
+        // Generate one distinct cumulus tower formation around the island
         float towerOffset = 0.72 + (hash(vec2(uCumulusSeed + 4.7, 12.1)) - 0.5) * 1.4;
 
         float minTowerDist = 9999.0;
-        for (int i = 0; i < 2; i++) {
+        for (int i = 0; i < 1; i++) {
             float towerIndex = float(i);
             float towerSeed = hash(vec2(uCumulusSeed + towerIndex * 13.7 + 2.1, 12.1));
-            // Cloud 0 and Cloud 1 spaced ~140 degrees apart around the island
-            float angleOffset = towerIndex < 0.5 ? 0.0 : (2.45 + (hash(vec2(uCumulusSeed + 55.4, 21.7)) - 0.5) * 0.7);
+            float angleOffset = 0.0;
             float towerJitter = (hash(vec2(uCumulusSeed + towerIndex * 7.3 + 6.2, 13.4)) - 0.5) * 0.16;
             float towerAngle = towerOffset + angleOffset + towerJitter;
             float dAngle = atan(sin(relAngle - towerAngle), cos(relAngle - towerAngle));
@@ -173,10 +172,10 @@ const CUMULUS_DENSITY_GLSL = `
         float towerCore = 0.0;
         float covBoost = smoothstep(0.0, 0.18, uCumulusCoverage) * mix(0.72, 1.12, uCumulusCoverage);
 
-        for (int i = 0; i < 2; i++) {
+        for (int i = 0; i < 1; i++) {
             float towerIndex = float(i);
             float towerSeed = hash(vec2(uCumulusSeed + towerIndex * 13.7 + 2.1, 12.1));
-            float angleOffset = towerIndex < 0.5 ? 0.0 : (2.45 + (hash(vec2(uCumulusSeed + 55.4, 21.7)) - 0.5) * 0.7);
+            float angleOffset = 0.0;
             float towerJitter = (hash(vec2(uCumulusSeed + towerIndex * 7.3 + 6.2, 13.4)) - 0.5) * 0.16;
             float towerAngle = towerOffset + angleOffset + towerJitter;
             float dAngle = atan(sin(relAngle - towerAngle), cos(relAngle - towerAngle));
@@ -242,7 +241,7 @@ const CUMULUS_DENSITY_GLSL = `
         float baseBillow = 0.5;
         float baseCauli = 0.5;
         bool baseNoiseReady = false;
-        for (int j = 0; j < 5; j++) {
+        for (int j = 0; j < 2; j++) {
             float slotIdx = float(j);
             float lifeDuration = 115.0 + slotIdx * 18.0;
             float slotRand = hash(vec2(uCumulusSeed * 0.19 + slotIdx * 31.7, 47.9));
