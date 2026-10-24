@@ -18,6 +18,26 @@ const CUMULUS_DENSITY_GLSL = `
         return fract((p.x + p.y) * p.z);
     }
 
+    float interleavedGradientNoise(vec2 screenPos) {
+        vec3 magic = vec3(0.06711056, 0.00583715, 52.9829189);
+        return fract(magic.z * fract(dot(screenPos, magic.xy)));
+    }
+
+    float bayerDither(vec2 p) {
+        vec2 ip = floor(mod(p, 4.0));
+        float m = 0.0;
+        if (ip.y < 0.5) {
+            m = (ip.x < 0.5) ? 0.0 : ((ip.x < 1.5) ? 8.0 : ((ip.x < 2.5) ? 2.0 : 10.0));
+        } else if (ip.y < 1.5) {
+            m = (ip.x < 0.5) ? 12.0 : ((ip.x < 1.5) ? 4.0 : ((ip.x < 2.5) ? 14.0 : 6.0));
+        } else if (ip.y < 2.5) {
+            m = (ip.x < 0.5) ? 3.0 : ((ip.x < 1.5) ? 11.0 : ((ip.x < 2.5) ? 1.0 : 9.0));
+        } else {
+            m = (ip.x < 0.5) ? 15.0 : ((ip.x < 1.5) ? 7.0 : ((ip.x < 2.5) ? 13.0 : 5.0));
+        }
+        return m / 16.0;
+    }
+
     float noise(vec3 p) {
         vec3 i = floor(p);
         vec3 f = fract(p);
@@ -54,6 +74,13 @@ const CUMULUS_DENSITY_GLSL = `
         return v;
     }
 
+    // Prevailing tropical wind basis across the islands archipelago
+    const vec2 ISLANDS_AREA_CENTER = vec2(-130.0, -510.0);
+    const vec2 CUMULUS_WIND_DIR = vec2(0.682, -0.731);
+    const vec2 CUMULUS_WIND_PERP = vec2(0.731, 0.682);
+    const float CUMULUS_WIND_SPEED = 16.0;
+    const float CUMULUS_CYCLE_LEN = 3600.0;
+
     bool getCloudRayBounds(vec3 origin, vec3 dir, float Rout, float Rin, float Ymin, float Ymax, out float tStart, out float tEnd) {
         float tyMin = 0.0;
         float tyMax = 100000.0;
@@ -84,12 +111,14 @@ const CUMULUS_DENSITY_GLSL = `
         float trMin = max(0.0, tEnter);
         float trMax = tExit;
 
-        float C_in = dot(origin.xz, origin.xz) - Rin * Rin;
-        if (C_in < 0.0) {
-            float disc_in = B * B - A * C_in;
-            if (disc_in >= 0.0) {
-                float tInnerExit = (-B + sqrt(disc_in)) / A;
-                trMin = max(trMin, tInnerExit);
+        if (Rin > 0.001) {
+            float C_in = dot(origin.xz, origin.xz) - Rin * Rin;
+            if (C_in < 0.0) {
+                float disc_in = B * B - A * C_in;
+                if (disc_in >= 0.0) {
+                    float tInnerExit = (-B + sqrt(disc_in)) / A;
+                    trMin = max(trMin, tInnerExit);
+                }
             }
         }
 
@@ -99,104 +128,147 @@ const CUMULUS_DENSITY_GLSL = `
         return (tEnd > tStart);
     }
 
-    float sampleGiantCumulus3D(vec3 pos, out float outHeightFrac, out float outTowerCore) {
-        float hFrac = (pos.y - 30.0) / 530.0;
-        outHeightFrac = clamp(hFrac, 0.0, 1.0);
+    float sampleGiantCumulus3D(vec3 pos, out float outHeightFrac, out float outTowerCore, bool isShadowRay) {
+        // Global ambient height factor
+        float globalH = clamp((pos.y - 145.0) / 600.0, 0.0, 1.0);
+        outHeightFrac = globalH;
         outTowerCore = 0.0;
-        if (hFrac <= 0.001 || uCumulusCoverage <= 0.01) return 0.0;
+        if (pos.y < 135.0 || pos.y > 780.0 || uCumulusCoverage <= 0.01) return 0.0;
 
-        // Polar horizontal coordinates relative to island center (0, 0)
-        float r = max(length(pos.xz), 0.001);
-        float distBounds = smoothstep(320.0, 520.0, r) * (1.0 - smoothstep(1050.0, 1350.0, r));
+        // Bounding distance from the whole islands area center
+        vec2 relP = pos.xz - ISLANDS_AREA_CENTER;
+        float distFromArea = length(relP);
+        float distBounds = 1.0 - smoothstep(1900.0, 2400.0, distFromArea);
         if (distBounds <= 0.001) return 0.0;
 
-        float theta = atan(pos.z, pos.x);
-        // Gentle orbital flow rate circulating around the island (~16 min per full orbit)
-        float flowRate = 0.0065;
-        // Upper-altitude wind shear tilting plumes downwind along the flow direction
-        float windShearAngle = pow(hFrac, 1.45) * 0.14;
-        float relAngle = theta - (uTime * flowRate + windShearAngle);
+        // Project into along-wind (u) and cross-wind (v) coordinates
+        float posU = dot(relP, CUMULUS_WIND_DIR);
+        float posV = dot(relP, CUMULUS_WIND_PERP);
 
-        // Generate 2 distinct, separate cumulus cloud formations spaced around the island
-        float towerOffset = 0.72 + (hash(vec2(uCumulusSeed + 4.7, 12.1)) - 0.5) * 1.4;
-
-        float minTowerDist = 9999.0;
-        for (int i = 0; i < 2; i++) {
-            float towerIndex = float(i);
-            float towerSeed = hash(vec2(uCumulusSeed + towerIndex * 13.7 + 2.1, 12.1));
-            // Cloud 0 and Cloud 1 spaced ~140 degrees apart around the island
-            float angleOffset = towerIndex < 0.5 ? 0.0 : (2.45 + (hash(vec2(uCumulusSeed + 55.4, 21.7)) - 0.5) * 0.7);
-            float towerJitter = (hash(vec2(uCumulusSeed + towerIndex * 7.3 + 6.2, 13.4)) - 0.5) * 0.16;
-            float towerAngle = towerOffset + angleOffset + towerJitter;
-            float dAngle = atan(sin(relAngle - towerAngle), cos(relAngle - towerAngle));
-            float targetRadius = 720.0 + towerSeed * 90.0;
-            float radialOffset = r - targetRadius;
-            float tangentOffset = dAngle * r;
-            float radialRadius = 195.0 + towerSeed * 49.0;
-            float tangentRadius = 218.0 + towerSeed * 62.0;
-            float localRadius = length(vec2(radialOffset / radialRadius, tangentOffset / tangentRadius));
-            minTowerDist = min(minTowerDist, localRadius);
-        }
-
-        // Expansive base bounds up to 3.15, while convective towers above hFrac 0.38 taper to 1.65
-        float maxRadiusLimit = mix(3.15, 1.65, smoothstep(0.08, 0.38, hFrac));
-        if (minTowerDist > maxRadiusLimit) return 0.0;
-
-        // Local co-rotating coordinates so the cloud body and detail noises travel together smoothly around the island
-        float cosA = cos(relAngle);
-        float sinA = sin(relAngle);
-        vec2 localXZ = vec2(r * cosA, r * sinA);
-        vec3 sampleP = vec3(localXZ.x, pos.y - uTime * 0.85, localXZ.y) * 0.0058;
-        float broadShapeNoise = fbm3DLow(sampleP * 0.85);
-        float billowMacro = fbm3DLow(sampleP * 1.7);
-        float cauliflower = ridged3DLow(sampleP * 3.1 + vec3(0.0, -uTime * 0.10, 0.0));
-        float cloudMass = 0.0;
-        float towerCore = 0.0;
+        float windTravel = uTime * CUMULUS_WIND_SPEED;
         float covBoost = smoothstep(0.0, 0.18, uCumulusCoverage) * mix(0.72, 1.12, uCumulusCoverage);
 
+        // Multi-scale procedural cloud noises - evaluated lazily only when inside cloud bounds
+        bool noiseComputed = false;
+        vec3 sampleP = vec3(0.0);
+        float broadShapeNoise = 0.5;
+        float billowMacro = 0.5;
+        float cauliflower = 0.5;
+
+        float totalCloudMass = 0.0;
+        float totalTowerCore = 0.0;
+
+        // --------------------------------------------------------------------
+        // 1. TWO GIANT CONVECTIVE CUMULUS CLOUDS WITH:
+        //    - RANDOM INITIAL LIFECYCLE STAGE AT BEGINNING (GROWING, MATURE, SHRINKING)
+        //    - RANDOM SPATIAL SPAWN ACROSS THE ARCHIPELAGO IN SEPARATED LANES
+        //    - SLIGHTLY DIFFERENT BASE HEIGHTS & NATURAL UNDULATING BASES
+        //    - SMOOTH DRIFT WITH WIND AND SEAMLESS REGROWTH / NEW EPOCH CYCLE
+        // --------------------------------------------------------------------
         for (int i = 0; i < 2; i++) {
             float towerIndex = float(i);
-            float towerSeed = hash(vec2(uCumulusSeed + towerIndex * 13.7 + 2.1, 12.1));
-            float angleOffset = towerIndex < 0.5 ? 0.0 : (2.45 + (hash(vec2(uCumulusSeed + 55.4, 21.7)) - 0.5) * 0.7);
-            float towerJitter = (hash(vec2(uCumulusSeed + towerIndex * 7.3 + 6.2, 13.4)) - 0.5) * 0.16;
-            float towerAngle = towerOffset + angleOffset + towerJitter;
-            float dAngle = atan(sin(relAngle - towerAngle), cos(relAngle - towerAngle));
-            float targetRadius = 720.0 + towerSeed * 90.0;
-            float radialOffset = r - targetRadius;
-            float tangentOffset = dAngle * r;
-            float radialRadius = 195.0 + towerSeed * 49.0;
-            float tangentRadius = 218.0 + towerSeed * 62.0;
-            float localRadius = length(vec2(radialOffset / radialRadius, tangentOffset / tangentRadius));
 
-            float lobePhase = atan(tangentOffset / tangentRadius, radialOffset / radialRadius) * 4.0
-                            + hFrac * 19.0 + broadShapeNoise * 6.0;
+            // Staggered randomized initial stage derived from uCumulusSeed:
+            // Ensures one tower can be in early growing stage (tau ~ 0.10 - 0.28, not biggest yet, actively growing)
+            // while another can be mature (tau ~ 0.40 - 0.65) or shrinking/dissolving (tau ~ 0.72 - 0.90)
+            float towerStageSeed0 = hash(vec2(uCumulusSeed * 0.21 + 17.3, 31.9));
+            float towerStageSeed1 = hash(vec2(uCumulusSeed * 0.37 + 43.1, 89.7));
+            float flip = step(0.5, hash(vec2(uCumulusSeed * 0.13 + 5.3, 19.1)));
+            float initTowerStage = (abs(towerIndex - flip) < 0.5)
+                ? mix(0.10, 0.42, towerStageSeed0)
+                : mix(0.50, 0.88, towerStageSeed1);
+
+            float towerLifePeriod = 220.0;
+            float towerLifeTime = uTime + initTowerStage * towerLifePeriod;
+            float epochTower = floor(towerLifeTime / towerLifePeriod);
+            float localTowerTime = mod(towerLifeTime, towerLifePeriod);
+            float tauTower = localTowerTime / towerLifePeriod; // 0.0 to 1.0
+
+            float regrowFactor = smoothstep(0.0, 0.26, tauTower);
+            float dissolveFactor = 1.0 - smoothstep(0.72, 1.0, tauTower);
+            float towerLifeAlpha = regrowFactor * dissolveFactor;
+            if (towerLifeAlpha <= 0.002) continue; // Completely dissolved
+
+            // Seed unique to this tower cloud instance and its epoch
+            vec2 towerRandSeed = vec2(towerIndex * 29.7 + epochTower * 17.3 + uCumulusSeed * 0.1, 41.9);
+            float towerSeed = hash(towerRandSeed);
+
+            // Cross-wind lane randomized across the archipelago area (separated lanes to avoid overlap)
+            float laneSide = (towerIndex < 0.5) ? 1.0 : -1.0;
+            float crossLane = laneSide * mix(220.0, 850.0, hash(towerRandSeed + vec2(11.3, 5.7)));
+
+            // Along-wind track randomized across the islands area
+            float centerU = (hash(towerRandSeed + vec2(7.1, 13.9)) - 0.5) * 600.0;
+            float initU = centerU - 0.5 * towerLifePeriod * CUMULUS_WIND_SPEED;
+            float cloudU = initU + localTowerTime * CUMULUS_WIND_SPEED;
+            float cloudV = crossLane;
+
+            float du = posU - cloudU;
+            float dv = posV - cloudV;
+
+            // Fast analytical 2D bounding rejection before touching any 3D noise
+            if (abs(du) > 950.0 || abs(dv) > 750.0) continue;
+
+            // Randomized base height unique to this tower instance (157m to 202m)
+            float cloudBaseY = (towerIndex < 0.5)
+                ? (168.0 + (towerSeed - 0.5) * 22.0)
+                : (190.0 + (towerSeed - 0.5) * 24.0);
+
+            // Vertical bounds check
+            if (pos.y < cloudBaseY - 30.0 || pos.y > cloudBaseY + 600.0) continue;
+
+            float heightScale = mix(0.32, 1.0, regrowFactor) * mix(0.18, 1.0, dissolveFactor);
+            float sizeScale = mix(0.42, 1.0, regrowFactor) * mix(0.25, 1.0, dissolveFactor);
+
+            float localHFrac = clamp((pos.y - cloudBaseY) / 560.0, 0.0, 1.0);
+
+            float radialU = (265.0 + towerSeed * 55.0) * sizeScale;
+            float radialV = (225.0 + towerSeed * 45.0) * sizeScale;
+            float localRadius = length(vec2(du / radialU, dv / radialV));
+
+            // Wind shear tilting the convective column slightly downwind
+            float shearU = du - pow(localHFrac, 1.35) * 75.0;
+            float towerLocalRadius = length(vec2(shearU / (radialU * 0.84), dv / (radialV * 0.84)));
+
+            float minR = min(localRadius, towerLocalRadius);
+            float maxRLimit = mix(3.2, 1.7, smoothstep(0.08, 0.40, localHFrac));
+            if (minR > maxRLimit) continue;
+
+            // Ensure 3D noise is computed on demand
+            if (!noiseComputed) {
+                sampleP = vec3(relP.x * 0.0055, (pos.y - uTime * 0.65) * 0.0062, relP.y * 0.0055);
+                broadShapeNoise = fbm3DLow(sampleP * 0.85);
+                billowMacro = fbm3DLow(sampleP * 1.7);
+                cauliflower = isShadowRay ? 0.5 : ridged3DLow(sampleP * 3.1 + vec3(0.0, -uTime * 0.08, 0.0));
+                noiseComputed = true;
+            }
+
+            float shredNoise = (1.0 - dissolveFactor) * (billowMacro - 0.40) * 0.45;
+
+            float lobePhase = atan(dv / radialV, du / radialU) * 4.0 + localHFrac * 19.0 + broadShapeNoise * 6.0;
             float sideLobes = 0.5 + 0.5 * sin(lobePhase);
-            // Convective side billows are pronounced on the rising tower, not breaking the cohesive base
             float lobeBulge = (sideLobes - 0.5) * 0.28
-                            * smoothstep(0.20, 0.40, hFrac)
-                            * (1.0 - smoothstep(0.72, 0.92, hFrac));
+                            * smoothstep(0.20, 0.40, localHFrac)
+                            * (1.0 - smoothstep(0.72, 0.92, localHFrac));
 
-            // Base width scale: significantly wider than the tower column (typically 1.8x to 2.4x)
-            float baseScale = mix(1.20, 2.30, hash(vec2(uCumulusSeed + towerIndex * 3.7 + 7.1, 14.3)));
-
-            // Convective tower column profile: narrow waist, billowing cauliflower head
+            float baseScale = mix(1.25, 2.35, hash(vec2(uCumulusSeed + towerIndex * 3.7 + 7.1, 14.3)));
             float towerWidth = 0.86
-                - 0.14 * smoothstep(0.22, 0.48, hFrac)
-                + 0.26 * smoothstep(0.50, 0.80, hFrac)
-                - 0.16 * smoothstep(0.80, 0.98, hFrac);
+                - 0.14 * smoothstep(0.22, 0.48, localHFrac)
+                + 0.26 * smoothstep(0.50, 0.80, localHFrac)
+                - 0.16 * smoothstep(0.80, 0.98, localHFrac);
 
-            // Smoothly taper from the expansive cloud base up into the convective column
-            float baseDecay = 1.0 - smoothstep(0.06, 0.32, hFrac);
+            float baseDecay = 1.0 - smoothstep(0.06, 0.32, localHFrac);
             float widthProfile = mix(towerWidth, baseScale, baseDecay);
 
             float shapeDistortion = clamp(
-                (billowMacro - 0.42) * 0.70 + (cauliflower - 0.36) * 0.42 + lobeBulge,
-                -0.34,
-                0.34
+                (billowMacro - 0.42) * 0.70 + (cauliflower - 0.36) * 0.42 + lobeBulge + shredNoise,
+                -0.45,
+                0.45
             );
-            float bodyMask = 1.0 - smoothstep(widthProfile * 0.68, widthProfile * 1.10, localRadius + shapeDistortion);
+            float activeRadius = mix(localRadius, towerLocalRadius, smoothstep(0.25, 0.55, localHFrac));
+            float bodyMask = 1.0 - smoothstep(widthProfile * 0.65, widthProfile * 1.12, activeRadius + shapeDistortion);
 
-            float topHeight = (
+            float fullTopHeight = (
                 0.72 + towerSeed * 0.28
                 + (broadShapeNoise - 0.45) * 0.15
                 + (billowMacro - 0.42) * 0.14
@@ -204,26 +276,167 @@ const CUMULUS_DENSITY_GLSL = `
                 + (sideLobes - 0.5) * 0.10
             ) * covBoost;
 
-            // Parabolic dome rounding prevents flat-ceiling cylinder look
-            float domeRadiusFrac = clamp(localRadius / max(0.001, towerWidth * 1.08), 0.0, 1.25);
-            float domeDrop = pow(domeRadiusFrac, 2.2) * 0.26;
-            float effectiveTop = topHeight - domeDrop;
-            float topCap = 1.0 - smoothstep(effectiveTop - 0.045, effectiveTop + 0.035, hFrac);
+            float currentTopHeight = fullTopHeight * heightScale;
+            float domeRadiusFrac = clamp(towerLocalRadius / max(0.001, towerWidth * 1.08), 0.0, 1.25);
+            float domeDrop = pow(domeRadiusFrac, 2.2) * 0.26 * heightScale;
+            float effectiveTop = max(0.015, currentTopHeight - domeDrop);
+            float topCap = 1.0 - smoothstep(effectiveTop - 0.045, effectiveTop + 0.035, localHFrac);
 
-            // Sharp, flat condensation base hovering parallel to the horizon
-            float flatBase = smoothstep(0.0, 0.035, hFrac);
+            // Natural, undulating bottom with randomness (no razor-sharp flat cut!)
+            float baseWave = sin(du * 0.015 + towerSeed * 6.2) * 8.5 + cos(dv * 0.018 + towerSeed * 3.7) * 7.0;
+            float baseWisps = isShadowRay ? 0.0 : (noise(sampleP * 4.6 + vec3(uTime * 0.05, 0.0, 0.0)) - 0.42) * 15.0;
+            float baseBillow = (billowMacro - 0.42) * 10.0;
+            float effectiveBaseY = cloudBaseY + baseWave + baseWisps + baseBillow;
 
-            float towerMass = bodyMask * topCap * flatBase;
-            cloudMass = max(cloudMass, towerMass);
-            towerCore = max(towerCore, towerMass);
+            // Soft organic vapor rolloff at the underside
+            float naturalBottom = smoothstep(effectiveBaseY - 16.0, effectiveBaseY + 22.0, pos.y);
+            naturalBottom *= smoothstep(effectiveBaseY - 22.0, effectiveBaseY + 6.0, pos.y + (cauliflower - 0.40) * 8.0);
+
+            float towerMass = bodyMask * topCap * naturalBottom * towerLifeAlpha;
+            totalCloudMass = max(totalCloudMass, towerMass);
+            totalTowerCore = max(totalTowerCore, towerMass);
         }
-        float macroEnvelope = cloudMass * distBounds;
-        outTowerCore = clamp(towerCore * distBounds, 0.0, 1.0);
+
+        // --------------------------------------------------------------------
+        // 2. RANDOM GENERATED OVER TIME PLAIN BASE CUMULUS CLOUDS WITH:
+        //    - RANDOM INITIAL STAGES AT BEGINNING (STILL GROWING, MATURE, SHRINKING)
+        //    - RANDOM SPATIAL SPAWN ACROSS THE ARCHIPELAGO AREA
+        //    - DIFFERENT RANDOMIZED BASE HEIGHTS (152m to 215m)
+        //    - NATURAL UNDULATING CLOUD UNDERSIDES (RANDOM SHAPES, NO SHARP CUT!)
+        //    - ORGANIC MULTI-LOBE SHAPES, GROWTH, SHRINK & DISSOLVE LIFECYCLE
+        // --------------------------------------------------------------------
+        for (int j = 0; j < 5; j++) {
+            float slotIdx = float(j);
+            float lifeDuration = 115.0 + slotIdx * 18.0; // 115s to 187s lifecycle
+
+            // Staggered randomized initial stage derived from uCumulusSeed:
+            // Spreads clouds across all stages at t=0: nascent growing, mid-growth, mature, shrinking
+            float slotRand = hash(vec2(uCumulusSeed * 0.19 + slotIdx * 31.7, 47.9));
+            float globalPhase = hash(vec2(uCumulusSeed * 0.29 + 11.3, 73.1));
+            float initStage = mix(0.08, 0.94, fract(slotIdx * 0.20 + slotRand * 0.16 + globalPhase));
+
+            float slotTime = uTime + initStage * lifeDuration;
+            float epoch = floor(slotTime / lifeDuration);
+            float localLifeTime = mod(slotTime, lifeDuration);
+            float tau = localLifeTime / lifeDuration; // 0.0 to 1.0
+
+            float growFactor = smoothstep(0.0, 0.28, tau);
+            float shrinkFactor = 1.0 - smoothstep(0.68, 1.0, tau);
+            float lifeAlpha = growFactor * shrinkFactor;
+            if (lifeAlpha <= 0.005) continue;
+
+            vec2 randSeed = vec2(slotIdx * 19.3 + 3.1, epoch * 17.1 + 7.7 + uCumulusSeed * 0.1);
+
+            // Staggered randomized base height unique to this cloud instance (152m to 215m)
+            float cloudBaseY = mix(152.0, 215.0, hash(randSeed + vec2(2.7, 9.4)));
+            float ceilingScale = mix(0.40, 1.0, growFactor) * mix(0.30, 1.0, shrinkFactor);
+            float cloudTopSpan = mix(85.0, 150.0, hash(randSeed + vec2(9.3, 11.5))) * ceilingScale * covBoost;
+
+            // Quick vertical cull if pos.y is outside this specific cloud's altitude range
+            if (pos.y < cloudBaseY - 25.0 || pos.y > cloudBaseY + cloudTopSpan + 25.0) continue;
+
+            // Random track center across the whole islands archipelago:
+            // Ensures clouds spawn randomly distributed throughout the area at t=0
+            float centerU = mix(-750.0, 750.0, hash(randSeed + vec2(1.1, 2.3)));
+            float initU = centerU - 0.5 * lifeDuration * CUMULUS_WIND_SPEED;
+            float curU = initU + localLifeTime * CUMULUS_WIND_SPEED;
+            float curV = mix(-1150.0, 1150.0, hash(randSeed + vec2(3.7, 4.9)));
+
+            float du = posU - curU;
+            float dv = posV - curV;
+
+            // Fast analytical 2D bounding rejection
+            if (abs(du) > 550.0 || abs(dv) > 420.0) continue;
+
+            float sizeNorm = hash(randSeed + vec2(5.5, 6.7));
+            float rBase = mix(120.0, 240.0, sizeNorm);
+            float aspect = mix(1.20, 1.65, hash(randSeed + vec2(7.1, 8.3)));
+
+            float sizeScale = mix(0.24, 1.0, growFactor) * mix(0.18, 1.0, shrinkFactor);
+            float radU = max(10.0, rBase * aspect * sizeScale);
+            float radV = max(10.0, rBase * sizeScale);
+
+            if (length(vec2(du / radU, dv / radV)) > 2.1) continue;
+
+            // Ensure 3D noise is computed on demand
+            if (!noiseComputed) {
+                sampleP = vec3(relP.x * 0.0055, (pos.y - uTime * 0.65) * 0.0062, relP.y * 0.0055);
+                broadShapeNoise = fbm3DLow(sampleP * 0.85);
+                billowMacro = fbm3DLow(sampleP * 1.7);
+                cauliflower = isShadowRay ? 0.5 : ridged3DLow(sampleP * 3.1 + vec3(0.0, -uTime * 0.08, 0.0));
+                noiseComputed = true;
+            }
+
+            // 2D Domain Warping breaks geometric curves (skipped for shadow rays to maximize speed)
+            vec2 warpedOffset = vec2(du, dv);
+            if (!isShadowRay) {
+                vec2 warp = vec2(
+                    noise(sampleP * 3.4 + vec3(randSeed.x, 0.0, 0.0)),
+                    noise(sampleP * 3.4 + vec3(0.0, 0.0, randSeed.y))
+                ) - 0.5;
+                warpedOffset += warp * (radV * 0.45);
+            }
+
+            // Natural, undulating cloud bottom with organic randomness
+            float baseWave = sin(du * 0.022 + slotIdx * 1.7) * 6.5 + cos(dv * 0.026 + slotIdx * 2.9) * 5.0;
+            float baseWisps = isShadowRay ? 0.0 : (noise(sampleP * 5.2 + vec3(randSeed.x, 0.0, uTime * 0.06)) - 0.44) * 14.0;
+            float baseBillow = (billowMacro - 0.42) * 10.0;
+            float effectiveBaseY = cloudBaseY + baseWave + baseWisps + baseBillow;
+
+            // Soft vapor rolloff at underside (no sharp cut!)
+            float naturalBottom = smoothstep(effectiveBaseY - 14.0, effectiveBaseY + 18.0, pos.y);
+            naturalBottom *= smoothstep(effectiveBaseY - 20.0, effectiveBaseY + 4.0, pos.y + (cauliflower - 0.38) * 7.0);
+
+            // Multi-lobe clustering: evaluate 3 clustered puffs
+            float combinedLobeMass = 0.0;
+
+            for (int l = 0; l < 3; l++) {
+                float lobeId = float(l);
+                float lobeAngle = hash(randSeed + vec2(lobeId * 4.3, 1.7)) * 6.28318;
+                float lobeDistFrac = (lobeId == 0.0) ? 0.0 : mix(0.30, 0.65, hash(randSeed + vec2(lobeId * 2.1, 8.4)));
+                vec2 lobeCenter = vec2(
+                    cos(lobeAngle) * radU * lobeDistFrac,
+                    sin(lobeAngle) * radV * lobeDistFrac
+                );
+
+                vec2 toLobe = warpedOffset - lobeCenter;
+                float lobeRadius = (lobeId == 0.0) ? 1.0 : mix(0.55, 0.85, hash(randSeed + vec2(lobeId * 5.7, 3.2)));
+                float lobeDist = length(vec2(toLobe.x / (radU * lobeRadius), toLobe.y / (radV * lobeRadius)));
+
+                float billowPerturb = (billowMacro - 0.42) * 0.38 + (cauliflower - 0.38) * 0.26;
+                float dryAirBite = isShadowRay ? 0.0 : (pow(max(0.0, noise(sampleP * 5.2 + vec3(lobeId * 2.3, 0.0, 0.0)) - 0.38), 1.6) * 0.32);
+
+                float lobeShape = lobeDist + billowPerturb + dryAirBite;
+                float lobeMask = 1.0 - smoothstep(0.52, 1.04, lobeShape);
+
+                float lobeCeilingSpan = cloudTopSpan * mix(0.85, 1.0, lobeRadius);
+                float domeDrop = pow(clamp(lobeDist, 0.0, 1.05), 1.6) * 0.58 * lobeCeilingSpan;
+                float effectiveTopY = cloudBaseY + lobeCeilingSpan - domeDrop + (cauliflower - 0.40) * 14.0;
+
+                float topCap = 1.0 - smoothstep(effectiveTopY - 16.0, effectiveTopY + 12.0, pos.y);
+
+                float singleLobeMass = lobeMask * topCap * naturalBottom;
+                combinedLobeMass = max(combinedLobeMass, singleLobeMass);
+            }
+
+            float dissolveShred = (1.0 - shrinkFactor) * (billowMacro - 0.42) * 0.40;
+            float finalBaseMass = max(0.0, combinedLobeMass - dissolveShred) * lifeAlpha;
+
+            totalCloudMass = max(totalCloudMass, finalBaseMass);
+        }
+
+        float macroEnvelope = totalCloudMass * distBounds;
+        outTowerCore = clamp(totalTowerCore * distBounds, 0.0, 1.0);
         if (macroEnvelope <= 0.01) return 0.0;
 
+        // Fast path for shadow rays and ocean reflections
+        if (isShadowRay) {
+            return smoothstep(0.25, 0.70, macroEnvelope * 0.95);
+        }
+
         float wispyPlume = noise(sampleP * 5.6 + vec3(uTime * 0.14, 0.0, 0.0));
-        float anvilSoftness = smoothstep(0.72, 0.98, hFrac);
-        float baseSoftness = 1.0 - smoothstep(0.06, 0.28, hFrac);
+        float anvilSoftness = smoothstep(0.72, 0.98, globalH);
+        float baseSoftness = 1.0 - smoothstep(0.06, 0.28, globalH);
         float detailNoise = mix(
             mix(billowMacro * 0.40 + cauliflower * 0.60, billowMacro * 0.65 + wispyPlume * 0.35, anvilSoftness),
             billowMacro * 0.70 + broadShapeNoise * 0.30,
@@ -591,7 +804,7 @@ const CUMULUS_PATCH_FRAGMENT_SHADER = `
         float hgMoon = pow(max(dot(dir, uMoonDir), 0.0), 6.0) * nightFactor;
 
         float tMin, tMax;
-        if (!getCloudRayBounds(cameraPosition, dir, 1350.0, 320.0, 28.0, 560.0, tMin, tMax)) discard;
+        if (!getCloudRayBounds(cameraPosition, dir, 2500.0, 0.0, 135.0, 780.0, tMin, tMax)) discard;
 
         // Depth buffer clipping: prevent clouds from blocking solid foreground geometry (island, trees, etc.)
         vec2 screenUV = gl_FragCoord.xy / uResolution;
@@ -606,20 +819,20 @@ const CUMULUS_PATCH_FRAGMENT_SHADER = `
 
         const int PATCH_STEPS = 64;
         float stepSize = (tMax - tMin) / float(PATCH_STEPS);
-        float dither = hash(gl_FragCoord.xy);
-        float tRay = tMin + mix(0.5, dither, 0.25) * stepSize;
+        float dither = interleavedGradientNoise(gl_FragCoord.xy);
+        float tRay = tMin + dither * stepSize;
         vec3 accumColor = vec3(0.0);
         float transmittance = 1.0;
 
         for (int i = 0; i < PATCH_STEPS; i++) {
-            if (transmittance < 0.015 || tRay > tMax) break;
+            if (transmittance < 0.012 || tRay > tMax) break;
             vec3 p = cameraPosition + dir * tRay;
             float hFrac, towerCore;
-            float density = sampleGiantCumulus3D(p, hFrac, towerCore);
+            float density = sampleGiantCumulus3D(p, hFrac, towerCore, false);
 
-            if (density > 0.008) {
+            if (density > 0.005) {
                 float shadowH, shadowCore;
-                float shadowDensity = sampleGiantCumulus3D(p + primaryLightDir * 72.0, shadowH, shadowCore);
+                float shadowDensity = sampleGiantCumulus3D(p + primaryLightDir * 72.0, shadowH, shadowCore, true);
                 float shadowOD = shadowDensity * 3.1;
                 float powder = 1.0 - exp(-density * 4.2);
                 float directLight = exp(-shadowOD) * (0.42 + 0.58 * powder);
@@ -633,7 +846,7 @@ const CUMULUS_PATCH_FRAGMENT_SHADER = `
 
                 float distHaze = smoothstep(450.0, 1300.0, tRay) * 0.35;
                 voxelColor = mix(voxelColor, uSkyHorizonColor, distHaze);
-                float stepAlpha = 1.0 - exp(-density * stepSize * 0.080);
+                float stepAlpha = 1.0 - exp(-density * stepSize * 0.042);
                 accumColor += transmittance * voxelColor * stepAlpha;
                 transmittance *= (1.0 - stepAlpha);
             }
@@ -641,8 +854,8 @@ const CUMULUS_PATCH_FRAGMENT_SHADER = `
         }
 
         float rawAlpha = 1.0 - transmittance;
-        float cloudAlpha = smoothstep(0.005, 0.20, rawAlpha);
-        if (cloudAlpha < 0.003) discard;
+        float cloudAlpha = smoothstep(0.003, 0.22, rawAlpha);
+        if (cloudAlpha < 0.002) discard;
         gl_FragColor = vec4(accumColor / max(rawAlpha, 0.0001), cloudAlpha);
     }
 `;
@@ -1113,11 +1326,11 @@ const OCEAN_FRAGMENT_SHADER = `
         // Raymarch the same cumulus density field as the sky along the reflected view ray.
         if (fresnel > 0.04 && reflY > 0.002 && reflY < 0.999 && uCumulusCoverage > 0.01) {
             float tMin, tMax;
-            if (getCloudRayBounds(vWorldPos, R, 1350.0, 320.0, 28.0, 560.0, tMin, tMax)) {
+            if (getCloudRayBounds(vWorldPos, R, 2500.0, 0.0, 135.0, 780.0, tMin, tMax)) {
                 const int REFLECTION_STEPS = 40;
                 float stepSize = (tMax - tMin) / float(REFLECTION_STEPS);
-                float dither = hash(gl_FragCoord.xy);
-                float tRay = tMin + mix(0.5, dither, 0.25) * stepSize;
+                float dither = interleavedGradientNoise(gl_FragCoord.xy);
+                float tRay = tMin + dither * stepSize;
                 vec3 accumColor = vec3(0.0);
                 float transmittance = 1.0;
 
@@ -1131,12 +1344,12 @@ const OCEAN_FRAGMENT_SHADER = `
                 for (int i = 0; i < REFLECTION_STEPS; i++) {
                     if (transmittance < 0.025 || tRay > tMax) break;
                     float hFrac, towerCore;
-                    float density = sampleGiantCumulus3D(vWorldPos + R * tRay, hFrac, towerCore);
-                    if (density > 0.008) {
+                    float density = sampleGiantCumulus3D(vWorldPos + R * tRay, hFrac, towerCore, true);
+                    if (density > 0.006) {
                         float baseDarkening = smoothstep(0.0, 0.26, hFrac);
                         vec3 ambientVoxel = mix(towerDarkBase, towerMidShadow, baseDarkening);
                         vec3 voxelColor = mix(ambientVoxel, towerSunTop, clamp(0.68 + hFrac * 0.18, 0.0, 1.0));
-                        float stepAlpha = 1.0 - exp(-density * stepSize * 0.024);
+                        float stepAlpha = 1.0 - exp(-density * stepSize * 0.032);
                         accumColor += transmittance * voxelColor * stepAlpha;
                         transmittance *= (1.0 - stepAlpha);
                     }

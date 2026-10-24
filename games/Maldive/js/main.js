@@ -73,6 +73,11 @@ function animate() {
         if (sh) sh.uniforms.uTime.value = STATE.elapsedTime;
     }
 
+    for (let i = 0; i < cocoMaterials.length; i++) {
+        const sh = cocoMaterials[i].userData.shader;
+        if (sh) sh.uniforms.uTime.value = STATE.elapsedTime;
+    }
+
     // Animate Underwater Marine Life (Manta Rays & Reef Fish Schools)
     const t = STATE.elapsedTime;
     for (let i = 0; i < marineLifeAgents.length; i++) {

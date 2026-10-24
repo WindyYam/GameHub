@@ -18,7 +18,7 @@ let IS_MOBILE = urlParams && urlParams.has('mobile')
 
 const CONFIG = {
     isMobile: IS_MOBILE,
-    maxPixelRatio: IS_MOBILE ? 1.0 : Math.min(typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1, 1.5),
+    maxPixelRatio: IS_MOBILE ? 1.0 : Math.min(typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1, 1.25),
     terrainSegments: IS_MOBILE ? 100 : 160,
     oceanSegments: IS_MOBILE ? 100 : 160,
     totalTrees: IS_MOBILE ? 70 : 130,
@@ -27,7 +27,7 @@ const CONFIG = {
     bushFronds: IS_MOBILE ? 8 : 10,
     coralCount: 0,
     skyRaymarchSteps: IS_MOBILE ? 16 : 28,
-    cumulusRaymarchSteps: IS_MOBILE ? 20 : 32,
+    cumulusRaymarchSteps: IS_MOBILE ? 22 : 42,
     oceanReflectionSteps: IS_MOBILE ? 3 : 6,
     shadowMapSize: IS_MOBILE ? 1024 : 1536,
     shadowType: THREE.PCFSoftShadowMap
@@ -88,6 +88,7 @@ let depthRenderTarget = null;
 let sunLight, moonLight, hemiLight;
 let frondMaterials = [];
 let trunkMaterials = [];
+let cocoMaterials = [];
 let treeLocations = [];
 let bushLocations = [];
 let marineLifeAgents = [];
@@ -272,10 +273,27 @@ function batchStaticMeshes(meshes) {
         batch.castShadow = ref.castShadow;
         batch.receiveShadow = ref.receiveShadow;
         batch.frustumCulled = false;
+        if (ref.material && ref.material.customDepthMaterial) {
+            batch.customDepthMaterial = ref.material.customDepthMaterial;
+        }
         items.forEach((mesh, idx) => {
             batch.setMatrixAt(idx, mesh.matrixWorld);
             if (mesh.parent) mesh.parent.remove(mesh);
         });
+
+        // Pass tree base origin and tree scale to instanced vertex shader for wind swaying
+        if (items[0].userData && items[0].userData.treeOrigin) {
+            const originsAndScales = new Float32Array(items.length * 3);
+            for (let i = 0; i < items.length; i++) {
+                const u = items[i].userData;
+                originsAndScales[i * 3]     = (u && u.treeOrigin) ? u.treeOrigin.x : 0.0;
+                originsAndScales[i * 3 + 1] = (u && u.treeOrigin) ? u.treeOrigin.y : 0.0;
+                originsAndScales[i * 3 + 2] = (u && typeof u.treeScale === 'number') ? u.treeScale : 1.0;
+            }
+            batch.geometry = batch.geometry.clone();
+            batch.geometry.setAttribute('aTreeOrigin', new THREE.InstancedBufferAttribute(originsAndScales, 3));
+        }
+
         batch.instanceMatrix.needsUpdate = true;
         scene.add(batch);
     });
