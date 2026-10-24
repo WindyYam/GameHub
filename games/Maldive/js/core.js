@@ -1,14 +1,24 @@
 // ============================================================================
 // 1. GLOBAL STATE & CONFIGURATION
 // ============================================================================
-const IS_MOBILE = typeof window !== 'undefined' && (
+const DETECTED_MOBILE = typeof window !== 'undefined' && (
     /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) ||
     (window.innerWidth <= 840 && ('ontouchstart' in window || (navigator.maxTouchPoints && navigator.maxTouchPoints > 0)))
 );
 
+const urlParams = typeof window !== 'undefined' && window.location ? new URLSearchParams(window.location.search) : null;
+let savedMobile = null;
+try {
+    savedMobile = typeof localStorage !== 'undefined' ? localStorage.getItem('isMobile') : null;
+} catch (e) {}
+
+let IS_MOBILE = urlParams && urlParams.has('mobile')
+    ? (urlParams.get('mobile') === '1' || urlParams.get('mobile') === 'true')
+    : (savedMobile !== null ? (savedMobile === 'true') : DETECTED_MOBILE);
+
 const CONFIG = {
     isMobile: IS_MOBILE,
-    maxPixelRatio: IS_MOBILE ? 1.5 : 2.0,
+    maxPixelRatio: IS_MOBILE ? 1.0 : Math.min(typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1, 2.0),
     terrainSegments: IS_MOBILE ? 128 : 200,
     oceanSegments: IS_MOBILE ? 128 : 240,
     totalTrees: IS_MOBILE ? 70 : 135,
@@ -23,11 +33,37 @@ const CONFIG = {
     shadowType: THREE.PCFSoftShadowMap
 };
 
+const DISTANT_ISLAND_CENTER = Object.freeze({ x: -260.0, z: -1020.0 });
+const SEABED_ISLAND_CENTERS = Object.freeze([
+    Object.freeze({ x: -650.0, z: -1350.0 }),
+    Object.freeze({ x: -1120.0, z: -1570.0 })
+]);
+const SEABED_PATH_POINTS = Object.freeze([
+    Object.freeze({ x: 0.0, z: -100.0 }),
+    Object.freeze({ x: -110.0, z: -190.0 }),
+    Object.freeze({ x: -250.0, z: -300.0 }),
+    Object.freeze({ x: -420.0, z: -430.0 }),
+    Object.freeze({ x: -590.0, z: -570.0 }),
+    Object.freeze({ x: -720.0, z: -720.0 }),
+    Object.freeze({ x: -760.0, z: -850.0 }),
+    Object.freeze({ x: -690.0, z: -950.0 }),
+    Object.freeze({ x: -520.0, z: -1000.0 }),
+    Object.freeze({ x: -260.0, z: -1020.0 }),
+    Object.freeze({ x: -380.0, z: -1060.0 }),
+    Object.freeze({ x: -530.0, z: -1130.0 }),
+    Object.freeze({ x: -670.0, z: -1220.0 }),
+    Object.freeze({ x: -760.0, z: -1310.0 }),
+    Object.freeze({ x: -650.0, z: -1350.0 }),
+    Object.freeze({ x: -800.0, z: -1410.0 }),
+    Object.freeze({ x: -930.0, z: -1470.0 }),
+    Object.freeze({ x: -1120.0, z: -1570.0 })
+]);
+
 const CUMULUS_SEED = Math.random() * 1000;
 const STATE = {
     timeOfDay: 13.5,        // 0.0 to 24.0 hours
     autoCycle: true,
-    cycleSpeed: 0.6,        // Hours per real second when auto-cycling
+    cycleSpeed: 0.1,        // Hours per real second when auto-cycling
     waveScale: 1.15,
     cloudCoverage: 0.1,     // Controls high-altitude texture cloud deck
     cumulusCoverage: 0.75,  // Controls isolated 3D volumetric giant cumulus mountains
@@ -48,6 +84,7 @@ const CABIN_SITE = { x: 40.5, z: 10.5, rotY: 0.74, scale: 1.85 };
 
 let scene, camera, renderer, controls, clock;
 let skyMat, skyMesh, cumulusMat, cumulusMesh, oceanMat, oceanMesh, sandMat;
+let depthRenderTarget = null;
 let sunLight, moonLight, hemiLight;
 let frondMaterials = [];
 let trunkMaterials = [];
@@ -120,11 +157,11 @@ function fbm2D(x, y) {
  * shallow turquoise lagoon water, sandbars, and shoreline foam hug the beach accurately.
  */
 function getIslandHeight(x, z) {
-    // Much larger Maldives island crescent + sweeping sandbar spit + expansive coral lagoon shelf
+    // 1. Original Island Size & Crescent Layout (centered around (0,0))
     const angle = Math.atan2(z, x);
     const rMain = Math.sqrt(x * x + z * z);
 
-    // Organic coastline modulation scaled for the much larger island footprint
+    // Organic coastline modulation scaled for the island footprint
     const coastWave = Math.sin(angle * 3.0 + 0.8) * 16.5 + Math.cos(angle * 2.0 - 0.5) * 22.0 + Math.sin(angle * 5.0) * 6.2;
     const effectiveR = rMain + coastWave;
 
@@ -148,7 +185,64 @@ function getIslandHeight(x, z) {
     const duneDetail = (fbm2D(x * 0.018, z * 0.018) - 0.5) * 1.65 * Math.exp(-(rMain * rMain) / (195.0 * 195.0));
     const reefDetail = (fbm2D(x * 0.014 + 11.3, z * 0.014 - 7.9) - 0.5) * 1.25 * (1.0 - Math.exp(-(rMain * rMain) / (110.0 * 110.0)));
 
-    let h = -9.2 + mainMound + spitMound + coveMound + lagoonAtollPlatform + duneDetail + reefDetail;
+    // 2. Distant Island, moved twice as far from the main atoll.
+    const dxDist = x - DISTANT_ISLAND_CENTER.x;
+    const dzDist = z - DISTANT_ISLAND_CENTER.z;
+    const rotDistX = dxDist * 0.92 - dzDist * 0.38;
+    const rotDistZ = dxDist * 0.38 + dzDist * 0.92;
+    const rDistLand = Math.sqrt((rotDistX * 0.72) * (rotDistX * 0.72) + (rotDistZ * 1.45) * (rotDistZ * 1.45));
+    const distIslandMound = 11.2 * Math.exp(-(rDistLand * rDistLand) / (46.0 * 46.0));
+    const rDistLagoon = Math.sqrt((rotDistX * 0.58) * (rotDistX * 0.58) + (rotDistZ * 1.05) * (rotDistZ * 1.05));
+    const distLagoonShelf = 7.8 * Math.exp(-Math.pow(rDistLagoon / 125.0, 3.0));
+
+    // Two further submerged shoals continue the same island chain without reaching the surface.
+    let seabedIslandMounds = 0.0;
+    for (const center of SEABED_ISLAND_CENTERS) {
+        const dx = x - center.x;
+        const dz = z - center.z;
+        const rotX = dx * 0.92 - dz * 0.38;
+        const rotZ = dx * 0.38 + dz * 0.92;
+        const rLand = Math.sqrt((rotX * 0.72) * (rotX * 0.72) + (rotZ * 1.45) * (rotZ * 1.45));
+        const rShelf = Math.sqrt((rotX * 0.58) * (rotX * 0.58) + (rotZ * 1.05) * (rotZ * 1.05));
+        seabedIslandMounds += 5.4 * Math.exp(-(rLand * rLand) / (62.0 * 62.0))
+            + 2.5 * Math.exp(-Math.pow(rShelf / 145.0, 3.0));
+    }
+
+    let h = -9.2 + mainMound + spitMound + coveMound + lagoonAtollPlatform + duneDetail + reefDetail
+        + distIslandMound + distLagoonShelf + seabedIslandMounds;
+
+    // Gently raise the full overwater-villa lagoon shelf to keep its pilings in shallow water.
+    const residentialDx = x + 96.0;
+    const residentialDz = z + 214.0;
+    const residentialAlong = residentialDx * -0.39 + residentialDz * -0.92;
+    const residentialAcross = residentialDx * 0.92 + residentialDz * -0.39;
+    const residentialRadius = Math.sqrt(
+        Math.pow(residentialAlong / 155.0, 2.0) + Math.pow(residentialAcross / 75.0, 2.0)
+    );
+    const residentialShelf = 1.0 - smoothstep(0.72, 1.0, residentialRadius);
+    const residentialBedTarget = mix(-2.2, -1.1, smoothstep(-10.0, 50.0, residentialAlong));
+    h = Math.max(h, mix(h, residentialBedTarget, residentialShelf));
+
+    // Overlapping, gently varied ridge segments follow the broad arc between atolls.
+    for (let i = 0; i < SEABED_PATH_POINTS.length - 1; i++) {
+        const start = SEABED_PATH_POINTS[i];
+        const end = SEABED_PATH_POINTS[i + 1];
+        const axisX = end.x - start.x;
+        const axisZ = end.z - start.z;
+        const t = Math.max(0.0, Math.min(1.0, ((x - start.x) * axisX + (z - start.z) * axisZ)
+            / (axisX * axisX + axisZ * axisZ)));
+        const dx = x - (start.x + t * axisX);
+        const dz = z - (start.z + t * axisZ);
+        const ridgeWidth = 120.0 + 35.0 * Math.sin(x * 0.007 + z * 0.004)
+            + 24.0 * Math.sin(z * 0.013 - x * 0.009);
+        const ridgeEdgeWobble = 20.0 * Math.sin(x * 0.012 + z * 0.008)
+            + 12.0 * Math.sin(z * 0.014 - x * 0.009);
+        const ridgeDistance = Math.max(0.0, Math.sqrt(dx * dx + dz * dz) + ridgeEdgeWobble);
+        const ridgeMask = 1.0 - smoothstep(ridgeWidth * 0.22, ridgeWidth * 1.85, ridgeDistance);
+        const ridgeBedTarget = -4.4 + 0.45 * Math.sin(x * 0.008 + Math.sin(z * 0.006) * 1.5)
+            + 0.2 * Math.sin(z * 0.015 - x * 0.01);
+        h = Math.max(h, mix(h, ridgeBedTarget, ridgeMask));
+    }
 
     // Gently flatten the central island crest for natural tropical atoll profile
     if (h > 1.95) {

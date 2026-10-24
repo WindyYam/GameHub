@@ -3,6 +3,11 @@ function onWindowResize() {
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, CONFIG.maxPixelRatio));
+    if (depthRenderTarget) {
+        const size = new THREE.Vector2();
+        renderer.getDrawingBufferSize(size);
+        depthRenderTarget.setSize(size.x, size.y);
+    }
 }
 
 // ============================================================================
@@ -38,8 +43,6 @@ function animate() {
 
     controls.update();
     skyMesh.position.copy(camera.position);
-    oceanMesh.position.x = camera.position.x;
-    oceanMesh.position.z = camera.position.z;
     camera.getWorldDirection(cumulusForward);
     cumulusMesh.position.copy(camera.position).addScaledVector(cumulusForward, 290);
     cumulusMesh.quaternion.copy(camera.quaternion);
@@ -47,6 +50,13 @@ function animate() {
     // Update Shader Uniforms
     skyMat.uniforms.uTime.value = STATE.elapsedTime;
     cumulusMat.uniforms.uTime.value = STATE.elapsedTime;
+    cumulusMat.uniforms.uCameraForward.value.copy(cumulusForward);
+    cumulusMat.uniforms.uCameraNear.value = camera.near;
+    cumulusMat.uniforms.uCameraFar.value = camera.far;
+    renderer.getDrawingBufferSize(cumulusMat.uniforms.uResolution.value);
+    if (depthRenderTarget && cumulusMat.uniforms.uDepthTexture) {
+        cumulusMat.uniforms.uDepthTexture.value = depthRenderTarget.depthTexture;
+    }
     oceanMat.uniforms.uTime.value = STATE.elapsedTime;
 
     if (sandMat && sandMat.userData.shader) {
@@ -164,6 +174,26 @@ function animate() {
         fireRenderItems[i].mesh.renderOrder = 11 + i;
     }
 
+    if (depthRenderTarget) {
+        const previousTarget = renderer.getRenderTarget();
+        const previousCumulusVisible = cumulusMesh.visible;
+        const previousOceanVisible = oceanMesh.visible;
+        const prevAutoUpdate = renderer.shadowMap.autoUpdate;
+        cumulusMesh.visible = false;
+        oceanMesh.visible = false;
+        renderer.shadowMap.autoUpdate = false;
+        try {
+            renderer.setRenderTarget(depthRenderTarget);
+            renderer.render(scene, camera);
+        } finally {
+            renderer.setRenderTarget(previousTarget);
+            renderer.shadowMap.autoUpdate = prevAutoUpdate;
+            cumulusMesh.visible = previousCumulusVisible;
+            oceanMesh.visible = previousOceanVisible;
+        }
+    }
+
+    renderer.setRenderTarget(null);
     renderer.render(scene, camera);
 }
 

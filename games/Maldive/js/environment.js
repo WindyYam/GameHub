@@ -8,7 +8,7 @@ function initScene() {
     clock = new THREE.Clock();
 
     camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.3, 250000);
-    camera.position.set(145, 34, 155);
+    camera.position.set(155, 62, 160);
 
     renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -23,7 +23,7 @@ function initScene() {
 
     // OrbitControls allowing full upward sky tilt & canopy inspection
     controls = new THREE.OrbitControls(camera, renderer.domElement);
-    controls.target.set(12, 4.0, 4);
+    controls.target.set(-20, 2.0, -45);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
     controls.enablePan = true;
@@ -31,7 +31,7 @@ function initScene() {
     controls.minPolarAngle = 0.01;
     controls.maxPolarAngle = Math.PI * 0.98;
     controls.minDistance = 0.5;
-    controls.maxDistance = 520;
+    controls.maxDistance = 1200;
 
     controls.addEventListener('start', () => {
         STATE.cameraAnimating = false;
@@ -42,7 +42,8 @@ function initScene() {
     createCumulusPatches();
     createTropicalVegetation();
     createIslandTerrain();
-    createUnderwaterCoralReefs();
+    createDistantAtollIsland();
+    createSubmergedAtollTerrain();
     createMarineLife();
     createSeagulls();
     createShipwreckAndProps();
@@ -99,7 +100,7 @@ function setupLighting() {
 }
 
 function createSkyDome() {
-    const skyGeo = new THREE.SphereGeometry(1200, 64, 48);
+    const skyGeo = new THREE.SphereGeometry(220000, 64, 48);
     const skyFragShader = SKY_FRAGMENT_SHADER.replace(
         'const int STEPS = 64;',
         'const int STEPS = ' + CONFIG.skyRaymarchSteps + ';'
@@ -124,12 +125,36 @@ function createSkyDome() {
     scene.add(skyMesh);
 }
 
+function initDepthRenderTarget() {
+    const size = new THREE.Vector2();
+    renderer.getDrawingBufferSize(size);
+    const isWebGL2 = renderer.capabilities.isWebGL2;
+    const hasDepthExt = renderer.extensions.has('WEBGL_depth_texture');
+
+    depthRenderTarget = new THREE.WebGLRenderTarget(size.x, size.y, {
+        minFilter: THREE.NearestFilter,
+        magFilter: THREE.NearestFilter,
+        format: THREE.RGBAFormat,
+        type: THREE.UnsignedByteType,
+        depthBuffer: true
+    });
+    depthRenderTarget.depthTexture = new THREE.DepthTexture();
+    depthRenderTarget.depthTexture.type = (isWebGL2 || hasDepthExt)
+        ? THREE.UnsignedIntType
+        : THREE.UnsignedShortType;
+}
+
 function createCumulusPatches() {
+    initDepthRenderTarget();
+
     const patchGeometry = new THREE.PlaneGeometry(1200, 800);
     const cumulusFragShader = CUMULUS_PATCH_FRAGMENT_SHADER.replace(
         'const int PATCH_STEPS = 64;',
         'const int PATCH_STEPS = ' + CONFIG.cumulusRaymarchSteps + ';'
     );
+    const screenSize = new THREE.Vector2();
+    renderer.getDrawingBufferSize(screenSize);
+
     cumulusMat = new THREE.ShaderMaterial({
         vertexShader: CUMULUS_PATCH_VERTEX_SHADER,
         fragmentShader: cumulusFragShader,
@@ -140,12 +165,17 @@ function createCumulusPatches() {
             uSunDir: { value: STATE.sunDirection },
             uMoonDir: { value: STATE.moonDirection },
             uSunColor: { value: STATE.sunColor },
-            uSkyHorizonColor: { value: STATE.skyHorizonColor }
+            uSkyHorizonColor: { value: STATE.skyHorizonColor },
+            uDepthTexture: { value: depthRenderTarget ? depthRenderTarget.depthTexture : null },
+            uResolution: { value: screenSize },
+            uCameraNear: { value: camera.near },
+            uCameraFar: { value: camera.far },
+            uCameraForward: { value: cumulusForward }
         },
         side: THREE.DoubleSide,
         transparent: true,
         depthWrite: false,
-        depthTest: true
+        depthTest: false
     });
     cumulusMesh = new THREE.Mesh(patchGeometry, cumulusMat);
     cumulusMesh.renderOrder = 11; // Drawn after ocean (10) so volumetric cloud in front of distant water is visible without cutoff
@@ -329,6 +359,101 @@ function createIslandTerrain() {
     const terrainMesh = new THREE.Mesh(geo, sandMat);
     terrainMesh.receiveShadow = true;
     scene.add(terrainMesh);
+}
+
+function createDistantAtollIsland() {
+    // 3D physical terrain mesh for the second island far away in the background
+    // (Oval sandbar atoll with white beach & tropical palm forest, matching reference photo)
+    const distW = 340;
+    const distH = 260;
+    const segsX = 64;
+    const segsY = 48;
+    const geo = new THREE.PlaneGeometry(distW, distH, segsX, segsY);
+    geo.rotateX(-Math.PI / 2);
+
+    const pos = geo.attributes.position;
+    const colors = new Float32Array(pos.count * 3);
+    colors.fill(1.0);
+
+    const centerX = DISTANT_ISLAND_CENTER.x;
+    const centerZ = DISTANT_ISLAND_CENTER.z;
+
+    for (let i = 0; i < pos.count; i++) {
+        const wx = pos.getX(i) + centerX;
+        const wz = pos.getZ(i) + centerZ;
+        const y = getIslandHeight(wx, wz);
+        pos.setX(i, wx);
+        pos.setY(i, y);
+        pos.setZ(i, wz);
+    }
+    geo.computeVertexNormals();
+    geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+    const distantTerrainMesh = new THREE.Mesh(geo, sandMat);
+    distantTerrainMesh.receiveShadow = true;
+    distantTerrainMesh.castShadow = true;
+    scene.add(distantTerrainMesh);
+
+    // Lush emerald tropical coconut palm jungle in the center of the distant island
+    const palmCount = CONFIG.isMobile ? 32 : 56;
+    for (let i = 0; i < palmCount; i++) {
+        const a = (i * 2.39996) + hash2D(i, 3.7) * 0.4;
+        const rNorm = Math.sqrt((i + 1) / palmCount);
+        // Distant island oval shape
+        const rx = Math.cos(a) * rNorm * 48.0;
+        const rz = Math.sin(a) * rNorm * 22.0;
+        // Rotated ~22 degrees matching the atoll ridge
+        const px = centerX + (rx * 0.92 + rz * 0.38);
+        const pz = centerZ + (-rx * 0.38 + rz * 0.92);
+        const h = getIslandHeight(px, pz);
+        if (h > 0.42) {
+            const scale = 0.85 + hash2D(i, 8.1) * 0.45;
+            const leanAngle = hash2D(i, 2.3) * Math.PI * 2.0;
+            const leanAmount = 0.08 + hash2D(i, 5.7) * 0.22;
+            createPalmTree(px, pz, scale, leanAngle, leanAmount, 0.95 + hash2D(i, 11.2) * 0.35);
+        }
+    }
+
+    // Coastal green bushes fringing the distant white sand beach
+    const bushCount = CONFIG.isMobile ? 24 : 45;
+    for (let i = 0; i < bushCount; i++) {
+        const a = (i * 2.39996) + hash2D(i, 7.3) * 0.3;
+        const rNorm = 0.75 + hash2D(i, 1.9) * 0.35;
+        const rx = Math.cos(a) * rNorm * 48.0;
+        const rz = Math.sin(a) * rNorm * 22.0;
+        const px = centerX + (rx * 0.92 + rz * 0.38);
+        const pz = centerZ + (-rx * 0.38 + rz * 0.92);
+        const h = getIslandHeight(px, pz);
+        if (h > 0.32) {
+            createCoastalBush(px, pz, 0.9 + hash2D(i, 4.4) * 0.4, false);
+        }
+    }
+}
+
+function createSubmergedAtollTerrain() {
+    for (const center of SEABED_ISLAND_CENTERS) {
+        const geo = new THREE.PlaneGeometry(500, 500, 48, 48);
+        geo.rotateX(-Math.PI / 2);
+
+        const pos = geo.attributes.position;
+        const colors = new Float32Array(pos.count * 3);
+        colors.fill(1.0);
+
+        for (let i = 0; i < pos.count; i++) {
+            const wx = pos.getX(i) + center.x;
+            const wz = pos.getZ(i) + center.z;
+            pos.setX(i, wx);
+            pos.setY(i, getIslandHeight(wx, wz));
+            pos.setZ(i, wz);
+        }
+
+        geo.computeVertexNormals();
+        geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+        const seabedMesh = new THREE.Mesh(geo, sandMat);
+        seabedMesh.receiveShadow = true;
+        scene.add(seabedMesh);
+    }
 }
 
 function createAAAOcean() {

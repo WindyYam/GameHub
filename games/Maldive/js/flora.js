@@ -361,7 +361,7 @@ function createCoastalBush(x, z, scale, hasFlowers = false) {
 }
 
 function createTropicalVegetation() {
-    // 135 Coconut Palm Trees with dramatic height variation (young palms, medium groves, and towering 24m king palms)
+    // 135 Coconut Palm Trees concentrated in dense tropical groves across the island
     const totalTrees = CONFIG.totalTrees;
     const palmGroves = [
         { x: -48.0, z: -32.0, spread: 24.0, count: 25 },
@@ -421,11 +421,11 @@ function createTropicalVegetation() {
         let bz = Math.sin(angle) * radius + (hash2D(i, 7.7) - 0.5) * 9.0;
 
         if (i % 5 === 0) {
-            bx += 38.0;
-            bz += 14.0;
+            bx += 42.0;
+            bz += 18.0;
         } else if (i % 7 === 0) {
-            bx -= 42.0;
-            bz += 20.0;
+            bx -= 56.0;
+            bz += 32.0;
         }
 
         const bScale = 0.65 + hash2D(bx, bz) * 1.15;

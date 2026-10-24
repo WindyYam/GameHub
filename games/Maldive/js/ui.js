@@ -52,53 +52,53 @@ function setupUIControls() {
         document.getElementById('speed-val').textContent = STATE.cycleSpeed.toFixed(1) + 'x';
     });
 
-    setResolutionScale(CONFIG.maxPixelRatio);
+    updateMobileUI(CONFIG.isMobile);
+}
+
+function setIsMobile(isMobile, reload = false) {
+    CONFIG.isMobile = isMobile;
+    IS_MOBILE = isMobile;
+    try {
+        localStorage.setItem('isMobile', String(isMobile));
+    } catch (e) {}
+
+    const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
+    const targetDPR = isMobile ? 1.0 : Math.min(dpr, 2.0);
+    CONFIG.maxPixelRatio = targetDPR;
+    if (typeof MAX_PIXEL_RATIO !== 'undefined') {
+        MAX_PIXEL_RATIO = targetDPR;
+    }
+    if (typeof renderer !== 'undefined' && renderer) {
+        renderer.setPixelRatio(targetDPR);
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        if (typeof depthRenderTarget !== 'undefined' && depthRenderTarget) {
+            const size = new THREE.Vector2();
+            renderer.getDrawingBufferSize(size);
+            depthRenderTarget.setSize(size.x, size.y);
+        }
+    }
+    updateMobileUI(isMobile);
+
+    if (reload) {
+        window.location.reload();
+    }
+}
+
+function updateMobileUI(isMobile) {
+    const valEl = document.getElementById('mobile-val');
+    if (valEl) {
+        valEl.textContent = isMobile ? 'Mobile' : 'Desktop';
+    }
+    const btnDesktop = document.getElementById('mode-desktop');
+    const btnMobile = document.getElementById('mode-mobile');
+    const activeClass = 'flex-1 py-1 rounded bg-cyan-500/25 border border-cyan-400/50 text-[10px] text-cyan-200 font-bold transition';
+    const inactiveClass = 'flex-1 py-1 rounded bg-white/5 hover:bg-white/15 border border-white/10 text-[10px] text-slate-300 transition';
+    if (btnDesktop) btnDesktop.className = !isMobile ? activeClass : inactiveClass;
+    if (btnMobile) btnMobile.className = isMobile ? activeClass : inactiveClass;
 }
 
 function setResolutionScale(scale) {
-    const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
-    const effectiveDPR = Math.min(dpr, scale);
-    CONFIG.maxPixelRatio = scale;
-    if (typeof MAX_PIXEL_RATIO !== 'undefined') {
-        MAX_PIXEL_RATIO = scale;
-    }
-    if (typeof renderer !== 'undefined' && renderer) {
-        renderer.setPixelRatio(effectiveDPR);
-        renderer.setSize(window.innerWidth, window.innerHeight);
-    }
-    const resValEl = document.getElementById('res-val');
-    const isNative = (scale >= dpr && dpr > 2.0);
-    if (resValEl) {
-        if (isNative) {
-            resValEl.textContent = 'Native (' + dpr.toFixed(1) + 'x)';
-        } else if (Math.abs(scale - 2.0) < 0.1) {
-            resValEl.textContent = 'High (2x)';
-        } else if (Math.abs(scale - 1.5) < 0.1) {
-            resValEl.textContent = 'Med (1.5x)';
-        } else {
-            resValEl.textContent = 'Low (1x)';
-        }
-    }
-
-    const btnKeys = ['low', 'med', 'high', 'native'];
-    btnKeys.forEach(key => {
-        const btn = document.getElementById('res-' + key);
-        if (!btn) return;
-        let isTarget = false;
-        if (isNative) {
-            isTarget = (key === 'native');
-        } else {
-            if (key === 'low' && Math.abs(scale - 1.0) < 0.1) isTarget = true;
-            else if (key === 'med' && Math.abs(scale - 1.5) < 0.1) isTarget = true;
-            else if (key === 'high' && Math.abs(scale - 2.0) < 0.1) isTarget = true;
-        }
-
-        if (isTarget) {
-            btn.className = 'flex-1 py-1 rounded bg-cyan-500/25 border border-cyan-400/50 text-[10px] text-cyan-200 font-bold transition';
-        } else {
-            btn.className = 'flex-1 py-1 rounded bg-white/5 hover:bg-white/15 border border-white/10 text-[10px] text-slate-300 transition';
-        }
-    });
+    setIsMobile(scale <= 1.05);
 }
 
 function toggleAutoCycle() {
@@ -119,8 +119,21 @@ function setCameraPreset(presetName) {
 
     STATE.cameraAnimating = true;
     if (presetName === 'overview') {
-        STATE.cameraTargetPos.set(145, 34, 155);
-        STATE.cameraTargetLook.set(12, 3.5, 4);
+        // Grand panoramic overview showing island, overwater villas and ocean
+        STATE.cameraTargetPos.set(155, 62, 160);
+        STATE.cameraTargetLook.set(-20, 2.0, -45);
+    } else if (presetName === 'aerial') {
+        // High elevated aerial reference view matching the reference photo
+        STATE.cameraTargetPos.set(165, 95, 175);
+        STATE.cameraTargetLook.set(-40, 2.0, -90);
+    } else if (presetName === 'villas') {
+        // Scenic boardwalk view along the curving overwater bungalows extending into the water
+        STATE.cameraTargetPos.set(-25, 7.5, -92);
+        STATE.cameraTargetLook.set(-85, 2.0, -200);
+    } else if (presetName === 'distantIsland') {
+        // Panorama framed directly toward the distant atoll island & turquoise reef ring
+        STATE.cameraTargetPos.set(-75, 18, -210);
+        STATE.cameraTargetLook.set(-130, 4.0, -510);
     } else if (presetName === 'beach') {
         STATE.cameraTargetPos.set(92, 4.2, 52);
         STATE.cameraTargetLook.set(8, 5.5, 4);
@@ -133,7 +146,7 @@ function setCameraPreset(presetName) {
         STATE.cameraTargetPos.set(189, 7.5, -74.5);
         STATE.cameraTargetLook.set(168, 0.8, -82);
     } else if (presetName === 'village') {
-        // Scenic view of the overwater thatch bungalow pier, outrigger canoes & beach campfire
+        // Scenic view of the campfire, canoes & beach
         STATE.cameraTargetPos.set(74, 8.2, 52);
         STATE.cameraTargetLook.set(48, 2.8, 18);
     } else if (presetName === 'cabin') {

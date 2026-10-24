@@ -54,42 +54,99 @@ const CUMULUS_DENSITY_GLSL = `
         return v;
     }
 
+    bool getCloudRayBounds(vec3 origin, vec3 dir, float Rout, float Rin, float Ymin, float Ymax, out float tStart, out float tEnd) {
+        float tyMin = 0.0;
+        float tyMax = 100000.0;
+
+        if (abs(dir.y) > 0.0001) {
+            float t1 = (Ymin - origin.y) / dir.y;
+            float t2 = (Ymax - origin.y) / dir.y;
+            tyMin = max(0.0, min(t1, t2));
+            tyMax = max(t1, t2);
+            if (tyMax <= 0.0) return false;
+        } else {
+            if (origin.y < Ymin || origin.y > Ymax) return false;
+        }
+
+        float A = dot(dir.xz, dir.xz);
+        if (A < 0.00001) return false;
+
+        float B = dot(origin.xz, dir.xz);
+        float C_out = dot(origin.xz, origin.xz) - Rout * Rout;
+        float disc_out = B * B - A * C_out;
+        if (disc_out < 0.0) return false;
+
+        float sqrtDisc_out = sqrt(disc_out);
+        float tEnter = (-B - sqrtDisc_out) / A;
+        float tExit = (-B + sqrtDisc_out) / A;
+        if (tExit <= 0.0) return false;
+
+        float trMin = max(0.0, tEnter);
+        float trMax = tExit;
+
+        float C_in = dot(origin.xz, origin.xz) - Rin * Rin;
+        if (C_in < 0.0) {
+            float disc_in = B * B - A * C_in;
+            if (disc_in >= 0.0) {
+                float tInnerExit = (-B + sqrt(disc_in)) / A;
+                trMin = max(trMin, tInnerExit);
+            }
+        }
+
+        tStart = max(tyMin, trMin);
+        tEnd = min(tyMax, trMax);
+
+        return (tEnd > tStart);
+    }
+
     float sampleGiantCumulus3D(vec3 pos, out float outHeightFrac, out float outTowerCore) {
         float hFrac = (pos.y - 30.0) / 530.0;
         outHeightFrac = clamp(hFrac, 0.0, 1.0);
         outTowerCore = 0.0;
         if (hFrac <= 0.001 || uCumulusCoverage <= 0.01) return 0.0;
 
-        vec2 baseDrift = vec2(uTime * 2.35, -uTime * 0.72);
-        vec2 windShear = vec2(pow(hFrac, 1.50) * 175.0, pow(hFrac, 1.80) * 58.0);
-        vec2 xz = pos.xz - windShear + baseDrift;
-        float cloudDist = length(xz);
-        float distBounds = smoothstep(280.0, 480.0, cloudDist) * (1.0 - smoothstep(1080.0, 1380.0, cloudDist));
+        // Polar horizontal coordinates relative to island center (0, 0)
+        float r = max(length(pos.xz), 0.001);
+        float distBounds = smoothstep(320.0, 520.0, r) * (1.0 - smoothstep(1050.0, 1350.0, r));
         if (distBounds <= 0.001) return 0.0;
 
-        float towerCount = 1.0 + floor(hash(vec2(uCumulusSeed + 17.2, 3.8)) * 2.0);
-        float towerOffset = hash(vec2(uCumulusSeed + 4.7, 12.1)) * 6.2831853;
-        float ang = atan(xz.y, xz.x) + uTime * 0.0075;
+        float theta = atan(pos.z, pos.x);
+        // Gentle orbital flow rate circulating around the island (~16 min per full orbit)
+        float flowRate = 0.0065;
+        // Upper-altitude wind shear tilting plumes downwind along the flow direction
+        float windShearAngle = pow(hFrac, 1.45) * 0.14;
+        float relAngle = theta - (uTime * flowRate + windShearAngle);
+
+        // Generate 2 distinct, separate cumulus cloud formations spaced around the island
+        float towerOffset = 0.72 + (hash(vec2(uCumulusSeed + 4.7, 12.1)) - 0.5) * 1.4;
 
         float minTowerDist = 9999.0;
         for (int i = 0; i < 2; i++) {
             float towerIndex = float(i);
-            if (towerIndex < towerCount) {
-                float towerSeed = hash(vec2(uCumulusSeed + towerIndex + 2.1, 12.1));
-                float towerSpread = towerCount > 1.5 ? (towerIndex - 0.5) * 0.42 : 0.0;
-                float towerJitter = (hash(vec2(uCumulusSeed + towerIndex + 6.2, 13.4)) - 0.5) * 0.18;
-                float towerAngle = towerOffset + towerSpread + towerJitter;
-                float radialOffset = cloudDist - (680.0 + towerSeed * 150.0 + towerSpread * 40.0);
-                float tangentOffset = sin(ang - towerAngle) * cloudDist;
-                float radialRadius = 195.0 + towerSeed * 49.0;
-                float tangentRadius = 218.0 + towerSeed * 62.0;
-                float localRadius = length(vec2(radialOffset / radialRadius, tangentOffset / tangentRadius));
-                minTowerDist = min(minTowerDist, localRadius);
-            }
+            float towerSeed = hash(vec2(uCumulusSeed + towerIndex * 13.7 + 2.1, 12.1));
+            // Cloud 0 and Cloud 1 spaced ~140 degrees apart around the island
+            float angleOffset = towerIndex < 0.5 ? 0.0 : (2.45 + (hash(vec2(uCumulusSeed + 55.4, 21.7)) - 0.5) * 0.7);
+            float towerJitter = (hash(vec2(uCumulusSeed + towerIndex * 7.3 + 6.2, 13.4)) - 0.5) * 0.16;
+            float towerAngle = towerOffset + angleOffset + towerJitter;
+            float dAngle = atan(sin(relAngle - towerAngle), cos(relAngle - towerAngle));
+            float targetRadius = 720.0 + towerSeed * 90.0;
+            float radialOffset = r - targetRadius;
+            float tangentOffset = dAngle * r;
+            float radialRadius = 195.0 + towerSeed * 49.0;
+            float tangentRadius = 218.0 + towerSeed * 62.0;
+            float localRadius = length(vec2(radialOffset / radialRadius, tangentOffset / tangentRadius));
+            minTowerDist = min(minTowerDist, localRadius);
         }
-        if (minTowerDist > 1.35) return 0.0;
 
-        vec3 sampleP = vec3(xz.x, pos.y - uTime * 1.65, xz.y) * 0.0058;
+        // Expansive base bounds up to 3.15, while convective towers above hFrac 0.38 taper to 1.65
+        float maxRadiusLimit = mix(3.15, 1.65, smoothstep(0.08, 0.38, hFrac));
+        if (minTowerDist > maxRadiusLimit) return 0.0;
+
+        // Local co-rotating coordinates so the cloud body and detail noises travel together smoothly around the island
+        float cosA = cos(relAngle);
+        float sinA = sin(relAngle);
+        vec2 localXZ = vec2(r * cosA, r * sinA);
+        vec3 sampleP = vec3(localXZ.x, pos.y - uTime * 0.85, localXZ.y) * 0.0058;
         float broadShapeNoise = fbm3DLow(sampleP * 0.85);
         float billowMacro = fbm3DLow(sampleP * 1.7);
         float cauliflower = ridged3DLow(sampleP * 3.1 + vec3(0.0, -uTime * 0.10, 0.0));
@@ -99,55 +156,79 @@ const CUMULUS_DENSITY_GLSL = `
 
         for (int i = 0; i < 2; i++) {
             float towerIndex = float(i);
-            if (towerIndex < towerCount) {
-                float towerSeed = hash(vec2(uCumulusSeed + towerIndex + 2.1, 12.1));
-                float towerJitter = (hash(vec2(uCumulusSeed + towerIndex + 6.2, 13.4)) - 0.5) * 0.18;
-                float towerSpread = towerCount > 1.5 ? (towerIndex - 0.5) * 0.42 : 0.0;
-                float towerAngle = towerOffset + towerSpread + towerJitter;
-                float radialOffset = cloudDist - (680.0 + towerSeed * 150.0 + towerSpread * 40.0);
-                float tangentOffset = sin(ang - towerAngle) * cloudDist;
-                float radialRadius = 195.0 + towerSeed * 49.0;
-                float tangentRadius = 218.0 + towerSeed * 62.0;
-                float localRadius = length(vec2(radialOffset / radialRadius, tangentOffset / tangentRadius));
+            float towerSeed = hash(vec2(uCumulusSeed + towerIndex * 13.7 + 2.1, 12.1));
+            float angleOffset = towerIndex < 0.5 ? 0.0 : (2.45 + (hash(vec2(uCumulusSeed + 55.4, 21.7)) - 0.5) * 0.7);
+            float towerJitter = (hash(vec2(uCumulusSeed + towerIndex * 7.3 + 6.2, 13.4)) - 0.5) * 0.16;
+            float towerAngle = towerOffset + angleOffset + towerJitter;
+            float dAngle = atan(sin(relAngle - towerAngle), cos(relAngle - towerAngle));
+            float targetRadius = 720.0 + towerSeed * 90.0;
+            float radialOffset = r - targetRadius;
+            float tangentOffset = dAngle * r;
+            float radialRadius = 195.0 + towerSeed * 49.0;
+            float tangentRadius = 218.0 + towerSeed * 62.0;
+            float localRadius = length(vec2(radialOffset / radialRadius, tangentOffset / tangentRadius));
 
-                float lobePhase = atan(tangentOffset / tangentRadius, radialOffset / radialRadius) * 4.0
-                                + hFrac * 19.0 + broadShapeNoise * 6.0;
-                float sideLobes = 0.5 + 0.5 * sin(lobePhase);
-                float lobeBulge = (sideLobes - 0.5) * 0.24
-                                * smoothstep(0.10, 0.32, hFrac)
-                                * (1.0 - smoothstep(0.72, 0.92, hFrac));
+            float lobePhase = atan(tangentOffset / tangentRadius, radialOffset / radialRadius) * 4.0
+                            + hFrac * 19.0 + broadShapeNoise * 6.0;
+            float sideLobes = 0.5 + 0.5 * sin(lobePhase);
+            // Convective side billows are pronounced on the rising tower, not breaking the cohesive base
+            float lobeBulge = (sideLobes - 0.5) * 0.28
+                            * smoothstep(0.20, 0.40, hFrac)
+                            * (1.0 - smoothstep(0.72, 0.92, hFrac));
 
-                float widthProfile = 1.18
-                    - 0.45 * smoothstep(0.08, 0.62, hFrac)
-                    + 0.36 * smoothstep(0.62, 0.96, hFrac);
-                float shapeDistortion = clamp(
-                    (billowMacro - 0.42) * 0.70 + (cauliflower - 0.36) * 0.42 + lobeBulge,
-                    -0.34,
-                    0.34
-                );
-                float bodyMask = 1.0 - smoothstep(widthProfile * 0.68, widthProfile * 1.10, localRadius + shapeDistortion);
-                float topHeight = (
-                    0.72 + towerSeed * 0.28
-                    + (broadShapeNoise - 0.45) * 0.15
-                    + (billowMacro - 0.42) * 0.14
-                    + (cauliflower - 0.36) * 0.20
-                    + (sideLobes - 0.5) * 0.10
-                ) * covBoost;
-                float topCap = 1.0 - smoothstep(topHeight - 0.045, topHeight + 0.035, hFrac);
-                float flatBase = smoothstep(0.0, 0.04, hFrac);
-                float towerMass = bodyMask * topCap * flatBase;
-                cloudMass = max(cloudMass, towerMass);
-                towerCore = max(towerCore, towerMass);
-            }
+            // Base width scale: significantly wider than the tower column (typically 1.8x to 2.4x)
+            float baseScale = mix(1.20, 2.30, hash(vec2(uCumulusSeed + towerIndex * 3.7 + 7.1, 14.3)));
+
+            // Convective tower column profile: narrow waist, billowing cauliflower head
+            float towerWidth = 0.86
+                - 0.14 * smoothstep(0.22, 0.48, hFrac)
+                + 0.26 * smoothstep(0.50, 0.80, hFrac)
+                - 0.16 * smoothstep(0.80, 0.98, hFrac);
+
+            // Smoothly taper from the expansive cloud base up into the convective column
+            float baseDecay = 1.0 - smoothstep(0.06, 0.32, hFrac);
+            float widthProfile = mix(towerWidth, baseScale, baseDecay);
+
+            float shapeDistortion = clamp(
+                (billowMacro - 0.42) * 0.70 + (cauliflower - 0.36) * 0.42 + lobeBulge,
+                -0.34,
+                0.34
+            );
+            float bodyMask = 1.0 - smoothstep(widthProfile * 0.68, widthProfile * 1.10, localRadius + shapeDistortion);
+
+            float topHeight = (
+                0.72 + towerSeed * 0.28
+                + (broadShapeNoise - 0.45) * 0.15
+                + (billowMacro - 0.42) * 0.14
+                + (cauliflower - 0.36) * 0.20
+                + (sideLobes - 0.5) * 0.10
+            ) * covBoost;
+
+            // Parabolic dome rounding prevents flat-ceiling cylinder look
+            float domeRadiusFrac = clamp(localRadius / max(0.001, towerWidth * 1.08), 0.0, 1.25);
+            float domeDrop = pow(domeRadiusFrac, 2.2) * 0.26;
+            float effectiveTop = topHeight - domeDrop;
+            float topCap = 1.0 - smoothstep(effectiveTop - 0.045, effectiveTop + 0.035, hFrac);
+
+            // Sharp, flat condensation base hovering parallel to the horizon
+            float flatBase = smoothstep(0.0, 0.035, hFrac);
+
+            float towerMass = bodyMask * topCap * flatBase;
+            cloudMass = max(cloudMass, towerMass);
+            towerCore = max(towerCore, towerMass);
         }
-
         float macroEnvelope = cloudMass * distBounds;
         outTowerCore = clamp(towerCore * distBounds, 0.0, 1.0);
         if (macroEnvelope <= 0.01) return 0.0;
 
         float wispyPlume = noise(sampleP * 5.6 + vec3(uTime * 0.14, 0.0, 0.0));
         float anvilSoftness = smoothstep(0.72, 0.98, hFrac);
-        float detailNoise = mix(billowMacro * 0.40 + cauliflower * 0.60, billowMacro * 0.65 + wispyPlume * 0.35, anvilSoftness);
+        float baseSoftness = 1.0 - smoothstep(0.06, 0.28, hFrac);
+        float detailNoise = mix(
+            mix(billowMacro * 0.40 + cauliflower * 0.60, billowMacro * 0.65 + wispyPlume * 0.35, anvilSoftness),
+            billowMacro * 0.70 + broadShapeNoise * 0.30,
+            baseSoftness * 0.65
+        );
         float density = smoothstep(0.28, 0.68, macroEnvelope * 0.82 + detailNoise * 0.48);
         return density * macroEnvelope;
     }
@@ -473,6 +554,11 @@ const CUMULUS_PATCH_FRAGMENT_SHADER = `
     uniform vec3 uMoonDir;
     uniform vec3 uSunColor;
     uniform vec3 uSkyHorizonColor;
+    uniform sampler2D uDepthTexture;
+    uniform vec2 uResolution;
+    uniform float uCameraNear;
+    uniform float uCameraFar;
+    uniform vec3 uCameraForward;
     varying vec3 vWorldPos;
 
     float hash(vec2 p) {
@@ -504,18 +590,24 @@ const CUMULUS_PATCH_FRAGMENT_SHADER = `
         float hgSun = pow(max(dot(dir, uSunDir), 0.0), 5.0) * smoothstep(-0.1, 0.4, sunAlt);
         float hgMoon = pow(max(dot(dir, uMoonDir), 0.0), 6.0) * nightFactor;
 
-        float tOcean = dir.y < -0.0001 ? -cameraPosition.y / dir.y : 200000.0;
-        if (tOcean <= 310.0) discard;
+        float tMin, tMax;
+        if (!getCloudRayBounds(cameraPosition, dir, 1350.0, 320.0, 28.0, 560.0, tMin, tMax)) discard;
 
-        float tMin = 310.0;
-        float tMaxTop = dir.y > 0.002 ? 850.0 / dir.y : 1800.0;
-        float tMax = min(min(1800.0, tMaxTop), tOcean);
-        if (tMax <= tMin) discard;
+        // Depth buffer clipping: prevent clouds from blocking solid foreground geometry (island, trees, etc.)
+        vec2 screenUV = gl_FragCoord.xy / uResolution;
+        float zBuf = texture2D(uDepthTexture, screenUV).r;
+        if (zBuf < 0.999999) {
+            float viewZ = (uCameraNear * uCameraFar) / (uCameraFar - zBuf * (uCameraFar - uCameraNear));
+            float cosViewAngle = max(dot(dir, uCameraForward), 0.0001);
+            float tScene = viewZ / cosViewAngle;
+            tMax = min(tMax, tScene);
+            if (tMax <= tMin) discard;
+        }
 
         const int PATCH_STEPS = 64;
-        float stepSize = 1490.0 / float(PATCH_STEPS);
-        float rayPhase = mod(dot(cameraPosition, dir) + tMin, stepSize);
-        float tRay = tMin + mod(stepSize - rayPhase, stepSize);
+        float stepSize = (tMax - tMin) / float(PATCH_STEPS);
+        float dither = hash(gl_FragCoord.xy);
+        float tRay = tMin + mix(0.5, dither, 0.25) * stepSize;
         vec3 accumColor = vec3(0.0);
         float transmittance = 1.0;
 
@@ -619,6 +711,18 @@ const OCEAN_VERTEX_SHADER = `
         );
     }
 
+    float seabedRidgeMask(vec2 p, vec2 start, vec2 end) {
+        vec2 axis = end - start;
+        float t = clamp(dot(p - start, axis) / dot(axis, axis), 0.0, 1.0);
+        float distanceToRidge = length(p - (start + axis * t));
+        float ridgeWidth = 120.0 + 35.0 * sin(p.x * 0.007 + p.y * 0.004)
+                          + 24.0 * sin(p.y * 0.013 - p.x * 0.009);
+        float edgeWobble = 20.0 * sin(p.x * 0.012 + p.y * 0.008)
+                         + 12.0 * sin(p.y * 0.014 - p.x * 0.009);
+        float organicDistance = max(0.0, distanceToRidge + edgeWobble);
+        return 1.0 - smoothstep(ridgeWidth * 0.22, ridgeWidth * 1.85, organicDistance);
+    }
+
     float sampleSeabed(vec2 p) {
         float angle = atan(p.y, p.x);
         float rMain = length(p);
@@ -635,7 +739,59 @@ const OCEAN_VERTEX_SHADER = `
         float spitMound = 4.65 * exp(-(rSpit * rSpit) / (82.0 * 82.0));
         float coveMound = 4.25 * exp(-(rCove * rCove) / (68.0 * 68.0));
         float lagoonAtollPlatform = 7.45 * exp(-pow(rMain / 370.0, 2.6));
-        return -9.2 + mainMound + spitMound + coveMound + lagoonAtollPlatform;
+
+        // Distant Island, moved twice as far from the main atoll.
+        vec2 dDist = p - vec2(-260.0, -1020.0);
+        float rotDistX = dDist.x * 0.92 - dDist.y * 0.38;
+        float rotDistZ = dDist.x * 0.38 + dDist.y * 0.92;
+        float rDistLand = sqrt((rotDistX * 0.72) * (rotDistX * 0.72) + (rotDistZ * 1.45) * (rotDistZ * 1.45));
+        float distIslandMound = 11.2 * exp(-(rDistLand * rDistLand) / (46.0 * 46.0));
+        float rDistLagoon = sqrt((rotDistX * 0.58) * (rotDistX * 0.58) + (rotDistZ * 1.05) * (rotDistZ * 1.05));
+        float distLagoonShelf = 7.8 * exp(-pow(rDistLagoon / 125.0, 3.0));
+
+        vec2 dSeabed3 = p - vec2(-650.0, -1350.0);
+        float seabed3RotX = dSeabed3.x * 0.92 - dSeabed3.y * 0.38;
+        float seabed3RotZ = dSeabed3.x * 0.38 + dSeabed3.y * 0.92;
+        float seabed3Land = sqrt((seabed3RotX * 0.72) * (seabed3RotX * 0.72) + (seabed3RotZ * 1.45) * (seabed3RotZ * 1.45));
+        float seabed3Shelf = sqrt((seabed3RotX * 0.58) * (seabed3RotX * 0.58) + (seabed3RotZ * 1.05) * (seabed3RotZ * 1.05));
+        float seabed3Mound = 5.4 * exp(-(seabed3Land * seabed3Land) / (62.0 * 62.0)) + 2.5 * exp(-pow(seabed3Shelf / 145.0, 3.0));
+
+        vec2 dSeabed4 = p - vec2(-1120.0, -1570.0);
+        float seabed4RotX = dSeabed4.x * 0.92 - dSeabed4.y * 0.38;
+        float seabed4RotZ = dSeabed4.x * 0.38 + dSeabed4.y * 0.92;
+        float seabed4Land = sqrt((seabed4RotX * 0.72) * (seabed4RotX * 0.72) + (seabed4RotZ * 1.45) * (seabed4RotZ * 1.45));
+        float seabed4Shelf = sqrt((seabed4RotX * 0.58) * (seabed4RotX * 0.58) + (seabed4RotZ * 1.05) * (seabed4RotZ * 1.05));
+        float seabed4Mound = 5.4 * exp(-(seabed4Land * seabed4Land) / (62.0 * 62.0)) + 2.5 * exp(-pow(seabed4Shelf / 145.0, 3.0));
+
+        float h = -9.2 + mainMound + spitMound + coveMound + lagoonAtollPlatform + distIslandMound + distLagoonShelf + seabed3Mound + seabed4Mound;
+        vec2 residentialOffset = p + vec2(96.0, 214.0);
+        float residentialAlong = dot(residentialOffset, vec2(-0.39, -0.92));
+        float residentialAcross = dot(residentialOffset, vec2(0.92, -0.39));
+        float residentialRadius = length(vec2(residentialAlong / 155.0, residentialAcross / 75.0));
+        float residentialShelf = 1.0 - smoothstep(0.72, 1.0, residentialRadius);
+        float residentialBedTarget = mix(-2.2, -1.1, smoothstep(-10.0, 50.0, residentialAlong));
+        h = max(h, mix(h, residentialBedTarget, residentialShelf));
+        float ridgeMask = 0.0;
+        ridgeMask = max(ridgeMask, seabedRidgeMask(p, vec2(0.0, -100.0), vec2(-110.0, -190.0)));
+        ridgeMask = max(ridgeMask, seabedRidgeMask(p, vec2(-110.0, -190.0), vec2(-250.0, -300.0)));
+        ridgeMask = max(ridgeMask, seabedRidgeMask(p, vec2(-250.0, -300.0), vec2(-420.0, -430.0)));
+        ridgeMask = max(ridgeMask, seabedRidgeMask(p, vec2(-420.0, -430.0), vec2(-590.0, -570.0)));
+        ridgeMask = max(ridgeMask, seabedRidgeMask(p, vec2(-590.0, -570.0), vec2(-720.0, -720.0)));
+        ridgeMask = max(ridgeMask, seabedRidgeMask(p, vec2(-720.0, -720.0), vec2(-760.0, -850.0)));
+        ridgeMask = max(ridgeMask, seabedRidgeMask(p, vec2(-760.0, -850.0), vec2(-690.0, -950.0)));
+        ridgeMask = max(ridgeMask, seabedRidgeMask(p, vec2(-690.0, -950.0), vec2(-520.0, -1000.0)));
+        ridgeMask = max(ridgeMask, seabedRidgeMask(p, vec2(-520.0, -1000.0), vec2(-260.0, -1020.0)));
+        ridgeMask = max(ridgeMask, seabedRidgeMask(p, vec2(-260.0, -1020.0), vec2(-380.0, -1060.0)));
+        ridgeMask = max(ridgeMask, seabedRidgeMask(p, vec2(-380.0, -1060.0), vec2(-530.0, -1130.0)));
+        ridgeMask = max(ridgeMask, seabedRidgeMask(p, vec2(-530.0, -1130.0), vec2(-670.0, -1220.0)));
+        ridgeMask = max(ridgeMask, seabedRidgeMask(p, vec2(-670.0, -1220.0), vec2(-760.0, -1310.0)));
+        ridgeMask = max(ridgeMask, seabedRidgeMask(p, vec2(-760.0, -1310.0), vec2(-650.0, -1350.0)));
+        ridgeMask = max(ridgeMask, seabedRidgeMask(p, vec2(-650.0, -1350.0), vec2(-800.0, -1410.0)));
+        ridgeMask = max(ridgeMask, seabedRidgeMask(p, vec2(-800.0, -1410.0), vec2(-930.0, -1470.0)));
+        ridgeMask = max(ridgeMask, seabedRidgeMask(p, vec2(-930.0, -1470.0), vec2(-1120.0, -1570.0)));
+        float ridgeBedTarget = -4.4 + 0.45 * sin(p.x * 0.008 + sin(p.y * 0.006) * 1.5) + 0.2 * sin(p.y * 0.015 - p.x * 0.01);
+        h = max(h, mix(h, ridgeBedTarget, ridgeMask));
+        return h;
     }
 
     void main() {
@@ -647,7 +803,7 @@ const OCEAN_VERTEX_SHADER = `
         float waterDepth = max(0.0, -seabedY);
         float shoalingFactor = smoothstep(0.0, 3.2, waterDepth);
         float camDist = length(cameraPosition.xz - xz);
-        float distDamp = 1.0 - smoothstep(40.0, 750.0, camDist);
+        float distDamp = 1.0 - smoothstep(40.0, 6000.0, camDist);
 
         vec2 warpMacro = domainWarp2D(xz, uTime);
         vec2 warpMeso  = domainWarp2D(xz * 2.7 + vec2(37.2, 11.8), uTime * 1.4);
@@ -738,6 +894,18 @@ const OCEAN_FRAGMENT_SHADER = `
 
     ${CUMULUS_DENSITY_GLSL}
 
+    float seabedRidgeMask(vec2 p, vec2 start, vec2 end) {
+        vec2 axis = end - start;
+        float t = clamp(dot(p - start, axis) / dot(axis, axis), 0.0, 1.0);
+        float distanceToRidge = length(p - (start + axis * t));
+        float ridgeWidth = 120.0 + 35.0 * sin(p.x * 0.007 + p.y * 0.004)
+                          + 24.0 * sin(p.y * 0.013 - p.x * 0.009);
+        float edgeWobble = 20.0 * sin(p.x * 0.012 + p.y * 0.008)
+                         + 12.0 * sin(p.y * 0.014 - p.x * 0.009);
+        float organicDistance = max(0.0, distanceToRidge + edgeWobble);
+        return 1.0 - smoothstep(ridgeWidth * 0.22, ridgeWidth * 1.85, organicDistance);
+    }
+
     float getExactSeabedHeight(vec2 p) {
         float angle = atan(p.y, p.x);
         float rMain = length(p);
@@ -757,7 +925,57 @@ const OCEAN_FRAGMENT_SHADER = `
         float duneDetail = (fbm(p * 0.018) - 0.5) * 1.65 * exp(-(rMain * rMain) / (195.0 * 195.0));
         float reefDetail = (fbm(p * 0.014 + vec2(11.3, -7.9)) - 0.5) * 1.25 * (1.0 - exp(-(rMain * rMain) / (110.0 * 110.0)));
 
-        float h = -9.2 + mainMound + spitMound + coveMound + lagoonAtollPlatform + duneDetail + reefDetail;
+        // Distant Island, moved twice as far from the main atoll.
+        vec2 dDist = p - vec2(-260.0, -1020.0);
+        float rotDistX = dDist.x * 0.92 - dDist.y * 0.38;
+        float rotDistZ = dDist.x * 0.38 + dDist.y * 0.92;
+        float rDistLand = sqrt((rotDistX * 0.72) * (rotDistX * 0.72) + (rotDistZ * 1.45) * (rotDistZ * 1.45));
+        float distIslandMound = 11.2 * exp(-(rDistLand * rDistLand) / (46.0 * 46.0));
+        float rDistLagoon = sqrt((rotDistX * 0.58) * (rotDistX * 0.58) + (rotDistZ * 1.05) * (rotDistZ * 1.05));
+        float distLagoonShelf = 7.8 * exp(-pow(rDistLagoon / 125.0, 3.0));
+
+        vec2 dSeabed3 = p - vec2(-650.0, -1350.0);
+        float seabed3RotX = dSeabed3.x * 0.92 - dSeabed3.y * 0.38;
+        float seabed3RotZ = dSeabed3.x * 0.38 + dSeabed3.y * 0.92;
+        float seabed3Land = sqrt((seabed3RotX * 0.72) * (seabed3RotX * 0.72) + (seabed3RotZ * 1.45) * (seabed3RotZ * 1.45));
+        float seabed3Shelf = sqrt((seabed3RotX * 0.58) * (seabed3RotX * 0.58) + (seabed3RotZ * 1.05) * (seabed3RotZ * 1.05));
+        float seabed3Mound = 5.4 * exp(-(seabed3Land * seabed3Land) / (62.0 * 62.0)) + 2.5 * exp(-pow(seabed3Shelf / 145.0, 3.0));
+
+        vec2 dSeabed4 = p - vec2(-1120.0, -1570.0);
+        float seabed4RotX = dSeabed4.x * 0.92 - dSeabed4.y * 0.38;
+        float seabed4RotZ = dSeabed4.x * 0.38 + dSeabed4.y * 0.92;
+        float seabed4Land = sqrt((seabed4RotX * 0.72) * (seabed4RotX * 0.72) + (seabed4RotZ * 1.45) * (seabed4RotZ * 1.45));
+        float seabed4Shelf = sqrt((seabed4RotX * 0.58) * (seabed4RotX * 0.58) + (seabed4RotZ * 1.05) * (seabed4RotZ * 1.05));
+        float seabed4Mound = 5.4 * exp(-(seabed4Land * seabed4Land) / (62.0 * 62.0)) + 2.5 * exp(-pow(seabed4Shelf / 145.0, 3.0));
+
+        float h = -9.2 + mainMound + spitMound + coveMound + lagoonAtollPlatform + duneDetail + reefDetail + distIslandMound + distLagoonShelf + seabed3Mound + seabed4Mound;
+        vec2 residentialOffset = p + vec2(96.0, 214.0);
+        float residentialAlong = dot(residentialOffset, vec2(-0.39, -0.92));
+        float residentialAcross = dot(residentialOffset, vec2(0.92, -0.39));
+        float residentialRadius = length(vec2(residentialAlong / 155.0, residentialAcross / 75.0));
+        float residentialShelf = 1.0 - smoothstep(0.72, 1.0, residentialRadius);
+        float residentialBedTarget = mix(-2.2, -1.1, smoothstep(-10.0, 50.0, residentialAlong));
+        h = max(h, mix(h, residentialBedTarget, residentialShelf));
+        float ridgeMask = 0.0;
+        ridgeMask = max(ridgeMask, seabedRidgeMask(p, vec2(0.0, -100.0), vec2(-110.0, -190.0)));
+        ridgeMask = max(ridgeMask, seabedRidgeMask(p, vec2(-110.0, -190.0), vec2(-250.0, -300.0)));
+        ridgeMask = max(ridgeMask, seabedRidgeMask(p, vec2(-250.0, -300.0), vec2(-420.0, -430.0)));
+        ridgeMask = max(ridgeMask, seabedRidgeMask(p, vec2(-420.0, -430.0), vec2(-590.0, -570.0)));
+        ridgeMask = max(ridgeMask, seabedRidgeMask(p, vec2(-590.0, -570.0), vec2(-720.0, -720.0)));
+        ridgeMask = max(ridgeMask, seabedRidgeMask(p, vec2(-720.0, -720.0), vec2(-760.0, -850.0)));
+        ridgeMask = max(ridgeMask, seabedRidgeMask(p, vec2(-760.0, -850.0), vec2(-690.0, -950.0)));
+        ridgeMask = max(ridgeMask, seabedRidgeMask(p, vec2(-690.0, -950.0), vec2(-520.0, -1000.0)));
+        ridgeMask = max(ridgeMask, seabedRidgeMask(p, vec2(-520.0, -1000.0), vec2(-260.0, -1020.0)));
+        ridgeMask = max(ridgeMask, seabedRidgeMask(p, vec2(-260.0, -1020.0), vec2(-380.0, -1060.0)));
+        ridgeMask = max(ridgeMask, seabedRidgeMask(p, vec2(-380.0, -1060.0), vec2(-530.0, -1130.0)));
+        ridgeMask = max(ridgeMask, seabedRidgeMask(p, vec2(-530.0, -1130.0), vec2(-670.0, -1220.0)));
+        ridgeMask = max(ridgeMask, seabedRidgeMask(p, vec2(-670.0, -1220.0), vec2(-760.0, -1310.0)));
+        ridgeMask = max(ridgeMask, seabedRidgeMask(p, vec2(-760.0, -1310.0), vec2(-650.0, -1350.0)));
+        ridgeMask = max(ridgeMask, seabedRidgeMask(p, vec2(-650.0, -1350.0), vec2(-800.0, -1410.0)));
+        ridgeMask = max(ridgeMask, seabedRidgeMask(p, vec2(-800.0, -1410.0), vec2(-930.0, -1470.0)));
+        ridgeMask = max(ridgeMask, seabedRidgeMask(p, vec2(-930.0, -1470.0), vec2(-1120.0, -1570.0)));
+        float ridgeBedTarget = -4.4 + 0.45 * sin(p.x * 0.008 + sin(p.y * 0.006) * 1.5) + 0.2 * sin(p.y * 0.015 - p.x * 0.01);
+        h = max(h, mix(h, ridgeBedTarget, ridgeMask));
         if (h > 1.95) {
             h = 1.95 + (h - 1.95) * 0.36;
         }
@@ -894,13 +1112,12 @@ const OCEAN_FRAGMENT_SHADER = `
 
         // Raymarch the same cumulus density field as the sky along the reflected view ray.
         if (fresnel > 0.04 && reflY > 0.002 && reflY < 0.999 && uCumulusCoverage > 0.01) {
-            float tMin = 340.0;
-            float tMax = min(1800.0, 780.0 / max(reflY, 0.002));
-            if (tMax > tMin) {
+            float tMin, tMax;
+            if (getCloudRayBounds(vWorldPos, R, 1350.0, 320.0, 28.0, 560.0, tMin, tMax)) {
                 const int REFLECTION_STEPS = 40;
                 float stepSize = (tMax - tMin) / float(REFLECTION_STEPS);
-                float rayPhase = mod(dot(vWorldPos, R) + tMin, stepSize);
-                float tRay = tMin + mod(stepSize - rayPhase, stepSize);
+                float dither = hash(gl_FragCoord.xy);
+                float tRay = tMin + mix(0.5, dither, 0.25) * stepSize;
                 vec3 accumColor = vec3(0.0);
                 float transmittance = 1.0;
 
@@ -972,7 +1189,7 @@ const OCEAN_FRAGMENT_SHADER = `
         surfaceColor = mix(surfaceColor, foamColor, totalFoam);
 
         surfaceColor += uSunColor * distantSunReflection * 1.8;
-        float horizonAtmosphere = 1.0 - smoothstep(0.0, 0.055, NdotV);
+        float horizonAtmosphere = (1.0 - smoothstep(0.0, 0.055, NdotV)) * 0.35;
         surfaceColor = mix(surfaceColor, uSkyHorizonColor, horizonAtmosphere);
 
         // Keep distant water up to the visual horizon, even from elevated viewpoints.

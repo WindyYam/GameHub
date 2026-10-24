@@ -296,95 +296,476 @@ function createShipwreckAndProps() {
     const bleachedTimberMat = new THREE.MeshStandardMaterial({ color: 0x5c4632, roughness: 0.88 });
 
     // ========================================================================
-    // 2. MALDIVES OVERWATER THATCH BUNGALOW & TIMBER BOARDWALK PIER
+    // 2. MALDIVES LUXURY OVERWATER BUNGALOW RESORT PIER & BEACHFRONT PAVILIONS
+    // (Matches reference photo: long curved water villa pier + beach complex)
     // ========================================================================
     const pierGroup = new THREE.Group();
-    const px = 42.0, pz = 28.0;
-    pierGroup.position.set(px, 0.0, pz);
-    pierGroup.rotation.y = -0.58; // Extend from sandy beach out into the turquoise lagoon
 
-    const deckMat = new THREE.MeshStandardMaterial({ color: 0x785b3c, roughness: 0.85 });
-    const thatchMat = new THREE.MeshStandardMaterial({ color: 0x9c7e44, roughness: 0.92 });
+    // Reusable Materials
+    const deckMat = new THREE.MeshStandardMaterial({ color: 0x5a412b, roughness: 0.82 });
+    const bleachedDeckMat = new THREE.MeshStandardMaterial({ color: 0x6e5238, roughness: 0.80 });
+    const pilingMat = new THREE.MeshStandardMaterial({ color: 0x2a1d13, roughness: 0.90 });
+    const cedarWallMat = new THREE.MeshStandardMaterial({ color: 0x664931, roughness: 0.84 });
+    const darkRoofMat = new THREE.MeshStandardMaterial({ color: 0x28323d, roughness: 0.72 });
+    const glassMat = new THREE.MeshStandardMaterial({ color: 0x1a3838, roughness: 0.12, metalness: 0.85 });
+    const whiteLoungeMat = new THREE.MeshStandardMaterial({ color: 0xf5f3ee, roughness: 0.75 });
+    const umbrellaMat = new THREE.MeshStandardMaterial({ color: 0xeee9df, roughness: 0.82, side: THREE.DoubleSide });
     const lanternMat = new THREE.MeshStandardMaterial({
         color: 0xffb74d,
         emissive: 0xff9800,
         emissiveIntensity: 1.8
     });
+    const thatchTexture = createHayStrawTexture();
+    const thatchMat = new THREE.MeshStandardMaterial({
+        map: thatchTexture,
+        bumpMap: thatchTexture,
+        bumpScale: 0.045,
+        color: 0xf2d6a2,
+        roughness: 0.92,
+        side: THREE.DoubleSide
+    });
+    const waterNetMat = new THREE.MeshStandardMaterial({
+        color: 0x2dd4bf,
+        roughness: 0.65,
+        side: THREE.DoubleSide,
+        transparent: true,
+        opacity: 0.75
+    });
 
-    // Boardwalk stilts & planks (26m long walkway)
-    const postGeo = new THREE.CylinderGeometry(0.14, 0.16, 4.2, 8);
-    const plankGeo = new THREE.BoxGeometry(2.6, 0.12, 0.42);
-    for (let d = 0; d <= 26; d += 2.2) {
+    // Reusable Geometries
+    const stiltGeo = new THREE.CylinderGeometry(0.14, 0.17, 6.5, 7);
+    const spinePlankGeo = new THREE.BoxGeometry(3.2, 0.14, 2.8);
+    const villaDeckGeo = new THREE.BoxGeometry(8.2, 0.22, 7.0);
+    const villaSpurGeo = new THREE.BoxGeometry(1.6, 0.14, 8.2);
+    const villaWallGeo = new THREE.BoxGeometry(5.9, 2.8, 5.0);
+    const villaRoofGeo = new THREE.CylinderGeometry(0.35, 5.5, 2.6, 4);
+    villaRoofGeo.rotateY(Math.PI / 4);
+    const ridgeCapGeo = new THREE.BoxGeometry(1.4, 0.28, 0.5);
+    const glassDoorGeo = new THREE.PlaneGeometry(5.2, 2.55);
+    const loungeGeo = new THREE.BoxGeometry(0.75, 0.26, 1.9);
+    const umbrellaPoleGeo = new THREE.CylinderGeometry(0.04, 0.04, 2.4, 6);
+    const umbrellaCanopyGeo = new THREE.ConeGeometry(1.3, 0.55, 8);
+    const ladderRailGeo = new THREE.CylinderGeometry(0.03, 0.03, 1.8, 6);
+    const ladderRungGeo = new THREE.BoxGeometry(0.5, 0.04, 0.08);
+    const lanternPostGeo = new THREE.CylinderGeometry(0.05, 0.06, 1.2, 6);
+    const lanternGeo = new THREE.SphereGeometry(0.12, 6, 6);
+
+    // 1. Long curved boardwalk spine extending from the island's beach waterside out into the turquoise lagoon
+    const totalSpineNodes = 80;
+    const spineNodes = [];
+    for (let i = 0; i < totalSpineNodes; i++) {
+        const t = i / (totalSpineNodes - 1);
+        const sx = -38.0 - 106.0 * t - 24.0 * Math.sin(t * Math.PI);
+        const sz = -112.0 - 220.0 * t + 28.0 * Math.sin(t * Math.PI * 1.25);
+        const sy = 1.62; // Elevated 1.62m cleanly above sea level (y=0)
+        spineNodes.push(new THREE.Vector3(sx, sy, sz));
+    }
+
+    // Build the spine boardwalk deck segments and pilings
+    for (let i = 0; i < totalSpineNodes - 1; i++) {
+        const p1 = spineNodes[i];
+        const p2 = spineNodes[i + 1];
+        const mid = new THREE.Vector3().addVectors(p1, p2).multiplyScalar(0.5);
+        const diff = new THREE.Vector3().subVectors(p2, p1);
+        const len = diff.length();
+        const rotY = Math.atan2(diff.x, diff.z);
+        const norm = new THREE.Vector3(-diff.z, 0, diff.x).normalize();
+
+        const plank = new THREE.Mesh(spinePlankGeo, deckMat);
+        plank.position.copy(mid);
+        plank.rotation.y = rotY;
+        plank.scale.set(1.0, 1.0, len / 2.6);
+        plank.castShadow = true;
+        plank.receiveShadow = true;
+        pierGroup.add(plank);
+
+        // Supporting pilings on both sides of the boardwalk
         for (let side = -1; side <= 1; side += 2) {
-            const post = new THREE.Mesh(postGeo, darkTimberMat);
-            post.position.set(side * 1.15, 0.2, d);
+            const px = mid.x + norm.x * side * 1.35;
+            const pz = mid.z + norm.z * side * 1.35;
+            const seabedY = getIslandHeight(px, pz);
+            const pileH = Math.max(3.5, 1.48 - seabedY + 0.8);
+            const post = new THREE.Mesh(stiltGeo, pilingMat);
+            post.scale.set(1.0, pileH / 5.0, 1.0);
+            post.position.set(px, 1.48 - pileH * 0.5, pz);
             post.castShadow = true;
             pierGroup.add(post);
         }
-        // Glowing pier lanterns every 6.6 meters
-        if (d > 4 && Math.round(d) % 6 === 0) {
-            const lPost = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.08, 1.4, 6), darkTimberMat);
-            lPost.position.set(1.22, 2.2, d);
-            pierGroup.add(lPost);
 
-            const lantern = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 8), lanternMat);
-            lantern.position.set(1.22, 2.95, d);
-            pierGroup.add(lantern);
+        // Railing curb along the boardwalk edges
+        const curbGeo = new THREE.BoxGeometry(0.12, 0.22, len + 0.05);
+        for (let side = -1; side <= 1; side += 2) {
+            const curb = new THREE.Mesh(curbGeo, bleachedDeckMat);
+            curb.position.set(mid.x + norm.x * side * 1.52, 1.62, mid.z + norm.z * side * 1.52);
+            curb.rotation.y = rotY;
+            curb.castShadow = true;
+            pierGroup.add(curb);
+        }
+
+        // Lantern posts every 4th segment
+        if (i % 4 === 1 && i > 1) {
+            const lSide = (i % 8 === 1) ? 1 : -1;
+            const lx = mid.x + norm.x * lSide * 1.52;
+            const lz = mid.z + norm.z * lSide * 1.52;
+            const lp = new THREE.Mesh(lanternPostGeo, pilingMat);
+            lp.position.set(lx, 2.12, lz);
+            pierGroup.add(lp);
+            const lg = new THREE.Mesh(lanternGeo, lanternMat);
+            lg.position.set(lx, 2.75, lz);
+            pierGroup.add(lg);
         }
     }
-    for (let d = 0; d <= 26; d += 0.52) {
-        const plank = new THREE.Mesh(plankGeo, deckMat);
-        plank.position.set(0, 1.55, d);
-        plank.receiveShadow = true;
-        plank.castShadow = true;
-        pierGroup.add(plank);
+
+    // 2. Arrival Rotunda at Beach Root (where the pier leaves the white sand)
+    const rotundaGeo = new THREE.CylinderGeometry(5.2, 5.5, 0.35, 16);
+    const rotunda = new THREE.Mesh(rotundaGeo, deckMat);
+    rotunda.position.set(-38.0, 1.62, -112.0);
+    rotunda.castShadow = true;
+    rotunda.receiveShadow = true;
+    pierGroup.add(rotunda);
+
+    const rotundaRoof = new THREE.Mesh(new THREE.ConeGeometry(6.4, 2.8, 8), thatchMat);
+    rotundaRoof.position.set(-38.0, 4.6, -112.0);
+    rotundaRoof.castShadow = true;
+    pierGroup.add(rotundaRoof);
+
+    // Pillars supporting the rotunda gazebo
+    for (let a = 0; a < 6; a++) {
+        const ang = a * (Math.PI / 3);
+        const rx = -38.0 + Math.cos(ang) * 4.2;
+        const rz = -112.0 + Math.sin(ang) * 4.2;
+        const pil = new THREE.Mesh(stiltGeo, pilingMat);
+        pil.scale.set(1.0, 3.8 / 5.0, 1.0);
+        pil.position.set(rx, 2.8, rz);
+        pierGroup.add(pil);
     }
 
-    // Overwater Thatch Pavilion / Bungalow at the end of the boardwalk (d = 30)
-    const hutDeck = new THREE.Mesh(new THREE.BoxGeometry(8.2, 0.22, 8.2), deckMat);
-    hutDeck.position.set(0, 1.6, 30.2);
-    hutDeck.castShadow = true;
-    hutDeck.receiveShadow = true;
-    pierGroup.add(hutDeck);
+    // Smooth wooden beach transition ramp leading down to the sand
+    const ramp = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.16, 7.5), deckMat);
+    ramp.position.set(-35.0, 1.35, -106.0);
+    ramp.rotation.y = 0.45;
+    ramp.rotation.x = -0.10;
+    ramp.castShadow = true;
+    ramp.receiveShadow = true;
+    pierGroup.add(ramp);
 
-    // Corner support pillars for the pavilion
-    for (let cx = -3.4; cx <= 3.4; cx += 6.8) {
-        for (let cz = 26.8; cz <= 33.6; cz += 6.8) {
-            const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.20, 6.2, 8), darkTimberMat);
-            pillar.position.set(cx, 1.8, cz);
+    // 3. Staggered pairs of luxury overwater bungalow villas along the lagoon boardwalk
+    const villaIndices = [6, 12, 18, 24, 30, 36, 42, 48, 54, 60, 66, 72];
+    villaIndices.forEach(idx => {
+        const p = spineNodes[idx];
+        const next = spineNodes[idx + 1];
+        const diff = new THREE.Vector3().subVectors(next, p).normalize();
+        const norm = new THREE.Vector3(-diff.z, 0, diff.x).normalize();
+        const rotY = Math.atan2(diff.x, diff.z);
+
+        // Flanking both sides of the boardwalk
+        [-1, 1].forEach(side => {
+            const villaScale = 1.38 + ((idx * 3 + (side > 0 ? 2 : 0)) % 7) * 0.03;
+            const sideOffset = 13.5 + ((idx + (side > 0 ? 2 : 0)) % 3) * 0.55;
+            const alongOffset = ((idx % 2) ? 1.3 : -1.3) * side;
+            const villaCenter = new THREE.Vector3()
+                .copy(p)
+                .addScaledVector(norm, side * sideOffset)
+                .addScaledVector(diff, alongOffset);
+            const spurVector = new THREE.Vector3().subVectors(villaCenter, p);
+            const spurCenter = new THREE.Vector3().addVectors(p, villaCenter).multiplyScalar(0.5);
+
+            // Connecting wooden walkway spur
+            const spur = new THREE.Mesh(villaSpurGeo, deckMat);
+            spur.position.set(spurCenter.x, 1.48, spurCenter.z);
+            spur.rotation.y = Math.atan2(spurVector.x, spurVector.z);
+            spur.scale.set(1.0, 1.0, spurVector.length() / 8.2);
+            spur.castShadow = true;
+            spur.receiveShadow = true;
+            pierGroup.add(spur);
+
+            // Villa Foundation Stilts
+            const stiltOffsets = [
+                [-3.5 * villaScale, -2.7 * villaScale], [0, -2.7 * villaScale], [3.5 * villaScale, -2.7 * villaScale],
+                [-3.5 * villaScale,  2.7 * villaScale], [0,  2.7 * villaScale], [3.5 * villaScale,  2.7 * villaScale]
+            ];
+            stiltOffsets.forEach(([ox, oz]) => {
+                const worldStilt = new THREE.Vector3(ox, 0, oz)
+                    .applyAxisAngle(new THREE.Vector3(0, 1, 0), rotY)
+                    .add(villaCenter);
+                const seabedY = getIslandHeight(worldStilt.x, worldStilt.z);
+                const pileH = Math.max(3.8, 1.55 - seabedY + 0.9);
+                const stilt = new THREE.Mesh(stiltGeo, pilingMat);
+                stilt.scale.set(1.0, pileH / 5.0, 1.0);
+                stilt.position.set(worldStilt.x, 1.55 - pileH * 0.5, worldStilt.z);
+                stilt.castShadow = true;
+                pierGroup.add(stilt);
+            });
+
+            // Villa Main Sundeck
+            const vDeck = new THREE.Mesh(villaDeckGeo, deckMat);
+            vDeck.position.set(villaCenter.x, 1.55, villaCenter.z);
+            vDeck.rotation.y = rotY;
+            vDeck.scale.set(villaScale, 1.0, villaScale);
+            vDeck.castShadow = true;
+            vDeck.receiveShadow = true;
+            pierGroup.add(vDeck);
+
+            // Villa Room Suite (set back on deck, facing outward)
+            const roomOffset = new THREE.Vector3(0, 1.52 * villaScale, -side * 0.75 * villaScale).applyAxisAngle(new THREE.Vector3(0, 1, 0), rotY);
+            const vRoom = new THREE.Mesh(villaWallGeo, cedarWallMat);
+            vRoom.position.copy(villaCenter).add(roomOffset);
+            vRoom.rotation.y = rotY;
+            vRoom.scale.set(villaScale, 1.08 * villaScale, villaScale);
+            vRoom.castShadow = true;
+            vRoom.receiveShadow = true;
+            pierGroup.add(vRoom);
+
+            // Large glass sliding door facing the open lagoon
+            const glassOffset = new THREE.Vector3(0, 1.35 * villaScale, side * 1.72 * villaScale).applyAxisAngle(new THREE.Vector3(0, 1, 0), rotY);
+            const vGlass = new THREE.Mesh(glassDoorGeo, glassMat);
+            vGlass.position.copy(villaCenter).add(glassOffset);
+            vGlass.rotation.y = rotY + (side > 0 ? 0 : Math.PI);
+            vGlass.scale.set(villaScale, villaScale, 1);
+            pierGroup.add(vGlass);
+
+            // Thatched Hipped Roof with Eaves
+            const roofOffset = new THREE.Vector3(0, 3.9 * villaScale, -side * 0.75 * villaScale).applyAxisAngle(new THREE.Vector3(0, 1, 0), rotY);
+            const vRoof = new THREE.Mesh(villaRoofGeo, thatchMat);
+            vRoof.position.copy(villaCenter).add(roofOffset);
+            vRoof.rotation.y = rotY;
+            vRoof.scale.set(villaScale, 1.08 * villaScale, villaScale);
+            vRoof.castShadow = true;
+            pierGroup.add(vRoof);
+
+            const rCap = new THREE.Mesh(ridgeCapGeo, cedarWallMat);
+            rCap.position.copy(villaCenter).add(roofOffset).add(new THREE.Vector3(0, 1.15 * villaScale, 0));
+            rCap.rotation.y = rotY;
+            rCap.scale.setScalar(villaScale);
+            pierGroup.add(rCap);
+
+            // Private Sundeck Loungers
+            const loungeOffset = new THREE.Vector3(-1.4, 0.22, side * 1.85).applyAxisAngle(new THREE.Vector3(0, 1, 0), rotY);
+            const lounge1 = new THREE.Mesh(loungeGeo, whiteLoungeMat);
+            lounge1.position.copy(villaCenter).add(loungeOffset);
+            lounge1.rotation.y = rotY;
+            lounge1.castShadow = true;
+            pierGroup.add(lounge1);
+
+            const loungeOffset2 = new THREE.Vector3(-0.35, 0.22, side * 1.85).applyAxisAngle(new THREE.Vector3(0, 1, 0), rotY);
+            const lounge2 = new THREE.Mesh(loungeGeo, whiteLoungeMat);
+            lounge2.position.copy(villaCenter).add(loungeOffset2);
+            lounge2.rotation.y = rotY;
+            lounge2.castShadow = true;
+            pierGroup.add(lounge2);
+
+            // Beach Parasol on Deck
+            const umbrellaOffset = new THREE.Vector3(1.6, 0.1, side * 1.95).applyAxisAngle(new THREE.Vector3(0, 1, 0), rotY);
+            const uPole = new THREE.Mesh(umbrellaPoleGeo, pilingMat);
+            uPole.position.copy(villaCenter).add(umbrellaOffset).add(new THREE.Vector3(0, 1.2, 0));
+            pierGroup.add(uPole);
+            const uCanopy = new THREE.Mesh(umbrellaCanopyGeo, umbrellaMat);
+            uCanopy.position.copy(villaCenter).add(umbrellaOffset).add(new THREE.Vector3(0, 2.35, 0));
+            uCanopy.castShadow = true;
+            pierGroup.add(uCanopy);
+
+            // Lower Swimming Platform & Ocean Ladder into Turquoise Water
+            const swimOffset = new THREE.Vector3(2.6, -1.05, side * 2.6).applyAxisAngle(new THREE.Vector3(0, 1, 0), rotY);
+            const swimDeck = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.14, 1.4), deckMat);
+            swimDeck.position.copy(villaCenter).add(swimOffset);
+            swimDeck.rotation.y = rotY;
+            pierGroup.add(swimDeck);
+
+            for (let sideL = -0.22; sideL <= 0.22; sideL += 0.44) {
+                const rail = new THREE.Mesh(ladderRailGeo, bleachedDeckMat);
+                rail.position.copy(villaCenter).add(swimOffset).add(new THREE.Vector3(sideL, -0.65, 0.65).applyAxisAngle(new THREE.Vector3(0, 1, 0), rotY));
+                pierGroup.add(rail);
+            }
+            for (let rung = 0; rung < 3; rung++) {
+                const r = new THREE.Mesh(ladderRungGeo, bleachedDeckMat);
+                r.position.copy(villaCenter).add(swimOffset).add(new THREE.Vector3(0, -0.45 - rung * 0.35, 0.65).applyAxisAngle(new THREE.Vector3(0, 1, 0), rotY));
+                r.rotation.y = rotY;
+                pierGroup.add(r);
+            }
+
+            // Deck Corner Lantern
+            const lanternOffset = new THREE.Vector3(3.4, 0.7, side * 2.8).applyAxisAngle(new THREE.Vector3(0, 1, 0), rotY);
+            const vLamp = new THREE.Mesh(lanternGeo, lanternMat);
+            vLamp.position.copy(villaCenter).add(lanternOffset);
+            pierGroup.add(vLamp);
+        });
+    });
+
+    // 4. Grand Presidential Suite at the Deep-Lagoon Terminus
+    const endNode = spineNodes[totalSpineNodes - 1];
+    const prevNode = spineNodes[totalSpineNodes - 2];
+    const endDiff = new THREE.Vector3().subVectors(endNode, prevNode).normalize();
+    const endNorm = new THREE.Vector3(-endDiff.z, 0, endDiff.x).normalize();
+    const endRotY = Math.atan2(endDiff.x, endDiff.z);
+
+    const presDeck = new THREE.Mesh(new THREE.BoxGeometry(38.0, 0.24, 26.0), deckMat);
+    presDeck.position.copy(endNode).add(new THREE.Vector3(0, 0.08, 0));
+    presDeck.rotation.y = endRotY;
+    presDeck.castShadow = true;
+    presDeck.receiveShadow = true;
+    pierGroup.add(presDeck);
+
+    // Pilings under Presidential Suite
+    for (let px = -17.0; px <= 17.0; px += 8.5) {
+        for (let pz = -11.5; pz <= 11.5; pz += 5.75) {
+            const wStilt = new THREE.Vector3(px, 0, pz).applyAxisAngle(new THREE.Vector3(0, 1, 0), endRotY).add(endNode);
+            const seabedY = getIslandHeight(wStilt.x, wStilt.z);
+            const pileH = Math.max(4.2, 1.55 - seabedY + 0.9);
+            const stilt = new THREE.Mesh(stiltGeo, pilingMat);
+            stilt.scale.set(1.15, pileH / 5.0, 1.15);
+            stilt.position.set(wStilt.x, 1.55 - pileH * 0.5, wStilt.z);
+            stilt.castShadow = true;
+            pierGroup.add(stilt);
+        }
+    }
+
+    // Twin Master Thatched Pavilions
+    [-9.4, 9.4].forEach(sideX => {
+        const pavPos = new THREE.Vector3(sideX, 2.23, -1.2).applyAxisAngle(new THREE.Vector3(0, 1, 0), endRotY).add(endNode);
+        const pavWall = new THREE.Mesh(new THREE.BoxGeometry(6.4, 2.8, 5.8), cedarWallMat);
+        pavWall.position.copy(pavPos);
+        pavWall.rotation.y = endRotY;
+        pavWall.scale.setScalar(1.45);
+        pavWall.castShadow = true;
+        pierGroup.add(pavWall);
+
+        const pavRoof = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 4.4, 2.8, 4), thatchMat);
+        pavRoof.position.copy(pavPos).add(new THREE.Vector3(0, 3.78, 0));
+        pavRoof.rotation.y = endRotY + Math.PI / 4;
+        pavRoof.scale.set(1.5, 1.25, 1.5);
+        pavRoof.castShadow = true;
+        pierGroup.add(pavRoof);
+    });
+
+    // Central Covered Breezeway linking the twin pavilions
+    const breezeRoof = new THREE.Mesh(new THREE.BoxGeometry(9.2, 0.42, 6.0), thatchMat);
+    breezeRoof.position.copy(endNode).add(new THREE.Vector3(0, 6.01, -1.2).applyAxisAngle(new THREE.Vector3(0, 1, 0), endRotY));
+    breezeRoof.rotation.y = endRotY;
+    breezeRoof.castShadow = true;
+    pierGroup.add(breezeRoof);
+
+    // Overwater Catamaran Hammock Net suspended over water
+    const presNet = new THREE.Mesh(new THREE.BoxGeometry(6.0, 0.04, 5.0), waterNetMat);
+    presNet.position.copy(endNode).add(new THREE.Vector3(0, 0.2, 15.5).applyAxisAngle(new THREE.Vector3(0, 1, 0), endRotY));
+    presNet.rotation.y = endRotY;
+    pierGroup.add(presNet);
+
+    // Sunset Lookout Gazebo at outer pier corner
+    const gazeboPos = new THREE.Vector3(15.0, 0, 8.5).applyAxisAngle(new THREE.Vector3(0, 1, 0), endRotY).add(endNode);
+    const gazeboRoof = new THREE.Mesh(new THREE.ConeGeometry(2.0, 2.2, 6), thatchMat);
+    gazeboRoof.position.copy(gazeboPos).add(new THREE.Vector3(0, 4.2, 0));
+    gazeboRoof.castShadow = true;
+    pierGroup.add(gazeboRoof);
+
+    // Warm ambient glow point light on the presidential suite
+    const presLight = new THREE.PointLight(0xffa73b, 8.5, 45.0, 1.5);
+    presLight.position.copy(endNode).add(new THREE.Vector3(0, 3.6, 0));
+    scene.add(presLight);
+    dynamicLights.push({ light: presLight, baseIntensity: 9.0, phase: 0.8 });
+
+    // 5. Beachfront Luxury Pavilion Resort Complex on the Island Beach (shown at bottom-left in photo)
+    const beachClubGroup = new THREE.Group();
+    const bcPos = new THREE.Vector3(-24.0, 0, -96.0);
+    const bcGroundY = getIslandHeight(bcPos.x, bcPos.z);
+    beachClubGroup.position.set(bcPos.x, bcGroundY + 0.1, bcPos.z);
+    beachClubGroup.rotation.y = -0.75;
+
+    // Main Open-Air Thatched Dining Pavilion
+    const mainPavDeck = new THREE.Mesh(new THREE.BoxGeometry(15.0, 0.32, 11.0), deckMat);
+    mainPavDeck.position.set(0, 0.3, 0);
+    mainPavDeck.castShadow = true;
+    mainPavDeck.receiveShadow = true;
+    beachClubGroup.add(mainPavDeck);
+
+    const mainPavRoof = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 16.5, 4.6, 4), thatchMat);
+    mainPavRoof.position.set(0, 4.6, 0);
+    mainPavRoof.rotation.y = Math.PI / 4;
+    mainPavRoof.castShadow = true;
+    beachClubGroup.add(mainPavRoof);
+
+    for (let px = -6.5; px <= 6.5; px += 4.33) {
+        for (let pz = -4.5; pz <= 4.5; pz += 9.0) {
+            const pillar = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.22, 3.6, 8), pilingMat);
+            pillar.position.set(px, 1.8, pz);
             pillar.castShadow = true;
-            pierGroup.add(pillar);
+            beachClubGroup.add(pillar);
         }
     }
 
-    // Timber cabin walls & tiered palm-thatch pyramid roof
-    const cabinWalls = new THREE.Mesh(new THREE.BoxGeometry(5.2, 2.8, 5.2), bleachedTimberMat);
-    cabinWalls.position.set(0, 3.0, 30.2);
-    cabinWalls.castShadow = true;
-    cabinWalls.receiveShadow = true;
-    pierGroup.add(cabinWalls);
+    // Connecting Beach Lounge Pavilion
+    const loungePavDeck = new THREE.Mesh(new THREE.BoxGeometry(11.0, 0.32, 9.0), deckMat);
+    loungePavDeck.position.set(-11.5, 0.28, 2.0);
+    loungePavDeck.castShadow = true;
+    beachClubGroup.add(loungePavDeck);
 
-    const roofTier1 = new THREE.Mesh(new THREE.ConeGeometry(6.8, 2.6, 4), thatchMat);
-    roofTier1.position.set(0, 5.2, 30.2);
-    roofTier1.rotation.y = Math.PI / 4;
-    roofTier1.castShadow = true;
-    pierGroup.add(roofTier1);
+    const loungePavRoof = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 12.0, 3.8, 4), thatchMat);
+    loungePavRoof.position.set(-11.5, 3.9, 2.0);
+    loungePavRoof.rotation.y = Math.PI / 4;
+    loungePavRoof.castShadow = true;
+    beachClubGroup.add(loungePavRoof);
 
-    const roofTier2 = new THREE.Mesh(new THREE.ConeGeometry(3.8, 1.8, 4), thatchMat);
-    roofTier2.position.set(0, 6.4, 30.2);
-    roofTier2.rotation.y = Math.PI / 4;
-    roofTier2.castShadow = true;
-    pierGroup.add(roofTier2);
+    // White Beach Parasols and Recliners on the powdery white sand in front of the club
+    const parasolPositions = [
+        [-5.0, 8.5], [0.0, 9.2], [5.5, 8.8], [-10.5, 9.0], [-15.5, 8.2]
+    ];
+    parasolPositions.forEach(([sx, sz]) => {
+        const pole = new THREE.Mesh(umbrellaPoleGeo, pilingMat);
+        pole.position.set(sx, 1.2, sz);
+        beachClubGroup.add(pole);
+        const top = new THREE.Mesh(umbrellaCanopyGeo, umbrellaMat);
+        top.position.set(sx, 2.35, sz);
+        top.castShadow = true;
+        beachClubGroup.add(top);
+
+        // Pair of white loungers under parasol
+        const l1 = new THREE.Mesh(loungeGeo, whiteLoungeMat);
+        l1.position.set(sx - 0.5, 0.15, sz - 0.4);
+        l1.rotation.y = 0.15;
+        l1.castShadow = true;
+        beachClubGroup.add(l1);
+
+        const l2 = new THREE.Mesh(loungeGeo, whiteLoungeMat);
+        l2.position.set(sx + 0.5, 0.15, sz - 0.4);
+        l2.rotation.y = -0.15;
+        l2.castShadow = true;
+        beachClubGroup.add(l2);
+    });
+
+    scene.add(beachClubGroup);
+
+    // 6. Island Guest Villas nestled inside the tropical palm jungle (dark slate roofs visible in photo)
+    const inlandVillaSpots = [
+        { x: -16.0, z: -55.0, rotY: 0.35 },
+        { x: 12.0, z: -45.0, rotY: -0.52 },
+        { x: -35.0, z: -25.0, rotY: 0.85 },
+        { x: 25.0, z: -20.0, rotY: -0.22 }
+    ];
+    inlandVillaSpots.forEach(iv => {
+        const gy = getIslandHeight(iv.x, iv.z);
+        if (gy > 0.4) {
+            const vGroup = new THREE.Group();
+            vGroup.position.set(iv.x, gy, iv.z);
+            vGroup.rotation.y = iv.rotY;
+
+            const vBody = new THREE.Mesh(new THREE.BoxGeometry(6.8, 2.6, 5.8), cedarWallMat);
+            vBody.position.set(0, 1.3, 0);
+            vBody.castShadow = true;
+            vGroup.add(vBody);
+
+            const vRoof = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 7.8, 2.2, 4), darkRoofMat);
+            vRoof.position.set(0, 3.4, 0);
+            vRoof.rotation.y = Math.PI / 4;
+            vRoof.castShadow = true;
+            vGroup.add(vRoof);
+
+            scene.add(vGroup);
+            vGroup.children.forEach(o => { if (o.isMesh) batchableMeshes.push(o); });
+        }
+    });
 
     scene.add(pierGroup);
     pierGroup.children.forEach((o) => { if (o.isMesh) batchableMeshes.push(o); });
-
-    // Warm point light inside the overwater bungalow that illuminates the lagoon at dusk/night
-    const hutWorldLightPos = new THREE.Vector3(0, 3.2, 26.0).applyAxisAngle(new THREE.Vector3(0, 1, 0), -0.58).add(new THREE.Vector3(px, 0, pz));
-    const hutLight = new THREE.PointLight(0xff9d3b, 6.0, 38.0, 1.6);
-    hutLight.position.copy(hutWorldLightPos);
-    scene.add(hutLight);
-    dynamicLights.push({ light: hutLight, baseIntensity: 7.5, phase: 0.0 });
+    beachClubGroup.children.forEach((o) => { if (o.isMesh) batchableMeshes.push(o); });
 
     // ========================================================================
     // 3. BEACHED OUTRIGGER CANOES, DRIFTWOOD LOGS & FLICKERING CAMPFIRE
