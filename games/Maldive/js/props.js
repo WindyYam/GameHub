@@ -764,8 +764,8 @@ function createShipwreckAndProps() {
     });
 
     scene.add(pierGroup);
-    pierGroup.children.forEach((o) => { if (o.isMesh) batchableMeshes.push(o); });
-    beachClubGroup.children.forEach((o) => { if (o.isMesh) batchableMeshes.push(o); });
+    pierGroup.traverse((o) => { if (o.isMesh) batchableMeshes.push(o); });
+    beachClubGroup.traverse((o) => { if (o.isMesh) batchableMeshes.push(o); });
 
     // ========================================================================
     // 3. BEACHED OUTRIGGER CANOES, DRIFTWOOD LOGS & FLICKERING CAMPFIRE
@@ -1208,6 +1208,7 @@ function createShipwreckAndProps() {
     }
     fireGroup.scale.setScalar(1.3);
     scene.add(fireGroup);
+    mergeStaticMeshesInGroup(fireGroup);
 
     const smokeGroup = new THREE.Group();
     smokeGroup.position.set(fireX, fireY + 0.05, fireZ);

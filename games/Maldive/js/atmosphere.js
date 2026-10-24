@@ -67,6 +67,10 @@ function updateDayNightAtmosphere(hours) {
 
     renderer.toneMappingExposure = 0.84 + dayFactor * 0.14 + twilightFactor * 0.08;
 
+    if (typeof renderer !== "undefined" && renderer && renderer.shadowMap) {
+        renderer.shadowMap.needsUpdate = true;
+    }
+
     updateClockUI(hours);
 }
 

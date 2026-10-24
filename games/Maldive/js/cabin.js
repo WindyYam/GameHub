@@ -894,4 +894,5 @@ function createTribalCabinAndGadgets() {
     scene.add(cabinGroup);
     createHangingLantern(0.0, ridgeY - 0.45, -0.20, 9.5, 1.2); // Warm interior cabin light
     createHangingLantern(0.0, ridgeY - 0.65,  3.65, 7.5, 3.8); // Warm veranda porch light
+    mergeStaticMeshesInGroup(cabinGroup);
 }

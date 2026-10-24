@@ -6,7 +6,7 @@ function onWindowResize() {
     if (depthRenderTarget) {
         const size = new THREE.Vector2();
         renderer.getDrawingBufferSize(size);
-        depthRenderTarget.setSize(size.x, size.y);
+        depthRenderTarget.setSize(Math.max(256, Math.round(size.x * 0.5)), Math.max(256, Math.round(size.y * 0.5)));
     }
 }
 

@@ -19,6 +19,8 @@ function initScene() {
     renderer.outputEncoding = THREE.sRGBEncoding;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = CONFIG.shadowType;
+    renderer.shadowMap.autoUpdate = false;
+    renderer.shadowMap.needsUpdate = true;
     container.appendChild(renderer.domElement);
 
     // OrbitControls allowing full upward sky tilt & canopy inspection
@@ -131,7 +133,10 @@ function initDepthRenderTarget() {
     const isWebGL2 = renderer.capabilities.isWebGL2;
     const hasDepthExt = renderer.extensions.has('WEBGL_depth_texture');
 
-    depthRenderTarget = new THREE.WebGLRenderTarget(size.x, size.y, {
+    // Half-resolution depth target: saves 75% depth fillrate and bandwidth while keeping soft cloud edge clipping accurate
+    const targetW = Math.max(256, Math.round(size.x * 0.5));
+    const targetH = Math.max(256, Math.round(size.y * 0.5));
+    depthRenderTarget = new THREE.WebGLRenderTarget(targetW, targetH, {
         minFilter: THREE.NearestFilter,
         magFilter: THREE.NearestFilter,
         format: THREE.RGBAFormat,

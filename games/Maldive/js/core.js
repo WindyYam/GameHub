@@ -18,18 +18,18 @@ let IS_MOBILE = urlParams && urlParams.has('mobile')
 
 const CONFIG = {
     isMobile: IS_MOBILE,
-    maxPixelRatio: IS_MOBILE ? 1.0 : Math.min(typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1, 2.0),
-    terrainSegments: IS_MOBILE ? 128 : 200,
-    oceanSegments: IS_MOBILE ? 128 : 240,
-    totalTrees: IS_MOBILE ? 70 : 135,
-    totalBushes: IS_MOBILE ? 90 : 210,
-    treeFronds: IS_MOBILE ? 16 : 22,
-    bushFronds: IS_MOBILE ? 9 : 13,
-    coralCount: IS_MOBILE ? 120 : 240,
-    skyRaymarchSteps: IS_MOBILE ? 16 : 32,
-    cumulusRaymarchSteps: IS_MOBILE ? 24 : 48,
-    oceanReflectionSteps: IS_MOBILE ? 4 : 12,
-    shadowMapSize: IS_MOBILE ? 1024 : 2048,
+    maxPixelRatio: IS_MOBILE ? 1.0 : Math.min(typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1, 1.5),
+    terrainSegments: IS_MOBILE ? 100 : 160,
+    oceanSegments: IS_MOBILE ? 100 : 160,
+    totalTrees: IS_MOBILE ? 70 : 130,
+    totalBushes: IS_MOBILE ? 90 : 180,
+    treeFronds: IS_MOBILE ? 14 : 18,
+    bushFronds: IS_MOBILE ? 8 : 10,
+    coralCount: 0,
+    skyRaymarchSteps: IS_MOBILE ? 16 : 28,
+    cumulusRaymarchSteps: IS_MOBILE ? 20 : 32,
+    oceanReflectionSteps: IS_MOBILE ? 3 : 6,
+    shadowMapSize: IS_MOBILE ? 1024 : 1536,
     shadowType: THREE.PCFSoftShadowMap
 };
 
@@ -303,4 +303,75 @@ function mergeGeometryParts(parts) {
         merged.setAttribute(name, new THREE.BufferAttribute(data, itemSize));
     });
     return merged;
+}
+
+
+function mergeStaticMeshesInGroup(group, target = scene) {
+    if (!group) return;
+    group.updateMatrixWorld(true);
+    const isAnimated = (obj) => {
+        if (typeof bbqSpitRod !== 'undefined' && obj === bbqSpitRod) return true;
+        if (typeof windChimeGroups !== 'undefined') {
+            for (let i = 0; i < windChimeGroups.length; i++) {
+                if (windChimeGroups[i].group === obj || windChimeGroups[i].group.getObjectById(obj.id)) return true;
+            }
+        }
+        if (typeof flameMeshes !== 'undefined') {
+            for (let i = 0; i < flameMeshes.length; i++) {
+                if (flameMeshes[i].mesh === obj) return true;
+            }
+        }
+        if (typeof fireSparks !== 'undefined') {
+            for (let i = 0; i < fireSparks.length; i++) {
+                if (fireSparks[i].mesh === obj) return true;
+            }
+        }
+        if (typeof smokePuffs !== 'undefined') {
+            for (let i = 0; i < smokePuffs.length; i++) {
+                if (smokePuffs[i].mesh === obj) return true;
+            }
+        }
+        return false;
+    };
+
+    const buckets = new Map();
+    const toRemove = [];
+
+    group.traverse((child) => {
+        if (child.isMesh && !child.isInstancedMesh && child.geometry && child.material && !isAnimated(child)) {
+            if (child.material.isShaderMaterial && child.material.uniforms && child.material.uniforms.uTime) return;
+            const mat = child.material;
+            const key = mat.uuid + '|' + (child.castShadow ? '1' : '0') + '|' + (child.receiveShadow ? '1' : '0');
+            if (!buckets.has(key)) {
+                buckets.set(key, {
+                    material: mat,
+                    castShadow: child.castShadow,
+                    receiveShadow: child.receiveShadow,
+                    parts: []
+                });
+            }
+            if (!child.geometry.attributes.normal) child.geometry.computeVertexNormals();
+            buckets.get(key).parts.push({
+                geometry: child.geometry,
+                matrix: child.matrixWorld
+            });
+            toRemove.push(child);
+        }
+    });
+
+    toRemove.forEach((mesh) => {
+        if (mesh.parent) mesh.parent.remove(mesh);
+    });
+
+    buckets.forEach(({ material, castShadow, receiveShadow, parts }) => {
+        if (parts.length > 0) {
+            const merged = mergeGeometryParts(parts);
+            if (merged) {
+                const m = new THREE.Mesh(merged, material);
+                m.castShadow = castShadow;
+                m.receiveShadow = receiveShadow;
+                target.add(m);
+            }
+        }
+    });
 }

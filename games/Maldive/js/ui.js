@@ -63,7 +63,7 @@ function setIsMobile(isMobile, reload = false) {
     } catch (e) {}
 
     const dpr = typeof window !== 'undefined' ? (window.devicePixelRatio || 1) : 1;
-    const targetDPR = isMobile ? 1.0 : Math.min(dpr, 2.0);
+    const targetDPR = isMobile ? 1.0 : Math.min(dpr, CONFIG.maxPixelRatio || 1.5);
     CONFIG.maxPixelRatio = targetDPR;
     if (typeof MAX_PIXEL_RATIO !== 'undefined') {
         MAX_PIXEL_RATIO = targetDPR;
@@ -74,7 +74,7 @@ function setIsMobile(isMobile, reload = false) {
         if (typeof depthRenderTarget !== 'undefined' && depthRenderTarget) {
             const size = new THREE.Vector2();
             renderer.getDrawingBufferSize(size);
-            depthRenderTarget.setSize(size.x, size.y);
+            depthRenderTarget.setSize(Math.max(256, Math.round(size.x * 0.5)), Math.max(256, Math.round(size.y * 0.5)));
         }
     }
     updateMobileUI(isMobile);

@@ -143,8 +143,8 @@ function createWindTrunkMaterial() {
 
 function buildPalmFrondGeometry() {
     const length = 5.5;
-    const segmentsL = 28;
-    const segmentsW = 8;
+    const segmentsL = 14;
+    const segmentsW = 4;
     const geo = new THREE.PlaneGeometry(1.65, length, segmentsW, segmentsL);
     geo.translate(0, length / 2, 0);
     geo.rotateX(Math.PI / 2); // Extend outward along +Z
