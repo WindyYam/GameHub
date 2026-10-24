@@ -21,9 +21,6 @@ function createPalmLeafMaterial(isPalmFrond = true) {
             uniform float uTime;
             varying vec2 vLeafUV;
             varying vec3 vLeafWorldPos;
-            #ifdef USE_INSTANCING
-            attribute vec3 aTreeOrigin;
-            #endif
         ` + shader.vertexShader.replace(
             '#include <uv_vertex>',
             `#include <uv_vertex>
@@ -33,17 +30,14 @@ function createPalmLeafMaterial(isPalmFrond = true) {
             `#include <begin_vertex>
             #ifdef USE_INSTANCING
             vec4 wPos = modelMatrix * instanceMatrix * vec4(transformed, 1.0);
-            float treePhase = aTreeOrigin.x * 0.09 + aTreeOrigin.y * 0.07;
-            float treeScale = aTreeOrigin.z;
             #else
             vec4 wPos = modelMatrix * vec4(transformed, 1.0);
-            float treePhase = wPos.x * 0.09 + wPos.z * 0.07;
-            float treeScale = 1.0;
             #endif
             vLeafWorldPos = wPos.xyz;
             float distFromCrown = length(transformed.xz);
 
             // Strong prevailing trade-wind gusts + high-frequency leaflet flutter
+            float treePhase = wPos.x * 0.09 + wPos.z * 0.07;
             float strongGust = sin(uTime * 2.1 + treePhase) * 0.55
                              + sin(uTime * 0.95 - treePhase * 0.6) * 0.35
                              + 0.42;
@@ -58,22 +52,8 @@ function createPalmLeafMaterial(isPalmFrond = true) {
             // Sync crown base translation with the bending palm trunk top in strong wind
             float crownSwayX = (sin(uTime * 1.85 + treePhase) * 0.48 + 0.38) * 0.52;
             float crownSwayZ = (cos(uTime * 1.45 + treePhase * 0.8) * 0.30 + 0.18) * 0.52;
-            float crownSwayY = -(abs(crownSwayX) + abs(crownSwayZ)) * 0.08;
-            vec3 worldCrownSway = vec3(crownSwayX, crownSwayY, crownSwayZ) * treeScale;
-
-            #ifdef USE_INSTANCING
-            vec3 axisX = normalize(instanceMatrix[0].xyz);
-            vec3 axisY = normalize(instanceMatrix[1].xyz);
-            vec3 axisZ = normalize(instanceMatrix[2].xyz);
-            vec3 crownLocalSway = vec3(
-                dot(worldCrownSway, axisX),
-                dot(worldCrownSway, axisY),
-                dot(worldCrownSway, axisZ)
-            ) / max(0.001, treeScale);
-            transformed += crownLocalSway;
-            #else
-            transformed += worldCrownSway / max(0.001, treeScale);
-            #endif
+            transformed.x += crownSwayX;
+            transformed.z += crownSwayZ;
             `
         );
 
@@ -209,80 +189,11 @@ const sharedTrunkMat = createWindTrunkMaterial();
 const sharedFrondGeo = buildPalmFrondGeometry();
 const sharedFrondMat = createPalmLeafMaterial(true);
 
-function createCoconutMaterial(color, roughness) {
-    const mat = new THREE.MeshStandardMaterial({
-        color: color,
-        roughness: roughness,
-        metalness: 0.04
-    });
-
-    mat.onBeforeCompile = (shader) => {
-        shader.uniforms.uTime = { value: 0 };
-        mat.userData.shader = shader;
-
-        shader.vertexShader = `
-            uniform float uTime;
-            #ifdef USE_INSTANCING
-            attribute vec3 aTreeOrigin;
-            #endif
-        ` + shader.vertexShader.replace(
-            '#include <begin_vertex>',
-            `#include <begin_vertex>
-            #ifdef USE_INSTANCING
-            float treePhase = aTreeOrigin.x * 0.09 + aTreeOrigin.y * 0.07;
-            float treeScale = aTreeOrigin.z;
-            #else
-            float treePhase = modelMatrix[3].x * 0.09 + modelMatrix[3].z * 0.07;
-            float treeScale = length(modelMatrix[0].xyz);
-            #endif
-
-            // Exact sway displacement matching the top of the palm trunk
-            float swayX = (sin(uTime * 1.85 + treePhase) * 0.48 + 0.38) * 0.52;
-            float swayZ = (cos(uTime * 1.45 + treePhase * 0.8) * 0.30 + 0.18) * 0.52;
-            float swayY = -(abs(swayX) + abs(swayZ)) * 0.08;
-
-            // Subtle natural coconut bunch pendulum dangle
-            float cocoDangleX = sin(uTime * 3.7 + treePhase * 2.1 + transformed.x * 5.0) * 0.022;
-            float cocoDangleZ = cos(uTime * 3.3 + treePhase * 1.7 + transformed.z * 5.0) * 0.022;
-
-            vec3 worldSway = vec3(swayX + cocoDangleX, swayY, swayZ + cocoDangleZ) * treeScale;
-
-            #ifdef USE_INSTANCING
-            // Un-rotate the world sway into instance local space so that when instanceMatrix
-            // is applied, the coconut translates precisely by worldSway in world space:
-            // instanceMatrix * (transformed + localSway) = instanceMatrix * transformed + worldSway
-            vec3 axisX = normalize(instanceMatrix[0].xyz);
-            vec3 axisY = normalize(instanceMatrix[1].xyz);
-            vec3 axisZ = normalize(instanceMatrix[2].xyz);
-            vec3 localSway = vec3(
-                dot(worldSway, axisX),
-                dot(worldSway, axisY),
-                dot(worldSway, axisZ)
-            ) / max(0.001, treeScale);
-            transformed += localSway;
-            #else
-            transformed += worldSway / max(0.001, treeScale);
-            #endif
-            `
-        );
-    };
-
-    const depthMat = new THREE.MeshDepthMaterial({
-        depthPacking: THREE.RGBADepthPacking
-    });
-    depthMat.onBeforeCompile = mat.onBeforeCompile;
-    mat.customDepthMaterial = depthMat;
-
-    cocoMaterials.push(mat);
-    cocoMaterials.push(depthMat);
-    return mat;
-}
-
 // Shared coconut geometry and materials (one batch per colour for all palms)
 const sharedCocoGeo = new THREE.SphereGeometry(0.19, 8, 8);
 const sharedCocoMats = [
-    createCoconutMaterial(0x5c441e, 0.65),
-    createCoconutMaterial(0x657c24, 0.45)
+    new THREE.MeshStandardMaterial({ color: 0x5c441e, roughness: 0.65 }),
+    new THREE.MeshStandardMaterial({ color: 0x657c24, roughness: 0.45 })
 ];
 
 function isNearCampOrCabin(x, z, clearance = 14.0) {
@@ -373,8 +284,6 @@ function createPalmTree(x, z, scale, leanAngle, leanAmount, heightMultiplier = 1
         coco.scale.set(1.0, 1.25, 1.0);
         coco.position.set(Math.cos(a) * 0.27, -0.15 - (c % 3) * 0.09, Math.sin(a) * 0.27);
         coco.castShadow = true;
-        coco.userData.treeOrigin = new THREE.Vector2(x, z);
-        coco.userData.treeScale = scale;
         crownGroup.add(coco);
         batchableMeshes.push(coco);
     }
@@ -391,8 +300,6 @@ function createPalmTree(x, z, scale, leanAngle, leanAmount, heightMultiplier = 1
         frondMesh.scale.setScalar(0.82 + tier * 0.08);
         frondMesh.castShadow = true;
         frondMesh.receiveShadow = true;
-        frondMesh.userData.treeOrigin = new THREE.Vector2(x, z);
-        frondMesh.userData.treeScale = scale;
         crownGroup.add(frondMesh);
         batchableMeshes.push(frondMesh);
     }
@@ -433,8 +340,6 @@ function createCoastalBush(x, z, scale, hasFlowers = false) {
         frond.scale.set(s * 1.38, s * 0.92, s * 0.74);
         frond.castShadow = true;
         frond.receiveShadow = true;
-        frond.userData.treeOrigin = new THREE.Vector2(x, z);
-        frond.userData.treeScale = 0.0;
         bushGroup.add(frond);
         batchableMeshes.push(frond);
     }

@@ -152,7 +152,7 @@ function initDepthRenderTarget() {
 function createCumulusPatches() {
     initDepthRenderTarget();
 
-    const patchGeometry = new THREE.PlaneGeometry(3200, 2200);
+    const patchGeometry = new THREE.PlaneGeometry(1200, 800);
     const cumulusFragShader = CUMULUS_PATCH_FRAGMENT_SHADER.replace(
         'const int PATCH_STEPS = 64;',
         'const int PATCH_STEPS = ' + CONFIG.cumulusRaymarchSteps + ';'
