@@ -64,6 +64,14 @@
             color: #fff;
             transform: translateY(1px);
         }
+        .hud-btn:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+        }
+        .hud-btn:disabled:hover {
+            background: #1e293b;
+            border-color: #475569;
+        }
         .goal-popup {
             animation: goalBounce 0.35s infinite alternate;
         }
@@ -77,6 +85,12 @@
             -ms-overflow-style: none;
             scrollbar-width: none;
             -webkit-overflow-scrolling: touch;
+        }
+        #bottom-hud-bar {
+            cursor: grab;
+        }
+        #bottom-hud-bar.dragging {
+            cursor: grabbing;
         }
         @keyframes kickoffPulse {
             0% { transform: scale(1); }
@@ -157,10 +171,10 @@
     </div>
 
     <!-- Kickoff Status Banner -->
-    <div id="kickoff-banner" class="fixed inset-0 pointer-events-none flex items-start justify-center pt-14 z-30 hidden transition-opacity duration-300">
-        <div class="kickoff-popup hud-bar px-6 py-4 rounded-xl border-2 border-emerald-400 text-center bg-slate-950/95 shadow-2xl">
-            <div id="kickoff-title" class="pixel-font text-xl sm:text-2xl text-emerald-300 mb-1">📢 KICK OFF</div>
-            <div id="kickoff-sub" class="text-sm sm:text-base text-sky-200 tracking-wider">TEAMS IN POSITION</div>
+    <div id="kickoff-banner" class="fixed bottom-24 left-2.5 z-30 pointer-events-none hidden transition-opacity duration-300">
+        <div class="kickoff-popup hud-bar px-3 py-2 rounded-lg border border-emerald-400 text-left bg-slate-950/90 shadow-lg max-w-[190px]">
+            <div id="kickoff-title" class="pixel-font text-[9px] text-emerald-300 mb-1 leading-snug">📢 KICK OFF</div>
+            <div id="kickoff-sub" class="text-[11px] text-sky-200 leading-snug">TEAMS IN POSITION</div>
         </div>
     </div>
 
@@ -174,25 +188,24 @@
 
         <!-- Main Single-Row Control Bar -->
         <div id="bottom-hud-bar" class="hud-bar px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg flex flex-nowrap items-center gap-1 sm:gap-1.5 text-xs overflow-x-auto no-scrollbar max-w-full shadow-2xl">
-            <button id="btn-atk-arg" class="hud-btn shrink-0 px-2 py-1 rounded text-sky-300 font-bold">⚽ ARG<span class="hidden sm:inline"> ATTACK</span></button>
-            <button id="btn-atk-esp" class="hud-btn shrink-0 px-2 py-1 rounded text-red-300 font-bold">⚽ ESP<span class="hidden sm:inline"> ATTACK</span></button>
-            <button id="btn-wave" class="hud-btn shrink-0 px-2 py-1 rounded text-yellow-300 font-bold">🙌 WAVE</button>
-            <button id="btn-goal-arg" class="hud-btn shrink-0 px-2 py-1 rounded text-cyan-300 font-bold">🎆 GOAL ARG</button>
-            <button id="btn-goal-esp" class="hud-btn shrink-0 px-2 py-1 rounded text-amber-300 font-bold">🎆 GOAL ESP</button>
-            <span class="text-slate-600 mx-0.5 shrink-0">|</span>
-            <button id="btn-corner" class="hud-btn shrink-0 px-2 py-1 rounded text-emerald-300 font-bold" title="Trigger Corner Kick">🚩 CORNER</button>
-            <button id="btn-throw" class="hud-btn shrink-0 px-2 py-1 rounded text-orange-300 font-bold" title="Trigger Throw-in">🤾 THROW</button>
-            <button id="btn-goalkick" class="hud-btn shrink-0 px-2 py-1 rounded text-teal-300 font-bold" title="Trigger Goal Kick">🥅 GOAL KICK</button>
-            <span class="text-slate-600 mx-0.5 shrink-0">|</span>
             <button id="cam-ref" class="hud-btn active shrink-0 px-2 py-1 rounded">REF<span class="hidden sm:inline"> VIEW</span></button>
             <button id="cam-ball" class="hud-btn shrink-0 px-2 py-1 rounded"><span class="hidden sm:inline">FOLLOW </span>BALL</button>
+            <button id="btn-control" disabled class="hud-btn shrink-0 px-2 py-1 rounded text-lime-300 font-bold" title="Take control of the tracked player (click a player to track first). Keys: WASD/arrows move, Shift sprint, Space shoot, E pass, Esc release">🎮 CONTROL: OFF</button>
             <span class="text-slate-600 mx-0.5 shrink-0">|</span>
-            <button id="px-125" class="hud-btn active shrink-0 px-2 py-1 rounded" title="High-Res Fine Pixel Art (1.25x)">1.25x</button>
-            <button id="px-100" class="hud-btn shrink-0 px-2 py-1 rounded" title="Ultra-Crisp Native HD (1.0x)">1.0x</button>
-            <button id="px-165" class="hud-btn shrink-0 px-2 py-1 rounded" title="Classic 16-Bit Pixel Art (1.65x)">1.65x</button>
             <button id="btn-gi" class="hud-btn active shrink-0 px-2 py-1 rounded text-emerald-300">GI: HIGH</button>
             <button id="btn-tag" class="hud-btn active shrink-0 px-2 py-1 rounded text-amber-300">TAG: ON</button>
             <button id="btn-audio" class="hud-btn active shrink-0 px-2 py-1 rounded text-cyan-300">🔊 SOUND</button>
+        </div>
+    </div>
+
+    <!-- On-screen controls for the controlled player (visible only while CONTROL is active) -->
+    <div id="ctrl-pad" class="hidden fixed left-3 right-3 bottom-36 flex items-end justify-between pointer-events-none z-40 select-none">
+        <div id="ctrl-joy" class="relative w-24 h-24 rounded-full bg-slate-900/50 border border-cyan-300/40 pointer-events-auto touch-none">
+            <div id="ctrl-stick" class="absolute left-1/2 top-1/2 w-10 h-10 -ml-5 -mt-5 rounded-full bg-cyan-300/60 border border-cyan-100/70"></div>
+        </div>
+        <div class="flex items-end gap-2 pointer-events-auto touch-none">
+            <button id="ctrl-pass" class="w-14 h-14 rounded-full bg-slate-900/60 border border-emerald-300/60 text-emerald-200 text-[10px] font-bold">PASS</button>
+            <button id="ctrl-shoot" class="w-16 h-16 rounded-full bg-slate-900/60 border border-amber-300/60 text-amber-200 text-[10px] font-bold">SHOOT</button>
         </div>
     </div>
 
@@ -233,6 +246,17 @@
             giEnabled: true,
             showTag: true,
             focusPlayer: null
+        };
+
+        // Manual control of the tracked player (keyboard, on-screen joystick and buttons)
+        const ctrl = {
+            player: null,
+            keys: {},
+            joy: { x: 0, y: 0 },
+            facing: { x: 0, z: 1 },
+            carrying: false,
+            shootReq: false,
+            passReq: false
         };
 
         function updateCanvasSize() {
@@ -2923,8 +2947,12 @@
                         }
                     });
 
-                    a.x = THREE.MathUtils.clamp(a.x, -hw, hw);
-                    a.z = THREE.MathUtils.clamp(a.z, -hl, hl);
+                    // The restart taker may reach a ball that rolled into the run-off area (up to the boards)
+                    const isRestartTaker = setPieceState.active && a === setPieceState.taker;
+                    const limX = isRestartTaker ? 32.0 : hw;
+                    const limZ = isRestartTaker ? 44.0 : hl;
+                    a.x = THREE.MathUtils.clamp(a.x, -limX, limX);
+                    a.z = THREE.MathUtils.clamp(a.z, -limZ, limZ);
                 }
             }
         }
@@ -3583,7 +3611,9 @@
             timer: 0,
             setupDuration: 2.5,
             ballPositioned: false,
-            ballHeld: false
+            ballHeld: false,
+            ballPlaced: false,
+            pickupTimer: 0
         };
         window.setPieceState = setPieceState;
 
@@ -3599,11 +3629,11 @@
             setPieceState.timer = 0;
             setPieceState.ballPositioned = false;
             setPieceState.ballHeld = false;
+            setPieceState.ballPlaced = false;
+            setPieceState.pickupTimer = 0;
 
             playWhistleSound('stoppage');
 
-            // DO NOT stop or teleport the ball! The ball continues rolling with common physics,
-            // bouncing off the advertising board walls and slowing down naturally.
             ball.cooldown = 0.5;
 
             let taker = null;
@@ -3648,6 +3678,16 @@
             }
 
             ball.carrier = taker;
+
+            // Remember each player's current spot and give them a small random drift for the restart
+            players.forEach(p => {
+                p.setPieceAnchorX = p.x;
+                p.setPieceAnchorZ = p.z;
+                const driftAngle = Math.random() * Math.PI * 2;
+                const driftDist = 0.6 + Math.random() * 1.0;
+                p.setPieceDriftX = Math.cos(driftAngle) * driftDist;
+                p.setPieceDriftZ = Math.sin(driftAngle) * driftDist;
+            });
         }
         window.startSetPiece = startSetPiece;
 
@@ -3677,7 +3717,6 @@
                 taker.rightArm.rotation.x = 0.85;
                 taker.bodyPivot.rotation.x = -0.22;
 
-                ball.mesh.position.set(sx - Math.sign(sx) * 0.85, 1.45, sz);
                 const spd = Math.min(18.5, 9.5 + dist * 0.50);
                 ball.vx = (dx / dist) * spd;
                 ball.vz = (dz / dist) * spd;
@@ -3750,6 +3789,8 @@
             setPieceState.active = false;
             setPieceState.ballHeld = false;
             setPieceState.ballPositioned = false;
+            setPieceState.ballPlaced = false;
+            setPieceState.pickupTimer = 0;
             matchState.phase = 'PLAYING';
             setTimeout(() => {
                 hideKickoffBanner();
@@ -3777,6 +3818,248 @@
             }
         }
         window.triggerSetPiece = triggerSetPiece;
+
+        // Ball left the field (not a goal): the team that did not touch it last gets the restart.
+        // Sideline = throw-in; end line = corner (if the defending side touched it last) or goal kick.
+        // Ball keeps rolling after leaving the field (friction, gravity, boards) until it stops
+        function rollOutOfPlayBall(dt) {
+            const m = ball.mesh.position;
+            m.x += ball.vx * dt;
+            m.z += ball.vz * dt;
+            if (m.y > 0.42 || ball.vy !== 0) {
+                ball.vy -= 21.0 * dt;
+                m.y += ball.vy * dt;
+                if (m.y <= 0.42) {
+                    m.y = 0.42;
+                    ball.vy = (Math.abs(ball.vy) > 1.8) ? -ball.vy * 0.45 : 0;
+                }
+            }
+            ball.vx *= Math.pow(0.32, dt);
+            ball.vz *= Math.pow(0.32, dt);
+            if (Math.abs(m.x) >= 32.5) {
+                m.x = Math.sign(m.x) * 32.42;
+                ball.vx = -ball.vx * 0.48;
+            }
+            if (Math.abs(m.z) >= 44.5) {
+                m.z = Math.sign(m.z) * 44.42;
+                ball.vz = -ball.vz * 0.48;
+            }
+            ball.mesh.rotation.z -= ball.vx * dt * 1.4;
+            ball.mesh.rotation.x += ball.vz * dt * 1.4;
+            ball.shadow.position.set(m.x, 0.025, m.z);
+        }
+
+        function handleBallOutOfPlay(bx, bz) {
+            const hw = PITCH_W / 2;
+            const hl = PITCH_L / 2;
+            const lastTeam = ball.lastTouchTeam || (Math.random() < 0.5 ? 'ARG' : 'ESP');
+            const restartTeam = (lastTeam === 'ARG') ? 'ESP' : 'ARG';
+
+            // The ball keeps its velocity and rolls out; the restart waits for it to stop
+            if (Math.abs(bx) > hw) {
+                startSetPiece('THROW_IN', restartTeam, Math.sign(bx) * hw, bz);
+                return;
+            }
+
+            const defendingTeam = (bz < 0) ? 'ESP' : 'ARG';
+            const exitZ = Math.sign(bz) * hl;
+            if (lastTeam === defendingTeam) {
+                startSetPiece('CORNER_KICK', restartTeam, bx, exitZ);
+            } else {
+                startSetPiece('GOAL_KICK', restartTeam, 0, exitZ);
+            }
+        }
+
+        // ----- Manual control of the tracked player -----
+        const CTRL_KEYS = {
+            KeyW: 'up', ArrowUp: 'up', KeyS: 'down', ArrowDown: 'down',
+            KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right',
+            ShiftLeft: 'sprint', ShiftRight: 'sprint'
+        };
+
+        // Keyboard plus joystick, as screen-relative x (right) and y (up), clamped to unit length
+        function getControlInput() {
+            let ix = (ctrl.keys.right ? 1 : 0) - (ctrl.keys.left ? 1 : 0) + ctrl.joy.x;
+            let iy = (ctrl.keys.up ? 1 : 0) - (ctrl.keys.down ? 1 : 0) + ctrl.joy.y;
+            const m = Math.hypot(ix, iy);
+            if (m > 1) { ix /= m; iy /= m; }
+            return { x: ix, y: iy, mag: Math.min(1, m) };
+        }
+
+        // Ball follows the controlled player's foot, like the AI dribble
+        function glideBallToFoot(p, dirX, dirZ, dt) {
+            const footX = p.x + dirX * 0.82, footZ = p.z + dirZ * 0.82;
+            ball.mesh.position.x += (footX - ball.mesh.position.x) * Math.min(1.0, 12.0 * dt);
+            ball.mesh.position.z += (footZ - ball.mesh.position.z) * Math.min(1.0, 12.0 * dt);
+            ball.mesh.position.y += (0.42 - ball.mesh.position.y) * Math.min(1.0, 12.0 * dt);
+            ball.vx = p.vx;
+            ball.vz = p.vz;
+            ball.vy = 0;
+        }
+
+        // Pass target: nearest teammate roughly in the direction the player is facing
+        function pickControlPassTarget(p) {
+            let best = null, bestScore = -Infinity;
+            players.forEach(m => {
+                if (m.team !== p.team || m === p || m.role === 'GK') return;
+                const vx = m.x - p.x, vz = m.z - p.z;
+                const dist = Math.hypot(vx, vz);
+                if (dist < 2 || dist > 45) return;
+                const cosA = (vx * ctrl.facing.x + vz * ctrl.facing.z) / dist;
+                if (cosA < 0.55) return;
+                const score = cosA * 10 - dist * 0.15;
+                if (score > bestScore) { bestScore = score; best = m; }
+            });
+            return best;
+        }
+
+        // Shared kick setup, reusing the AI kick animation and pendingKick launch
+        function startControlKick(p, kick, kickType, angle) {
+            p.kickDuration = kickType === 'shot' ? 0.62 : 0.56;
+            p.kickType = kickType;
+            p.kickTargetAngle = angle;
+            p.dribbleAngle = angle;
+            p.dribbleTimer = 0;
+            p.kickTimer = p.kickDuration;
+            p.pendingKick = kick;
+            ball.carrier = p;
+            ball.lastTouchTeam = p.team;
+            ball.lastTouchPlayer = p;
+            ball.cooldown = 1.0;
+            ctrl.carrying = false;
+        }
+
+        function updateControlledPlayer(p, dt) {
+            // Kick windup and follow-through keep momentum, as for AI kicks
+            if (p.kickTimer > 0) {
+                p.vx *= Math.max(0, 1 - 4.0 * dt);
+                p.vz *= Math.max(0, 1 - 4.0 * dt);
+                p.x += p.vx * dt;
+                p.z += p.vz * dt;
+                return;
+            }
+
+            // Screen-relative input to world XZ. The camera looks along -(sin yaw, cos yaw).
+            const inp = getControlInput();
+            const s = Math.sin(viewState.yaw), c = Math.cos(viewState.yaw);
+            const wx = inp.x * c - inp.y * s;
+            const wz = -inp.x * s - inp.y * c;
+
+            const sprint = ctrl.keys.sprint && inp.mag > 0.05;
+            const topSpd = p.speed * (sprint ? 1.35 : 1.0) * inp.mag;
+            const acc = Math.min(1.0, (inp.mag > 0.05 ? 10.0 : 8.0) * dt);
+            p.vx += (wx * topSpd - p.vx) * acc;
+            p.vz += (wz * topSpd - p.vz) * acc;
+            p.x = THREE.MathUtils.clamp(p.x + p.vx * dt, -PITCH_W / 2 + 0.8, PITCH_W / 2 - 0.8);
+            p.z = THREE.MathUtils.clamp(p.z + p.vz * dt, -PITCH_L / 2 + 0.8, PITCH_L / 2 - 0.8);
+
+            if (inp.mag > 0.2) {
+                const fl = Math.hypot(wx, wz) || 1;
+                ctrl.facing.x = wx / fl;
+                ctrl.facing.z = wz / fl;
+            }
+            p.root.rotation.y = Math.atan2(ctrl.facing.x, ctrl.facing.z);
+
+            // Ball possession and carry
+            const bx = ball.mesh.position.x, bz = ball.mesh.position.z;
+            const dBall = Math.hypot(bx - p.x, bz - p.z);
+            if (!ctrl.carrying && ball.cooldown <= 0 && dBall < 1.45 && ball.mesh.position.y < 1.8 && matchState.goalTimer <= 0) {
+                ctrl.carrying = true;
+                ball.carrier = p;
+                ball.lastTouchTeam = p.team;
+                ball.lastTouchPlayer = p;
+            }
+            if (ctrl.carrying && dBall > 2.5) {
+                ctrl.carrying = false;
+                if (ball.carrier === p) ball.carrier = null;
+            }
+            if (ctrl.carrying) {
+                // Long-ish cooldown keeps AI players from taking the ball off the controlled player
+                ball.cooldown = Math.max(ball.cooldown, 0.25);
+                glideBallToFoot(p, ctrl.facing.x, ctrl.facing.z, dt);
+            }
+
+            // Shoot or pass if the ball is in reach
+            const wantShot = ctrl.shootReq, wantPass = ctrl.passReq;
+            ctrl.shootReq = false;
+            ctrl.passReq = false;
+            if ((wantShot || wantPass) && dBall < 2.0 && ball.mesh.position.y < 1.8) {
+                if (wantShot) {
+                    const oppGoalZ = p.team === 'ARG' ? -PITCH_L / 2 : PITCH_L / 2;
+                    const dirX = ctrl.facing.x, dirZ = ctrl.facing.z;
+                    const toGoal = oppGoalZ - p.z;
+                    let aimX;
+                    if (Math.abs(dirZ) > 0.2 && toGoal / dirZ > 0) {
+                        aimX = p.x + dirX * (toGoal / dirZ);
+                    } else {
+                        aimX = p.x * 0.4 + (Math.random() - 0.5) * 2.4;
+                    }
+                    aimX = THREE.MathUtils.clamp(aimX, -7.5, 7.5);
+                    const sdx = aimX - p.x, sdz = oppGoalZ - p.z;
+                    const sl = Math.max(0.001, Math.hypot(sdx, sdz));
+                    startControlKick(p, {
+                        isShot: true,
+                        vx: (sdx / sl) * 31,
+                        vz: (sdz / sl) * 31,
+                        vy: 4.8 + Math.random() * 3.2,
+                        text: `#${p.num} ${p.shortName} (${p.team}) blasts a shot toward goal!`
+                    }, 'shot', Math.atan2(sdx, sdz));
+                } else {
+                    const target = pickControlPassTarget(p);
+                    if (target) {
+                        const pdx = target.x - p.x, pdz = target.z - p.z;
+                        const pl = Math.max(1, Math.hypot(pdx, pdz));
+                        const spd = Math.min(26, 13 + pl * 0.45);
+                        startControlKick(p, {
+                            isShot: false,
+                            vx: (pdx / pl) * spd,
+                            vz: (pdz / pl) * spd,
+                            vy: (pl > 18) ? 5.2 : 1.4,
+                            text: `#${p.num} ${p.shortName} passes to #${target.num} ${target.shortName}`
+                        }, 'pass', Math.atan2(pdx, pdz));
+                    } else {
+                        // No teammate in front: play the ball into space ahead
+                        const dX = ctrl.facing.x, dZ = ctrl.facing.z;
+                        startControlKick(p, {
+                            isShot: false,
+                            vx: dX * 16,
+                            vz: dZ * 16,
+                            vy: 1.2,
+                            text: `#${p.num} ${p.shortName} plays the ball into space`
+                        }, 'pass', Math.atan2(dX, dZ));
+                    }
+                }
+            }
+        }
+
+        function updateControlButton() {
+            const btn = document.getElementById('btn-control');
+            btn.textContent = ctrl.player ? `🎮 CONTROL: #${ctrl.player.num}` : '🎮 CONTROL: OFF';
+            btn.classList.toggle('active', !!ctrl.player);
+        }
+
+        function setControl(p) {
+            if (!p) {
+                if (ctrl.player) setTicker(`Released control of #${ctrl.player.num} ${ctrl.player.shortName}`);
+                if (ctrl.carrying && ball.carrier === ctrl.player) ball.carrier = null;
+                ctrl.player = null;
+            } else {
+                if (ctrl.carrying && ball.carrier === ctrl.player) ball.carrier = null;
+                ctrl.player = p;
+                ctrl.facing.x = Math.sin(p.root.rotation.y);
+                ctrl.facing.z = Math.cos(p.root.rotation.y);
+                p.dribbleTimer = 0;
+                if (ball.cooldown > 0 && Math.hypot(ball.mesh.position.x - p.x, ball.mesh.position.z - p.z) < 2.0) ball.cooldown = 0;
+                setTicker(`🎮 Controlling #${p.num} ${p.shortName}: WASD/arrows move, Shift sprint, Space shoot, E pass, Esc release`);
+            }
+            ctrl.carrying = false;
+            ctrl.keys = {};
+            ctrl.joy = { x: 0, y: 0 };
+            ctrl.shootReq = false;
+            ctrl.passReq = false;
+            document.getElementById('ctrl-pad').classList.toggle('hidden', !ctrl.player);
+            updateControlButton();
+        }
 
         function stepMatchSimulation(dt, time) {
             if (matchState.goalTimer > 0) matchState.goalTimer -= dt;
@@ -3899,45 +4182,52 @@
                 const taker = setPieceState.taker;
                 const type = setPieceState.type;
                 const team = setPieceState.team;
-                const hw = PITCH_W / 2;
                 const hl = PITCH_L / 2;
 
-                // Common physics: Ball continues moving/rolling until retrieved by taker
-                if (t >= 1.2 || Math.hypot(ball.vx, ball.vz) < 0.6) {
+                // Ball rolls out until it stops (or a safety timeout), then the taker retrieves it
+                if (!setPieceState.ballPositioned) {
+                    rollOutOfPlayBall(dt);
+                }
+                if (t >= 4.0 || (Math.hypot(ball.vx, ball.vz) < 0.6 && ball.mesh.position.y <= 0.43)) {
                     setPieceState.ballPositioned = true;
                 }
 
-                if (setPieceState.ballPositioned) {
-                    if (type === 'THROW_IN') {
-                        setPieceState.ballHeld = true;
-                        ball.vx = 0; ball.vy = 0; ball.vz = 0;
-                        if (taker) {
-                            ball.mesh.position.set(taker.x, 1.88, taker.z);
-                            ball.shadow.position.set(taker.x, 0.025, taker.z);
-                            taker.leftArm.rotation.x = -2.45 + Math.sin(t * 5.0) * 0.12;
-                            taker.rightArm.rotation.x = -2.45 + Math.sin(t * 5.0) * 0.12;
-                            taker.bodyPivot.rotation.x = 0.14;
-                            taker.root.rotation.y = (taker.x > 0) ? -Math.PI / 2 : Math.PI / 2;
-                        }
-                    } else {
-                        setPieceState.ballHeld = false;
-                        ball.vx = 0; ball.vy = 0; ball.vz = 0;
-                        ball.mesh.position.set(setPieceState.spotX, 0.42, setPieceState.spotZ);
-                        ball.shadow.position.set(setPieceState.spotX, 0.025, setPieceState.spotZ);
-                    }
+                if (setPieceState.ballPositioned && !setPieceState.ballHeld) {
+                    // Ball stays where it stopped until the taker fetches it
+                    ball.vx = 0; ball.vy = 0; ball.vz = 0;
+                    ball.mesh.position.y = 0.42;
+                    ball.shadow.position.set(ball.mesh.position.x, 0.025, ball.mesh.position.z);
                 }
 
                 players.forEach(p => {
                     if (p === taker) {
-                        const dx = setPieceState.spotX - p.x;
-                        const dz = setPieceState.spotZ - p.z;
+                        if (setPieceState.pickupTimer > 0) {
+                            // Reaching down to pick up the ball
+                            setPieceState.pickupTimer -= dt;
+                            p.vx = 0; p.vz = 0;
+                            return;
+                        }
+                        const bx = ball.mesh.position.x, bz = ball.mesh.position.z;
+                        const fetching = setPieceState.ballPositioned && !setPieceState.ballHeld && !setPieceState.ballPlaced;
+                        if (fetching && Math.hypot(bx - p.x, bz - p.z) <= 0.9) {
+                            setPieceState.ballHeld = true;
+                            setPieceState.pickupTimer = 0.45;
+                            p.vx = 0; p.vz = 0;
+                            return;
+                        }
+                        const toBall = !setPieceState.ballPositioned || fetching;
+                        const tx = toBall ? bx : setPieceState.spotX;
+                        const tz = toBall ? bz : setPieceState.spotZ;
+                        const dx = tx - p.x;
+                        const dz = tz - p.z;
                         const dist = Math.hypot(dx, dz);
                         if (dist > 0.35) {
                             const spd = p.speed * 1.1;
                             p.vx = (dx / dist) * spd;
                             p.vz = (dz / dist) * spd;
-                            p.x += p.vx * dt;
-                            p.z += p.vz * dt;
+                            const step = Math.min(dist, spd * dt);
+                            p.x += (dx / dist) * step;
+                            p.z += (dz / dist) * step;
                             p.root.rotation.y = Math.atan2(p.vx, p.vz);
                         } else {
                             p.vx = 0; p.vz = 0;
@@ -3953,30 +4243,9 @@
                         return;
                     }
 
-                    let tx = p.homeX;
-                    let tz = p.homeZ;
-
-                    if (type === 'CORNER_KICK') {
-                        const targetEndZ = (setPieceState.spotZ < 0) ? -hl : hl;
-                        const targetSign = (setPieceState.spotZ < 0) ? 1 : -1;
-                        if (p.role === 'FWD' || p.role === 'MID') {
-                            tx = p.homeX * 0.42;
-                            tz = targetEndZ + targetSign * (6.0 + (p.num % 5) * 2.2);
-                        } else if (p.role === 'DEF') {
-                            tx = p.homeX * 0.38;
-                            tz = targetEndZ + targetSign * (4.5 + (p.num % 4) * 2.0);
-                        }
-                    } else if (type === 'THROW_IN') {
-                        const sideSign = Math.sign(setPieceState.spotX);
-                        const distToSide = Math.abs(setPieceState.spotZ - p.homeZ);
-                        if (distToSide < 22) {
-                            tx = p.homeX * 0.5 + sideSign * 12.0;
-                            tz = THREE.MathUtils.clamp(p.homeZ * 0.6 + setPieceState.spotZ * 0.4, -hl + 3, hl - 3);
-                        }
-                    } else if (type === 'GOAL_KICK') {
-                        tx = p.homeX;
-                        tz = p.homeZ * 0.65;
-                    }
+                    // Everyone holds the formation they had when the ball went out, with a small drift
+                    const tx = p.setPieceAnchorX + p.setPieceDriftX;
+                    const tz = p.setPieceAnchorZ + p.setPieceDriftZ;
 
                     const dx = tx - p.x;
                     const dz = tz - p.z;
@@ -4011,7 +4280,66 @@
 
                 solveCharacterCollisions();
 
-                if (setPieceState.timer >= setPieceState.setupDuration) {
+                // Ball follows the taker's hands: carried in front, lifted overhead for a throw-in, or set down on the spot
+                const takerNearSpot = !!taker && Math.hypot(taker.x - setPieceState.spotX, taker.z - setPieceState.spotZ) <= 0.9;
+                if (setPieceState.ballHeld && taker) {
+                    const ballLerp = Math.min(1.0, 8.0 * dt);
+                    let hx, hy, hz;
+                    if (takerNearSpot && type === 'THROW_IN') {
+                        hx = taker.x; hy = 1.88; hz = taker.z;
+                    } else if (takerNearSpot) {
+                        hx = setPieceState.spotX; hy = 0.42; hz = setPieceState.spotZ;
+                    } else {
+                        const fx = Math.sin(taker.root.rotation.y), fz = Math.cos(taker.root.rotation.y);
+                        hx = taker.x + fx * 0.45; hy = 1.0; hz = taker.z + fz * 0.45;
+                    }
+                    ball.mesh.position.x += (hx - ball.mesh.position.x) * ballLerp;
+                    ball.mesh.position.y += (hy - ball.mesh.position.y) * ballLerp;
+                    ball.mesh.position.z += (hz - ball.mesh.position.z) * ballLerp;
+                    ball.shadow.position.set(ball.mesh.position.x, 0.025, ball.mesh.position.z);
+                    if (takerNearSpot && type !== 'THROW_IN' && ball.mesh.position.y < 0.5 &&
+                        Math.hypot(ball.mesh.position.x - hx, ball.mesh.position.z - hz) < 0.05) {
+                        setPieceState.ballHeld = false;
+                        setPieceState.ballPlaced = true;
+                    }
+                }
+
+                allChars.forEach(p => {
+                    p.root.position.set(p.x, 0, p.z);
+                    const speed = Math.hypot(p.vx, p.vz);
+                    const walkWeight = THREE.MathUtils.smoothstep(speed, 0.25, 3.2);
+                    const stride = time * 18.0 + (p.phase || 0);
+                    const takerReach = p === taker && (setPieceState.pickupTimer > 0 || (setPieceState.ballHeld && takerNearSpot && type !== 'THROW_IN'));
+                    if (takerReach) {
+                        p.leftArm.rotation.x = 1.1;
+                        p.rightArm.rotation.x = 1.1;
+                        p.leftLeg.rotation.x = 0;
+                        p.rightLeg.rotation.x = 0;
+                        p.bodyPivot.position.y = 0;
+                        p.bodyPivot.rotation.x = 0.7;
+                    } else if (p === taker && type === 'THROW_IN' && setPieceState.ballHeld && takerNearSpot) {
+                        p.leftArm.rotation.x = -2.45 + Math.sin(time * 4.0) * 0.1;
+                        p.rightArm.rotation.x = -2.45 + Math.sin(time * 4.0) * 0.1;
+                        p.leftLeg.rotation.x = 0;
+                        p.rightLeg.rotation.x = 0;
+                        p.bodyPivot.position.y = 0;
+                        p.bodyPivot.rotation.x = 0.14;
+                    } else {
+                        p.leftLeg.rotation.x = Math.sin(stride) * 0.75 * walkWeight;
+                        p.rightLeg.rotation.x = -Math.sin(stride) * 0.75 * walkWeight;
+                        p.leftArm.rotation.x = -Math.sin(stride) * 0.6 * walkWeight;
+                        p.rightArm.rotation.x = Math.sin(stride) * 0.6 * walkWeight;
+                        p.bodyPivot.position.y = Math.abs(Math.cos(stride)) * 0.18 * walkWeight;
+                        p.bodyPivot.rotation.x = 0;
+                    }
+                });
+
+                const takerAtSpot = taker &&
+                    Math.hypot(taker.x - setPieceState.spotX, taker.z - setPieceState.spotZ) <= 0.9;
+                const ballReady = type === 'THROW_IN'
+                    ? setPieceState.ballHeld && taker && Math.hypot(ball.mesh.position.x - taker.x, ball.mesh.position.z - taker.z) < 0.2
+                    : setPieceState.ballPlaced;
+                if (setPieceState.timer >= setPieceState.setupDuration && takerAtSpot && ballReady) {
                     executeSetPiece();
                 }
 
@@ -4106,43 +4434,20 @@
                 }
             }
 
-            // SOCCER RULES: GOAL & OUT-OF-BOUNDS DETECTION (No instant teleportation; common physics preserved)
-            if (Math.abs(bz) > hl) {
-                if (Math.abs(bx) < 4.8 && by < 3.4) {
-                    // GOAL! Ball entered between the goal posts under crossbar
-                    if (matchState.goalTimer <= 0 && matchState.phase === 'PLAYING') {
-                        celebrateGoal(bz < 0 ? 'ARG' : 'ESP', ball.lastTouchPlayer || ball.carrier);
-                    }
-                } else {
-                    // Ball exited across defending goal line outside of the goal mouth
-                    if (matchState.phase === 'PLAYING' && matchState.goalTimer <= 0 && ball.cooldown <= 0) {
-                        const cornerSignX = Math.sign(bx) || 1;
-                        if (bz < -hl) {
-                            // Crossed Spain's defending endline
-                            if (ball.lastTouchTeam === 'ARG') {
-                                startSetPiece('GOAL_KICK', 'ESP', 0, -34.5);
-                            } else {
-                                startSetPiece('CORNER_KICK', 'ARG', cornerSignX * (hw - 0.7), -hl + 0.7);
-                            }
-                        } else {
-                            // Crossed Argentina's defending endline
-                            if (ball.lastTouchTeam === 'ESP') {
-                                startSetPiece('GOAL_KICK', 'ARG', 0, 34.5);
-                            } else {
-                                startSetPiece('CORNER_KICK', 'ESP', cornerSignX * (hw - 0.7), hl - 0.7);
-                            }
-                        }
-                    }
-                }
-            } else if (Math.abs(bx) > hw) {
-                // Ball exited across touchline (sideline) -> THROW-IN
-                if (matchState.phase === 'PLAYING' && matchState.goalTimer <= 0 && ball.cooldown <= 0) {
-                    const awardTeam = (ball.lastTouchTeam === 'ARG') ? 'ESP' : 'ARG';
-                    const exitX = Math.sign(bx) * hw;
-                    const exitZ = THREE.MathUtils.clamp(bz, -hl + 2.5, hl - 2.5);
-                    startSetPiece('THROW_IN', awardTeam, exitX, exitZ);
+            const inGoalMouth = Math.abs(bz) > hl && Math.abs(bx) < 4.8 && by < 3.4;
+            if (inGoalMouth) {
+                if (matchState.goalTimer <= 0 && matchState.phase === 'PLAYING') {
+                    celebrateGoal(bz < 0 ? 'ARG' : 'ESP', ball.lastTouchPlayer || ball.carrier);
                 }
             }
+
+            // Out of play (not a goal): fires only on the frame the ball crosses from inside to outside,
+            // so a throw released from the touchline isn't flagged again
+            const inField = Math.abs(bx) <= hw && (Math.abs(bz) <= hl || inGoalMouth);
+            if (matchState.phase === 'PLAYING' && matchState.goalTimer <= 0 && ball.inField && !inField) {
+                handleBallOutOfPlay(bx, bz);
+            }
+            ball.inField = inField;
 
             // Ball bouncing off goal posts with metallic clang
             goalPostColliders.forEach(gp => {
@@ -4177,10 +4482,46 @@
                     return;
                 }
 
-                // If kicking or passing, pause in place at that spot!
+                // The tracked player under manual control skips the AI during live play
+                if (p === ctrl.player && matchState.phase === 'PLAYING') {
+                    updateControlledPlayer(p, dt);
+                    return;
+                }
+
+                // Dribble toward the chosen kick direction, carrying the ball just ahead of the foot before kicking
+                if (p.dribbleTimer > 0) {
+                    p.dribbleTimer -= dt;
+                    const dirX = Math.sin(p.dribbleAngle), dirZ = Math.cos(p.dribbleAngle);
+                    const dribSpd = p.speed * 0.8;
+                    p.vx += (dirX * dribSpd - p.vx) * Math.min(1.0, 8.0 * dt);
+                    p.vz += (dirZ * dribSpd - p.vz) * Math.min(1.0, 8.0 * dt);
+                    p.x += p.vx * dt;
+                    p.z += p.vz * dt;
+                    p.root.rotation.y = p.dribbleAngle;
+
+                    // Ball glides toward the foot point ahead of the player (smoothed, no snapping)
+                    const footX = p.x + dirX * 0.82;
+                    const footZ = p.z + dirZ * 0.82;
+                    ball.mesh.position.x += (footX - ball.mesh.position.x) * Math.min(1.0, 12.0 * dt);
+                    ball.mesh.position.z += (footZ - ball.mesh.position.z) * Math.min(1.0, 12.0 * dt);
+                    ball.mesh.position.y += (0.42 - ball.mesh.position.y) * Math.min(1.0, 12.0 * dt);
+                    ball.vx = p.vx;
+                    ball.vz = p.vz;
+                    ball.vy = 0;
+
+                    if (p.dribbleTimer <= 0) {
+                        p.dribbleTimer = 0;
+                        p.kickTimer = p.kickDuration;
+                    }
+                    return;
+                }
+
+                // Kicking or passing: keep moving on momentum while the kick animation plays out
                 if (p.kickTimer > 0) {
-                    p.vx = 0;
-                    p.vz = 0;
+                    p.vx *= Math.max(0, 1 - 4.0 * dt);
+                    p.vz *= Math.max(0, 1 - 4.0 * dt);
+                    p.x += p.vx * dt;
+                    p.z += p.vz * dt;
                     return;
                 }
 
@@ -4316,26 +4657,42 @@
 
                 // Interception / Kicking with foot strike animation and pause
                 if (Math.hypot(bx - p.x, bz - p.z) < 1.45 && ball.mesh.position.y < 1.8 && ball.cooldown <= 0 && matchState.goalTimer <= 0) {
-                    ball.cooldown = 0.35;
+                    // A defender touching a ball last played by the other team gets a chance to steal it; otherwise it squirts loose
+                    if (p.role === 'DEF' && ball.lastTouchTeam && ball.lastTouchTeam !== p.team && Math.random() >= 0.55) {
+                        const pushX = bx - p.x, pushZ = bz - p.z;
+                        const pushD = Math.max(0.001, Math.hypot(pushX, pushZ));
+                        const pushSpd = 4.5 + Math.random() * 2.5;
+                        ball.vx = (pushX / pushD) * pushSpd;
+                        ball.vz = (pushZ / pushD) * pushSpd;
+                        ball.vy = 0;
+                        ball.cooldown = 0.6;
+                        ball.carrier = null;
+                        setTicker(`#${p.num} ${p.shortName} (${p.team}) gets a touch but the ball squirts loose!`);
+                        return;
+                    }
+
+                    // Long cooldown blocks other players from taking the ball during the dribble and windup
+                    ball.cooldown = 1.3;
                     ball.carrier = p;
                     ball.lastTouchTeam = p.team;
                     ball.lastTouchPlayer = p;
 
                     const oppGoalZ = (p.team === 'ARG') ? -hl : hl;
                     const distGoal = Math.abs(oppGoalZ - p.z);
+                    const shotRange = p.role === 'FWD' ? 28 : 24;
+                    const shotChance = p.role === 'FWD' ? 0.75 : 0.65;
 
-                    if (distGoal < 24 && Math.random() < 0.65) {
+                    if (distGoal < shotRange && Math.random() < shotChance) {
                         const aimX = (Math.random() < 0.72) ? (Math.random() - 0.5) * 7.2 : (Math.random() - 0.5) * 15.0;
                         const sdx = aimX - p.x;
                         const sdz = oppGoalZ - p.z;
                         const sl = Math.hypot(sdx, sdz);
 
                         p.kickDuration = 0.62;
-                        p.kickTimer = 0.62;
                         p.kickType = 'shot';
                         p.kickTargetAngle = Math.atan2(sdx, sdz);
-                        p.root.rotation.y = p.kickTargetAngle;
-                        p.vx = 0; p.vz = 0; // Pause at the place!
+                        p.dribbleAngle = p.kickTargetAngle;
+                        p.dribbleTimer = 0.5;
 
                         p.pendingKick = {
                             isShot: true,
@@ -4347,16 +4704,24 @@
                     } else {
                         // Varied, realistic passing options (through balls, wide switches, combination passes)
                         const mates = players.filter(m => m.team === p.team && m !== p && m.role !== 'GK');
-                        let targetMate = null;
+                        // Depth relative to attack direction: >0 is forward, <0 is backward
+                        const attackDir = p.team === 'ARG' ? -1 : 1;
+                        const ahead = mates.filter(m => (m.z - p.z) * attackDir > 2);
+                        const level = mates.filter(m => Math.abs((m.z - p.z) * attackDir) <= 2);
+                        const behind = mates.filter(m => (m.z - p.z) * attackDir < -2);
+                        const wideLevel = level.filter(m => Math.sign(m.x) !== Math.sign(p.x) && Math.abs(m.x) > 9);
                         const roll = Math.random();
-                        if (roll < 0.45) {
-                            // Forward attacking pass to teammate in front
-                            const fwdMates = mates.filter(m => (p.team === 'ARG' ? m.z < p.z : m.z > p.z));
-                            if (fwdMates.length > 0) targetMate = fwdMates[Math.floor(Math.random() * fwdMates.length)];
-                        } else if (roll < 0.75) {
-                            // Wide switch to opposite flank winger/fullback
-                            const wideMates = mates.filter(m => Math.sign(m.x) !== Math.sign(p.x) && Math.abs(m.x) > 9);
-                            if (wideMates.length > 0) targetMate = wideMates[Math.floor(Math.random() * wideMates.length)];
+                        // Backward pool is only used when no forward or sideways option exists
+                        let pools;
+                        if (roll < 0.55) pools = [ahead, level, behind];
+                        else if (roll < 0.9) pools = [wideLevel, level, ahead, behind];
+                        else pools = [level, ahead, behind];
+                        let targetMate = null;
+                        for (const pool of pools) {
+                            if (pool.length > 0) {
+                                targetMate = pool[Math.floor(Math.random() * pool.length)];
+                                break;
+                            }
                         }
                         if (!targetMate) {
                             targetMate = mates[Math.floor(Math.random() * mates.length)];
@@ -4370,11 +4735,10 @@
                         const varZ = (Math.random() - 0.5) * 2.2;
 
                         p.kickDuration = 0.56;
-                        p.kickTimer = 0.56;
                         p.kickType = 'pass';
                         p.kickTargetAngle = Math.atan2(pdx, pdz);
-                        p.root.rotation.y = p.kickTargetAngle;
-                        p.vx = 0; p.vz = 0; // Pause at the place!
+                        p.dribbleAngle = p.kickTargetAngle;
+                        p.dribbleTimer = 0.5;
 
                         p.pendingKick = {
                             isShot: false,
@@ -4624,9 +4988,7 @@
                     const progress = THREE.MathUtils.clamp(1 - (p.kickTimer / dur), 0, 1);
                     const isShot = (p.kickType === 'shot');
 
-                    // Player pauses at the place while kicking: zero velocity and maintain position
-                    p.vx = 0;
-                    p.vz = 0;
+                    // Player keeps its momentum through the kick (no freeze in place)
                     p.root.position.set(p.x, 0, p.z);
                     if (p.kickTargetAngle !== undefined) {
                         p.root.rotation.y = p.kickTargetAngle;
@@ -4634,8 +4996,6 @@
 
                     // BALL IMPACT & LAUNCH: Ball launches when kicking foot contacts ball (progress >= 0.32)
                     if (progress >= 0.32 && p.pendingKick) {
-                        const kAngle = p.kickTargetAngle || p.root.rotation.y;
-                        ball.mesh.position.set(p.x + Math.sin(kAngle) * 0.82, 0.42, p.z + Math.cos(kAngle) * 0.82);
                         ball.vx = p.pendingKick.vx;
                         ball.vz = p.pendingKick.vz;
                         ball.vy = p.pendingKick.vy;
@@ -4906,6 +5266,46 @@
         const bottomBar = document.getElementById('bottom-hud-bar');
         const toggleIcon = document.getElementById('hud-toggle-icon');
         const toggleText = document.getElementById('hud-toggle-text');
+        if (bottomBar) {
+            let dragStartX = 0;
+            let dragStartScrollLeft = 0;
+            let isMouseDragging = false;
+            let didDrag = false;
+            let suppressClick = false;
+
+            bottomBar.addEventListener('mousedown', e => {
+                if (e.button !== 0 || bottomBar.scrollWidth <= bottomBar.clientWidth) return;
+                dragStartX = e.clientX;
+                dragStartScrollLeft = bottomBar.scrollLeft;
+                isMouseDragging = true;
+                didDrag = false;
+            });
+            window.addEventListener('mousemove', e => {
+                if (!isMouseDragging) return;
+                const deltaX = e.clientX - dragStartX;
+                if (Math.abs(deltaX) > 4) {
+                    didDrag = true;
+                    bottomBar.classList.add('dragging');
+                    e.preventDefault();
+                    bottomBar.scrollLeft = dragStartScrollLeft - deltaX;
+                }
+            });
+            window.addEventListener('mouseup', () => {
+                if (!isMouseDragging) return;
+                isMouseDragging = false;
+                bottomBar.classList.remove('dragging');
+                if (didDrag) {
+                    suppressClick = true;
+                    setTimeout(() => { suppressClick = false; }, 0);
+                }
+            });
+            bottomBar.addEventListener('click', e => {
+                if (!suppressClick) return;
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                suppressClick = false;
+            }, true);
+        }
         let hudCollapsed = false;
         if (toggleBtn && bottomBar) {
             toggleBtn.onclick = () => {
@@ -4915,25 +5315,6 @@
                 if (toggleText) toggleText.textContent = hudCollapsed ? 'CONTROLS' : 'HIDE';
             };
         }
-
-        document.getElementById('btn-atk-arg').onclick = () => triggerAttack('ARG');
-        document.getElementById('btn-atk-esp').onclick = () => triggerAttack('ESP');
-        const bGoalArg = document.getElementById('btn-goal-arg');
-        if (bGoalArg) bGoalArg.onclick = () => celebrateGoal('ARG');
-        const bGoalEsp = document.getElementById('btn-goal-esp');
-        if (bGoalEsp) bGoalEsp.onclick = () => celebrateGoal('ESP');
-
-        const bCorner = document.getElementById('btn-corner');
-        if (bCorner) bCorner.onclick = () => triggerSetPiece('CORNER_KICK', Math.random() < 0.5 ? 'ARG' : 'ESP');
-        const bThrow = document.getElementById('btn-throw');
-        if (bThrow) bThrow.onclick = () => triggerSetPiece('THROW_IN', Math.random() < 0.5 ? 'ARG' : 'ESP');
-        const bGoalKick = document.getElementById('btn-goalkick');
-        if (bGoalKick) bGoalKick.onclick = () => triggerSetPiece('GOAL_KICK', Math.random() < 0.5 ? 'ARG' : 'ESP');
-        document.getElementById('btn-wave').onclick = () => {
-            matchState.waveTimer = 4.5;
-            playCheerWaveSound();
-            setTicker('Stadium crowd cheering wave in full swing!');
-        };
 
         const drawer = document.getElementById('squad-drawer');
         document.getElementById('btn-squads').onclick = () => {
@@ -4963,15 +5344,6 @@
             document.getElementById('cam-ref').classList.remove('active');
         };
 
-        function setPixelMode(btnId, scale) {
-            ['px-125', 'px-100', 'px-165'].forEach(id => document.getElementById(id).classList.toggle('active', id === btnId));
-            viewState.pixelScale = scale;
-            updateCanvasSize();
-        }
-        document.getElementById('px-125').onclick = () => setPixelMode('px-125', 1.25);
-        document.getElementById('px-100').onclick = () => setPixelMode('px-100', 1.0);
-        document.getElementById('px-165').onclick = () => setPixelMode('px-165', 1.65);
-
         document.getElementById('btn-gi').onclick = (e) => {
             viewState.giEnabled = !viewState.giEnabled;
             giLights.forEach(l => { l.visible = viewState.giEnabled; });
@@ -4996,6 +5368,61 @@
             };
         }
 
+        document.getElementById('btn-control').onclick = (e) => {
+            e.currentTarget.blur();
+            if (ctrl.player) setControl(null);
+            else if (viewState.focusPlayer) setControl(viewState.focusPlayer);
+        };
+
+        window.addEventListener('keydown', e => {
+            if (!ctrl.player) return;
+            if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+            const key = CTRL_KEYS[e.code];
+            if (key) { ctrl.keys[key] = true; e.preventDefault(); return; }
+            if (e.code === 'Space') { if (!e.repeat) ctrl.shootReq = true; e.preventDefault(); }
+            else if (e.code === 'KeyE') { if (!e.repeat) ctrl.passReq = true; }
+            else if (e.code === 'Escape') setControl(null);
+        });
+        window.addEventListener('keyup', e => {
+            const key = CTRL_KEYS[e.code];
+            if (key) ctrl.keys[key] = false;
+        });
+        window.addEventListener('blur', () => { ctrl.keys = {}; });
+
+        // On-screen joystick (screen-relative; y is flipped so up = forward on screen)
+        const ctrlJoy = document.getElementById('ctrl-joy');
+        const ctrlStick = document.getElementById('ctrl-stick');
+        let ctrlJoyPointer = null;
+        function moveCtrlJoy(e) {
+            const r = ctrlJoy.getBoundingClientRect();
+            let dx = (e.clientX - (r.left + r.width / 2)) / (r.width / 2);
+            let dy = (e.clientY - (r.top + r.height / 2)) / (r.height / 2);
+            const m = Math.hypot(dx, dy);
+            if (m > 1) { dx /= m; dy /= m; }
+            const dead = Math.hypot(dx, dy) < 0.12;
+            ctrl.joy.x = dead ? 0 : dx;
+            ctrl.joy.y = dead ? 0 : -dy;
+            ctrlStick.style.transform = `translate(${dx * r.width * 0.35}px, ${dy * r.height * 0.35}px)`;
+        }
+        ctrlJoy.addEventListener('pointerdown', e => {
+            ctrlJoyPointer = e.pointerId;
+            ctrlJoy.setPointerCapture(e.pointerId);
+            moveCtrlJoy(e);
+            e.preventDefault();
+        });
+        ctrlJoy.addEventListener('pointermove', e => { if (e.pointerId === ctrlJoyPointer) moveCtrlJoy(e); });
+        const endCtrlJoy = e => {
+            if (e.pointerId !== ctrlJoyPointer) return;
+            ctrlJoyPointer = null;
+            ctrl.joy = { x: 0, y: 0 };
+            ctrlStick.style.transform = '';
+        };
+        ctrlJoy.addEventListener('pointerup', endCtrlJoy);
+        ctrlJoy.addEventListener('pointercancel', endCtrlJoy);
+
+        document.getElementById('ctrl-shoot').addEventListener('pointerdown', e => { ctrl.shootReq = true; e.preventDefault(); });
+        document.getElementById('ctrl-pass').addEventListener('pointerdown', e => { ctrl.passReq = true; e.preventDefault(); });
+
         // ============================================================================
         // 9. ANIMATION LOOP & LIVE TIME TICKING UP FROM 00:00
         // ============================================================================
@@ -5006,6 +5433,10 @@
             requestAnimationFrame(animate);
             const dt = Math.min(clock.getDelta(), 0.05);
             const elapsed = clock.getElapsedTime();
+
+            if (ctrl.player && viewState.focusPlayer && viewState.focusPlayer !== ctrl.player) setControl(viewState.focusPlayer);
+            if (ctrl.player && matchState.phase !== 'PLAYING') ctrl.carrying = false;
+            document.getElementById('btn-control').disabled = !ctrl.player && !viewState.focusPlayer;
 
             if (matchState.phase === 'PLAYING' || matchState.phase === 'SET_PIECE') {
                 matchState.seconds += dt;
