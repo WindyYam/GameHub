@@ -344,73 +344,104 @@
             const toPx = (x) => ((x - DECK_MIN_X) / (DECK_MAX_X - DECK_MIN_X)) * width;
             const toPy = (z) => (1.0 - (z - DECK_MIN_Z) / (DECK_MAX_Z - DECK_MIN_Z)) * height;
 
-            // 1. Authentic deep charcoal non-skid aggregate coat (MIL-PRF-24667)
-            ctx.fillStyle = '#22262e';
+            // 1. Sun-bleached light slate/concrete naval grey non-skid coat (#848e9a to #9aa4b0)
+            ctx.fillStyle = '#86909c';
             ctx.fillRect(0, 0, width, height);
 
             bCtx.fillStyle = '#808080';
             bCtx.fillRect(0, 0, width, height);
 
-            // Longitudinal roller application tooth texture
-            for (let x = 0; x < width; x += 18) {
-                ctx.fillStyle = (x % 36 === 0) ? 'rgba(255,255,255,0.018)' : 'rgba(0,0,0,0.024)';
-                ctx.fillRect(x, 0, 9, height);
-                bCtx.fillStyle = (x % 36 === 0) ? '#8a8a8a' : '#757575';
-                bCtx.fillRect(x, 0, 3, height);
-            }
-
-            // High-traffic taxiway non-skid tonal variation (subtle dark slate)
-            const trafficGrad = ctx.createRadialGradient(toPx(-5), toPy(15), 60, toPx(-2), toPy(0), 1100);
-            trafficGrad.addColorStop(0, 'rgba(46, 52, 62, 0.22)');
-            trafficGrad.addColorStop(0.65, 'rgba(38, 43, 52, 0.10)');
-            trafficGrad.addColorStop(1, 'rgba(30, 34, 41, 0.0)');
-            ctx.fillStyle = trafficGrad;
+            // Bright sun-faded chalking radial highlights across the flight deck
+            const sunFade1 = ctx.createRadialGradient(toPx(0), toPy(55), 50, toPx(0), toPy(40), 1250);
+            sunFade1.addColorStop(0.0, 'rgba(235, 241, 248, 0.34)');
+            sunFade1.addColorStop(0.5, 'rgba(218, 226, 236, 0.18)');
+            sunFade1.addColorStop(1.0, 'rgba(180, 190, 202, 0.0)');
+            ctx.fillStyle = sunFade1;
             ctx.fillRect(0, 0, width, height);
 
-            // Fine aggregate non-skid grain stipple (120,000 micro-particles)
-            for (let i = 0; i < 90000; i++) {
+            const sunFade2 = ctx.createRadialGradient(toPx(6), toPy(-65), 60, toPx(4), toPy(-50), 1100);
+            sunFade2.addColorStop(0.0, 'rgba(232, 238, 245, 0.28)');
+            sunFade2.addColorStop(0.6, 'rgba(210, 218, 228, 0.14)');
+            sunFade2.addColorStop(1.0, 'rgba(180, 190, 202, 0.0)');
+            ctx.fillStyle = sunFade2;
+            ctx.fillRect(0, 0, width, height);
+
+            // Longitudinal non-skid roller strips & bright aggregate streaks
+            for (let x = 0; x < width; x += 14) {
+                ctx.fillStyle = (x % 28 === 0) ? 'rgba(255,255,255,0.045)' : 'rgba(40,48,58,0.032)';
+                ctx.fillRect(x, 0, 7, height);
+                bCtx.fillStyle = (x % 28 === 0) ? '#8d8d8d' : '#747474';
+                bCtx.fillRect(x, 0, 4, height);
+            }
+
+            // Welded steel deck plating seam grid & expansion joints
+            ctx.lineWidth = 1.4;
+            for (let gx = -38; gx <= 42; gx += 3.5) {
+                const px = toPx(gx);
+                ctx.strokeStyle = 'rgba(62, 70, 82, 0.24)';
+                ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, height); ctx.stroke();
+                bCtx.strokeStyle = '#686868';
+                bCtx.beginPath(); bCtx.moveTo(px, 0); bCtx.lineTo(px, height); bCtx.stroke();
+            }
+            for (let gz = -150; gz <= 150; gz += 7.5) {
+                const py = toPy(gz);
+                const isExpansionJoint = Math.abs(gz % 30) < 1.0;
+                ctx.strokeStyle = isExpansionJoint ? 'rgba(40, 46, 56, 0.48)' : 'rgba(65, 74, 86, 0.20)';
+                ctx.lineWidth = isExpansionJoint ? 3.2 : 1.2;
+                ctx.beginPath(); ctx.moveTo(0, py); ctx.lineTo(width, py); ctx.stroke();
+
+                if (isExpansionJoint) {
+                    ctx.strokeStyle = 'rgba(230, 236, 244, 0.35)';
+                    ctx.lineWidth = 1.5;
+                    ctx.beginPath(); ctx.moveTo(0, py + 2.5); ctx.lineTo(width, py + 2.5); ctx.stroke();
+                }
+
+                bCtx.strokeStyle = isExpansionJoint ? '#424242' : '#6c6c6c';
+                bCtx.lineWidth = isExpansionJoint ? 3.0 : 1.2;
+                bCtx.beginPath(); bCtx.moveTo(0, py); bCtx.lineTo(width, py); bCtx.stroke();
+            }
+
+            // Fine aggregate non-skid grain stipple (bright chalky micro-particles)
+            for (let i = 0; i < 95000; i++) {
                 const rx = Math.random() * width;
                 const ry = Math.random() * height;
-                const isBright = Math.random() > 0.52;
-                ctx.fillStyle = isBright ? 'rgba(226,232,240,0.028)' : 'rgba(12,16,22,0.045)';
-                ctx.fillRect(rx, ry, 2 + Math.random() * 3, 2 + Math.random() * 6);
-                bCtx.fillStyle = isBright ? '#949494' : '#6a6a6a';
+                const isBright = Math.random() > 0.42;
+                ctx.fillStyle = isBright ? 'rgba(248,250,252,0.065)' : 'rgba(45,52,64,0.045)';
+                ctx.fillRect(rx, ry, 2 + Math.random() * 2.5, 2 + Math.random() * 5);
+                bCtx.fillStyle = isBright ? '#989898' : '#686868';
                 bCtx.fillRect(rx, ry, 2, 2);
             }
 
-            // 2. Realistic Cruciform Tie-Down Pad-Eyes (~20-ft grid across flight deck)
+            // 2. Cruciform Tie-Down Pad-Eyes (~20-ft grid across flight deck)
             function drawPadEye(px, py) {
-                // Color map: outer rim, inner socket, metallic cruciform star
                 ctx.save();
                 ctx.beginPath();
-                ctx.arc(px, py, 6.2, 0, Math.PI * 2);
-                ctx.fillStyle = '#1c2026';
+                ctx.arc(px, py, 5.8, 0, Math.PI * 2);
+                ctx.fillStyle = '#5c6672';
                 ctx.fill();
 
                 ctx.beginPath();
-                ctx.arc(px, py, 5.0, 0, Math.PI * 2);
-                ctx.strokeStyle = '#5a6472';
+                ctx.arc(px, py, 4.6, 0, Math.PI * 2);
+                ctx.strokeStyle = '#d8e0ea';
                 ctx.lineWidth = 1.2;
                 ctx.stroke();
 
                 ctx.beginPath();
-                ctx.arc(px, py, 3.8, 0, Math.PI * 2);
-                ctx.fillStyle = '#14171d';
+                ctx.arc(px, py, 3.4, 0, Math.PI * 2);
+                ctx.fillStyle = '#333a44';
                 ctx.fill();
 
-                // Cruciform star
-                ctx.fillStyle = '#8f9baa';
-                ctx.fillRect(px - 1.0, py - 3.8, 2.0, 7.6);
-                ctx.fillRect(px - 3.8, py - 1.0, 7.6, 2.0);
+                ctx.fillStyle = '#cbd5e1';
+                ctx.fillRect(px - 0.9, py - 3.4, 1.8, 6.8);
+                ctx.fillRect(px - 3.4, py - 0.9, 6.8, 1.8);
                 ctx.restore();
 
-                // Bump map: depression with raised center
                 bCtx.save();
                 bCtx.beginPath();
-                bCtx.arc(px, py, 6.0, 0, Math.PI * 2);
-                bCtx.fillStyle = '#545454';
+                bCtx.arc(px, py, 5.8, 0, Math.PI * 2);
+                bCtx.fillStyle = '#525252';
                 bCtx.fill();
-                bCtx.fillStyle = '#9e9e9e';
+                bCtx.fillStyle = '#a4a4a4';
                 bCtx.fillRect(px - 1.0, py - 3.0, 2.0, 6.0);
                 bCtx.fillRect(px - 3.0, py - 1.0, 6.0, 2.0);
                 bCtx.restore();
@@ -419,7 +450,6 @@
             for (let gz = -148; gz <= 148; gz += 4.2) {
                 const rowOffset = (Math.abs(Math.round(gz / 4.2)) % 2) * 2.1;
                 for (let gx = -35 + rowOffset; gx <= 39; gx += 4.2) {
-                    // Check if within deck perimeter
                     const px = toPx(gx);
                     const py = toPy(gz);
                     if (px > 70 && px < width - 70 && py > 65 && py < height - 65) {
@@ -428,7 +458,161 @@
                 }
             }
 
-            // 3. Angled Landing Runway with Heavy Rubber Skid Accumulation
+            // 2B. Dedicated Perimeter Aircraft Parking Stall Boxes, Wheel Chock T-Bars & Spot Stencils
+            function drawParkingStall(x, z, rotY, spotLabel, wM = 9.6, lM = 13.5) {
+                const px = toPx(x);
+                const py = toPy(z);
+                const pw = (wM / (DECK_MAX_X - DECK_MIN_X)) * width;
+                const pl = (lM / (DECK_MAX_Z - DECK_MIN_Z)) * height;
+
+                ctx.save();
+                ctx.translate(px, py);
+                ctx.rotate(-rotY);
+
+                // Slightly brighter concrete pad tint inside parking stall
+                ctx.fillStyle = 'rgba(241, 245, 249, 0.10)';
+                ctx.fillRect(-pw * 0.5, -pl * 0.5, pw, pl);
+
+                // Crisp yellow/white dashed stall boundary box
+                ctx.strokeStyle = '#facc15';
+                ctx.lineWidth = 4.0;
+                ctx.setLineDash([18, 12]);
+                ctx.strokeRect(-pw * 0.5, -pl * 0.5, pw, pl);
+                ctx.setLineDash([]);
+
+                // Corner L-brackets in bright white
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 5.0;
+                const cL = 22;
+                [[-1, -1], [1, -1], [1, 1], [-1, 1]].forEach(([sx, sy]) => {
+                    const cx = sx * pw * 0.5;
+                    const cy = sy * pl * 0.5;
+                    ctx.beginPath();
+                    ctx.moveTo(cx - sx * cL, cy);
+                    ctx.lineTo(cx, cy);
+                    ctx.lineTo(cx, cy - sy * cL);
+                    ctx.stroke();
+                });
+
+                // Nose wheel alignment T-bar & main gear chock boxes
+                ctx.strokeStyle = '#facc15';
+                ctx.lineWidth = 4.5;
+                ctx.beginPath();
+                ctx.moveTo(0, -pl * 0.36);
+                ctx.lineTo(0,  pl * 0.25);
+                ctx.moveTo(-24, -pl * 0.28);
+                ctx.lineTo( 24, -pl * 0.28);
+                ctx.stroke();
+
+                // Stenciled Spot Label
+                ctx.save();
+                ctx.translate(0, pl * 0.36);
+                ctx.font = '800 22px "JetBrains Mono", monospace';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillStyle = 'rgba(15, 23, 42, 0.65)';
+                ctx.fillRect(-52, -13, 104, 26);
+                ctx.fillStyle = '#f8fafc';
+                ctx.fillText(spotLabel, 0, 1);
+                ctx.restore();
+
+                ctx.restore();
+            }
+
+            // Starboard Forward Finger Parking Line (Spots 01–07)
+            const stbdFwdParking = [
+                { x: -15.2, z: 108, rot: 0.92 - Math.PI, lbl: 'SPOT 01' },
+                { x: -19.2, z:  91, rot: 0.95 - Math.PI, lbl: 'SPOT 02' },
+                { x: -23.2, z:  74, rot: 0.96 - Math.PI, lbl: 'SPOT 03' },
+                { x: -27.2, z:  56, rot: 0.98 - Math.PI, lbl: 'SPOT 04' },
+                { x: -30.5, z:  38, rot: 1.00 - Math.PI, lbl: 'SPOT 05' },
+                { x: -31.8, z:  19, rot: 1.02 - Math.PI, lbl: 'SPOT 06' },
+                { x: -31.8, z:   1, rot: 1.00 - Math.PI, lbl: 'SPOT 07' }
+            ];
+            stbdFwdParking.forEach(s => drawParkingStall(s.x, s.z, s.rot, s.lbl));
+
+            // Starboard Mid-Deck / Island Apron Parking Line (Spots 08–11 — clear of central taxi street)
+            const stbdMidParking = [
+                { x: -31.2, z: -15, rot: 0.98 - Math.PI, lbl: 'SPOT 08' },
+                { x: -31.2, z: -31, rot: 0.98 - Math.PI, lbl: 'SPOT 09' },
+                { x: -20.5, z: -44, rot: 0.85 - Math.PI, lbl: 'SPOT 10' },
+                { x: -20.5, z: -66, rot: 0.85 - Math.PI, lbl: 'SPOT 11' }
+            ];
+            stbdMidParking.forEach(s => drawParkingStall(s.x, s.z, s.rot, s.lbl));
+
+            // Starboard Aft Fantail Parking Line (Spots 12–15)
+            const stbdAftParking = [
+                { x: -28.5, z: -83,  rot: 0.95 - Math.PI, lbl: 'SPOT 12' },
+                { x: -28.0, z: -100, rot: 0.95 - Math.PI, lbl: 'SPOT 13' },
+                { x: -26.0, z: -117, rot: 1.02 - Math.PI, lbl: 'SPOT 14' },
+                { x: -22.5, z: -134, rot: 1.10 - Math.PI, lbl: 'SPOT 15' }
+            ];
+            stbdAftParking.forEach(s => drawParkingStall(s.x, s.z, s.rot, s.lbl));
+
+            // Port Aft & Hawkeye / Helicopter Perimeter Parking Apron (Spots 16–22)
+            const portAftParking = [
+                { x: 16.5, z: -104, rot: -0.52, lbl: 'AWACS 1', w: 12.5, l: 15.0 },
+                { x: 21.5, z: -124, rot: -0.58, lbl: 'AWACS 2', w: 12.5, l: 15.0 },
+                { x: 26.8, z: -76,  rot: -0.78, lbl: 'SPOT 16', w: 9.6,  l: 13.5 },
+                { x: 31.8, z: -56,  rot: -0.82, lbl: 'SPOT 17', w: 9.6,  l: 13.5 },
+                { x: -20.5, z: -82, rot:  0.15, lbl: 'HELO 01', w: 8.5,  l: 12.0 },
+                { x: -19.5, z: -98, rot:  0.15, lbl: 'HELO 02', w: 8.5,  l: 12.0 },
+                { x: -18.5, z: -114,rot:  0.15, lbl: 'HELO 03', w: 8.5,  l: 12.0 }
+            ];
+            portAftParking.forEach(s => drawParkingStall(s.x, s.z, s.rot, s.lbl, s.w, s.l));
+
+            // Deck-Edge Elevator Caution Hatching & Weapons Staging Checkered Boxes
+            function drawElevatorBoundary(x, z, wM, lM) {
+                const px = toPx(x);
+                const py = toPy(z);
+                const pw = (wM / (DECK_MAX_X - DECK_MIN_X)) * width;
+                const pl = (lM / (DECK_MAX_Z - DECK_MIN_Z)) * height;
+                ctx.save();
+                ctx.translate(px, py);
+                ctx.strokeStyle = '#eab308';
+                ctx.lineWidth = 8;
+                ctx.strokeRect(-pw * 0.5, -pl * 0.5, pw, pl);
+                ctx.strokeStyle = '#1e293b';
+                ctx.setLineDash([16, 16]);
+                ctx.strokeRect(-pw * 0.5, -pl * 0.5, pw, pl);
+                ctx.setLineDash([]);
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 3;
+                ctx.strokeRect(-pw * 0.5 - 8, -pl * 0.5 - 8, pw + 16, pl + 16);
+                ctx.restore();
+            }
+            drawElevatorBoundary(-36.2, 22, 5.2, 15.5);
+            drawElevatorBoundary(-36.2, -18, 5.2, 15.5);
+            drawElevatorBoundary(-33.2, -92, 5.2, 15.5);
+            drawElevatorBoundary(33.2, -65, 5.2, 15.5);
+
+            // Red/White Checkered Weapons Staging Area Forward of Island
+            ctx.save();
+            const wsX = toPx(-26.5), wsY = toPy(-39.5);
+            ctx.translate(wsX, wsY);
+            ctx.strokeStyle = '#dc2626';
+            ctx.lineWidth = 5;
+            ctx.strokeRect(-45, -35, 90, 70);
+            ctx.strokeStyle = '#ffffff';
+            ctx.setLineDash([12, 12]);
+            ctx.strokeRect(-45, -35, 90, 70);
+            ctx.restore();
+
+            // Central Taxiway Marshaling Line (Unobstructed Spine from Fantail to Bow Catapults)
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(toPx(-5.5), toPy(-78));
+            ctx.lineTo(toPx(-4.5), toPy(48));
+            ctx.lineTo(toPx(-7.5), toPy(56));
+            ctx.moveTo(toPx(-4.5), toPy(36));
+            ctx.lineTo(toPx( 8.5), toPy(48));
+            ctx.lineWidth = 6.5;
+            ctx.strokeStyle = '#facc15';
+            ctx.setLineDash([28, 18]);
+            ctx.stroke();
+            ctx.restore();
+
+            // 3. Angled Landing Runway with Localized Touchdown Skid Marks
             const rStartX = toPx(-4.5), rStartY = toPy(-152);
             const rEndX   = toPx(36.5),  rEndY   = toPy(42);
             const rAngle  = Math.atan2(rEndY - rStartY, rEndX - rStartX);
@@ -438,66 +622,66 @@
             ctx.translate(rStartX, rStartY);
             ctx.rotate(rAngle);
 
-            // Runway asphalt bed
+            // Subtle runway surface contrast so deck stays bright and white/grey
             const trapGrad = ctx.createLinearGradient(0, 0, rLen, 0);
-            trapGrad.addColorStop(0.0, 'rgba(26, 30, 36, 0.28)');
-            trapGrad.addColorStop(0.20, 'rgba(14, 17, 21, 0.65)'); // touchdown zone
-            trapGrad.addColorStop(0.55, 'rgba(20, 24, 29, 0.45)');
-            trapGrad.addColorStop(0.95, 'rgba(140, 150, 162, 0.08)');
+            trapGrad.addColorStop(0.0, 'rgba(70, 78, 90, 0.16)');
+            trapGrad.addColorStop(0.24, 'rgba(45, 52, 62, 0.34)'); // localized trap zone
+            trapGrad.addColorStop(0.55, 'rgba(65, 74, 86, 0.18)');
+            trapGrad.addColorStop(0.95, 'rgba(220, 228, 238, 0.08)');
             ctx.fillStyle = trapGrad;
             ctx.fillRect(0, -215, rLen, 430);
 
-            // Touchdown Zone Heavy Rubber Skid Burn Marks
-            for (let s = 0; s < 450; s++) {
-                const sProgress = 0.08 + Math.random() * 0.72;
+            // Localized Tire Skid Marks at Arresting Wire Touchdown Area
+            for (let s = 0; s < 260; s++) {
+                const sProgress = 0.12 + Math.random() * 0.55;
                 const sx = sProgress * rLen;
-                const sy = (Math.random() - 0.5) * 320 * (1.0 - Math.abs(sProgress - 0.3) * 0.85);
-                const sLen = 80 + Math.random() * 320;
-                const sThick = 2.5 + Math.random() * 6.5;
+                const sy = (Math.random() - 0.5) * 280 * (1.0 - Math.abs(sProgress - 0.30) * 0.9);
+                const sLen = 65 + Math.random() * 240;
+                const sThick = 2.0 + Math.random() * 4.5;
 
-                ctx.fillStyle = (s % 5 === 0) ? 'rgba(226,232,240,0.06)' : 'rgba(8,10,14,0.22)';
+                ctx.fillStyle = (s % 4 === 0) ? 'rgba(248,250,252,0.12)' : 'rgba(22,27,36,0.16)';
                 ctx.fillRect(sx, sy, sLen, sThick);
 
                 bCtx.save();
                 bCtx.translate(rStartX, rStartY);
                 bCtx.rotate(rAngle);
-                bCtx.fillStyle = '#5c5c5c';
+                bCtx.fillStyle = '#626262';
                 bCtx.fillRect(sx, sy, sLen, sThick);
                 bCtx.restore();
             }
 
-            // Boundary tramlines
-            ctx.fillStyle = '#f8fafc';
-            ctx.fillRect(0, -222, rLen, 16);
-            ctx.fillRect(0, -196, rLen, 12);
-            ctx.fillStyle = '#eab308';
-            ctx.fillRect(0, -178, rLen, 7);
+            // Crisp bright white & yellow boundary tramlines
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, -224, rLen, 20);
+            ctx.fillRect(0, -196, rLen, 13);
+            ctx.fillStyle = '#facc15';
+            ctx.fillRect(0, -176, rLen, 8);
 
-            ctx.fillStyle = '#f8fafc';
-            ctx.fillRect(0, 204, rLen, 16);
-            ctx.fillRect(0, 182, rLen, 10);
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 204, rLen, 20);
+            ctx.fillRect(0, 180, rLen, 12);
 
-            // Runway threshold chevrons
+            // Runway threshold piano-key chevrons
             for (let t = -180; t <= 165; t += 32) {
-                ctx.fillStyle = '#f8fafc';
-                ctx.fillRect(14, t, 58, 14);
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(14, t, 64, 16);
             }
 
-            // High-visibility dashed centerline (white & yellow alternating)
+            // High-visibility dashed centerline (pure white & yellow alternating)
             for (let d = 85; d < rLen - 40; d += 110) {
-                ctx.fillStyle = '#f8fafc';
-                ctx.fillRect(d, -9, 66, 18);
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(d, -10, 68, 20);
                 ctx.fillStyle = '#facc15';
-                ctx.fillRect(d + 66, -5, 24, 10);
+                ctx.fillRect(d + 68, -6, 26, 12);
             }
 
-            // 4 Arresting Gear wire markings & guide tramlines
+            // 4 Arresting Gear wire cross-deck markings
             for (let w = 0; w < 4; w++) {
                 const wx = 240 + w * 125;
-                ctx.fillStyle = '#eab308';
-                ctx.fillRect(wx - 2, -185, 12, 370);
+                ctx.fillStyle = '#facc15';
+                ctx.fillRect(wx - 3, -188, 14, 376);
                 ctx.fillStyle = '#1e242c';
-                ctx.fillRect(wx + 2, -180, 4, 360);
+                ctx.fillRect(wx + 2, -184, 4, 368);
             }
             ctx.restore();
 
@@ -506,11 +690,11 @@
             ctx.beginPath();
             ctx.moveTo(toPx(-14.0), toPy(-150));
             ctx.lineTo(toPx(16.0),  toPy(48));
-            ctx.lineWidth = 16;
+            ctx.lineWidth = 18;
             ctx.strokeStyle = '#dc2626';
             ctx.stroke();
             ctx.setLineDash([36, 36]);
-            ctx.strokeStyle = '#f8fafc';
+            ctx.strokeStyle = '#ffffff';
             ctx.stroke();
             ctx.restore();
 
@@ -520,26 +704,26 @@
                 const p2x = toPx(x2), p2y = toPy(z2);
                 ctx.save();
 
-                // Track trough shadow
+                // Bright concrete trough border
                 ctx.beginPath();
                 ctx.moveTo(p1x, p1y); ctx.lineTo(p2x, p2y);
-                ctx.lineWidth = 58;
-                ctx.strokeStyle = 'rgba(165, 175, 188, 0.12)';
+                ctx.lineWidth = 60;
+                ctx.strokeStyle = 'rgba(241, 245, 249, 0.24)';
                 ctx.stroke();
 
                 // Outer boundary stripes
                 ctx.beginPath();
                 ctx.moveTo(p1x - 22, p1y); ctx.lineTo(p2x - 22, p2y);
                 ctx.moveTo(p1x + 22, p1y); ctx.lineTo(p2x + 22, p2y);
-                ctx.lineWidth = 6;
-                ctx.strokeStyle = '#f8fafc';
+                ctx.lineWidth = 7;
+                ctx.strokeStyle = '#ffffff';
                 ctx.stroke();
 
                 // Inner yellow hazard dashes
                 ctx.beginPath();
                 ctx.moveTo(p1x - 14, p1y); ctx.lineTo(p2x - 14, p2y);
                 ctx.moveTo(p1x + 14, p1y); ctx.lineTo(p2x + 14, p2y);
-                ctx.lineWidth = 5;
+                ctx.lineWidth = 5.5;
                 ctx.setLineDash([26, 18]);
                 ctx.strokeStyle = '#facc15';
                 ctx.stroke();
@@ -549,23 +733,23 @@
                 ctx.beginPath();
                 ctx.moveTo(p1x, p1y); ctx.lineTo(p2x, p2y);
                 ctx.lineWidth = 14;
-                ctx.strokeStyle = '#181e25';
+                ctx.strokeStyle = '#2d3540';
                 ctx.stroke();
 
                 ctx.beginPath();
                 ctx.moveTo(p1x, p1y); ctx.lineTo(p2x, p2y);
-                ctx.lineWidth = 4.0;
-                ctx.strokeStyle = '#94a3b8';
+                ctx.lineWidth = 4.5;
+                ctx.strokeStyle = '#cbd5e1';
                 ctx.stroke();
 
                 // Shuttle stop chevrons
                 const ang = Math.atan2(p2y - p1y, p2x - p1x);
                 ctx.translate(p2x, p2y);
                 ctx.rotate(ang);
-                ctx.fillStyle = '#f8fafc';
+                ctx.fillStyle = '#ffffff';
                 for (let h = -180; h <= -10; h += 24) {
-                    ctx.fillRect(h, -28, 10, 8);
-                    ctx.fillRect(h,  20, 10, 8);
+                    ctx.fillRect(h, -28, 11, 8);
+                    ctx.fillRect(h,  20, 11, 8);
                 }
                 ctx.restore();
 
@@ -579,7 +763,7 @@
                 bCtx.beginPath();
                 bCtx.moveTo(p1x, p1y); bCtx.lineTo(p2x, p2y);
                 bCtx.lineWidth = 4;
-                bCtx.strokeStyle = '#b0b0b0';
+                bCtx.strokeStyle = '#b8b8b8';
                 bCtx.stroke();
                 bCtx.restore();
             }
@@ -589,38 +773,34 @@
             drawCatapultTrack(16.0, -55, 25.5, 42); // Cat 3
             drawCatapultTrack(26.5, -65, 36.5, 28); // Cat 4
 
-            // 5. Bow "78" Hull Number matching reference photo:
-            // Tall longitudinal orientation, clean white US Navy stencil with feet pointing to bow tip
+            // 5. Bow "78" Hull Number
             function drawBowHullNumber(x, z) {
                 ctx.save();
                 ctx.translate(toPx(x), toPy(z));
-                // Scale Y by -1.65 so top points aft (stern) and feet point forward (bow)
                 ctx.scale(0.85, -1.65);
                 ctx.font = '800 220px "JetBrains Mono", "Inter", sans-serif';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
 
-                // Subtle dark drop border
-                ctx.lineWidth = 6;
-                ctx.strokeStyle = '#181e26';
+                ctx.lineWidth = 7;
+                ctx.strokeStyle = '#334155';
                 ctx.strokeText('78', 0, 0);
 
-                // Clean white fill
-                ctx.fillStyle = '#e8eff7';
+                ctx.fillStyle = '#ffffff';
                 ctx.fillText('78', 0, 0);
                 ctx.restore();
             }
             drawBowHullNumber(0.5, 134.5);
 
-            // Clean runway touchdown zone at stern without arcade numbers
-
-            // Bow rim yellow caution line
+            // Bow & Stern rim yellow/white safety perimeter lines
             ctx.save();
-            ctx.strokeStyle = '#eab308';
-            ctx.lineWidth = 10;
+            ctx.strokeStyle = '#facc15';
+            ctx.lineWidth = 11;
             ctx.beginPath();
             ctx.moveTo(toPx(-17.5), toPy(152.5));
             ctx.lineTo(toPx( 17.5), toPy(152.5));
+            ctx.moveTo(toPx(-22.5), toPy(-151.0));
+            ctx.lineTo(toPx( 26.5), toPy(-151.0));
             ctx.stroke();
             ctx.restore();
 
@@ -637,32 +817,123 @@
             return { colorTex, bumpTex };
         }
 
+        function createNavalSteelHullTexture() {
+            const cCanvas = document.createElement('canvas');
+            cCanvas.width = 1024;
+            cCanvas.height = 512;
+            const ctx = cCanvas.getContext('2d');
+
+            const bCanvas = document.createElement('canvas');
+            bCanvas.width = 1024;
+            bCanvas.height = 512;
+            const bCtx = bCanvas.getContext('2d');
+
+            // Light Haze Grey base coat (USN Federal Standard 595B #26270 / lightened maritime finish)
+            ctx.fillStyle = '#9aa6b6';
+            ctx.fillRect(0, 0, 1024, 512);
+
+            bCtx.fillStyle = '#808080';
+            bCtx.fillRect(0, 0, 1024, 512);
+
+            // Horizontal welded hull strake plating seams
+            for (let y = 0; y < 512; y += 32) {
+                ctx.fillStyle = (y % 64 === 0) ? 'rgba(255,255,255,0.06)' : 'rgba(15,23,42,0.05)';
+                ctx.fillRect(0, y, 1024, 16);
+
+                ctx.strokeStyle = 'rgba(30, 41, 59, 0.35)';
+                ctx.lineWidth = 1.5;
+                ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(1024, y); ctx.stroke();
+
+                bCtx.strokeStyle = '#5c5c5c';
+                bCtx.lineWidth = 2.0;
+                bCtx.beginPath(); bCtx.moveTo(0, y); bCtx.lineTo(1024, y); bCtx.stroke();
+
+                // Staggered vertical weld seams & subtle oil-canning relief
+                const offset = (y / 32) % 2 === 0 ? 0 : 32;
+                for (let x = offset; x < 1024; x += 64) {
+                    ctx.strokeStyle = 'rgba(30, 41, 59, 0.26)';
+                    ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y + 32); ctx.stroke();
+
+                    bCtx.strokeStyle = '#626262';
+                    bCtx.beginPath(); bCtx.moveTo(x, y); bCtx.lineTo(x, y + 32); bCtx.stroke();
+
+                    // Subtle plate center pillow highlight
+                    ctx.fillStyle = 'rgba(248, 250, 252, 0.04)';
+                    ctx.fillRect(x + 6, y + 4, 52, 24);
+                    bCtx.fillStyle = '#8c8c8c';
+                    bCtx.fillRect(x + 6, y + 4, 52, 24);
+                }
+            }
+
+            // Vertical salt-spray and scupper weathering streaks
+            for (let i = 0; i < 180; i++) {
+                const sx = Math.random() * 1024;
+                const sy = Math.random() * 380;
+                const sh = 40 + Math.random() * 130;
+                const grad = ctx.createLinearGradient(sx, sy, sx, sy + sh);
+                const isSalt = Math.random() > 0.45;
+                grad.addColorStop(0, isSalt ? 'rgba(241,245,249,0.12)' : 'rgba(51,65,85,0.14)');
+                grad.addColorStop(1, 'rgba(148,163,184,0.0)');
+                ctx.fillStyle = grad;
+                ctx.fillRect(sx, sy, 2 + Math.random() * 4, sh);
+            }
+
+            // Drainage scuppers & maintenance hatches along upper gallery strake
+            for (let x = 24; x < 1024; x += 48) {
+                ctx.fillStyle = '#334155';
+                ctx.fillRect(x, 82, 8, 5);
+                ctx.fillRect(x + 20, 146, 6, 6);
+                bCtx.fillStyle = '#383838';
+                bCtx.fillRect(x, 82, 8, 5);
+            }
+
+            const maxAniso = renderer.capabilities.getMaxAnisotropy();
+            const colorTex = new THREE.CanvasTexture(cCanvas);
+            colorTex.wrapS = THREE.RepeatWrapping;
+            colorTex.wrapT = THREE.RepeatWrapping;
+            colorTex.repeat.set(4, 2);
+            colorTex.anisotropy = maxAniso;
+            colorTex.colorSpace = THREE.SRGBColorSpace;
+
+            const bumpTex = new THREE.CanvasTexture(bCanvas);
+            bumpTex.wrapS = THREE.RepeatWrapping;
+            bumpTex.wrapT = THREE.RepeatWrapping;
+            bumpTex.repeat.set(4, 2);
+            bumpTex.anisotropy = maxAniso;
+
+            return { colorTex, bumpTex };
+        }
+
         function createIslandNumberTexture() {
             const canvas = document.createElement('canvas');
             canvas.width = 512;
             canvas.height = 512;
             const ctx = canvas.getContext('2d');
 
-            ctx.fillStyle = '#838e9e';
+            ctx.fillStyle = '#9aa6b6';
             ctx.fillRect(0, 0, 512, 512);
 
-            ctx.strokeStyle = 'rgba(26, 36, 50, 0.25)';
-            ctx.lineWidth = 3;
-            for (let y = 32; y < 512; y += 48) {
+            // Plated steel seams on island wall
+            ctx.strokeStyle = 'rgba(30, 41, 59, 0.28)';
+            ctx.lineWidth = 2.5;
+            for (let y = 24; y < 512; y += 36) {
                 ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(512, y); ctx.stroke();
             }
+            for (let x = 32; x < 512; x += 64) {
+                ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 512); ctx.stroke();
+            }
 
-            ctx.font = '900 290px "Inter", sans-serif';
+            ctx.font = '900 280px "Inter", sans-serif';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
 
-            // Shadow
+            // Crisp dark drop shadow
             ctx.fillStyle = '#0f172a';
-            ctx.fillText('78', 266, 280);
+            ctx.fillText('78', 266, 278);
 
-            // White stencil
+            // Pure white stencil
             ctx.fillStyle = '#ffffff';
-            ctx.fillText('78', 256, 270);
+            ctx.fillText('78', 256, 268);
 
             const tex = new THREE.CanvasTexture(canvas);
             tex.anisotropy = 8;
@@ -696,17 +967,20 @@
         // ============================================================================
         // 4. OCEAN & HYDRODYNAMIC WAKE (TRACE) SHADER
         // ============================================================================
-        // Realistic open ocean optics: Gerstner physical wave synthesis, deep absorption,
-        // SSS aeration glow, sharp sun glint, and multi-component carrier wake
+        // Physically-based maritime water synthesis:
+        // - Non-periodic 10-octave directional Gerstner spectrum with organic curved wavefronts
+        // - Analytical vertex normal & Jacobian crest-pinch calculation
+        // - Rotated-octave Simplex/Value FBM + Cellular Voronoise micro-facet slope perturbation
+        // - Schlick Fresnel, anisotropic turquoise subsurface scattering, whitecaps, and Kelvin wake
         const oceanUniforms = {
             uTime: { value: 0 },
-            uSunDir: { value: new THREE.Vector3(-0.55, 0.78, 0.35).normalize() },
+            uSunDir: { value: new THREE.Vector3(150, 280, -85).normalize() },
             uSunColor: { value: new THREE.Color(0xfffef2) },
-            uDeepColor: { value: new THREE.Color(0x06182c) },      // Deep Atlantic dark indigo
-            uMidColor: { value: new THREE.Color(0x0d2844) },       // Swell body oceanic blue
-            uSkyColor: { value: new THREE.Color(0x3d6b94) },       // Maritime sky reflection
-            uWakeTurquoise: { value: new THREE.Color(0x138e88) },  // Subsurface aeration turquoise
-            uFoamWhite: { value: new THREE.Color(0xd6e5f0) }       // Aerated pure white froth
+            uDeepColor: { value: new THREE.Color(0x041325) },      // Deep abyssal Atlantic indigo-navy
+            uMidColor: { value: new THREE.Color(0x0b2d4d) },       // Pelagic open-ocean blue-teal slope
+            uSkyColor: { value: new THREE.Color(0x4679a3) },       // Maritime sky dome reflection
+            uWakeTurquoise: { value: new THREE.Color(0x138e88) },  // Subsurface scattering & aerated turquoise
+            uFoamWhite: { value: new THREE.Color(0xdcebf5) }       // Natural sunlit sea froth
         };
 
         const oceanMaterial = new THREE.ShaderMaterial({
@@ -716,25 +990,56 @@
                 varying vec3 vWorldPos;
                 varying vec3 vNormal;
                 varying float vWaveHeight;
-                varying float vChop;
+                varying float vCrestFactor;
 
-                void addGerstnerWave(
-                    vec2 dir, float steepness, float wavelength, float speed,
-                    vec2 pos, float time,
-                    inout vec3 p, inout vec3 n
+                // Non-periodic 2D hash & smooth noise for spatial phase/domain warping
+                float vHash(vec2 p) {
+                    p = fract(p * vec2(123.34, 456.21));
+                    p += dot(p, p + 45.32);
+                    return fract(p.x * p.y);
+                }
+
+                float vNoise(vec2 p) {
+                    vec2 i = floor(p);
+                    vec2 f = fract(p);
+                    vec2 u = f * f * (3.0 - 2.0 * f);
+                    return mix(
+                        mix(vHash(i), vHash(i + vec2(1.0, 0.0)), u.x),
+                        mix(vHash(i + vec2(0.0, 1.0)), vHash(i + vec2(1.0, 1.0)), u.x),
+                        u.y
+                    );
+                }
+
+                // Directional Gerstner wave with curved wavefront modulation & analytical Jacobian
+                void addCurvedGerstnerWave(
+                    vec2 dir, float steepness, float wavelength, float speedScale,
+                    vec2 warpedXZ, float phaseJitter, float time,
+                    inout vec3 disp, inout vec3 tangent, inout vec3 binormal, inout float jacobian
                 ) {
-                    float k = 6.2831853 / wavelength;
-                    float c = sqrt(9.81 / k) * speed;
-                    float f = k * (dot(dir, pos) - c * time);
+                    float k = 6.28318530718 / wavelength;
+                    float c = sqrt(9.81 / k) * speedScale;
+                    float theta = k * (dot(dir, warpedXZ) - c * time) + phaseJitter;
                     float a = steepness / k;
 
-                    p.x += dir.x * (a * cos(f));
-                    p.y += a * sin(f);
-                    p.z += dir.y * (a * cos(f));
+                    float s = sin(theta);
+                    float cs = cos(theta);
 
-                    n.x -= dir.x * (steepness * sin(f));
-                    n.y -= steepness * cos(f);
-                    n.z -= dir.y * (steepness * sin(f));
+                    disp.x += dir.x * (a * cs);
+                    disp.y += a * s;
+                    disp.z += dir.y * (a * cs);
+
+                    // Partial derivatives for exact geometric normal and crest compression
+                    float wa = k * a; // equals steepness
+                    tangent.x  -= dir.x * dir.x * wa * s;
+                    tangent.y  += dir.x * wa * cs;
+                    tangent.z  -= dir.x * dir.y * wa * s;
+
+                    binormal.x -= dir.x * dir.y * wa * s;
+                    binormal.y += dir.y * wa * cs;
+                    binormal.z -= dir.y * dir.y * wa * s;
+
+                    // Track horizontal crest convergence (pinch)
+                    jacobian -= wa * s;
                 }
 
                 void main() {
@@ -742,27 +1047,60 @@
                     vec2 posXZ = wp.xz;
                     float t = uTime;
 
-                    vec3 wavePos = vec3(0.0);
-                    vec3 waveNorm = vec3(0.0, 1.0, 0.0);
+                    // Low-frequency spatial domain warp bends wavefronts organically so they never form
+                    // straight parallel lines or repetitive diagonal grids across the orthographic camera
+                    vec2 warp1 = vec2(
+                        vNoise(posXZ * 0.0042 + vec2(t * 0.015, -t * 0.012)),
+                        vNoise(posXZ * 0.0042 + vec2(19.3, 47.1) - t * 0.014)
+                    ) - 0.5;
+                    vec2 warp2 = vec2(
+                        vNoise(posXZ * 0.0135 - vec2(t * 0.03, t * 0.02)),
+                        vNoise(posXZ * 0.0135 + vec2(73.7, 11.9) + t * 0.025)
+                    ) - 0.5;
 
-                    // 5 Layered Gerstner wave octaves: Broad oceanic swells + wind chop + cross-seas
-                    addGerstnerWave(vec2(0.55, 0.83), 0.22, 145.0, 1.25, posXZ, t, wavePos, waveNorm);
-                    addGerstnerWave(vec2(-0.62, 0.78), 0.16, 68.0, 1.65, posXZ, t, wavePos, waveNorm);
-                    addGerstnerWave(vec2(0.82, 0.45), 0.11, 32.0, 2.20, posXZ, t, wavePos, waveNorm);
-                    addGerstnerWave(vec2(-0.35, 0.94), 0.07, 16.0, 2.85, posXZ, t, wavePos, waveNorm);
-                    addGerstnerWave(vec2(0.92, -0.38), 0.04, 8.5, 3.40, posXZ, t, wavePos, waveNorm);
+                    vec2 swellXZ = posXZ + warp1 * 34.0 + warp2 * 9.5;
+                    vec2 chopXZ  = posXZ + warp1 * 16.0 + warp2 * 11.0;
+                    float phaseMod = (warp1.x + warp2.y) * 2.4;
 
-                    // Smoothly damp vertical displacement under the carrier hull so the ship doesn't clip
+                    vec3 disp = vec3(0.0);
+                    vec3 tangent = vec3(1.0, 0.0, 0.0);
+                    vec3 binormal = vec3(0.0, 0.0, 1.0);
+                    float jacobian = 1.0;
+
+                    // 10-Octave Non-Periodic Directional Wave Spectrum:
+                    // Irrational wavelength ratios & golden-angle directional spreading prevent periodicity
+                    // 1-3: Primary & secondary open-ocean swells
+                    addCurvedGerstnerWave(normalize(vec2( 0.48,  0.87)), 0.145, 193.0, 1.15, swellXZ, phaseMod * 0.6,  t, disp, tangent, binormal, jacobian);
+                    addCurvedGerstnerWave(normalize(vec2(-0.57,  0.82)), 0.125, 131.0, 1.25, swellXZ, phaseMod * 0.8 + 1.7, t, disp, tangent, binormal, jacobian);
+                    addCurvedGerstnerWave(normalize(vec2( 0.79,  0.61)), 0.105,  89.0, 1.38, swellXZ, phaseMod * 1.1 + 3.1, t, disp, tangent, binormal, jacobian);
+
+                    // 4-7: Intermediate wind-driven gravity waves (broad directional spread)
+                    addCurvedGerstnerWave(normalize(vec2(-0.26,  0.96)), 0.095,  61.0, 1.52, chopXZ,  phaseMod * 1.3 + 0.9, t, disp, tangent, binormal, jacobian);
+                    addCurvedGerstnerWave(normalize(vec2( 0.91, -0.41)), 0.082,  43.0, 1.68, chopXZ,  phaseMod * 1.5 + 4.2, t, disp, tangent, binormal, jacobian);
+                    addCurvedGerstnerWave(normalize(vec2(-0.76,  0.65)), 0.074,  29.3, 1.85, chopXZ,  phaseMod * 1.7 + 2.3, t, disp, tangent, binormal, jacobian);
+                    addCurvedGerstnerWave(normalize(vec2( 0.19,  0.98)), 0.065,  19.7, 2.05, chopXZ,  phaseMod * 1.9 + 5.4, t, disp, tangent, binormal, jacobian);
+
+                    // 8-10: Short cross-wind chop & steep wavelets
+                    addCurvedGerstnerWave(normalize(vec2(-0.88, -0.47)), 0.055,  13.4, 2.30, chopXZ,  phaseMod * 2.1 + 1.2, t, disp, tangent, binormal, jacobian);
+                    addCurvedGerstnerWave(normalize(vec2( 0.63, -0.77)), 0.046,   9.1, 2.60, chopXZ,  phaseMod * 2.4 + 3.8, t, disp, tangent, binormal, jacobian);
+                    addCurvedGerstnerWave(normalize(vec2(-0.41,  0.91)), 0.038,   6.3, 2.95, chopXZ,  phaseMod * 2.7 + 0.4, t, disp, tangent, binormal, jacobian);
+
+                    // Smoothly damp vertical displacement immediately under the carrier hull to prevent clipping
                     float hullDistX = abs(wp.x);
                     float hullDistZ = abs(wp.z);
-                    float hullMask = smoothstep(18.0, 36.0, hullDistX) + smoothstep(145.0, 175.0, hullDistZ);
-                    hullMask = clamp(hullMask, 0.25, 1.0);
+                    float hullMask = smoothstep(18.0, 38.0, hullDistX) + smoothstep(145.0, 178.0, hullDistZ);
+                    hullMask = clamp(hullMask, 0.22, 1.0);
 
-                    wp.xyz += wavePos * hullMask;
+                    wp.xyz += disp * hullMask;
                     vWorldPos = wp.xyz;
-                    vNormal = normalize(waveNorm);
-                    vWaveHeight = wavePos.y;
-                    vChop = wavePos.y * hullMask;
+
+                    // Compute exact analytical surface normal from displaced tangent & binormal
+                    vec3 geoNormal = normalize(cross(binormal, tangent));
+                    vNormal = normalize(mix(vec3(0.0, 1.0, 0.0), geoNormal, hullMask));
+
+                    vWaveHeight = disp.y * hullMask;
+                    // Crest factor combines wave elevation and Jacobian horizontal pinch (1.0 - jacobian)
+                    vCrestFactor = clamp((1.0 - jacobian) * 0.85 + disp.y * 0.22, 0.0, 1.5) * hullMask;
 
                     gl_Position = projectionMatrix * viewMatrix * wp;
                 }
@@ -780,40 +1118,96 @@
                 varying vec3 vWorldPos;
                 varying vec3 vNormal;
                 varying float vWaveHeight;
-                varying float vChop;
+                varying float vCrestFactor;
 
-                float hash21(vec2 p) {
-                    p = fract(p * vec2(234.34, 435.345));
-                    p += dot(p, p + 34.23);
-                    return fract(p.x * p.y);
+                // Irrational octave rotation matrix to eliminate grid alignment across FBM layers
+                const mat2 mRot = mat2(0.80, -0.60, 0.60, 0.80);
+
+                // 2D Simplex Noise (ashima/iq style) - completely free of boxy axis-aligned grid artifacts
+                vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+                vec2 mod289(vec2 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+                vec3 permute(vec3 x) { return mod289(((x * 34.0) + 1.0) * x); }
+
+                float snoise(vec2 v) {
+                    const vec4 C = vec4(
+                        0.211324865405187,  // (3.0-sqrt(3.0))/6.0
+                        0.366025403784439,  // 0.5*(sqrt(3.0)-1.0)
+                       -0.577350269189626,  // -1.0 + 2.0 * C.x
+                        0.024390243902439   // 1.0 / 41.0
+                    );
+                    vec2 i  = floor(v + dot(v, C.yy));
+                    vec2 x0 = v - i + dot(i, C.xx);
+                    vec2 i1 = (x0.x > x0.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+                    vec4 x12 = x0.xyxy + C.xxzz;
+                    x12.xy -= i1;
+                    i = mod289(i);
+                    vec3 p = permute(permute(i.y + vec3(0.0, i1.y, 1.0)) + i.x + vec3(0.0, i1.x, 1.0));
+                    vec3 m = max(0.5 - vec3(dot(x0, x0), dot(x12.xy, x12.xy), dot(x12.zw, x12.zw)), 0.0);
+                    m = m * m;
+                    m = m * m;
+                    vec3 x = 2.0 * fract(p * C.www) - 1.0;
+                    vec3 h = abs(x) - 0.5;
+                    vec3 ox = floor(x + 0.5);
+                    vec3 a0 = x - ox;
+                    m *= 1.79284291400159 - 0.85373472095314 * (a0 * a0 + h * h);
+                    vec3 g;
+                    g.x  = a0.x  * x0.x  + h.x  * x0.y;
+                    g.yz = a0.yz * x12.xz + h.yz * x12.yw;
+                    return 130.0 * dot(m, g);
                 }
 
-                float noise(vec2 p) {
-                    vec2 i = floor(p);
-                    vec2 f = fract(p);
-                    f = f * f * (3.0 - 2.0 * f);
-                    float a = hash21(i);
-                    float b = hash21(i + vec2(1.0, 0.0));
-                    float c = hash21(i + vec2(0.0, 1.0));
-                    float d = hash21(i + vec2(1.0, 1.0));
-                    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+                // Ridged / billowy multi-scale capillary wave elevation for crisp wind-chop facets
+                float capillaryHeight(vec2 p, float t) {
+                    float h = 0.0;
+                    float amp = 0.50;
+                    vec2 q = p * 0.14;
+
+                    // Dual counter-scrolling wind-ripple layers rotated at irrational angles
+                    vec2 windA = vec2(t * 0.45, -t * 0.82);
+                    vec2 windB = vec2(-t * 0.38, -t * 0.64);
+
+                    for (int i = 0; i < 5; i++) {
+                        float n1 = snoise(q + windA);
+                        float n2 = snoise(q * 1.37 - windB + vec2(17.3, 9.1));
+                        // Sharpen troughs and crests slightly (trochoidal micro-facet profile)
+                        float waveFacet = (n1 * 0.62 + n2 * 0.38);
+                        waveFacet = waveFacet - 0.25 * abs(waveFacet);
+                        h += waveFacet * amp;
+                        q = (mRot * q) * 2.07 + vec2(13.7, 29.3);
+                        windA *= 1.32;
+                        windB *= 1.28;
+                        amp *= 0.47;
+                    }
+                    return h;
                 }
 
-                float fbm(vec2 p) {
-                    float v = 0.0;
-                    v += 0.500 * noise(p);
-                    v += 0.250 * noise(p * 2.02 + vec2(1.2, 3.4));
-                    v += 0.125 * noise(p * 4.04 - vec2(2.3, 1.1));
-                    v += 0.062 * noise(p * 8.08 + vec2(0.7, 4.2));
-                    return v;
-                }
-
+                // Organic domain-warped turbulence for wake boil & cellular sea foam lace
                 float wakeTurbulence(vec2 p, float speed) {
-                    vec2 q = p + vec2(0.0, uTime * speed);
-                    float n1 = noise(q * 0.45);
-                    float n2 = noise(q * 1.15 + vec2(n1 * 1.2, -n1 * 0.8));
-                    float n3 = noise(q * 2.85 - vec2(n2 * 1.4, n2 * 1.1));
-                    return n2 * 0.6 + n3 * 0.4;
+                    vec2 q = p * 0.18 + vec2(0.0, uTime * speed * 0.08);
+                    float w1 = snoise(q * 0.55);
+                    float w2 = snoise(mRot * q * 0.58 + vec2(4.2, -3.1));
+                    vec2 warped = q + vec2(w1, w2) * 0.85;
+
+                    float f = 0.0;
+                    float a = 0.52;
+                    for (int i = 0; i < 4; i++) {
+                        f += a * (0.5 + 0.5 * snoise(warped));
+                        warped = (mRot * warped) * 2.12 + vec2(7.1, 19.4);
+                        a *= 0.48;
+                    }
+                    return f;
+                }
+
+                // Cellular bubble lace pattern for realistic aerated sea froth
+                float foamCellularLace(vec2 p) {
+                    float n1 = abs(snoise(p * 0.42));
+                    float n2 = abs(snoise((mRot * p) * 0.95 + vec2(11.3, 5.7)));
+                    float n3 = abs(snoise(p * 2.15 - vec2(3.4, 14.8)));
+                    // Invert ridges to create interconnected lacy bubble webs
+                    float web1 = 1.0 - smoothstep(0.0, 0.55, n1);
+                    float web2 = 1.0 - smoothstep(0.0, 0.48, n2);
+                    float web3 = 1.0 - smoothstep(0.0, 0.42, n3);
+                    return clamp(web1 * 0.52 + web2 * 0.33 + web3 * 0.25, 0.0, 1.0);
                 }
 
                 void main() {
@@ -821,51 +1215,81 @@
                     float z = vWorldPos.z;
                     float absX = abs(x);
 
-                    // Flow relative to carrier forward motion (+Z direction)
-                    float flowZ = z - uTime * 24.0;
-                    vec2 flowUV = vec2(x * 0.55, flowZ * 0.35);
+                    // Relative advection of water past the moving carrier (+Z ship heading)
+                    vec2 advectedXZ = vec2(x, z - uTime * 19.0);
 
-                    // Micro-capillary surface normal perturbation
-                    float nEps = 0.45;
-                    float hC = fbm(flowUV);
-                    float hR = fbm(flowUV + vec2(nEps, 0.0));
-                    float hU = fbm(flowUV + vec2(0.0, nEps));
-                    vec3 rippleNormal = normalize(vec3((hC - hR) * 2.2, 1.0, (hC - hU) * 2.2));
-                    vec3 normal = normalize(mix(vNormal, rippleNormal, 0.45));
+                    // Low-frequency spatial distortion breaks up any large-scale uniformity
+                    vec2 macroWarp = vec2(
+                        snoise(advectedXZ * 0.008 + vec2(uTime * 0.04, 0.0)),
+                        snoise(advectedXZ * 0.008 + vec2(31.4, 15.9))
+                    ) * 8.5;
+                    vec2 sampleXZ = advectedXZ + macroWarp;
 
-                    // View direction & Fresnel
+                    // Multi-scale finite-difference micro-surface slope normal
+                    float eps = 0.38;
+                    float hC = capillaryHeight(sampleXZ, uTime);
+                    float hX = capillaryHeight(sampleXZ + vec2(eps, 0.0), uTime);
+                    float hZ = capillaryHeight(sampleXZ + vec2(0.0, eps), uTime);
+
+                    vec3 microNormal = normalize(vec3((hC - hX) / eps * 0.34, 1.0, (hC - hZ) / eps * 0.34));
+                    vec3 normal = normalize(vec3(
+                        vNormal.x + microNormal.x * 0.82,
+                        vNormal.y * microNormal.y,
+                        vNormal.z + microNormal.z * 0.82
+                    ));
+
+                    // View & lighting vectors
                     vec3 viewDir = normalize(cameraPosition - vWorldPos);
-                    float NdotV = max(dot(viewDir, normal), 0.0);
-                    float fresnel = pow(1.0 - NdotV, 4.0);
+                    vec3 lightDir = normalize(uSunDir);
+                    float NdotV = max(dot(normal, viewDir), 0.001);
+                    float NdotL = max(dot(normal, lightDir), 0.0);
 
-                    // Base deep water gradient with wave crest illumination
-                    float waveSlope = clamp((normal.y - 0.7) / 0.3, 0.0, 1.0);
-                    vec3 oceanCol = mix(uDeepColor, uMidColor, waveSlope * 0.85 + vWaveHeight * 0.15);
+                    // 1. Physically-Based Schlick Fresnel (water IOR = 1.333 -> F0 = 0.02)
+                    float F0 = 0.0204;
+                    float fresnel = F0 + (1.0 - F0) * pow(clamp(1.0 - NdotV, 0.0, 1.0), 4.5);
 
-                    // Subsurface scattering on wave crests
-                    float sss = pow(max(dot(viewDir, -uSunDir), 0.0), 3.0) * smoothstep(0.1, 0.9, vWaveHeight);
-                    oceanCol += uWakeTurquoise * sss * 0.35;
+                    // 2. Deep Water Volumetric Absorption & Slope Tonal Gradient
+                    // Troughs absorb more light (deep abyssal indigo), while wave slopes & crests scatter pelagic blue
+                    float heightFactor = clamp((vWaveHeight + 2.4) / 5.2, 0.0, 1.0);
+                    float slopeFactor = clamp(1.0 - normal.y, 0.0, 1.0);
+                    float colorMix = clamp(heightFactor * 0.62 + slopeFactor * 0.55 + hC * 0.18, 0.0, 1.0);
+                    vec3 waterBodyCol = mix(uDeepColor, uMidColor, colorMix);
 
-                    // Maritime sky reflection
-                    oceanCol = mix(oceanCol, uSkyColor, fresnel * 0.55);
+                    // Subtle diffuse sky irradiance on sunlit wave faces
+                    waterBodyCol *= (0.78 + 0.32 * NdotL);
 
-                    // Sun specular glint
-                    vec3 halfVec = normalize(uSunDir + viewDir);
+                    // 3. Anisotropic Subsurface Scattering (SSS) in Steep Wave Crests
+                    // Light passing through thin wave peaks creates a rich emerald-turquoise glow
+                    float crestThinness = smoothstep(0.18, 0.92, vCrestFactor + hC * 0.35);
+                    float backLight = pow(clamp(dot(viewDir, -lightDir) * 0.5 + 0.5, 0.0, 1.0), 2.2);
+                    float upwardScatter = clamp(normal.y * 0.6 + 0.4, 0.0, 1.0);
+                    float sssIntensity = crestThinness * (0.42 + 0.58 * backLight) * upwardScatter;
+                    waterBodyCol = mix(waterBodyCol, uWakeTurquoise * 1.05, clamp(sssIntensity * 0.58, 0.0, 0.65));
+
+                    // 4. Sky Dome Reflection (modulated by wave orientation)
+                    vec3 reflDir = reflect(-viewDir, normal);
+                    float skyGrad = clamp(reflDir.y * 0.65 + 0.35, 0.0, 1.0);
+                    vec3 skyReflCol = mix(uSkyColor * 1.12, uMidColor * 0.75, skyGrad * 0.55);
+                    vec3 oceanCol = mix(waterBodyCol, skyReflCol, clamp(fresnel * 0.85, 0.0, 0.78));
+
+                    // 5. Dual-Lobe GGX / Blinn-Phong Sun Specular Glint & Micro-Sparkles
+                    vec3 halfVec = normalize(lightDir + viewDir);
                     float NdotH = max(dot(normal, halfVec), 0.0);
-                    float sunGlint = pow(NdotH, 160.0) * 1.85;
-                    float sunShimmer = pow(NdotH, 28.0) * 0.22;
-                    oceanCol += uSunColor * (sunGlint + sunShimmer);
+                    // Tight mirror sun glint on capillary facets + broader atmospheric sun shimmer
+                    float specCore = pow(NdotH, 320.0) * 2.4;
+                    float specBroad = pow(NdotH, 38.0) * 0.24;
+                    oceanCol += uSunColor * (specCore + specBroad) * (0.4 + 0.6 * fresnel);
 
-                    // Natural ocean swell surface (deep pure navy matching reference photo)
-                    float subtleShimmer = fbm(vec2(x * 0.25 + z * 0.15, z * 0.45 - uTime * 16.0));
-                    float waveGlint = smoothstep(0.88, 0.96, subtleShimmer + vWaveHeight * 0.20) * 0.12;
-                    oceanCol = mix(oceanCol, uSkyColor * 1.2, waveGlint);
+                    // 6. Open-Ocean Wind Whitecaps & Langmuir Foam Streaks
+                    float laceOpen = foamCellularLace(sampleXZ * 0.55);
+                    float whitecapMask = smoothstep(0.62, 1.12, vCrestFactor + hC * 0.32);
+                    float openWhitecaps = whitecapMask * smoothstep(0.28, 0.75, laceOpen) * 0.55;
 
                     // -------------------------------------------------------------------------
-                    // HYDRODYNAMIC WAKE & TRACE SYSTEM
+                    // 7. HYDRODYNAMIC CARRIER WAKE & KELVIN TRACE SYSTEM
                     // -------------------------------------------------------------------------
-                    float totalWhiteFoam = 0.0;
-                    float totalTurquoise = 0.0;
+                    float totalWhiteFoam = openWhitecaps;
+                    float totalTurquoise = crestThinness * 0.25;
 
                     // Carrier hull profile half-width as function of Z
                     float hullHalfW = 20.5;
@@ -879,82 +1303,84 @@
 
                     float distFromBow = 148.0 - z;
 
-                    // 1. Bow stem wave & outward breaking V-wave (crisp peeling foam with turquoise aeration)
-                    if (z <= 153.0 && z >= 25.0) {
+                    // A. Bow stem wave & outward breaking V-wave (crisp peeling foam with turquoise aeration)
+                    if (z <= 153.0 && z >= 20.0) {
                         float bowWaveAngle = 0.42;
-                        float bowWaveDist = abs(absX - (distFromBow * bowWaveAngle + 0.8));
-                        float bowWaveRibbon = exp(-pow(bowWaveDist / (2.0 + distFromBow * 0.022), 2.0));
-                        bowWaveRibbon *= smoothstep(153.0, 144.0, z); // sharp onset right at the stem
-                        bowWaveRibbon *= smoothstep(25.0, 105.0, z);  // smoothly merges into flank wash
+                        // Organic wave-induced undulation along the bow V-arms
+                        float armWobble = snoise(vec2(z * 0.09 - uTime * 1.4, absX * 0.08)) * (1.2 + distFromBow * 0.015);
+                        float bowWaveDist = abs(absX - (distFromBow * bowWaveAngle + 0.8 + armWobble));
+                        float bowWaveRibbon = exp(-pow(bowWaveDist / (2.1 + distFromBow * 0.024), 2.0));
+                        bowWaveRibbon *= smoothstep(153.0, 144.0, z);
+                        bowWaveRibbon *= smoothstep(20.0, 102.0, z);
 
-                        float bowFroth = wakeTurbulence(vec2(absX * 2.0, z * 1.2), 34.0);
-                        float bowFoam = bowWaveRibbon * smoothstep(0.22, 0.65, bowFroth);
+                        float bowFroth = wakeTurbulence(vec2(absX * 1.8, z * 1.1), 28.0);
+                        float bowFoam = bowWaveRibbon * smoothstep(0.24, 0.66, bowFroth);
 
-                        totalWhiteFoam = max(totalWhiteFoam, bowFoam * 1.45);
-                        totalTurquoise = max(totalTurquoise, bowWaveRibbon * 1.05);
+                        totalWhiteFoam = max(totalWhiteFoam, bowFoam * 1.38);
+                        totalTurquoise = max(totalTurquoise, bowWaveRibbon * 1.02);
                     }
 
-                    // 2. Hull boundary layer waterline contact wash
+                    // B. Hull boundary layer waterline contact wash
                     if (z <= 147.0 && z >= -150.0) {
-                        float dHull = abs(absX - hullHalfW);
-                        float contactWash = exp(-pow(dHull / 2.8, 2.0));
-                        float contactTurb = wakeTurbulence(vec2(absX * 2.2, z * 1.2), 28.0);
+                        float edgeWobble = snoise(vec2(z * 0.14 - uTime * 2.2, x * 0.15)) * 0.85;
+                        float dHull = abs(absX - (hullHalfW + edgeWobble));
+                        float contactWash = exp(-pow(dHull / 2.9, 2.0));
+                        float contactTurb = wakeTurbulence(vec2(absX * 2.0, z * 1.15), 24.0);
                         float contactFoam = contactWash * smoothstep(0.28, 0.68, contactTurb);
 
-                        totalWhiteFoam = max(totalWhiteFoam, contactFoam * 1.1);
+                        totalWhiteFoam = max(totalWhiteFoam, contactFoam * 1.08);
                         totalTurquoise = max(totalTurquoise, contactWash * 0.85);
                     }
 
-                    // 3. Massive stern propeller churning wash (screws at z < -148.0)
+                    // C. Massive stern propeller churning wash (4 screws at z < -148.0)
                     if (z <= -140.0 && z >= -980.0) {
                         float distBehindStern = -148.0 - z;
 
-                        // Wake expands outward to ~72m width
-                        float wakeWidth = mix(20.0, 72.0, clamp(distBehindStern / 360.0, 0.0, 1.0));
-                        float centerWash = exp(-pow(absX / wakeWidth, 2.0));
+                        // Domain-warped vortex meandering along the stern wake trail
+                        float wakeMeander = snoise(vec2(0.0, z * 0.018 - uTime * 0.45)) * (2.5 + distBehindStern * 0.025);
+                        float wx = x + wakeMeander;
+                        float absWX = abs(wx);
 
-                        // Twin screw churning wash streams from the four 21-ft bronze propellers
-                        float screwL = exp(-pow((x - 10.5) / (5.2 + distBehindStern * 0.035), 2.0));
-                        float screwR = exp(-pow((x + 10.5) / (5.2 + distBehindStern * 0.035), 2.0));
-                        float screwWash = (screwL + screwR) * 0.90;
+                        float wakeWidth = mix(20.0, 74.0, clamp(distBehindStern / 360.0, 0.0, 1.0));
+                        float centerWash = exp(-pow(absWX / wakeWidth, 2.0));
 
-                        // Boiling turbulence and vorticity
-                        float turbSpeed = 40.0;
-                        float sternFroth1 = wakeTurbulence(vec2(x * 0.48, z * 0.26), turbSpeed);
-                        float sternFroth2 = wakeTurbulence(vec2(x * 1.35, z * 0.68), turbSpeed * 1.25);
-                        float combinedFroth = sternFroth1 * 0.55 + sternFroth2 * 0.45;
+                        // Twin/quad screw high-velocity turbulent slipstreams
+                        float screwL = exp(-pow((wx - 10.5) / (5.2 + distBehindStern * 0.036), 2.0));
+                        float screwR = exp(-pow((wx + 10.5) / (5.2 + distBehindStern * 0.036), 2.0));
+                        float screwWash = (screwL + screwR) * 0.92;
 
-                        // Wake length attenuation
+                        // Multi-octave domain-warped vortex turbulence
+                        float turbSpeed = 34.0;
+                        float sternFroth1 = wakeTurbulence(vec2(wx * 0.42, z * 0.24), turbSpeed);
+                        float sternFroth2 = wakeTurbulence(vec2(wx * 1.25, z * 0.62), turbSpeed * 1.25);
+                        float combinedFroth = sternFroth1 * 0.56 + sternFroth2 * 0.44;
+
                         float sternFade = smoothstep(-140.0, -150.0, z) * smoothstep(-980.0, -680.0, z);
 
                         float washFoam = (centerWash * 0.78 + screwWash * 0.65) * sternFade;
-                        float foamIntensity = washFoam * smoothstep(0.20, 0.62, combinedFroth * 1.35);
+                        float foamIntensity = washFoam * smoothstep(0.22, 0.64, combinedFroth * 1.32);
 
-                        totalWhiteFoam = max(totalWhiteFoam, foamIntensity * 1.45);
+                        totalWhiteFoam = max(totalWhiteFoam, foamIntensity * 1.42);
                         totalTurquoise = max(totalTurquoise, washFoam * sternFade * 1.15);
 
-                        // Kelvin outer wake shockwave arms spreading at 19.5 degrees
-                        float kelvinArm = abs(absX - (distBehindStern * 0.35 + 18.0));
-                        float kelvinShock = exp(-pow(kelvinArm / (4.2 + distBehindStern * 0.02), 2.0)) * sternFade;
+                        // Kelvin outer wake diverging & transverse wave arms (19.47 deg half-angle)
+                        float kelvinArm = abs(absWX - (distBehindStern * 0.353 + 18.0));
+                        float kelvinShock = exp(-pow(kelvinArm / (4.4 + distBehindStern * 0.022), 2.0)) * sternFade;
                         totalWhiteFoam = max(totalWhiteFoam, kelvinShock * smoothstep(0.32, 0.72, combinedFroth) * 0.85);
                     }
 
-                    // Realistic multi-scale ocean foam lace & bubbling modulation
-                    float foamLace1 = noise(vec2(x * 0.85, z * 0.55) + uTime * 4.5);
-                    float foamLace2 = noise(vec2(x * 2.4, z * 1.6) - uTime * 8.5);
-                    float foamPattern = foamLace1 * 0.65 + foamLace2 * 0.35;
+                    // Multi-scale cellular bubble lace modulation across all foam regions
+                    float wakeLace = foamCellularLace(advectedXZ * 0.78);
+                    float foamFactor = smoothstep(0.14, 0.78, totalWhiteFoam) * (0.52 + 0.48 * wakeLace);
+                    foamFactor = clamp(foamFactor, 0.0, 0.82);
 
-                    // Calibrated wake brightness: natural aerated sea froth instead of harsh blown-out white
-                    float foamFactor = smoothstep(0.14, 0.76, totalWhiteFoam) * (0.60 + 0.40 * foamPattern);
-                    foamFactor = clamp(foamFactor, 0.0, 0.80);
+                    float aquaFactor = clamp(totalTurquoise, 0.0, 0.92) * (0.65 + 0.35 * wakeLace);
 
-                    float aquaFactor = clamp(totalTurquoise, 0.0, 0.92) * (0.70 + 0.30 * foamPattern);
+                    // Blend subsurface aerated turquoise Plume
+                    oceanCol = mix(oceanCol, uWakeTurquoise * 0.92, aquaFactor * 0.62);
 
-                    // Blend turquoise subsurface aeration glow
-                    oceanCol = mix(oceanCol, uWakeTurquoise * 0.90, aquaFactor * 0.65);
-
-                    // Blend soft maritime froth with subtle wave lighting
-                    vec3 shadedFoam = uFoamWhite * (0.84 + 0.16 * waveSlope);
+                    // Blend 3D shaded sea froth (lit by sun & wave slope)
+                    vec3 shadedFoam = uFoamWhite * (0.78 + 0.22 * NdotL);
                     oceanCol = mix(oceanCol, shadedFoam, foamFactor);
 
                     // Distance aerial perspective fog
@@ -967,7 +1393,8 @@
             `
         });
 
-        const oceanGeo = new THREE.PlaneGeometry(2800, 2800, 240, 240);
+        // High-density 380x380 ocean mesh so medium & short choppy waves resolve smoothly without aliasing
+        const oceanGeo = new THREE.PlaneGeometry(2800, 2800, 380, 380);
         oceanGeo.rotateX(-Math.PI / 2);
         const oceanMesh = new THREE.Mesh(oceanGeo, oceanMaterial);
         scene.add(oceanMesh);
@@ -980,23 +1407,54 @@
 
         const DECK_Y = 12.2;
 
-        // Shared PBR Materials
-        const hullGreyMat = new THREE.MeshStandardMaterial({ color: 0x8490a0, roughness: 0.50, metalness: 0.22, side: THREE.DoubleSide });
-        const hullDarkGreyMat = new THREE.MeshStandardMaterial({ color: 0x4f5763, roughness: 0.62, metalness: 0.28 });
-        const catwalkMat = new THREE.MeshStandardMaterial({ color: 0x5e6774, roughness: 0.66, metalness: 0.25 });
-        const islandMat = new THREE.MeshStandardMaterial({ color: 0x8692a2, roughness: 0.44, metalness: 0.18 });
+        // Shared PBR Materials with Procedural Welded Steel Hull Plating
+        const hullSteelMaps = createNavalSteelHullTexture();
+        const hullGreyMat = new THREE.MeshStandardMaterial({
+            color: 0xa4b0be,
+            map: hullSteelMaps.colorTex,
+            bumpMap: hullSteelMaps.bumpTex,
+            bumpScale: 0.14,
+            roughness: 0.46,
+            metalness: 0.24,
+            side: THREE.DoubleSide
+        });
+        const hullDarkGreyMat = new THREE.MeshStandardMaterial({
+            color: 0x5c6674,
+            bumpMap: hullSteelMaps.bumpTex,
+            bumpScale: 0.08,
+            roughness: 0.58,
+            metalness: 0.28
+        });
+        const catwalkMat = new THREE.MeshStandardMaterial({
+            color: 0x727d8c,
+            map: hullSteelMaps.colorTex,
+            bumpMap: hullSteelMaps.bumpTex,
+            bumpScale: 0.10,
+            roughness: 0.60,
+            metalness: 0.25
+        });
+        const islandMat = new THREE.MeshStandardMaterial({
+            color: 0xa2aebc,
+            map: hullSteelMaps.colorTex,
+            bumpMap: hullSteelMaps.bumpTex,
+            bumpScale: 0.12,
+            roughness: 0.42,
+            metalness: 0.20
+        });
+        const bootToppingMat = new THREE.MeshStandardMaterial({ color: 0x161b22, roughness: 0.72, metalness: 0.15, side: THREE.DoubleSide });
         const radarWhiteMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.30, metalness: 0.10 });
         const bridgeGlassMat = new THREE.MeshStandardMaterial({ color: 0x0a1422, roughness: 0.10, metalness: 0.90 });
         const nozzleDarkMat = new THREE.MeshStandardMaterial({ color: 0x22272e, roughness: 0.35, metalness: 0.85 });
         const foldHingeRedMat = new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.50, metalness: 0.20 });
-        const f35DarkMat = new THREE.MeshStandardMaterial({ color: 0x768292, roughness: 0.44, metalness: 0.22 });
+        const yellowGearMat = new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.42, metalness: 0.22 });
+        const f35DarkMat = new THREE.MeshStandardMaterial({ color: 0x6c7888, roughness: 0.44, metalness: 0.22 });
         const f35LightRamMat = new THREE.MeshStandardMaterial({ color: 0x98a4b4, roughness: 0.40, metalness: 0.20 });
-        const f35NoseMat = new THREE.MeshStandardMaterial({ color: 0x5a6575, roughness: 0.48, metalness: 0.18 });
+        const f35NoseMat = new THREE.MeshStandardMaterial({ color: 0x525c6c, roughness: 0.48, metalness: 0.18 });
         
-        const fa18GreyMat = new THREE.MeshStandardMaterial({ color: 0x8a97a8, roughness: 0.44, metalness: 0.20 });
+        const fa18GreyMat = new THREE.MeshStandardMaterial({ color: 0x8290a2, roughness: 0.44, metalness: 0.20 });
         const fa18NoseMat = new THREE.MeshStandardMaterial({ color: 0x58626f, roughness: 0.48, metalness: 0.22 });
         const e2BodyMat = new THREE.MeshStandardMaterial({ color: 0xdce3ec, roughness: 0.38, metalness: 0.20 });
-        const heloDarkMat = new THREE.MeshStandardMaterial({ color: 0x2e3540, roughness: 0.48, metalness: 0.30 });
+        const heloDarkMat = new THREE.MeshStandardMaterial({ color: 0x3b4452, roughness: 0.48, metalness: 0.30 });
         const canopyGoldMat = new THREE.MeshStandardMaterial({ color: 0x1f242d, roughness: 0.08, metalness: 0.88 });
         const canopyBlueMat = new THREE.MeshStandardMaterial({ color: 0x0f1826, roughness: 0.10, metalness: 0.85 });
         const tireBlackMat = new THREE.MeshStandardMaterial({ color: 0x141820, roughness: 0.86, metalness: 0.08 });
@@ -1041,13 +1499,13 @@
 
         const deckMaps = createFlightDeckMaps();
         const deckTopMat = new THREE.MeshStandardMaterial({
+            color: 0xe6ecf4,
             map: deckMaps.colorTex,
             bumpMap: deckMaps.bumpTex,
-            bumpScale: 0.22,
+            bumpScale: 0.18,
             roughnessMap: deckMaps.bumpTex,
-            roughness: 0.74,
-            metalness: 0.03,
-            roughness: 0.94
+            roughness: 0.82,
+            metalness: 0.04
         });
 
         const flightDeckMesh = new THREE.Mesh(deckTopGeo, deckTopMat);
@@ -1306,6 +1764,104 @@
         addPhalanxCIWS(getStarboardEdgeX(-124) - 3.2, DECK_Y - 2.8, -124);
         addRAMLauncher(getPortEdgeX(62) + 3.2, DECK_Y - 2.8, 62, Math.PI / 2);
 
+        // Additional Ship Structural Details:
+        // 1. Waterline Black Boot-Topping Stripe & Bow Anchor Hawsepipes / Chains
+        const bootBand = new THREE.Mesh(new THREE.BoxGeometry(40.5, 1.8, 286.0), bootToppingMat);
+        bootBand.position.set(0, 0.85, -2.0);
+        hullDetailsGroup.add(bootBand);
+
+        [-3.8, 3.8].forEach(ax => {
+            const hawse = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 1.15, 1.4, 12), nozzleDarkMat);
+            hawse.rotation.z = ax > 0 ? -0.55 : 0.55;
+            hawse.position.set(ax, 6.2, 146.5);
+            hullDetailsGroup.add(hawse);
+
+            const fluke = new THREE.Mesh(new THREE.BoxGeometry(0.65, 2.2, 1.4), nozzleDarkMat);
+            fluke.position.set(ax * 1.08, 5.4, 146.5);
+            fluke.rotation.z = ax > 0 ? -0.35 : 0.35;
+            hullDetailsGroup.add(fluke);
+        });
+
+        // 2. Hull Structural Sponson Braces (Under-Deck Diagonal Girders)
+        for (let z = -140; z <= 135; z += 12) {
+            const sx = getStarboardEdgeX(z);
+            const px = getPortEdgeX(z);
+
+            const stbdStrut = new THREE.Mesh(new THREE.BoxGeometry(0.55, 6.5, 0.75), hullDarkGreyMat);
+            stbdStrut.position.set(sx + 3.8, DECK_Y - 4.2, z);
+            stbdStrut.rotation.z = -0.52;
+            stbdStrut.castShadow = true;
+            hullDetailsGroup.add(stbdStrut);
+
+            const portStrut = new THREE.Mesh(new THREE.BoxGeometry(0.55, 6.5, 0.75), hullDarkGreyMat);
+            portStrut.position.set(px - 3.8, DECK_Y - 4.2, z);
+            portStrut.rotation.z = 0.52;
+            portStrut.castShadow = true;
+            hullDetailsGroup.add(portStrut);
+        }
+
+        // 3. Deck-Edge Tilted Whip Communications Antennas & Safety Nets
+        [-115, -45, 5, 68, 118].forEach(az => {
+            const sx = getStarboardEdgeX(az) - 2.1;
+            const whipS = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.12, 9.5, 6), hullDarkGreyMat);
+            whipS.position.set(sx - 1.8, DECK_Y + 2.2, az);
+            whipS.rotation.z = 0.48;
+            hullDetailsGroup.add(whipS);
+
+            const px = getPortEdgeX(az) + 2.0;
+            const whipP = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.12, 9.5, 6), hullDarkGreyMat);
+            whipP.position.set(px + 1.8, DECK_Y + 2.2, az);
+            whipP.rotation.z = -0.48;
+            hullDetailsGroup.add(whipP);
+        });
+
+        // 4. IFLOLS ("Meatball" Improved Fresnel Lens Optical Landing System) & LSO Platform on Port Side
+        const iflolsGroup = new THREE.Group();
+        iflolsGroup.position.set(getPortEdgeX(-48) + 1.8, DECK_Y - 0.3, -48);
+        const iflolsBox = new THREE.Mesh(new THREE.BoxGeometry(2.6, 3.2, 1.8), hullDarkGreyMat);
+        iflolsBox.position.y = 1.6;
+        iflolsBox.castShadow = true;
+        iflolsGroup.add(iflolsBox);
+
+        // Glowing green datum bars & amber meatball lens
+        [-0.85, 0.85].forEach(dx => {
+            const datum = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.16, 0.12), new THREE.MeshBasicMaterial({ color: 0x22c55e }));
+            datum.position.set(dx, 1.8, -0.92);
+            iflolsGroup.add(datum);
+        });
+        const meatball = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 10), new THREE.MeshBasicMaterial({ color: 0xfbbf24 }));
+        meatball.position.set(0, 1.8, -0.95);
+        iflolsGroup.add(meatball);
+        hullDetailsGroup.add(iflolsGroup);
+
+        // LSO Platform at Port Quarter
+        const lsoGroup = new THREE.Group();
+        lsoGroup.position.set(getPortEdgeX(-118) + 1.6, DECK_Y - 0.5, -118);
+        const lsoDeck = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.4, 7.5), catwalkMat);
+        lsoGroup.add(lsoDeck);
+        const lsoShield = new THREE.Mesh(new THREE.BoxGeometry(2.8, 1.4, 0.25), bridgeGlassMat);
+        lsoShield.position.set(0, 0.9, 3.5);
+        lsoShield.rotation.x = -0.25;
+        lsoGroup.add(lsoShield);
+        hullDetailsGroup.add(lsoGroup);
+
+        // 5. Salvage & Crash Crane ("Tilly") Parked Forward of Island Sponson
+        const craneGroup = new THREE.Group();
+        craneGroup.position.set(-31.8, DECK_Y, -36.5);
+        const craneBase = new THREE.Mesh(new THREE.BoxGeometry(3.6, 1.6, 5.2), yellowGearMat);
+        craneBase.position.y = 0.8;
+        craneBase.castShadow = true;
+        craneGroup.add(craneBase);
+        const craneCab = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.4, 2.2), nozzleDarkMat);
+        craneCab.position.set(0.6, 2.1, 0.8);
+        craneGroup.add(craneCab);
+        const craneBoom = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.95, 11.5), yellowGearMat);
+        craneBoom.position.set(0, 3.2, 3.8);
+        craneBoom.rotation.x = -0.22;
+        craneBoom.castShadow = true;
+        craneGroup.add(craneBoom);
+        hullDetailsGroup.add(craneGroup);
+
         // Island Superstructure (Faceted Stealth Architecture of Gerald R. Ford)
         const islandGroup = new THREE.Group();
         islandGroup.position.set(-30.5, DECK_Y, -56.0);
@@ -1331,12 +1887,33 @@
         aftSponson.castShadow = true;
         islandGroup.add(aftSponson);
 
-                // Navigation Bridge (Tier 1) & Pri-Fly Flight Control (Tier 2)
+        // Central Structural Core House connecting Lower Island -> Nav Bridge -> Pri-Fly -> DBR Tower
+        const bridgeCoreTrunk = new THREE.Mesh(new THREE.BoxGeometry(8.8, 12.0, 16.5), islandMat);
+        bridgeCoreTrunk.position.set(0.1, 20.5, 0.2);
+        bridgeCoreTrunk.castShadow = true;
+        bridgeCoreTrunk.receiveShadow = true;
+        islandGroup.add(bridgeCoreTrunk);
+
+        // Stepped Radar Tower Base Pedestal bridging Pri-Fly roof (y=21.2) to DBR Tower (y=25.0)
+        const dbrPedestal = new THREE.Mesh(new THREE.CylinderGeometry(5.1, 5.8, 5.2, 8), islandMat);
+        dbrPedestal.position.set(0, 23.2, -0.5);
+        dbrPedestal.castShadow = true;
+        dbrPedestal.receiveShadow = true;
+        islandGroup.add(dbrPedestal);
+
+        // Navigation Bridge (Tier 1) & Pri-Fly Flight Control (Tier 2)
         // Authentic slender wraparound tinted glass viewing ribbons with Haze Grey catwalk galleries
         [
             { y: 15.2, w: 9.8,  z: 21.0, glassH: 0.72 }, // Navigation Bridge
             { y: 19.5, w: 10.5, z: 17.5, glassH: 0.68 }  // Primary Flight Control (Pri-Fly)
         ].forEach(tier => {
+            // Under-bridge angled structural support bulkhead
+            const underSupport = new THREE.Mesh(new THREE.BoxGeometry(tier.w - 0.8, 2.2, tier.z - 1.2), islandMat);
+            underSupport.position.set(0.2, tier.y - 1.5, 0.5);
+            underSupport.castShadow = true;
+            underSupport.receiveShadow = true;
+            islandGroup.add(underSupport);
+
             const levelBox = new THREE.Mesh(new THREE.BoxGeometry(tier.w, 1.6, tier.z), islandMat);
             levelBox.position.set(0.2, tier.y, 0.5);
             levelBox.castShadow = true;
@@ -1372,20 +1949,27 @@
             islandGroup.add(panel);
         }
 
-        // Communication Radomes & TACAN Antennas
+        // Communication Radomes & TACAN Antennas with solid structural sponson mounts
         const radomeSpecs = [
-            [-2.2, 11.5, 15.2, 2.0],
-            [-3.5, 16.8,  9.8, 1.85],
-            [-3.5, 16.8, -9.8, 1.85],
-            [-2.0, 12.2, -14.8, 2.1],
-            [ 3.8, 26.5,  8.5, 1.65],
-            [-2.8, 35.2,  5.2, 1.95],
-            [ 2.8, 35.2, -5.8, 1.75]
+            { x: -1.8, y: 10.6, z: 14.8, rad: 1.85, baseH: 2.4, sponson: false }, // Seated directly on fwdSponson roof (y=9.5)
+            { x: -3.2, y: 17.8, z:  9.2, rad: 1.65, baseH: 2.2, sponson: false }, // Seated on Nav Bridge roof (y=16.8)
+            { x: -3.2, y: 17.8, z: -8.2, rad: 1.65, baseH: 2.2, sponson: false }, // Seated on Nav Bridge aft roof (y=16.8)
+            { x: -1.8, y: 11.6, z: -14.0, rad: 1.95, baseH: 2.4, sponson: false },// Seated directly on aftSponson roof (y=10.5)
+            { x:  2.4, y: 22.4, z:  6.8, rad: 1.55, baseH: 2.6, sponson: false }, // Seated on Pri-Fly forward roof (y=21.2)
+            { x: -2.2, y: 35.2, z:  2.2, rad: 1.75, baseH: 2.6, sponson: true  }, // Seated on DBR Tower top deck (y=34.25)
+            { x:  2.2, y: 35.2, z: -3.2, rad: 1.65, baseH: 2.6, sponson: true  }  // Seated on DBR Tower top deck (y=34.25)
         ];
-        radomeSpecs.forEach(([rx, ry, rz, rad]) => {
-            const base = new THREE.Mesh(new THREE.CylinderGeometry(rad * 0.65, rad * 0.8, 1.2, 12), islandMat);
-            base.position.set(rx, ry - rad * 0.5, rz);
+        radomeSpecs.forEach(({ x: rx, y: ry, z: rz, rad, baseH, sponson }) => {
+            const base = new THREE.Mesh(new THREE.CylinderGeometry(rad * 0.65, rad * 0.85, baseH, 12), islandMat);
+            base.position.set(rx, ry - rad * 0.45, rz);
+            base.castShadow = true;
             islandGroup.add(base);
+
+            if (sponson) {
+                const collar = new THREE.Mesh(new THREE.CylinderGeometry(rad * 0.95, rad * 0.75, 1.2, 12), hullDarkGreyMat);
+                collar.position.set(rx, ry - rad * 0.9, rz);
+                islandGroup.add(collar);
+            }
 
             const sphere = new THREE.Mesh(new THREE.SphereGeometry(rad, 18, 18), radarWhiteMat);
             sphere.position.set(rx, ry + rad * 0.35, rz);
@@ -1397,12 +1981,6 @@
         upperMast.position.set(0, 43.5, -1.0);
         upperMast.castShadow = true;
         islandGroup.add(upperMast);
-
-        [-37, -42, -48].forEach((y, idx) => {
-            const yard = new THREE.Mesh(new THREE.BoxGeometry(15 - idx * 3, 0.55, 1.1), islandMat);
-            yard.position.set(0, -y, -1.0);
-            islandGroup.add(yard);
-        });
 
         const spinningRadars = []; // CVN-78 uses fixed Dual Band Phased Array radars (SPY-3 & SPY-4)
         // Authentic Naval Lattice Mast Yardarms, Anemometers & TACAN Antenna Spire
@@ -1426,21 +2004,51 @@
         tacanDome.position.set(0, 54.5, -1.0);
         tacanDome.castShadow = true;
         islandGroup.add(tacanDome);
+
+        // Extra Island Architectural Details: External Stairways, Watertight Doors, Waveguide Conduits & Mullions
+        [3.5, 8.2, 12.8].forEach((stairY, idx) => {
+            const stairFlight = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.25, 4.8), hullDarkGreyMat);
+            stairFlight.position.set(4.85, stairY, -6.0 + idx * 3.5);
+            stairFlight.rotation.x = 0.62;
+            stairFlight.castShadow = true;
+            islandGroup.add(stairFlight);
+
+            const landingPad = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.25, 1.8), catwalkMat);
+            landingPad.position.set(4.85, stairY + 1.4, -3.8 + idx * 3.5);
+            islandGroup.add(landingPad);
+        });
+
+        // Vertical radar waveguide trunks & ventilation louvers on island faces
+        [-6.5, -1.5, 4.5, 9.5].forEach(wz => {
+            const conduit = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 15.0, 8), hullDarkGreyMat);
+            conduit.position.set(4.68, 7.5, wz);
+            islandGroup.add(conduit);
+        });
+        [-8.0, 0.0, 8.0].forEach(dz => {
+            const door = new THREE.Mesh(new THREE.BoxGeometry(0.18, 2.1, 1.15), hullDarkGreyMat);
+            door.position.set(4.65, 1.1, dz);
+            islandGroup.add(door);
+        });
         
+        // Angled Naval Gaff Flagstaff connecting Upper Mast to the US Ensign
+        const gaffPole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.16, 7.2, 8), hullDarkGreyMat);
+        gaffPole.position.set(0, 39.2, -3.6);
+        gaffPole.rotation.x = -0.68;
+        gaffPole.castShadow = true;
+        islandGroup.add(gaffPole);
+
         const flagGeo = new THREE.PlaneGeometry(7.2, 4.0, 14, 8);
         const flagMesh = new THREE.Mesh(
             flagGeo,
             new THREE.MeshStandardMaterial({ map: createUSFlagTexture(), side: THREE.DoubleSide, roughness: 0.55 })
         );
-        flagMesh.position.set(-4.2, 39.8, -6.5);
+        flagMesh.position.set(0, 39.5, -8.2);
         flagMesh.rotation.y = Math.PI / 2;
         islandGroup.add(flagMesh);
 
         // ============================================================================
         // 6. HIGH-FIDELITY AIRCRAFT & EQUIPMENT MODELS
         // ============================================================================
-        // Materials defined above in Section 5
-
         // Heavy Carrier Landing Gear (Dual Nose Wheel & Trailing Link Main Gear)
         function addLandingGear(parent, noseZ, mainX, mainZ) {
             const gearGroup = new THREE.Group();
@@ -1508,7 +2116,7 @@
             parent.userData.gearGroup = gearGroup;
         }
 
-                // F-35C Lightning II Carrier Strike Fighter
+        // F-35C Lightning II Carrier Strike Fighter
         // Continuous 35° swept planform, seamless stealth chines, and vertical wing folding
         function createF35C({ foldedWings = false } = {}) {
             const jet = new THREE.Group();
@@ -2261,6 +2869,22 @@
         const airWingUnits = [];
         let selectedUnit = null;
 
+        // Wheel Chocks & Tie-Down Chains for Parked Aircraft Stalls
+        function createParkingChocksGroup(x, z, rotY) {
+            const g = new THREE.Group();
+            g.position.set(x, 0.08, z);
+            g.rotation.y = rotY;
+            [-1.45, 1.45].forEach(wx => {
+                const chockF = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.16, 0.22), yellowGearMat);
+                chockF.position.set(wx, 0, -0.45);
+                g.add(chockF);
+                const chockB = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.16, 0.22), yellowGearMat);
+                chockB.position.set(wx, 0, -1.25);
+                g.add(chockB);
+            });
+            return g;
+        }
+
         function registerPersistentAircraft({
             id, callsign, type, label, homeX, homeZ, homeRot, homeFolded = true, canCycleJet = true, catPref = 1
         }) {
@@ -2274,12 +2898,17 @@
             mesh.rotation.set(0, homeRot, 0);
             deckAssetsGroup.add(mesh);
 
+            // Place physical wheel chocks at the unit's home parking spot
+            const chocks = createParkingChocksGroup(homeX, homeZ, homeRot);
+            deckAssetsGroup.add(chocks);
+
             const unit = {
                 id,
                 callsign,
                 type,
                 label,
                 mesh,
+                chocks,
                 homePos: new THREE.Vector3(homeX, 0, homeZ),
                 homeRot,
                 homeFolded,
@@ -2299,14 +2928,15 @@
             return unit;
         }
 
+        // 1. Starboard Bow Edge Finger Parking Line (Spots 01–07) — Completely clear of Cat 1 & 2
         const starboardEdgeF35Specs = [
-            { cs: 'VMFA-211 #201', x: -13.5, z: 108, rot: 0.92 - Math.PI, cat: 1 },
-            { cs: 'VMFA-211 #202', x: -17.5, z:  91, rot: 0.95 - Math.PI, cat: 1 },
-            { cs: 'VMFA-211 #203', x: -21.5, z:  74, rot: 0.96 - Math.PI, cat: 1 },
-            { cs: 'VMFA-211 #204', x: -25.5, z:  56, rot: 0.98 - Math.PI, cat: 1 },
-            { cs: 'VMFA-211 #205', x: -29.0, z:  38, rot: 1.00 - Math.PI, cat: 2 },
-            { cs: 'VMFA-211 #206', x: -30.5, z:  19, rot: 1.02 - Math.PI, cat: 2 },
-            { cs: 'VMFA-211 #207', x: -30.5, z:   1, rot: 1.00 - Math.PI, cat: 2 }
+            { cs: 'VMFA-211 #201', x: -15.2, z: 108, rot: 0.92 - Math.PI, cat: 1 },
+            { cs: 'VMFA-211 #202', x: -19.2, z:  91, rot: 0.95 - Math.PI, cat: 1 },
+            { cs: 'VMFA-211 #203', x: -23.2, z:  74, rot: 0.96 - Math.PI, cat: 1 },
+            { cs: 'VMFA-211 #204', x: -27.2, z:  56, rot: 0.98 - Math.PI, cat: 1 },
+            { cs: 'VMFA-211 #205', x: -30.5, z:  38, rot: 1.00 - Math.PI, cat: 2 },
+            { cs: 'VMFA-211 #206', x: -31.8, z:  19, rot: 1.02 - Math.PI, cat: 2 },
+            { cs: 'VMFA-211 #207', x: -31.8, z:   1, rot: 1.00 - Math.PI, cat: 2 }
         ];
         starboardEdgeF35Specs.forEach((s, idx) => {
             registerPersistentAircraft({
@@ -2323,11 +2953,13 @@
             });
         });
 
+        // 2. Starboard Mid-Deck / Island Apron Parking Stalls (Spots 08–11)
+        // Relocated out of the central bow/waist taxiways into dedicated starboard perimeter stalls
         const midDeckSpecs = [
-            { cs: 'VFA-147 #301', type: 'F-35C',   folded: false, x:  7.8,  z:  78, rot:  0.00, cat: 2 },
-            { cs: 'VFA-147 #302', type: 'F-35C',   folded: false, x: -6.2,  z:  32, rot:  0.14, cat: 1 },
-            { cs: 'VFA-31 #101',  type: 'F/A-18E', folded: true,  x: -20.5, z: -14, rot:  0.65, cat: 1 },
-            { cs: 'VFA-31 #102',  type: 'F/A-18E', folded: true,  x: -21.5, z: -29, rot:  0.72, cat: 2 }
+            { cs: 'VFA-147 #301', type: 'F-35C',   folded: true, x: -31.2, z: -15, rot: 0.98 - Math.PI, cat: 2 },
+            { cs: 'VFA-147 #302', type: 'F-35C',   folded: true, x: -31.2, z: -31, rot: 0.98 - Math.PI, cat: 1 },
+            { cs: 'VFA-31 #101',  type: 'F/A-18E', folded: true, x: -20.5, z: -44, rot: 0.85 - Math.PI, cat: 1 },
+            { cs: 'VFA-31 #102',  type: 'F/A-18E', folded: true, x: -20.5, z: -66, rot: 0.85 - Math.PI, cat: 2 }
         ];
         midDeckSpecs.forEach((s, idx) => {
             registerPersistentAircraft({
@@ -2344,11 +2976,12 @@
             });
         });
 
+        // 3. Starboard Aft Fantail Parking Line (Spots 12–15)
         const aftStarboardSpecs = [
-            { cs: 'VFA-147 #303', type: 'F-35C',   x: -27.5, z: -82,  rot: 0.95 - Math.PI, cat: 1 },
-            { cs: 'VFA-147 #304', type: 'F-35C',   x: -27.0, z: -99,  rot: 0.95 - Math.PI, cat: 2 },
-            { cs: 'VFA-87 #401',  type: 'F/A-18E', x: -25.0, z: -116, rot: 1.02 - Math.PI, cat: 1 },
-            { cs: 'VFA-87 #402',  type: 'F/A-18E', x: -21.5, z: -133, rot: 1.10 - Math.PI, cat: 2 }
+            { cs: 'VFA-147 #303', type: 'F-35C',   x: -28.5, z: -83,  rot: 0.95 - Math.PI, cat: 1 },
+            { cs: 'VFA-147 #304', type: 'F-35C',   x: -28.0, z: -100, rot: 0.95 - Math.PI, cat: 2 },
+            { cs: 'VFA-87 #401',  type: 'F/A-18E', x: -26.0, z: -117, rot: 1.02 - Math.PI, cat: 1 },
+            { cs: 'VFA-87 #402',  type: 'F/A-18E', x: -22.5, z: -134, rot: 1.10 - Math.PI, cat: 2 }
         ];
         aftStarboardSpecs.forEach((s, idx) => {
             registerPersistentAircraft({
@@ -2365,15 +2998,16 @@
             });
         });
 
+        // 4. Port Aft Echelon Apron (E-2D Hawkeyes & Super Hornets — clear of angled landing strip)
         registerPersistentAircraft({
             id: 'awacs-1',
             callsign: 'VAW-124 #601',
             type: 'E-2D',
             label: 'E-2D Adv. Hawkeye',
-            homeX: 13.5,
-            homeZ: -96,
-            homeRot: -0.48,
-            homeFolded: false,
+            homeX: 16.5,
+            homeZ: -104,
+            homeRot: -0.52,
+            homeFolded: true,
             canCycleJet: false
         });
         registerPersistentAircraft({
@@ -2381,16 +3015,16 @@
             callsign: 'VAW-124 #602',
             type: 'E-2D',
             label: 'E-2D Adv. Hawkeye',
-            homeX: 19.5,
-            homeZ: -116,
+            homeX: 21.5,
+            homeZ: -124,
             homeRot: -0.58,
             homeFolded: true,
             canCycleJet: false
         });
 
         const portAftHornets = [
-            { cs: 'VFA-213 #501', x: 25.5, z: -72, rot: -0.78, cat: 2 },
-            { cs: 'VFA-213 #502', x: 30.5, z: -50, rot: -0.82, cat: 2 }
+            { cs: 'VFA-213 #501', x: 26.8, z: -76, rot: -0.78, cat: 2 },
+            { cs: 'VFA-213 #502', x: 31.8, z: -56, rot: -0.82, cat: 2 }
         ];
         portAftHornets.forEach((s, idx) => {
             registerPersistentAircraft({
@@ -2407,10 +3041,11 @@
             });
         });
 
+        // 5. Helicopter Parking Apron Aft of Island (Spots HELO 01–03 — clear of waist catapults & landing strip)
         const seahawkSpecs = [
-            { cs: 'HSC-9 #610', x: 12.5, z:  22, rot: -0.25 },
-            { cs: 'HSC-9 #611', x: 18.5, z:  -4, rot: -0.25 },
-            { cs: 'HSC-9 #612', x: 25.5, z:  24, rot: -0.25 }
+            { cs: 'HSC-9 #610', x: -20.5, z: -82,  rot: 0.15 },
+            { cs: 'HSC-9 #611', x: -19.5, z: -98,  rot: 0.15 },
+            { cs: 'HSC-9 #612', x: -18.5, z: -114, rot: 0.15 }
         ];
         seahawkSpecs.forEach((s, idx) => {
             registerPersistentAircraft({
@@ -2428,28 +3063,29 @@
 
         const deckObstacleList = [{ x: -29.0, z: -56.0, radius: 13.5 }];
 
-        for (let z = -68; z <= -38; z += 4.2) {
-            const isWhite = (Math.abs(Math.round(z)) % 8 === 0);
+        for (let z = -68; z <= -40; z += 4.5) {
+            const isWhite = (Math.abs(Math.round(z)) % 9 === 0);
             const vehicle = createDeckTractor(isWhite ? 0xf8fafc : 0xeab308);
-            vehicle.position.set(-24.2, 0, z);
+            vehicle.position.set(-25.2, 0, z);
             vehicle.rotation.y = Math.PI / 2;
             deckAssetsGroup.add(vehicle);
-            deckObstacleList.push({ x: -24.2, z, radius: 3.2 });
+            deckObstacleList.push({ x: -25.2, z, radius: 2.8 });
         }
 
+        // Support tractors parked neatly along perimeter aprons out of the taxi street
         const deckTugSpots = [
-            { color: 0xeab308, x: -1.5,  z: -24, rot: 0.2 },
-            { color: 0xeab308, x:  9.5,  z: -52, rot: -0.3 },
-            { color: 0xf8fafc, x: -14.5, z:  82, rot: 0.8 },
-            { color: 0xf8fafc, x: -16.5, z:  64, rot: 0.4 },
-            { color: 0xeab308, x:  36.5, z:  12, rot: -0.2 }
+            { color: 0xeab308, x: -25.0, z: -24, rot: 0.2 },
+            { color: 0xeab308, x:  24.5, z: -92, rot: -0.5 },
+            { color: 0xf8fafc, x: -22.5, z:  84, rot: 0.8 },
+            { color: 0xf8fafc, x: -25.5, z:  64, rot: 0.4 },
+            { color: 0xeab308, x:  38.5, z:  12, rot: -0.2 }
         ];
         deckTugSpots.forEach(t => {
             const tug = createDeckTractor(t.color);
             tug.position.set(t.x, 0, t.z);
             tug.rotation.y = t.rot;
             deckAssetsGroup.add(tug);
-            deckObstacleList.push({ x: t.x, z: t.z, radius: 3.5 });
+            deckObstacleList.push({ x: t.x, z: t.z, radius: 3.2 });
         });
 
         // Navy Personnel ("Skittles")
@@ -2565,12 +3201,63 @@
             return person;
         }
 
+        // Helper to test if a deck position (x, z) is inside or too close to the angled landing strip or active catapults
+        function isPointInRunwayOrCatapultZone(x, z, buffer = 2.0) {
+            // 1. Angled Landing Runway Foul Line Corridor: from (-4.5, -152) to (36.5, 42)
+            const rAx = -4.5, rAz = -152.0;
+            const rBx = 36.5, rBz = 42.0;
+            const rDx = rBx - rAx, rDz = rBz - rAz;
+            const rLenSq = rDx * rDx + rDz * rDz;
+            const tRunway = THREE.MathUtils.clamp(((x - rAx) * rDx + (z - rAz) * rDz) / rLenSq, 0.0, 1.0);
+            const closeRx = rAx + tRunway * rDx;
+            const closeRz = rAz + tRunway * rDz;
+            const distRunway = Math.hypot(x - closeRx, z - closeRz);
+            if (distRunway < 11.8 + buffer) return true;
+
+            // 2. Bow Catapult 1 Track: (-7.5, 44) to (-6.5, 150)
+            if (z >= 40 - buffer && z <= 152 + buffer && Math.abs(x - (-7.0)) < 4.5 + buffer) return true;
+
+            // 3. Bow Catapult 2 Track: (8.5, 38) to (7.5, 150)
+            if (z >= 34 - buffer && z <= 152 + buffer && Math.abs(x - 8.0) < 4.5 + buffer) return true;
+
+            return false;
+        }
+
+        // Project any position out of the angled runway foul line so crew never enter the landing strip
+        function clampOutOfRunwayZone(pos, minClearance = 12.2) {
+            const rAx = -4.5, rAz = -152.0;
+            const rBx = 36.5, rBz = 42.0;
+            const rDx = rBx - rAx, rDz = rBz - rAz;
+            const rLenSq = rDx * rDx + rDz * rDz;
+            const tRunway = THREE.MathUtils.clamp(((pos.x - rAx) * rDx + (pos.z - rAz) * rDz) / rLenSq, 0.0, 1.0);
+            const closeRx = rAx + tRunway * rDx;
+            const closeRz = rAz + tRunway * rDz;
+            const dx = pos.x - closeRx;
+            const dz = pos.z - closeRz;
+            const dist = Math.hypot(dx, dz);
+            if (dist < minClearance) {
+                // Push toward starboard side of the foul line (negative X) unless already far port
+                const pushDirX = dx < 2.0 ? -1.0 : 1.0;
+                const nx = dist > 0.001 ? dx / dist : pushDirX;
+                const nz = dist > 0.001 ? dz / dist : 0.0;
+                pos.x = closeRx + nx * minClearance;
+                pos.z = closeRz + nz * minClearance;
+            }
+            pos.x = THREE.MathUtils.clamp(pos.x, -33.0, 34.0);
+            pos.z = THREE.MathUtils.clamp(pos.z, -142.0, 145.0);
+        }
+
         const deckCrewList = [];
+        // Safe Flight Deck Crew Zones:
+        // - Island Apron & Starboard Foul-Line Margin (strictly starboard of the red/white foul line)
+        // - Forward Starboard Parking Apron Margin
+        // - Center-Bow Catapult Crew Corridor (between Cat 1 & Cat 2)
+        // - Aft Starboard Helo / Fantail Apron
         const strategicCrewZones = [
-            { xMin: -12, xMax:  4, zMin:  15, zMax: 112, count: 34 },
-            { xMin: -15, xMax: 14, zMin: 112, zMax: 146, count: 12 },
-            { xMin:  -6, xMax: 22, zMin: -32, zMax:  32, count: 18 },
-            { xMin: -16, xMax: 18, zMin: -98, zMax: -35, count: 14 }
+            { xMin: -25.5, xMax: -13.0, zMin:  -25, zMax:   95, count: 28 }, // Starboard parking & foul line apron
+            { xMin:  -2.2, xMax:   3.2, zMin:   42, zMax:  128, count: 18 }, // Between Bow Cat 1 & Cat 2
+            { xMin: -24.5, xMax: -14.5, zMin:  -78, zMax:  -28, count: 18 }, // Island front & starboard waist apron
+            { xMin: -23.5, xMax: -15.5, zMin: -128, zMax:  -80, count: 14 }  // Starboard aft fantail margin
         ];
 
         let crewCounter = 0;
@@ -2580,8 +3267,20 @@
                 crewCounter++;
                 const crew = createNavyPersonnel(spec);
 
-                const bx = zone.xMin + Math.random() * (zone.xMax - zone.xMin);
-                const bz = zone.zMin + Math.random() * (zone.zMax - zone.zMin);
+                // Sample safe home coordinates strictly outside runway & catapult tracks
+                let bx = zone.xMin + Math.random() * (zone.xMax - zone.xMin);
+                let bz = zone.zMin + Math.random() * (zone.zMax - zone.zMin);
+                for (let attempt = 0; attempt < 15; attempt++) {
+                    if (!isPointInRunwayOrCatapultZone(bx, bz, 2.2)) break;
+                    bx = zone.xMin + Math.random() * (zone.xMax - zone.xMin);
+                    bz = zone.zMin + Math.random() * (zone.zMax - zone.zMin);
+                }
+
+                const safePt = { x: bx, z: bz };
+                clampOutOfRunwayZone(safePt, 12.8);
+                bx = safePt.x;
+                bz = safePt.z;
+
                 const initRot = Math.random() * Math.PI * 2;
                 crew.position.set(bx, 0, bz);
                 crew.rotation.y = initRot;
@@ -2592,9 +3291,14 @@
                     mesh: crew,
                     baseX: bx,
                     baseZ: bz,
+                    evadeOffsetX: 0,
+                    evadeOffsetZ: 0,
+                    evadeVelX: 0,
+                    evadeVelZ: 0,
+                    isEvading: false,
                     baseRot: initRot,
                     stationary: isStationary,
-                    radius: isStationary ? 0.12 : (0.9 + Math.random() * 2.2),
+                    radius: isStationary ? 0.12 : (0.8 + Math.random() * 1.6),
                     speed: 0.75 + Math.random() * 1.15,
                     phase: Math.random() * Math.PI * 2
                 });
@@ -2634,15 +3338,35 @@
         const jbdCat1 = createJBD(-7.5, 44, 0.01);
         const jbdCat2 = createJBD( 8.5, 38, -0.01);
 
+        // 4 Arresting Gear Cross-Deck Pendants & Deck-Edge Hydraulic Sheave Dampers
         const wireMat = new THREE.LineBasicMaterial({ color: 0x1e293b, linewidth: 2 });
         const wirePts = [
-            new THREE.Vector3(-8.5, 0.14, -95),
-            new THREE.Vector3( 3.5, 0.14, -98),
-            new THREE.Vector3(15.5, 0.14, -101)
+            new THREE.Vector3(-8.5, 0.16, -95),
+            new THREE.Vector3( 3.5, 0.16, -98),
+            new THREE.Vector3(15.5, 0.16, -101)
         ];
         const wireGeo = new THREE.BufferGeometry().setFromPoints(wirePts);
         const arrestingWireLine = new THREE.Line(wireGeo, wireMat);
         deckAssetsGroup.add(arrestingWireLine);
+
+        // Additional 3 static arresting gear pendants & sheave housings (#1, #2, #4 wires)
+        [-119, -107, -83].forEach(wz => {
+            const shiftX = (wz - (-98)) * 0.21;
+            const pPts = [
+                new THREE.Vector3(-8.5 + shiftX, 0.15, wz + 3),
+                new THREE.Vector3( 3.5 + shiftX, 0.15, wz),
+                new THREE.Vector3(15.5 + shiftX, 0.15, wz - 3)
+            ];
+            const pLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pPts), wireMat);
+            deckAssetsGroup.add(pLine);
+
+            // Hydraulic sheave damper housings on either side of the landing strip
+            [-9.2 + shiftX, 16.2 + shiftX].forEach((sx, sIdx) => {
+                const damper = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.48, 0.35, 10), yellowGearMat);
+                damper.position.set(sx, 0.18, sIdx === 0 ? wz + 3.2 : wz - 3.2);
+                deckAssetsGroup.add(damper);
+            });
+        });
 
         // ============================================================================
         // 9. PARTICLES
@@ -3046,11 +3770,13 @@
                         m.position.copy(u.homePos);
                         m.rotation.set(0, u.homeRot, 0);
                         u.currentYaw = u.homeRot;
+                        if (u.chocks) u.chocks.visible = true;
                         if (m.userData.gearGroup) m.userData.gearGroup.visible = true;
                         if (m.userData.afterburners) m.userData.afterburners.forEach(ab => ab.visible = false);
                         setWingFoldRatio(m, u.homeFolded ? 1.0 : 0.0);
 
                     } else if (u.state === 'TAXI_TO_CAT') {
+                        if (u.chocks) u.chocks.visible = false;
                         const t = stepAircraftAlongTaxiSpline(u, dt);
                         if (u.homeFolded) {
                             setWingFoldRatio(m, Math.max(0.0, 1.0 - t * 2.0));
@@ -3323,13 +4049,162 @@
                 selectionBracket.visible = false;
             }
 
+            // Gather active aircraft hazards on or near the flight deck so crew can sprint out of their path
+            const activeDeckHazards = [];
+            airWingUnits.forEach(u => {
+                if (u.state === 'AIRBORNE_PATROL' || u.state === 'PATROL_ORBIT') return;
+                if (u.mesh.position.y > 8.0) return;
+
+                const ax = u.mesh.position.x;
+                const az = u.mesh.position.z;
+                const ayaw = u.mesh.rotation.y;
+                const fwdX = Math.sin(ayaw);
+                const fwdZ = Math.cos(ayaw);
+
+                const isMoving = (
+                    u.state === 'TAXI_TO_CAT' ||
+                    u.state === 'PRE_LAUNCH' ||
+                    u.state === 'LAUNCHING' ||
+                    u.state === 'APPROACH' ||
+                    u.state === 'TOUCHDOWN_ROLLOUT' ||
+                    u.state === 'TAXI_TO_PARK' ||
+                    u.state === 'LIFTOFF' ||
+                    u.state === 'RETURN_APPROACH'
+                );
+
+                // Current aircraft footprint hazard
+                activeDeckHazards.push({
+                    x: ax,
+                    z: az,
+                    fwdX,
+                    fwdZ,
+                    radius: isMoving ? 13.5 : 7.5,
+                    urgent: isMoving
+                });
+
+                // Project forward path lookahead capsules so personnel clear the taxi/launch corridor early
+                if (isMoving) {
+                    const lookDist1 = (u.state === 'LAUNCHING' || u.state === 'TOUCHDOWN_ROLLOUT') ? 16.0 : 9.5;
+                    const lookDist2 = (u.state === 'LAUNCHING' || u.state === 'TOUCHDOWN_ROLLOUT') ? 32.0 : 18.0;
+                    activeDeckHazards.push({
+                        x: ax + fwdX * lookDist1,
+                        z: az + fwdZ * lookDist1,
+                        fwdX,
+                        fwdZ,
+                        radius: 12.5,
+                        urgent: true
+                    });
+                    activeDeckHazards.push({
+                        x: ax + fwdX * lookDist2,
+                        z: az + fwdZ * lookDist2,
+                        fwdX,
+                        fwdZ,
+                        radius: 11.5,
+                        urgent: true
+                    });
+                }
+            });
+
             deckCrewList.forEach(c => {
                 const a = elapsed * c.speed + c.phase;
                 const limbs = c.mesh.userData.limbs;
 
-                if (c.stationary) {
-                    c.mesh.position.x = c.baseX;
-                    c.mesh.position.z = c.baseZ;
+                // Nominal patrol or station position
+                const patrolX = c.stationary ? c.baseX : (c.baseX + Math.cos(a) * c.radius);
+                const patrolZ = c.stationary ? c.baseZ : (c.baseZ + Math.sin(a) * c.radius);
+
+                let curX = patrolX + c.evadeOffsetX;
+                let curZ = patrolZ + c.evadeOffsetZ;
+
+                // Check proximity against all moving/active aircraft and their forward path corridors
+                let fleeDirX = 0;
+                let fleeDirZ = 0;
+                let maxUrgency = 0;
+
+                for (let h = 0; h < activeDeckHazards.length; h++) {
+                    const haz = activeDeckHazards[h];
+                    const dx = curX - haz.x;
+                    const dz = curZ - haz.z;
+                    const dist = Math.hypot(dx, dz);
+
+                    if (dist < haz.radius && dist > 0.0001) {
+                        const urgency = (1.0 - dist / haz.radius) * (haz.urgent ? 1.8 : 0.7);
+                        if (haz.urgent) maxUrgency = Math.max(maxUrgency, urgency);
+
+                        // Evade laterally perpendicular to the aircraft's nose vector so crew don't run straight down the taxiway
+                        const latX = haz.fwdZ;
+                        const latZ = -haz.fwdX;
+                        const sideDot = dx * latX + dz * latZ;
+                        const sideSign = sideDot >= 0 ? 1.0 : -1.0;
+
+                        const radialX = dx / dist;
+                        const radialZ = dz / dist;
+
+                        fleeDirX += (radialX * 0.55 + latX * sideSign * 0.85) * urgency;
+                        fleeDirZ += (radialZ * 0.55 + latZ * sideSign * 0.85) * urgency;
+                    }
+                }
+
+                const fleeMag = Math.hypot(fleeDirX, fleeDirZ);
+                if (fleeMag > 0.01 && maxUrgency > 0.02) {
+                    // Sprint away from the aircraft's path
+                    const runSpeed = 9.5 + Math.min(maxUrgency * 6.0, 6.5);
+                    const targetVx = (fleeDirX / fleeMag) * runSpeed;
+                    const targetVz = (fleeDirZ / fleeMag) * runSpeed;
+                    c.evadeVelX = THREE.MathUtils.lerp(c.evadeVelX, targetVx, Math.min(1.0, dt * 12.0));
+                    c.evadeVelZ = THREE.MathUtils.lerp(c.evadeVelZ, targetVz, Math.min(1.0, dt * 12.0));
+                    c.evadeOffsetX += c.evadeVelX * dt;
+                    c.evadeOffsetZ += c.evadeVelZ * dt;
+                    c.isEvading = true;
+                } else {
+                    // When aircraft has passed, jog smoothly back to assigned station
+                    const offsetDist = Math.hypot(c.evadeOffsetX, c.evadeOffsetZ);
+                    if (offsetDist > 0.15) {
+                        const returnSpeed = 3.6;
+                        const rVx = (-c.evadeOffsetX / offsetDist) * Math.min(returnSpeed, offsetDist * 3.0);
+                        const rVz = (-c.evadeOffsetZ / offsetDist) * Math.min(returnSpeed, offsetDist * 3.0);
+                        c.evadeVelX = THREE.MathUtils.lerp(c.evadeVelX, rVx, Math.min(1.0, dt * 6.0));
+                        c.evadeVelZ = THREE.MathUtils.lerp(c.evadeVelZ, rVz, Math.min(1.0, dt * 6.0));
+                        c.evadeOffsetX += c.evadeVelX * dt;
+                        c.evadeOffsetZ += c.evadeVelZ * dt;
+                        c.isEvading = offsetDist > 0.6;
+                    } else {
+                        c.evadeOffsetX = THREE.MathUtils.lerp(c.evadeOffsetX, 0, Math.min(1.0, dt * 5.0));
+                        c.evadeOffsetZ = THREE.MathUtils.lerp(c.evadeOffsetZ, 0, Math.min(1.0, dt * 5.0));
+                        c.evadeVelX *= 0.8;
+                        c.evadeVelZ *= 0.8;
+                        c.isEvading = false;
+                    }
+                }
+
+                // Final world position clamped out of the angled landing runway foul line
+                const finalPt = { x: patrolX + c.evadeOffsetX, z: patrolZ + c.evadeOffsetZ };
+                clampOutOfRunwayZone(finalPt, 12.2);
+                c.evadeOffsetX = finalPt.x - patrolX;
+                c.evadeOffsetZ = finalPt.z - patrolZ;
+
+                const prevX = c.mesh.position.x;
+                const prevZ = c.mesh.position.z;
+                c.mesh.position.set(finalPt.x, 0, finalPt.z);
+
+                const moveDx = finalPt.x - prevX;
+                const moveDz = finalPt.z - prevZ;
+                const moveSpeed = Math.hypot(moveDx, moveDz) / Math.max(dt, 0.001);
+
+                if (c.isEvading && moveSpeed > 0.8) {
+                    // Rapid sprinting gait & forward lean when running out of an aircraft's way
+                    const runHeading = Math.atan2(moveDx, moveDz);
+                    c.mesh.rotation.y = lerpYaw(c.mesh.rotation.y, runHeading, Math.min(1.0, dt * 14.0));
+                    if (limbs) {
+                        const sprintCycle = Math.sin(elapsed * 18.0 + c.phase) * 0.95;
+                        limbs.leftLeg.rotation.x = sprintCycle;
+                        limbs.rightLeg.rotation.x = -sprintCycle;
+                        limbs.leftArm.rotation.x = -sprintCycle * 1.1;
+                        limbs.rightArm.rotation.x = sprintCycle * 1.1;
+                        limbs.leftArm.rotation.z = -0.15;
+                        limbs.rightArm.rotation.z = 0.15;
+                    }
+                } else if (c.stationary) {
                     c.mesh.rotation.y = c.baseRot + Math.sin(a * 0.7) * 0.25;
                     if (limbs) {
                         limbs.leftLeg.rotation.x = 0;
@@ -3345,11 +4220,8 @@
                         }
                     }
                 } else {
-                    const nx = c.baseX + Math.cos(a) * c.radius;
-                    const nz = c.baseZ + Math.sin(a) * c.radius;
-                    const dx = -Math.sin(a) * c.radius;
-                    const dz =  Math.cos(a) * c.radius;
-                    c.mesh.position.set(nx, 0, nz);
+                    const dx = -Math.sin(a) * c.radius + c.evadeVelX * 0.2;
+                    const dz =  Math.cos(a) * c.radius + c.evadeVelZ * 0.2;
                     c.mesh.rotation.y = Math.atan2(dx, dz);
 
                     if (limbs) {
@@ -3429,12 +4301,13 @@
                     hemiLight.intensity = 1.32;
                     sunLight.color.setHex(0xfffbf2);
                     sunLight.intensity = 3.2;
-                    sunLight.position.set(-170, 270, 120);
-                    oceanUniforms.uDeepColor.value.setHex(0x081f38);
-                    oceanUniforms.uMidColor.value.setHex(0x113b63);
-                    oceanUniforms.uSkyColor.value.setHex(0x528cb8);
-                    oceanUniforms.uWakeTurquoise.value.setHex(0x1abcb6);
-                    oceanUniforms.uFoamWhite.value.setHex(0xf6fafc);
+                    sunLight.position.set(150, 280, -85);
+                    oceanUniforms.uSunDir.value.copy(sunLight.position).normalize();
+                    oceanUniforms.uDeepColor.value.setHex(0x041325);
+                    oceanUniforms.uMidColor.value.setHex(0x0b2d4d);
+                    oceanUniforms.uSkyColor.value.setHex(0x4679a3);
+                    oceanUniforms.uWakeTurquoise.value.setHex(0x138e88);
+                    oceanUniforms.uFoamWhite.value.setHex(0xdcebf5);
                     oceanUniforms.uSunColor.value.setHex(0xfffef2);
                 } else {
                     scene.background.setHex(0x1a1426);
@@ -3444,9 +4317,10 @@
                     sunLight.color.setHex(0xfb923c);
                     sunLight.intensity = 3.3;
                     sunLight.position.set(-240, 85, -90);
-                    oceanUniforms.uDeepColor.value.setHex(0x061426);
-                    oceanUniforms.uMidColor.value.setHex(0x142844);
-                    oceanUniforms.uSkyColor.value.setHex(0x422a48);
+                    oceanUniforms.uSunDir.value.copy(sunLight.position).normalize();
+                    oceanUniforms.uDeepColor.value.setHex(0x051122);
+                    oceanUniforms.uMidColor.value.setHex(0x132842);
+                    oceanUniforms.uSkyColor.value.setHex(0x4a2e52);
                     oceanUniforms.uWakeTurquoise.value.setHex(0x0e7674);
                     oceanUniforms.uFoamWhite.value.setHex(0xdbeafe);
                     oceanUniforms.uSunColor.value.setHex(0xfdba74);

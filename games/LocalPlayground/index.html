@@ -168,8 +168,8 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * pixelScale);
             renderer.outputEncoding = THREE.sRGBEncoding;
-            renderer.toneMapping = THREE.NoToneMapping;
-            renderer.toneMappingExposure = 1.05;
+            renderer.toneMapping = THREE.ACESFilmicToneMapping;
+            renderer.toneMappingExposure = 1.06;
             renderer.shadowMap.enabled = true;
             renderer.shadowMap.type = THREE.PCFSoftShadowMap;
             container.appendChild(renderer.domElement);
@@ -241,90 +241,123 @@
                 return mesh;
             }
 
-            // Procedural Basketball Court Texture matching the reference image
+            // Procedural Basketball Court Texture matching the reference image with authentic acrylic wear
             function createCourtTexture() {
                 const canvas = document.createElement('canvas');
-                canvas.width = 1024;
-                canvas.height = 576;
+                canvas.width = 2048;
+                canvas.height = 1152;
                 const ctx = canvas.getContext('2d');
 
-                // Outer border apron (dark slate/teal green)
-                ctx.fillStyle = '#3b6654';
-                ctx.fillRect(0, 0, 1024, 576);
+                // 1. Dark pine green apron border
+                ctx.fillStyle = '#2f513d';
+                ctx.fillRect(0, 0, 2048, 1152);
 
-                // Subtle pixel stipple on apron
-                for (let i = 0; i < 6000; i++) {
-                    ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.05)';
-                    ctx.fillRect((Math.random() * 1024) | 0, (Math.random() * 576) | 0, 3, 3);
+                // Apron aggregate grain and subtle wear
+                for (let i = 0; i < 24000; i++) {
+                    const nx = (Math.random() * 2048) | 0;
+                    const ny = (Math.random() * 1152) | 0;
+                    ctx.fillStyle = i % 2 === 0 ? 'rgba(80, 130, 95, 0.08)' : 'rgba(15, 30, 20, 0.12)';
+                    ctx.fillRect(nx, ny, 3, 3);
                 }
 
-                const padX = 56;
-                const padY = 44;
-                const cW = 1024 - padX * 2;
-                const cH = 576 - padY * 2;
+                const padX = 112;
+                const padY = 88;
+                const cW = 2048 - padX * 2;
+                const cH = 1152 - padY * 2;
 
-                // Main playing court green
-                ctx.fillStyle = '#4d7c5b';
+                // 2. Main playing court green
+                ctx.fillStyle = '#467554';
                 ctx.fillRect(padX, padY, cW, cH);
 
-                // Subtle worn pixel texture on court
-                for (let i = 0; i < 9000; i++) {
-                    ctx.fillStyle = i % 2 === 0 ? 'rgba(130, 185, 130, 0.06)' : 'rgba(30, 50, 38, 0.06)';
-                    ctx.fillRect(padX + ((Math.random() * cW) | 0), padY + ((Math.random() * cH) | 0), 4, 4);
+                // Subtle tone variation between individual court panels/slabs
+                const panelW = cW / 4;
+                for (let p = 0; p < 4; p++) {
+                    ctx.fillStyle = p % 2 === 0 ? 'rgba(255, 255, 255, 0.018)' : 'rgba(0, 0, 0, 0.022)';
+                    ctx.fillRect(padX + p * panelW, padY, panelW, cH);
                 }
-                addSurfaceGrain(ctx, 1024, 576, 0.05);
 
-                // Regulation geometry (94ft x 50ft court) scaled to the canvas
+                // Authentic acrylic athletic grain & subtle color mottling
+                for (let i = 0; i < 35000; i++) {
+                    const gx = padX + ((Math.random() * cW) | 0);
+                    const gy = padY + ((Math.random() * cH) | 0);
+                    ctx.fillStyle = i % 3 === 0 ? 'rgba(110, 175, 125, 0.08)' : (i % 2 === 0 ? 'rgba(25, 52, 35, 0.09)' : 'rgba(60, 105, 75, 0.06)');
+                    ctx.fillRect(gx, gy, 4, 3);
+                }
+
+                // Authentic shoe scuff marks & pivot arcs where players cut
+                ctx.lineWidth = 3;
+                for (let s = 0; s < 75; s++) {
+                    const sx = padX + 150 + Math.random() * (cW - 300);
+                    const sy = padY + 80 + Math.random() * (cH - 160);
+                    const sLen = 12 + Math.random() * 28;
+                    const sAngle = Math.random() * Math.PI * 2;
+                    ctx.strokeStyle = Math.random() > 0.4 ? 'rgba(20, 42, 28, 0.22)' : 'rgba(150, 195, 160, 0.16)';
+                    ctx.beginPath();
+                    ctx.arc(sx, sy, sLen, sAngle, sAngle + 0.45);
+                    ctx.stroke();
+                }
+
+                // Regulation geometry
                 const ft = cW / 94;
-                const cy = 288;
+                const cy = 576;
                 const keyLen = 19 * ft;
                 const keyHalfW = 8 * ft;
                 const keyY = cy - keyHalfW;
                 const keyH = keyHalfW * 2;
                 const ftLineL = padX + keyLen;
-                const ftLineR = 1024 - ftLineL;
+                const ftLineR = 2048 - ftLineL;
                 const ftR = 6 * ft;
                 const centerR = 6 * ft;
-                // Basket centers match the rim world x (±18.63) in createBasketballHoop
-                const basketL = 512 - 18.63 * (1024 / 46);
-                const basketR = 1024 - basketL;
+                const basketL = 1024 - 18.63 * (2048 / 46);
+                const basketR = 2048 - basketL;
                 const arcR = 23.75 * ft;
                 const cornerY = padY + 3 * ft;
                 const cornerDx = Math.sqrt(arcR * arcR - (cy - cornerY) ** 2);
                 const theta = Math.atan2(cy - cornerY, cornerDx);
 
-                // Terracotta Red Keys (Left & Right)
-                ctx.fillStyle = '#995247';
+                // 3. Terracotta Red Keys (Left & Right) with worn athletic surface
+                ctx.fillStyle = '#944f42';
                 ctx.fillRect(padX, keyY, keyLen, keyH);
-                ctx.fillRect(1024 - padX - keyLen, keyY, keyLen, keyH);
+                ctx.fillRect(2048 - padX - keyLen, keyY, keyLen, keyH);
+
+                // Faint wear inside the keys near the baskets
+                for (let i = 0; i < 12000; i++) {
+                    const rxL = padX + Math.random() * keyLen;
+                    const ryL = keyY + Math.random() * keyH;
+                    const rxR = (2048 - padX - keyLen) + Math.random() * keyLen;
+                    const ryR = keyY + Math.random() * keyH;
+                    ctx.fillStyle = i % 2 === 0 ? 'rgba(215, 140, 125, 0.08)' : 'rgba(75, 30, 24, 0.09)';
+                    ctx.fillRect(rxL, ryL, 4, 3);
+                    ctx.fillRect(rxR, ryR, 4, 3);
+                }
 
                 // Center Circle Terracotta Red
                 ctx.beginPath();
-                ctx.arc(512, cy, centerR, 0, Math.PI * 2);
-                ctx.fillStyle = '#995247';
+                ctx.arc(1024, cy, centerR, 0, Math.PI * 2);
+                ctx.fillStyle = '#944f42';
                 ctx.fill();
 
-                // Crisp White Court Lines
-                ctx.strokeStyle = '#e8ece6';
-                ctx.lineWidth = 6;
+                // 4. Regulation Crisp Painted Lines (warm athletic off-white)
+                ctx.strokeStyle = '#e2e6de';
+                ctx.lineWidth = 11;
 
                 // Outer boundary
                 ctx.strokeRect(padX, padY, cW, cH);
 
                 // Half-court line
                 ctx.beginPath();
-                ctx.moveTo(512, padY);
-                ctx.lineTo(512, 576 - padY);
+                ctx.moveTo(1024, padY);
+                ctx.lineTo(1024, 1152 - padY);
                 ctx.stroke();
 
                 // Center circle outline
                 ctx.beginPath();
-                ctx.arc(512, cy, centerR, 0, Math.PI * 2);
+                ctx.arc(1024, cy, centerR, 0, Math.PI * 2);
                 ctx.stroke();
 
-                // Keys and free-throw circles (the half-circle bulges toward the center)
+                // Keys and free-throw circles
                 ctx.strokeRect(padX, keyY, keyLen, keyH);
-                ctx.strokeRect(1024 - padX - keyLen, keyY, keyLen, keyH);
+                ctx.strokeRect(2048 - padX - keyLen, keyY, keyLen, keyH);
                 ctx.beginPath();
                 ctx.arc(ftLineL, cy, ftR, -Math.PI / 2, Math.PI / 2);
                 ctx.stroke();
@@ -332,50 +365,106 @@
                 ctx.arc(ftLineR, cy, ftR, Math.PI / 2, Math.PI * 1.5);
                 ctx.stroke();
 
-                // Left 3-Point line: straight corners parallel to the sidelines, then an arc around the basket
+                // Left 3-Point line
                 ctx.beginPath();
                 ctx.moveTo(padX, cornerY);
                 ctx.lineTo(basketL + cornerDx, cornerY);
                 ctx.arc(basketL, cy, arcR, -theta, theta);
-                ctx.lineTo(padX, 576 - cornerY);
+                ctx.lineTo(padX, 1152 - cornerY);
                 ctx.stroke();
 
-                // Right 3-Point line (mirror of the left, arc runs through the inside of the court)
+                // Right 3-Point line
                 ctx.beginPath();
-                ctx.moveTo(1024 - padX, cornerY);
+                ctx.moveTo(2048 - padX, cornerY);
                 ctx.lineTo(basketR - cornerDx, cornerY);
                 ctx.arc(basketR, cy, arcR, Math.PI + theta, Math.PI - theta, true);
-                ctx.lineTo(1024 - padX, 576 - cornerY);
+                ctx.lineTo(2048 - padX, 1152 - cornerY);
                 ctx.stroke();
 
+                // Court perimeter dark contact edge for baked border occlusion
+                ctx.strokeStyle = 'rgba(15, 32, 20, 0.65)';
+                ctx.lineWidth = 8;
+                ctx.strokeRect(4, 4, 2040, 1144);
+
+                addSurfaceGrain(ctx, 2048, 1152, 0.04);
                 return finishColorTexture(new THREE.CanvasTexture(canvas));
             }
-
-            // Procedural Park Grass Texture
+// Procedural Seamless Warm Park Grass Texture with fine pixel blades and wildflowers
             function createGrassTexture() {
                 const canvas = document.createElement('canvas');
                 canvas.width = 512;
                 canvas.height = 512;
                 const ctx = canvas.getContext('2d');
-                ctx.fillStyle = '#456c3c';
+
+                // Rich golden-olive turf base matching reference image
+                ctx.fillStyle = '#52822a';
                 ctx.fillRect(0, 0, 512, 512);
 
-                const colors = ['#3b6234', '#4d7440', '#587f45', '#365b2f'];
-                for (let i = 0; i < 8000; i++) {
-                    ctx.fillStyle = colors[i % colors.length];
-                    const x = (Math.random() * 512) | 0;
-                    const y = (Math.random() * 512) | 0;
-                    ctx.fillRect(x, y, 3, 2);
+                // Seamless multi-scale organic mottling (using wrapped coordinates)
+                for (let i = 0; i < 90; i++) {
+                    const cx = Math.random() * 512;
+                    const cy = Math.random() * 512;
+                    const rad = 35 + Math.random() * 85;
+                    const isSun = i % 2 === 0;
+
+                    for (let ox of [-512, 0, 512]) {
+                        for (let oy of [-512, 0, 512]) {
+                            const x = cx + ox;
+                            const y = cy + oy;
+                            if (x + rad < 0 || x - rad > 512 || y + rad < 0 || y - rad > 512) continue;
+                            const grad = ctx.createRadialGradient(x, y, 5, x, y, rad);
+                            if (isSun) {
+                                grad.addColorStop(0, 'rgba(118, 172, 48, 0.35)'); // warm golden sunlit patch
+                                grad.addColorStop(1, 'rgba(118, 172, 48, 0)');
+                            } else {
+                                grad.addColorStop(0, 'rgba(52, 88, 26, 0.38)');  // deep clover green
+                                grad.addColorStop(1, 'rgba(52, 88, 26, 0)');
+                            }
+                            ctx.fillStyle = grad;
+                            ctx.beginPath();
+                            ctx.arc(x, y, rad, 0, Math.PI * 2);
+                            ctx.fill();
+                        }
+                    }
                 }
-                addSurfaceGrain(ctx, 512, 512, 0.07);
+
+                // Fine pixel-art grass blades in varied authentic greens
+                const bladeColors = [
+                    '#6da234', '#7cb83c', '#5e922c', '#4d7e24',
+                    '#3e6a1c', '#8ac542', '#568628', '#345717'
+                ];
+                for (let i = 0; i < 32000; i++) {
+                    ctx.fillStyle = bladeColors[i % bladeColors.length];
+                    const bx = (Math.random() * 512) | 0;
+                    const by = (Math.random() * 512) | 0;
+                    const bh = 2 + ((Math.random() * 3) | 0);
+                    ctx.fillRect(bx, by, 2, bh);
+                }
+
+                // Wildflowers: tiny yellow buttercups and white clover dots
+                for (let f = 0; f < 650; f++) {
+                    const fx = (Math.random() * 512) | 0;
+                    const fy = (Math.random() * 512) | 0;
+                    if (f % 3 === 0) {
+                        ctx.fillStyle = '#facc15';
+                        ctx.fillRect(fx, fy, 2, 2);
+                        ctx.fillStyle = '#ca8a04';
+                        ctx.fillRect(fx + 1, fy + 1, 1, 1);
+                    } else if (f % 3 === 1) {
+                        ctx.fillStyle = '#f8fafc';
+                        ctx.fillRect(fx, fy, 2, 2);
+                    }
+                }
+
+                addSurfaceGrain(ctx, 512, 512, 0.035);
+
                 const tex = new THREE.CanvasTexture(canvas);
                 tex.wrapS = THREE.RepeatWrapping;
                 tex.wrapT = THREE.RepeatWrapping;
-                tex.repeat.set(10, 7);
+                tex.repeat.set(24, 13);
                 return finishColorTexture(tex);
             }
-
-            // Procedural Chain-Link Fence Diamond Texture
+// Procedural Chain-Link Fence Diamond Texture
             function createChainLinkTexture() {
                 const canvas = document.createElement('canvas');
                 canvas.width = 64;
@@ -395,21 +484,38 @@
             }
             const baseFenceTex = createChainLinkTexture();
 
-            // Procedural Paved Stone Walkway Texture
+            // Procedural Paved Stone Walkway Texture with authentic granite pavers matching reference
             function createPavementTexture() {
                 const canvas = document.createElement('canvas');
-                canvas.width = 128;
-                canvas.height = 128;
+                canvas.width = 256;
+                canvas.height = 256;
                 const ctx = canvas.getContext('2d');
-                ctx.fillStyle = '#c2baa6';
-                ctx.fillRect(0, 0, 128, 128);
-                ctx.strokeStyle = '#9e9583';
-                ctx.lineWidth = 3;
-                ctx.strokeRect(2, 2, 60, 60);
-                ctx.strokeRect(66, 2, 60, 60);
-                ctx.strokeRect(2, 66, 60, 60);
-                ctx.strokeRect(66, 66, 60, 60);
-                addSurfaceGrain(ctx, 128, 128, 0.06);
+
+                // Light warm grey paver slab base
+                ctx.fillStyle = '#c8c2b4';
+                ctx.fillRect(0, 0, 256, 256);
+
+                // Subtle slab color variations (2x2 paver grid)
+                const slabs = [
+                    { x: 2, y: 2, w: 124, h: 124, col: '#cac4b7' },
+                    { x: 130, y: 2, w: 124, h: 124, col: '#c3bcae' },
+                    { x: 2, y: 130, w: 124, h: 124, col: '#c5bfae' },
+                    { x: 130, y: 130, w: 124, h: 124, col: '#c8c1b3' }
+                ];
+                slabs.forEach(s => {
+                    ctx.fillStyle = s.col;
+                    ctx.fillRect(s.x, s.y, s.w, s.h);
+                });
+
+                // Dark weathered joint lines between pavers
+                ctx.strokeStyle = '#8c8474';
+                ctx.lineWidth = 4;
+                ctx.strokeRect(2, 2, 124, 124);
+                ctx.strokeRect(130, 2, 124, 124);
+                ctx.strokeRect(2, 130, 124, 124);
+                ctx.strokeRect(130, 130, 124, 124);
+
+                addSurfaceGrain(ctx, 256, 256, 0.05);
 
                 const tex = new THREE.CanvasTexture(canvas);
                 tex.wrapS = THREE.RepeatWrapping;
@@ -417,8 +523,7 @@
                 return finishColorTexture(tex);
             }
             const basePavementTex = createPavementTexture();
-
-            // Procedural Deep Teal/Cerulean River Water Texture matching reference image
+// Procedural Deep Teal/Cerulean River Water Texture matching reference image
             function createWaterTexture() {
                 const canvas = document.createElement('canvas');
                 canvas.width = 512;
@@ -455,8 +560,7 @@
                 tex.repeat.set(2.72, 1.6);
                 return finishColorTexture(tex);
             }
-
-            // Procedural Slate Shingle Roof Texture for Utility House
+// Procedural Slate Shingle Roof Texture for Utility House
             function createRoofShingleTexture() {
                 const canvas = document.createElement('canvas');
                 canvas.width = 256;
@@ -482,28 +586,151 @@
             }
             const roofShingleTex = createRoofShingleTexture();
 
+            
+            // ============================================================================
+            // 2B. PROCEDURAL FOLIAGE TEXTURE & AMBIENT OCCLUSION (AO) SYSTEM
+            // ============================================================================
+            // Procedural high-detail pixel-art foliage texture for lush canopies with sunny golden highlights
+            function createFoliageTexture() {
+                const canvas = document.createElement('canvas');
+                canvas.width = 512;
+                canvas.height = 512;
+                const ctx = canvas.getContext('2d');
+
+                // Rich golden-green leafy base
+                ctx.fillStyle = '#3a6e22';
+                ctx.fillRect(0, 0, 512, 512);
+
+                // Multi-toned organic leaf clumps with bright sunny chartreuse highlights
+                const leafPalette = [
+                    '#4a8228', '#5b982e', '#72b638', '#8ed242',
+                    '#a6e64c', '#c2f85c', '#d6fa6e', '#2c581a'
+                ];
+
+                for (let c = 0; c < 1500; c++) {
+                    const lx = Math.random() * 512;
+                    const ly = Math.random() * 512;
+                    const rad = 4 + Math.random() * 16;
+
+                    for (let ox of [-512, 0, 512]) {
+                        for (let oy of [-512, 0, 512]) {
+                            const x = lx + ox;
+                            const y = ly + oy;
+                            if (x + rad < 0 || x - rad > 512 || y + rad < 0 || y - rad > 512) continue;
+                            const grad = ctx.createRadialGradient(x - rad * 0.3, y - rad * 0.3, 1, x, y, rad);
+                            const colorA = leafPalette[(Math.random() * leafPalette.length) | 0];
+                            const colorB = leafPalette[(Math.random() * 4) | 0];
+                            grad.addColorStop(0, colorA);
+                            grad.addColorStop(0.7, colorB);
+                            grad.addColorStop(1, 'rgba(35, 70, 20, 0.0)');
+                            ctx.fillStyle = grad;
+                            ctx.beginPath();
+                            ctx.arc(x, y, rad, 0, Math.PI * 2);
+                            ctx.fill();
+                        }
+                    }
+                }
+
+                // Fine pixel-art leaf highlights and sunlit dapples
+                for (let i = 0; i < 12000; i++) {
+                    const px = (Math.random() * 512) | 0;
+                    const py = (Math.random() * 512) | 0;
+                    ctx.fillStyle = i % 4 === 0 ? '#d4f866' : (i % 2 === 0 ? '#98de44' : '#244e16');
+                    ctx.fillRect(px, py, 2, 2);
+                }
+
+                addSurfaceGrain(ctx, 512, 512, 0.035);
+                const tex = new THREE.CanvasTexture(canvas);
+                tex.wrapS = THREE.RepeatWrapping;
+                tex.wrapT = THREE.RepeatWrapping;
+                tex.repeat.set(2.0, 2.0);
+                return finishColorTexture(tex);
+            }
+            const baseFoliageTex = createFoliageTexture();
+// Contact Ambient Occlusion Textures with clean, smooth NormalBlending
+            function createContactAOMaterial(type = 'circle') {
+                const canvas = document.createElement('canvas');
+                canvas.width = 256;
+                canvas.height = 256;
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, 256, 256);
+
+                if (type === 'circle') {
+                    const grad = ctx.createRadialGradient(128, 128, 0, 128, 128, 128);
+                    grad.addColorStop(0.0, 'rgba(8, 16, 7, 0.88)');
+                    grad.addColorStop(0.32, 'rgba(10, 20, 8, 0.72)');
+                    grad.addColorStop(0.65, 'rgba(12, 24, 10, 0.35)');
+                    grad.addColorStop(0.88, 'rgba(14, 28, 12, 0.10)');
+                    grad.addColorStop(1.0, 'rgba(16, 32, 14, 0.0)');
+                    ctx.fillStyle = grad;
+                    ctx.fillRect(0, 0, 256, 256);
+                } else {
+                    // Soft rounded rectangle with smooth feather falloff
+                    const pad = 16;
+                    const w = 256 - pad * 2;
+                    const h = 256 - pad * 2;
+                    const r = 24;
+
+                    const grad = ctx.createRadialGradient(128, 128, 20, 128, 128, 120);
+                    grad.addColorStop(0.0, 'rgba(8, 16, 7, 0.90)');
+                    grad.addColorStop(0.45, 'rgba(10, 20, 8, 0.75)');
+                    grad.addColorStop(0.75, 'rgba(12, 24, 10, 0.35)');
+                    grad.addColorStop(0.92, 'rgba(14, 28, 12, 0.08)');
+                    grad.addColorStop(1.0, 'rgba(16, 32, 14, 0.0)');
+                    ctx.fillStyle = grad;
+                    ctx.fillRect(0, 0, 256, 256);
+                }
+
+                const tex = new THREE.CanvasTexture(canvas);
+                return new THREE.MeshBasicMaterial({
+                    map: tex,
+                    transparent: true,
+                    depthWrite: false,
+                    blending: THREE.NormalBlending
+                });
+            }
+
+            const circleAOMat = createContactAOMaterial('circle');
+            const boxAOMat = createContactAOMaterial('box');
+// Helper to place ambient occlusion / contact shadow plane on the ground
+            function addContactAO(x, z, sizeX, sizeZ, opacity = 1.0, isBox = false, rotY = 0) {
+                const geo = new THREE.PlaneGeometry(sizeX, sizeZ);
+                const mat = (isBox ? boxAOMat : circleAOMat).clone();
+                mat.opacity = opacity;
+                const mesh = new THREE.Mesh(geo, mat);
+                mesh.rotation.x = -Math.PI / 2;
+                mesh.rotation.z = rotY;
+                mesh.position.set(x, 0.038, z);
+                mesh.renderOrder = 1;
+                scene.add(mesh);
+                return mesh;
+            }
+
             // ============================================================================
             // 3. LIGHTING (SUNNY AFTERNOON / GOLDEN HOUR / NIGHT PARK LIGHTS)
             // ============================================================================
-            const hemiLight = new THREE.HemisphereLight(0xcfe6ff, 0x4a5e3a, 0.5);
+            // Atmospheric Sky & Ground Ambient Light matching reference golden hour
+            const hemiLight = new THREE.HemisphereLight(0x9cc3e8, 0x3d5a22, 0.55);
             scene.add(hemiLight);
 
-            const ambientLight = new THREE.AmbientLight(0xdcedc8, 0.3);
+            const ambientLight = new THREE.AmbientLight(0x738a68, 0.38);
             scene.add(ambientLight);
 
-            const dirLight = new THREE.DirectionalLight(0xfff1c1, 1.15);
-            dirLight.position.set(-45, 78, -32);
+            // Warm golden afternoon directional sunlight from top-left, casting long angled shadows to bottom-right
+            const dirLight = new THREE.DirectionalLight(0xffefc4, 1.48);
+            dirLight.position.set(-56, 78, -36);
             dirLight.castShadow = true;
             dirLight.shadow.mapSize.width = 4096;
             dirLight.shadow.mapSize.height = 4096;
-            const d = 68;
+            const d = 85; // Wide frustum so all trees and park props cast shadows across lawn and walkways
             dirLight.shadow.camera.left = -d;
             dirLight.shadow.camera.right = d;
             dirLight.shadow.camera.top = d;
             dirLight.shadow.camera.bottom = -d;
             dirLight.shadow.camera.near = 10;
-            dirLight.shadow.camera.far = 190;
-            dirLight.shadow.bias = -0.0005;
+            dirLight.shadow.camera.far = 210;
+            dirLight.shadow.bias = -0.0004;
+            dirLight.shadow.normalBias = 0.03;
             scene.add(dirLight);
 
             const lampPointLights = [];
@@ -534,20 +761,24 @@
             const courtMat = toonMat(0xffffff, { map: createCourtTexture() });
             const courtSlab = addOutlinedMesh(courtGeo, courtMat, scene, 0.008, false, true);
             courtSlab.position.set(0, 0.05, 0);
+            // Ambient Occlusion contact shadow surrounding the basketball court
+            addContactAO(0, 0, courtW + 3.2, courtD + 3.2, 0.92, true);
 
             // Helper for paved stone paths
             function addPathBox(x, z, w, d, rotY = 0) {
                 const tex = basePavementTex.clone();
                 tex.needsUpdate = true;
-                tex.repeat.set(w / 3.5, d / 3.5);
-                const mat = toonMat(0xffffff, { map: tex });
+                tex.repeat.set(w / 4.0, d / 4.0);
+                const mat = toonMat(0xffffff, { map: tex, roughness: 0.88 });
                 const mesh = addOutlinedMesh(new THREE.BoxGeometry(w, 0.22, d), mat, scene, 0.015, false, true);
                 mesh.position.set(x, 0.04, z);
                 mesh.rotation.y = rotY;
+
+                // Contact ambient occlusion along walkway border
+                addContactAO(x, z, w + 1.2, d + 1.2, 0.45, true, rotY);
                 return mesh;
             }
-
-            // Surrounding Paved Walkways matching reference layout
+// Surrounding Paved Walkways matching reference layout
             addPathBox(0, 16.5, 58, 4.2);   // Bottom-Left Lakeside Path (+Z)
             addPathBox(4, -17.5, 68, 4.4);  // Upper-Right Scooter & Bleacher Path (-Z)
             addPathBox(14, -27.5, 56, 3.6); // Far Upper-Right Sidewalk by Road
@@ -569,6 +800,7 @@
                 const rimMat = toonMat(0xe8612c);
 
                 // Heavy Base & Vertical Support Post
+                addContactAO(xPos, 0, 2.6, 2.6, 0.72);
                 const base = addOutlinedMesh(new THREE.BoxGeometry(1.1, 0.45, 1.1), poleMat, hoopGroup, 0.08);
                 base.position.set(0, 0.22, 0);
 
@@ -682,6 +914,8 @@
             const bleacherGroup = new THREE.Group();
             bleacherGroup.position.set(0.5, 0, -14.2);
             scene.add(bleacherGroup);
+            // Deep ambient occlusion under bleachers
+            addContactAO(0.5, -14.2, 15.2, 5.4, 0.98, true);
 
             const aluMat = toonMat(0x8d99a6);
             const frameMat = toonMat(0x3a444d);
@@ -811,6 +1045,8 @@
         const buildingGroup = new THREE.Group();
         buildingGroup.position.set(-5.5, 0, -26.5);
         scene.add(buildingGroup);
+        // Foundation ambient occlusion grounding the building into the lawn
+        addContactAO(-5.5, -26.5, 13.5, 9.4, 0.96, true);
 
         const wallMat = toonMat(0xc8beab);
         const brickBaseMat = toonMat(0x7d5847);
@@ -913,47 +1149,98 @@
         const sandMat = toonMat(0xd8b88c);
         const sandPit = addOutlinedMesh(new THREE.BoxGeometry(17.5, 0.2, 13.5), sandMat, playGroup, 0.02, false, true);
         sandPit.position.y = 0.04;
+        addContactAO(-35.5, -12.5, 20.5, 16.5, 0.88, true);
 
-        // Blue & Yellow Slide Tower Structure
+        // Blue & Yellow Slide Tower Structure with Real Staircase & Aligned Chute
         const playBlue = toonMat(0x2584b8);
         const playYellow = toonMat(0xeab308);
         const playRed = toonMat(0xd9483b);
+        const playWood = toonMat(0xd97706);
 
         const tower = new THREE.Group();
         tower.position.set(2.2, 0, -1.5);
         playGroup.add(tower);
 
+        // 4 Main Vertical Posts
         for (let tx of [-1.3, 1.3]) {
             for (let tz of [-1.3, 1.3]) {
                 const post = addOutlinedMesh(new THREE.CylinderGeometry(0.16, 0.16, 5.2, 8), playRed, tower, 0.08);
                 post.position.set(tx, 2.6, tz);
             }
         }
+
+        // Elevated Platform Deck (at Y = 2.4)
         const deck = addOutlinedMesh(new THREE.BoxGeometry(3.0, 0.25, 3.0), playYellow, tower, 0.06);
         deck.position.y = 2.4;
 
-        // Yellow Guard Panels
-            const guard1 = addOutlinedMesh(new THREE.BoxGeometry(3.0, 1.1, 0.16), playYellow, tower, 0.06);
-            guard1.position.set(0, 3.05, -1.4);
-            const guard2 = addOutlinedMesh(new THREE.BoxGeometry(0.16, 1.1, 3.0), playYellow, tower, 0.06);
-            guard2.position.set(-1.4, 3.05, 0);
+        // Side Guard Panels on -X and +X (leaving front for slide and back for staircase)
+        const guardLeft = addOutlinedMesh(new THREE.BoxGeometry(0.16, 1.1, 3.0), playYellow, tower, 0.06);
+        guardLeft.position.set(-1.4, 3.05, 0);
 
-            // Blue Peaked Roof with Yellow Trim
-            const pyramidRoof = addOutlinedMesh(new THREE.ConeGeometry(2.5, 1.8, 4), playBlue, tower, 0.06);
-            pyramidRoof.position.y = 5.9;
-            pyramidRoof.rotation.y = Math.PI / 4;
+        const guardRight = addOutlinedMesh(new THREE.BoxGeometry(0.16, 1.1, 1.8), playYellow, tower, 0.06);
+        guardRight.position.set(1.4, 3.05, -0.6);
 
-            // Blue Slide Chute extending toward +X, +Z
-            const slideChute = addOutlinedMesh(new THREE.BoxGeometry(1.2, 0.22, 4.4), playBlue, tower, 0.06);
-            slideChute.position.set(0.4, 1.25, 3.0);
-            slideChute.rotation.x = 0.56;
+        // Blue Peaked Roof with Yellow Trim
+        const pyramidRoof = addOutlinedMesh(new THREE.ConeGeometry(2.5, 1.8, 4), playBlue, tower, 0.06);
+        pyramidRoof.position.y = 5.9;
+        pyramidRoof.rotation.y = Math.PI / 4;
 
-            // Yellow Ladder on -Z/side
-            const ladder = addOutlinedMesh(new THREE.BoxGeometry(1.0, 2.7, 0.2), playYellow, tower, 0.06);
-            ladder.position.set(-0.5, 1.2, 1.8);
-            ladder.rotation.x = -0.35;
+        // Channeled Blue Slide Chute (centered at X = 0.4 in tower space -> world X = -32.9)
+        const slideChuteGroup = new THREE.Group();
+        slideChuteGroup.position.set(0.4, 1.25, 2.95);
+        slideChuteGroup.rotation.x = 0.55;
+        tower.add(slideChuteGroup);
 
-            // Swing Set Frame (A-Frame with 2 Animated Swings)
+        // Main slide chute bed
+        const chuteBed = addOutlinedMesh(new THREE.BoxGeometry(1.25, 0.18, 4.4), playBlue, slideChuteGroup, 0.06);
+
+        // Left and Right safety raised side rails on chute
+        for (let rx of [-0.62, 0.62]) {
+            const sideRail = addOutlinedMesh(new THREE.BoxGeometry(0.12, 0.35, 4.4), playBlue, slideChuteGroup, 0.06);
+            sideRail.position.set(rx, 0.18, 0);
+        }
+
+        // Real Playground Staircase leading from ground up to back of deck (-Z side)
+        const stairGroup = new THREE.Group();
+        stairGroup.position.set(0, 0, -1.45);
+        tower.add(stairGroup);
+
+        const stringerLen = 3.65;
+        const stringerAngle = Math.atan2(2.4, 2.65); // ~42 deg slope
+
+        // Left & Right angled stringer beams
+        for (let sx of [-0.72, 0.72]) {
+            const stringer = addOutlinedMesh(new THREE.BoxGeometry(0.12, 0.22, stringerLen), playRed, stairGroup, 0.06);
+            stringer.position.set(sx, 1.2, -1.35);
+            stringer.rotation.x = -stringerAngle;
+        }
+
+        // 6 Real Horizontal Steps / Treads from ground up to platform
+        const numSteps = 6;
+        for (let s = 0; s < numSteps; s++) {
+            const u = (s + 0.5) / numSteps;
+            const sy = 0.22 + u * 2.18;
+            const sz = -2.60 + u * 2.50;
+            const stepPlank = addOutlinedMesh(new THREE.BoxGeometry(1.36, 0.11, 0.42), playWood, stairGroup, 0.06);
+            stepPlank.position.set(0, sy, sz);
+        }
+
+        // Left and Right Staircase Safety Handrails with Vertical Baluster Posts
+        for (let hx of [-0.78, 0.78]) {
+            // Sloped Handrail Bar
+            const hBar = addOutlinedMesh(new THREE.CylinderGeometry(0.055, 0.055, stringerLen + 0.3, 8), playRed, stairGroup, 0.06);
+            hBar.position.set(hx, 1.95, -1.35);
+            hBar.rotation.x = -stringerAngle;
+
+            // Vertical handrail support posts
+            for (let pz of [-2.45, -1.35, -0.25]) {
+                const u = (pz + 2.60) / 2.50;
+                const py = 0.22 + u * 2.18;
+                const vPost = addOutlinedMesh(new THREE.CylinderGeometry(0.045, 0.045, 0.85, 6), playRed, stairGroup, 0.06);
+                vPost.position.set(hx, py + 0.42, pz);
+            }
+        }
+// Swing Set Frame (A-Frame with 2 Animated Swings)
             const swingGroup = new THREE.Group();
             swingGroup.position.set(-4.5, 0, 1.2);
             playGroup.add(swingGroup);
@@ -1005,6 +1292,9 @@
         // Refined Detailed Car Builder (Sculpted Hood, Sloped Windshield, Wheel Arches, Bumpers)
         function createCar(colorHex, isSUV = true) {
             const car = new THREE.Group();
+            const carAO = addContactAO(0, 0, 6.4, 3.2, 0.88, true);
+            car.add(carAO);
+            carAO.position.set(0, 0.03, 0);
             const bodyMat = toonMat(colorHex);
             const glassMat = toonMat(0x59788e);
             const tireMat = toonMat(0x1c2024);
@@ -1126,6 +1416,8 @@
                 const woodMat = toonMat(0x9c6b3b);
                 const ironMat = toonMat(0x22282a);
 
+                // Soft contact shadow under bench
+                addContactAO(x, z, 4.2, 2.2, 0.92, true, rotY);
                 const seat = addOutlinedMesh(new THREE.BoxGeometry(3.2, 0.18, 0.95), woodMat, bench, 0.07);
                 seat.position.set(0, 0.75, 0);
 
@@ -1142,6 +1434,7 @@
 
             // Benches matching reference image
             addParkBench(-6.2, 16.8, 0);          // Lakeside bench with Man & Golden Retriever
+            addContactAO(-5.2, 16.85, 2.2, 1.8, 0.68);
             addParkBench(9.8, 16.8, 0);           // Second lakeside bench
             addParkBench(-24.8, 7.5, Math.PI / 2);// Bench near left baseline fence
             addParkBench(20.5, -19.2, 0);         // Bench on right sidewalk with seated person
@@ -1162,134 +1455,160 @@
             [-3.2, 16.8], [-8.8, -23.8], [-0.2, -24.8], [0.8, -24.8], [17.5, -19.2]
         ].forEach(([cx, cz]) => addTrashCan(cx, cz));
 
-        // Multi-Clustered 2D-Style Outlined Trees & Bushes (Rich Organic Pixel-Art Foliage)
-        const trunkMat = toonMat(0x5e3f28);
-        const leafDark = toonMat(0x2e5926);
-        const leafMid = toonMat(0x47772f);
-        const leafBright = toonMat(0x689a35);
+        // Multi-Clustered Lush Pixel-Art Trees & Bushes matching reference image
+        const trunkMat = toonMat(0x4a2e18, { roughness: 0.95 });
+        const leafDark = toonMat(0x1e4614, { roughness: 0.88 });
+        const leafMid = toonMat(0x3e7424, { roughness: 0.85 });
+        const leafBright = toonMat(0x68a52e, { roughness: 0.82 });
 
-            // Canopy shading: vertex colors give each leaf clump a lit top and a shaded underside, like the reference
-            const canopyLightDir = new THREE.Vector3(-0.45, 0.85, 0.35).normalize();
-            const canopyShadow = new THREE.Color(0x1f4b1b);
-            const canopyMid = new THREE.Color(0x4f8432);
-            const canopyLit = new THREE.Color(0xa3cf58);
-            const canopyMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0 });
-            const canopyGeoCache = new Map();
+        // Canopy shading with warm golden-yellow sunlight highlights and rich emerald depths
+        const canopyLightDir = new THREE.Vector3(-0.48, 0.78, -0.38).normalize();
+        const canopyShadow = new THREE.Color(0x28501a);
+        const canopyMidColor = new THREE.Color(0x6eb034);
+        const canopyLitColor = new THREE.Color(0xdcff5e);
 
-            // Deterministic lumps keep duplicated icosahedron vertices welded together
-            function canopyLump(x, y, z) {
-                return 1 + 0.12 * Math.sin(x * 3.1 + y * 2.3) * Math.cos(z * 2.7 - x * 1.3) + 0.06 * Math.sin(y * 5.7 + z * 4.1);
-            }
+        // Standard foliage material combining procedural leaf texture with directional vertex colors
+        const canopyMat = new THREE.MeshStandardMaterial({
+            map: baseFoliageTex,
+            vertexColors: true,
+            roughness: 0.68,
+            metalness: 0.02
+        });
+const canopyGeoCache = new Map();
 
-            function getCanopyGeometry(r) {
-                if (canopyGeoCache.has(r)) return canopyGeoCache.get(r);
-                const geo = new THREE.IcosahedronGeometry(r, 2);
-                const pos = geo.attributes.position;
-                const nor = geo.attributes.normal;
-                const colors = new Float32Array(pos.count * 3);
-                const c = new THREE.Color();
-                for (let i = 0; i < pos.count; i++) {
-                    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
-                    const k = canopyLump(x, y, z);
-                    pos.setXYZ(i, x * k, y * k, z * k);
-                    const len = Math.hypot(x, y, z);
-                    const nx = x / len, ny = y / len, nz = z / len;
-                    nor.setXYZ(i, nx, ny, nz);
-                    const lit = nx * canopyLightDir.x + ny * canopyLightDir.y + nz * canopyLightDir.z;
-                    const t = THREE.MathUtils.clamp((lit + 0.25) / 1.25 + (k - 1) * 1.2, 0, 1);
-                    if (t < 0.5) c.copy(canopyShadow).lerp(canopyMid, t * 2);
-                    else c.copy(canopyMid).lerp(canopyLit, (t - 0.5) * 2);
-                    colors.set([c.r, c.g, c.b], i * 3);
+        // Multi-frequency organic leaf clump distortion
+        function canopyLump(x, y, z) {
+            return 1.0 + 0.16 * Math.sin(x * 3.4 + y * 2.5) * Math.cos(z * 3.1 - x * 1.4) + 0.08 * Math.sin(y * 6.2 + z * 4.4);
+        }
+
+        function getCanopyGeometry(r) {
+            if (canopyGeoCache.has(r)) return canopyGeoCache.get(r);
+            const geo = new THREE.IcosahedronGeometry(r, 3);
+            const pos = geo.attributes.position;
+            const nor = geo.attributes.normal;
+            const colors = new Float32Array(pos.count * 3);
+            const c = new THREE.Color();
+            for (let i = 0; i < pos.count; i++) {
+                const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+                const k = canopyLump(x, y, z);
+                pos.setXYZ(i, x * k, y * k, z * k);
+                const len = Math.hypot(x, y, z);
+                const nx = x / len, ny = y / len, nz = z / len;
+                nor.setXYZ(i, nx, ny, nz);
+
+                // Directional vertex lighting aligned with afternoon sun
+                const lit = nx * canopyLightDir.x + ny * canopyLightDir.y + nz * canopyLightDir.z;
+                const t = THREE.MathUtils.clamp((lit + 0.32) / 1.32 + (k - 1) * 0.9, 0, 1);
+                if (t < 0.45) {
+                    c.copy(canopyShadow).lerp(canopyMidColor, t / 0.45);
+                } else {
+                    c.copy(canopyMidColor).lerp(canopyLitColor, (t - 0.45) / 0.55);
                 }
-                geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-                pos.needsUpdate = true;
-                nor.needsUpdate = true;
-                canopyGeoCache.set(r, geo);
-                return geo;
+                colors.set([c.r, c.g, c.b], i * 3);
             }
-
-        function addLushTree(x, z, scale = 1.0) {
+            geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            pos.needsUpdate = true;
+            nor.needsUpdate = true;
+            canopyGeoCache.set(r, geo);
+            return geo;
+        }
+function addLushTree(x, z, scale = 1.0, isForeground = false) {
             const tree = new THREE.Group();
             tree.position.set(x, 0, z);
             tree.scale.setScalar(scale);
             scene.add(tree);
 
-            // Tapered Gnarled Trunk + Root Flare + Secondary Branches
-            const trunk = addOutlinedMesh(new THREE.CylinderGeometry(0.36, 0.68, 3.6, 8), trunkMat, tree, 0.08);
-            trunk.position.y = 1.8;
+            // Ground Ambient Occlusion puddle under the tree
+            const aoRadius = scale * (isForeground ? 11.5 : 8.5);
+            addContactAO(x, z, scale * 6.5, scale * 6.2, 0.92);
 
-            for (let b = 0; b < 3; b++) {
-                const ang = (b * Math.PI * 2) / 3 + 0.4;
-                const branch = addOutlinedMesh(new THREE.CylinderGeometry(0.16, 0.28, 2.0, 6), trunkMat, tree, 0.08);
-                branch.position.set(Math.cos(ang) * 0.55, 3.2, Math.sin(ang) * 0.55);
-                branch.rotation.z = -Math.cos(ang) * 0.55;
-                branch.rotation.x = Math.sin(ang) * 0.55;
+            // Gnarled Tapered Trunk + Root Flare
+            const trunkH = isForeground ? 4.2 : 3.6;
+            const trunk = addOutlinedMesh(new THREE.CylinderGeometry(0.38, 0.72, trunkH, 8), trunkMat, tree, 0.08);
+            trunk.position.y = trunkH / 2;
+
+            // Sprawling branches supporting the canopy
+            const numBranches = isForeground ? 5 : 3;
+            for (let b = 0; b < numBranches; b++) {
+                const ang = (b * Math.PI * 2) / numBranches + 0.35;
+                const bLen = isForeground ? 2.8 : 2.0;
+                const branch = addOutlinedMesh(new THREE.CylinderGeometry(0.18, 0.32, bLen, 6), trunkMat, tree, 0.08);
+                branch.position.set(Math.cos(ang) * 0.7, trunkH * 0.85, Math.sin(ang) * 0.7);
+                branch.rotation.z = -Math.cos(ang) * 0.65;
+                branch.rotation.x = Math.sin(ang) * 0.65;
             }
 
-            const puffs = [
-                { x: 0.0,  y: 4.5, z: 0.0,  r: 1.85, sy: 0.82 },
-                { x: -1.5, y: 3.8, z: 0.9,  r: 1.45, sy: 0.78 },
-                { x: 1.6,  y: 3.7, z: -0.8, r: 1.50, sy: 0.78 },
-                { x: 1.2,  y: 3.9, z: 1.2,  r: 1.40, sy: 0.80 },
-                { x: -1.3, y: 3.9, z: -1.1, r: 1.45, sy: 0.80 },
-                { x: 0.0,  y: 3.7, z: 1.7,  r: 1.35, sy: 0.75 },
-                { x: 0.2,  y: 3.8, z: -1.6, r: 1.35, sy: 0.75 },
-                { x: -1.0, y: 4.8, z: 0.5,  r: 1.45, sy: 0.82 },
-                { x: 1.1,  y: 4.7, z: -0.3, r: 1.40, sy: 0.82 },
-                { x: 0.3,  y: 4.9, z: 1.0,  r: 1.35, sy: 0.82 },
-                { x: -0.7, y: 5.0, z: -0.8, r: 1.40, sy: 0.82 },
-                { x: -0.4, y: 5.75, z: -0.2, r: 1.45, sy: 0.80 },
-                { x: 0.65, y: 5.55, z: 0.35, r: 1.25, sy: 0.80 },
-                { x: -0.85, y: 5.45, z: 0.45, r: 1.10, sy: 0.78 }
+            // Canopy leaf puffs
+            const basePuffs = [
+                { x: 0.0,  y: 4.5, z: 0.0,  r: 1.95, sy: 0.85 },
+                { x: -1.6, y: 3.8, z: 1.0,  r: 1.55, sy: 0.80 },
+                { x: 1.7,  y: 3.7, z: -0.9, r: 1.60, sy: 0.80 },
+                { x: 1.3,  y: 4.0, z: 1.3,  r: 1.50, sy: 0.82 },
+                { x: -1.4, y: 4.0, z: -1.2, r: 1.55, sy: 0.82 },
+                { x: 0.0,  y: 3.8, z: 1.8,  r: 1.45, sy: 0.78 },
+                { x: 0.2,  y: 3.9, z: -1.7, r: 1.45, sy: 0.78 },
+                { x: -1.1, y: 4.9, z: 0.6,  r: 1.55, sy: 0.84 },
+                { x: 1.2,  y: 4.8, z: -0.4, r: 1.50, sy: 0.84 },
+                { x: 0.3,  y: 5.0, z: 1.1,  r: 1.45, sy: 0.84 },
+                { x: -0.8, y: 5.1, z: -0.9, r: 1.50, sy: 0.84 },
+                { x: -0.4, y: 5.9, z: -0.2, r: 1.55, sy: 0.82 },
+                { x: 0.7,  y: 5.7, z: 0.4,  r: 1.35, sy: 0.82 },
+                { x: -0.9, y: 5.6, z: 0.5,  r: 1.20, sy: 0.80 }
             ];
-            puffs.forEach(p => {
-                const mesh = addOutlinedMesh(getCanopyGeometry(p.r), canopyMat, tree, 0.05);
-                mesh.scale.set(1.08, p.sy, 1.08);
-                mesh.position.set(p.x, p.y, p.z);
+
+            if (isForeground) {
+                // Foreground tree has extra sprawling foliage layers framing the bottom-right
+                basePuffs.push(
+                    { x: -2.4, y: 4.2, z: 0.2,  r: 1.75, sy: 0.82 },
+                    { x: 2.2,  y: 4.1, z: 0.5,  r: 1.70, sy: 0.82 },
+                    { x: 0.5,  y: 6.4, z: -0.3, r: 1.60, sy: 0.82 },
+                    { x: -1.2, y: 6.2, z: 0.8,  r: 1.45, sy: 0.80 }
+                );
+            }
+
+            basePuffs.forEach(p => {
+                const mesh = addOutlinedMesh(getCanopyGeometry(p.r), canopyMat, tree, 0.0, true, true);
+                mesh.scale.set(1.10, p.sy, 1.10);
+                mesh.position.set(p.x, p.y + (isForeground ? 0.6 : 0), p.z);
             });
 
-            // Small base shrubs around roots
-            for (let b = 0; b < 4; b++) {
-                const bMesh = addOutlinedMesh(new THREE.IcosahedronGeometry(0.55, 1), b % 2 === 0 ? leafMid : leafDark, tree, 0.08);
-                bMesh.scale.set(1.2, 0.75, 1.2);
-                bMesh.position.set(Math.cos(b * 1.6) * 0.9, 0.32, Math.sin(b * 1.6) * 0.9);
-            }
+// Base shrubs removed per user feedback
         }
 
         // Tree placements faithfully framing the court and paths like the reference image
-            const treeLocations = [
-                [17.5, 16.2, 1.25],   // Large tree at bottom-center foreground
-                [-17.2, 14.5, 0.92],  // Tree along lakeside fence
-                [-31.5, 12.5, 1.15],  // Left corner tree
-                [-36.5, 4.5, 1.05],   // Far left tree
-                [-23.5, -5.5, 0.95],  // Tree near top-left hoop
-                [-43.5, -4.5, 1.05],  // Tree left of playground
-                [-45.5, -15.5, 1.1],  // Far top-left tree
-                [-27.5, -23.5, 1.1],  // Top-left woods
-                [-18.5, -20.5, 1.0],  // Tree between playground and court
-                [-13.5, -24.5, 0.95], // Tree left of utility building
-                [8.5, -26.5, 1.35],   // Giant oak tree right of utility building
-                [14.5, -20.5, 0.88],  // Smaller tree by scooter path
-                [31.5, -23.5, 1.1],   // Far right tree
-                [32.5, -2.5, 1.2],    // Right corner tree
-                [27.5, 19.5, 1.15],   // Bottom-right corner tree
-                [36.5, 12.5, 1.1],    // Far bottom-right tree
-                [45.5, 18.5, 1.2],    // Extra canopy along the open lawn edge
-                [44.5, 1.5, 1.05],    // Tree framing the right-side path
-                [43.5, -22.5, 1.05]   // Tree beside the park road
-            ];
-            treeLocations.forEach(([tx, tz, ts]) => addLushTree(tx, tz, ts));
+        const treeLocations = [
+            [15.0, 21.5, 1.48, true],   // Grand foreground oak tree framing the bottom right!
+            [-17.2, 14.5, 0.95, false], // Tree along lakeside fence
+            [-31.5, 12.5, 1.18, false], // Left corner tree
+            [-36.5, 4.5, 1.08, false],  // Far left tree
+            [-23.5, -5.5, 0.98, false], // Tree near top-left hoop
+            [-43.5, -4.5, 1.08, false], // Tree left of playground
+            [-45.5, -15.5, 1.12, false],// Far top-left tree
+            [-27.5, -23.5, 1.12, false],// Top-left woods
+            [-18.5, -20.5, 1.02, false],// Tree between playground and court
+            [-13.5, -24.5, 0.98, false],// Tree left of utility building
+            [8.5, -26.5, 1.45, false],  // Giant oak tree right of utility building
+            [14.5, -20.5, 0.92, false], // Smaller tree by scooter path
+            [30.5, -23.5, 1.15, false], // Far right tree
+            [33.5, -2.5, 1.25, false],  // Right corner tree
+            [26.5, 23.5, 1.22, false],  // Bottom-right corner tree
+            [36.5, 14.5, 1.15, false],  // Far bottom-right tree
+            [45.5, 18.5, 1.22, false],  // Extra canopy along the open lawn edge
+            [44.5, 1.5, 1.08, false],   // Tree framing the right-side path
+            [43.5, -22.5, 1.08, false], // Tree beside the park road
+        ];
+        treeLocations.forEach(([tx, tz, ts, isFg]) => addLushTree(tx, tz, ts, isFg));
 
-            // Extra Hedge & Shrub Rows along the top road & fences
+        // Extra Hedge & Shrub Rows along the top road & fences with Ambient Occlusion
         for (let hx = -15; hx <= 38; hx += 2.2) {
             if (Math.abs(hx - 8) > 3) {
-                const bush = addOutlinedMesh(new THREE.IcosahedronGeometry(0.82, 2), hx % 4 === 0 ? leafBright : leafDark, scene, 0.07);
-                bush.scale.set(1.15, 0.82, 1.15);
+                const bush = addOutlinedMesh(new THREE.IcosahedronGeometry(0.88, 2), hx % 4 === 0 ? leafBright : leafDark, scene, 0.07);
+                bush.scale.set(1.18, 0.84, 1.18);
                 bush.position.set(hx, 0.52, -30.5);
+                addContactAO(hx, -30.5, 2.6, 2.4, 0.58);
             }
         }
-
-        // ============================================================================
+// ============================================================================
         // 9. HIGH-DETAIL ARTICULATED HUMANOID CHARACTER FACTORY
         //    (SCULPTED HEAD, HAIR STYLES, FACIAL DETAILS, TAPERED TORSO, 2-JOINT LIMBS)
         // ============================================================================
@@ -1479,21 +1798,31 @@
         ballShadow.position.y = 0.21;
         scene.add(ballShadow);
 
-        // 10 Court Players with Wide Half-Court & Transition Spacing matching reference image
+        // 10 Court Players with Individual Archetypes, Autonomous Strategies & Spacing
         const teamAConfigs = [
-            { shirtColor: 0xc9302c, shortsColor: 0x1e2226, hairColor: 0x181512, shoeColor: 0xf8fafc, isJersey: true, hairStyle: 0, role: 'PG', homeOff: [5.5, 3.2],   homeDef: [-5.5, 2.8] },
-            { shirtColor: 0x2563eb, shortsColor: 0x1e2226, hairColor: 0x2b1d12, shoeColor: 0xf8fafc, isJersey: true, hairStyle: 1, role: 'SG', homeOff: [2.8, -2.8],  homeDef: [-3.2, -2.5] },
-            { shirtColor: 0x2c3540, shortsColor: 0x181b1f, hairColor: 0x181512, shoeColor: 0xef4444, isJersey: true, hairStyle: 2, role: 'SF', homeOff: [10.5, -6.8], homeDef: [-11.5, -5.8] },
-            { shirtColor: 0xd97736, shortsColor: 0x222629, hairColor: 0x241911, shoeColor: 0xf8fafc, isJersey: true, hairStyle: 1, role: 'PF', homeOff: [-6.5, 1.8],  homeDef: [-13.5, 4.8] },
-            { shirtColor: 0x1f2937, shortsColor: 0x111827, hairColor: 0x181512, shoeColor: 0x38bdf8, isJersey: true, hairStyle: 0, role: 'C',  homeOff: [-13.8, -2.2],homeDef: [-16.2, -1.2] }
+            { shirtColor: 0xc9302c, shortsColor: 0x1e2226, hairColor: 0x181512, shoeColor: 0xf8fafc, isJersey: true, hairStyle: 0, role: 'PG', homeOff: [4.2, 0.5],   homeDef: [-4.2, 0.5],
+              archetype: { style: 'FLOOR_GENERAL', roleName: 'Floor General', baseSpeed: 6.2, sprintSpeed: 7.4, shootRange: 13.0, passTendency: 0.65 } },
+            { shirtColor: 0x2563eb, shortsColor: 0x1e2226, hairColor: 0x2b1d12, shoeColor: 0xf8fafc, isJersey: true, hairStyle: 1, role: 'SG', homeOff: [8.5, -6.8],  homeDef: [-8.5, -6.8],
+              archetype: { style: 'SHARPSHOOTER',  roleName: 'Sharpshooter',  baseSpeed: 5.9, sprintSpeed: 7.3, shootRange: 16.0, passTendency: 0.35 } },
+            { shirtColor: 0x2c3540, shortsColor: 0x181b1f, hairColor: 0x181512, shoeColor: 0xef4444, isJersey: true, hairStyle: 2, role: 'SF', homeOff: [8.5, 6.8],   homeDef: [-8.5, 6.8],
+              archetype: { style: 'SLASHING_WING', roleName: 'Slashing Wing', baseSpeed: 6.5, sprintSpeed: 7.9, shootRange: 11.5, passTendency: 0.28 } },
+            { shirtColor: 0xd97736, shortsColor: 0x222629, hairColor: 0x241911, shoeColor: 0xf8fafc, isJersey: true, hairStyle: 1, role: 'PF', homeOff: [14.8, -8.4], homeDef: [-14.8, -8.4],
+              archetype: { style: 'STRETCH_FOUR',  roleName: 'Stretch Four',  baseSpeed: 5.7, sprintSpeed: 6.9, shootRange: 14.0, passTendency: 0.40 } },
+            { shirtColor: 0x1f2937, shortsColor: 0x111827, hairColor: 0x181512, shoeColor: 0x38bdf8, isJersey: true, hairStyle: 0, role: 'C',  homeOff: [14.2, 3.4],  homeDef: [-14.2, 3.4],
+              archetype: { style: 'POST_ANCHOR',   roleName: 'Post Anchor',   baseSpeed: 5.3, sprintSpeed: 6.5, shootRange: 8.5,  passTendency: 0.25 } }
         ];
 
         const teamBConfigs = [
-            { shirtColor: 0xf1f5f9, shortsColor: 0x1e293b, hairColor: 0x181512, shoeColor: 0x1e293b, isJersey: true, hairStyle: 1, role: 'PG', homeOff: [-6.8, -2.2], homeDef: [10.8, 1.8] },
-            { shirtColor: 0x94a3b8, shortsColor: 0x1e293b, hairColor: 0x475569, shoeColor: 0xf8fafc, isJersey: true, hairStyle: 0, role: 'SG', homeOff: [-11.5, 5.2], homeDef: [8.5, 3.2] },
-            { shirtColor: 0xd1d5db, shortsColor: 0x1f2937, hairColor: 0x78553a, shoeColor: 0xf8fafc, isJersey: true, hairStyle: 2, role: 'SF', homeOff: [-12.5, -6.5],homeDef: [7.8, -3.5] },
-            { shirtColor: 0x334155, shortsColor: 0x0f172a, hairColor: 0x181512, shoeColor: 0xf8fafc, isJersey: true, hairStyle: 1, role: 'PF', homeOff: [4.2, -4.5],  homeDef: [-12.5, 4.2] },
-            { shirtColor: 0xe2e8f0, shortsColor: 0x1e293b, hairColor: 0x292524, shoeColor: 0xef4444, isJersey: true, hairStyle: 0, role: 'C',  homeOff: [-16.5, 1.2], homeDef: [-18.2, 6.2] }
+            { shirtColor: 0xf1f5f9, shortsColor: 0x1e293b, hairColor: 0x181512, shoeColor: 0x1e293b, isJersey: true, hairStyle: 1, role: 'PG', homeOff: [-4.2, -0.5], homeDef: [4.2, -0.5],
+              archetype: { style: 'ISO_CREATOR',    roleName: 'ISO Creator',    baseSpeed: 6.4, sprintSpeed: 7.6, shootRange: 14.5, passTendency: 0.38 } },
+            { shirtColor: 0x94a3b8, shortsColor: 0x1e293b, hairColor: 0x475569, shoeColor: 0xf8fafc, isJersey: true, hairStyle: 0, role: 'SG', homeOff: [-8.5, 6.8],  homeDef: [8.5, 6.8],
+              archetype: { style: 'CORNER_SNIPER',  roleName: 'Corner Sniper',  baseSpeed: 5.8, sprintSpeed: 7.2, shootRange: 16.0, passTendency: 0.32 } },
+            { shirtColor: 0xd1d5db, shortsColor: 0x1f2937, hairColor: 0x78553a, shoeColor: 0xf8fafc, isJersey: true, hairStyle: 2, role: 'SF', homeOff: [-8.5, -6.8], homeDef: [8.5, -6.8],
+              archetype: { style: 'LOCKDOWN_WING',  roleName: 'Lockdown Wing',  baseSpeed: 6.3, sprintSpeed: 7.7, shootRange: 12.0, passTendency: 0.45 } },
+            { shirtColor: 0x334155, shortsColor: 0x0f172a, hairColor: 0x181512, shoeColor: 0xf8fafc, isJersey: true, hairStyle: 1, role: 'PF', homeOff: [-14.8, 8.4], homeDef: [14.8, 8.4],
+              archetype: { style: 'ENERGY_FORWARD', roleName: 'Energy Forward', baseSpeed: 6.1, sprintSpeed: 7.3, shootRange: 11.0, passTendency: 0.35 } },
+            { shirtColor: 0xe2e8f0, shortsColor: 0x1e293b, hairColor: 0x292524, shoeColor: 0xef4444, isJersey: true, hairStyle: 0, role: 'C',  homeOff: [-14.2, -3.4],homeDef: [14.2, -3.4],
+              archetype: { style: 'PAINT_BEAST',    roleName: 'Paint Beast',    baseSpeed: 5.4, sprintSpeed: 6.6, shootRange: 7.5,  passTendency: 0.20 } }
         ];
 
         const players = [];
@@ -1502,13 +1831,21 @@
                 char.root.position.set(cfg.homeOff[0], 0.18, cfg.homeOff[1]);
                 players.push({
                     id: idx,
+                    slot: idx,
                     team: 0, // Team A attacks Right Hoop (+X)
                     char,
+                    archetype: cfg.archetype,
                     homeOff: new THREE.Vector3(cfg.homeOff[0], 0.18, cfg.homeOff[1]),
                     homeDef: new THREE.Vector3(cfg.homeDef[0], 0.18, cfg.homeDef[1]),
+                    targetSpot: new THREE.Vector3(cfg.homeOff[0], 0.18, cfg.homeOff[1]),
                     target: new THREE.Vector3(cfg.homeOff[0], 0.18, cfg.homeOff[1]),
-                    cutOffset: new THREE.Vector3(),
-                    phase: idx * 1.3,
+                    actionTimer: 0.2 + idx * 0.35,
+                    defTimer: 0.15 + idx * 0.25,
+                    stealSwipeTimer: 0,
+                    shieldArmTimer: 0,
+                    blockArmTimer: 0,
+                    isGuardingBall: false,
+                    phase: idx * 1.35,
                     jumpY: 0
                 });
             });
@@ -1518,19 +1855,28 @@
                 char.root.position.set(cfg.homeDef[0], 0.18, cfg.homeDef[1]);
                 players.push({
                     id: idx + 5,
+                    slot: idx,
                     team: 1, // Team B attacks Left Hoop (-X)
                     char,
+                    archetype: cfg.archetype,
                     homeOff: new THREE.Vector3(cfg.homeOff[0], 0.18, cfg.homeOff[1]),
                     homeDef: new THREE.Vector3(cfg.homeDef[0], 0.18, cfg.homeDef[1]),
+                    targetSpot: new THREE.Vector3(cfg.homeDef[0], 0.18, cfg.homeDef[1]),
                     target: new THREE.Vector3(cfg.homeDef[0], 0.18, cfg.homeDef[1]),
-                    cutOffset: new THREE.Vector3(),
-                    phase: (idx + 5) * 1.3,
+                    actionTimer: 0.3 + idx * 0.35,
+                    defTimer: 0.2 + idx * 0.25,
+                    stealSwipeTimer: 0,
+                    shieldArmTimer: 0,
+                    blockArmTimer: 0,
+                    isGuardingBall: false,
+                    phase: (idx + 5) * 1.35,
                     jumpY: 0
                 });
             });
 
             // Live Basketball Game State Machine
             const game = {
+                stealCooldown: 0,     // seconds before another steal attempt can trigger
                 offenseTeam: 0,
                 carrier: players[0],
                 state: 'DRIBBLE', // 'DRIBBLE' | 'DRIVE' | 'SHOOT' | 'LOOSE' (ball airborne or on the floor)
@@ -1609,19 +1955,22 @@
                 game.shotInFlight = false;
                 game.reboundPending = false;
                 game.state = 'DRIBBLE';
-                game.stateTimer = 0;
+                game.stateTimer = 0; // Fast decision clock (0.35s - 0.65s)
+
                 if (teamChanged) {
                     game.offenseTeam = p.team;
                     game.passesDone = 0;
-                    setPlayStatus(p.team === 0 ? 'Street Team picks it up and takes over!' : 'Park Team picks it up and takes over!');
+                    game.stealCooldown = 2.2;
+                    setPlayStatus(p.team === 0 
+                        ? '⚡ Street Team takes possession! Transition attack!' 
+                        : '⚡ Park Team secures the ball! Pushing the pace!');
                 } else if (rebound) {
-                    setPlayStatus('Rebound secured! Keep the possession.');
+                    setPlayStatus('🏀 Offensive rebound! Resetting the possession!');
                 } else {
-                    setPlayStatus('Clean catch!');
+                    setPlayStatus('🎯 Clean pass and catch! Keeping the ball moving!');
                 }
             }
-
-            // A loose ball is only picked up by a player who reaches it
+// A loose ball is only picked up by a player who reaches it
             function checkBallClaims() {
                 if (!game.ballFree) return;
                 let best = null, bestDist = 1.05;
@@ -1790,6 +2139,12 @@
                 setPlayStatus('Shot is up...');
             }
 
+            
+        // Player contact shadows grounding them firmly to the court
+        players.forEach(p => {
+            p.contactAO = addContactAO(p.char.root.position.x, p.char.root.position.z, 1.1, 1.1, 0.82);
+        });
+
             ballGroup.position.copy(getHandPoint(game.carrier, false));
             ballVel.set(0, 0, 0);
 
@@ -1801,9 +2156,51 @@
                 statusEl.textContent = text;
             }
 
-            // Hard body constraint: torsos are ~0.9 wide, so centres must stay 1.0 apart on the floor
+            // ============================================================================
+            // BASIC 5-OUT BASKETBALL FORMATION & HALF-COURT GEOMETRY
+            // ============================================================================
+            // Wide, balanced formation spots across half-court:
+            // Slot 0: Top of Key (central distributor) -> x: 5.5, z: 0.0
+            // Slot 1: Right Wing (perimeter shooter)   -> x: 8.8, z: -6.5
+            // Slot 2: Left Wing (perimeter slasher)    -> x: 8.8, z: 6.5
+            // Slot 3: Trailer / Backcourt Spacer       -> x: 2.2, z: -3.5
+            // Slot 4: Low Post / Rim Anchor            -> x: 13.8, z: 2.8
+            function getFormationSpot(hoop, slotIndex) {
+                const rimX = hoop.rimPos.x;
+                const dir = (hoop === rightHoop) ? 1 : -1;
+                let x = 0, z = 0;
+                switch (slotIndex % 5) {
+                    case 0: // Top of Key
+                        x = rimX - dir * 13.5;
+                        z = 0.0;
+                        break;
+                    case 1: // Right Wing
+                        x = rimX - dir * 9.8;
+                        z = -6.6;
+                        break;
+                    case 2: // Left Wing
+                        x = rimX - dir * 9.8;
+                        z = 6.6;
+                        break;
+                    case 3: // Trailer / Backcourt Spacer
+                        x = rimX - dir * 16.5;
+                        z = -3.5;
+                        break;
+                    case 4: // Post / Rim Spacer
+                        x = rimX - dir * 5.2;
+                        z = 3.2;
+                        break;
+                }
+                return new THREE.Vector3(
+                    THREE.MathUtils.clamp(x, -19.0, 19.0),
+                    0.18,
+                    THREE.MathUtils.clamp(z, -9.8, 9.8)
+                );
+            }
+
+            // Hard body separation to ensure players never overlap
             function separatePlayers() {
-                const MIN_SEP = 1.0;
+                const MIN_SEP = 0.95;
                 for (let iter = 0; iter < 4; iter++) {
                     let overlapped = false;
                     for (let i = 0; i < players.length; i++) {
@@ -1814,7 +2211,6 @@
                             const d = Math.hypot(dx, dz);
                             if (d >= MIN_SEP) continue;
                             overlapped = true;
-                            // Exactly stacked players get an arbitrary separating axis
                             const nx = d > 1e-4 ? dx / d : 1;
                             const nz = d > 1e-4 ? dz / d : 0;
                             const push = (MIN_SEP - d) * 0.5;
@@ -1837,59 +2233,194 @@
                 game.blockClaimTimer = Math.max(0, game.blockClaimTimer - dt);
                 const hoop = game.offenseTeam === 0 ? rightHoop : leftHoop;
                 game.targetHoop = hoop;
+                const rimX = hoop.rimPos.x;
+                const attackDir = game.offenseTeam === 0 ? 1 : -1;
+                const carrierPos = game.carrier ? game.carrier.char.root.position : ballGroup.position;
 
-                // Periodically refresh off-ball cutting offsets so all 10 players move organically
-                if (Math.floor((elapsed - dt) * 0.7) < Math.floor(elapsed * 0.7)) {
-                    players.forEach(p => {
-                        p.cutOffset.set((Math.random() - 0.5) * 5.2, 0, (Math.random() - 0.5) * 4.4);
-                    });
+                // ====================================================================
+                // 1. ALWAYS IDENTIFY THE DEDICATED ON-BALL DEFENDER
+                // ====================================================================
+                let onBallDefender = null;
+                if (game.carrier) {
+                    // Matchup defender based on slot
+                    onBallDefender = players.find(p => p.team !== game.offenseTeam && p.slot === game.carrier.slot);
+                    if (!onBallDefender) {
+                        let minDist = Infinity;
+                        players.forEach(p => {
+                            if (p.team !== game.offenseTeam) {
+                                const d = p.char.root.position.distanceTo(carrierPos);
+                                if (d < minDist) { minDist = d; onBallDefender = p; }
+                            }
+                        });
+                    }
                 }
 
-                // State transitions
-                if (game.state === 'DRIBBLE') {
-                    if (game.stateTimer > 1.7 && !game.plan) {
-                        const teammates = players.filter(p => p.team === game.offenseTeam && p !== game.carrier);
-                        if (game.passesDone < 2 && Math.random() < 0.72) {
-                            game.plan = 'pass';
-                            game.receiver = teammates[Math.floor(Math.random() * teammates.length)];
+                // ====================================================================
+                // 2. CLOSE-RANGE STEAL MECHANIC WITH VISIBLE ARM SWIPE
+                // ====================================================================
+                game.stealCooldown = Math.max(0, (game.stealCooldown || 0) - dt);
+                if (onBallDefender && (game.state === 'DRIBBLE' || game.state === 'DRIVE') && game.carrier && game.stealCooldown <= 0) {
+                    const distToCarrier = onBallDefender.char.root.position.distanceTo(carrierPos);
+                    // In close range (< 1.45 units)
+                    if (distToCarrier < 1.45) {
+                        game.stealCooldown = 1.8 + Math.random() * 0.6;
+                        onBallDefender.stealSwipeTimer = 0.40; // Arm swipe movement!
+
+                        const rand = Math.random();
+                        if (rand < 0.35) {
+                            // Clean takeaway with the swipe!
+                            claimBall(onBallDefender);
+                            game.offenseTeam = onBallDefender.team;
+                            game.state = 'DRIBBLE';
+                            game.stateTimer = 0;
+                            game.touchGrace = 0.55;
+                            setPlayStatus(onBallDefender.team === 0 
+                                ? '⚡ STEAL! Red defender swipes and strips the rock!' 
+                                : '⚡ PICKPOCKET! Park defender takeaway on the perimeter!');
+                        } else if (rand < 0.65) {
+                            // Poke ball loose
+                            releaseBall(game.carrier, 'LOOSE', 0.45);
+                            ballVel.set((Math.random() - 0.5) * 5.2, 3.2, (Math.random() - 0.5) * 5.2);
+                            setPlayStatus('💥 Poke steal! Arm swipe knocks the ball loose into scramble!');
                         } else {
+                            // Carrier shields off swipe
+                            game.carrier.shieldArmTimer = 0.45;
+                            setPlayStatus('🛡️ Carrier shields off the steal swipe and protects the ball!');
+                        }
+                    }
+                }
+
+                // ====================================================================
+                // 3. BALL CARRIER DECISION TREE & DEFENDER BLOCKING THE DRIVE
+                // ====================================================================
+                if (game.state === 'DRIBBLE') {
+                    game.shotBlocked = false;
+                    const cArch = game.carrier.archetype;
+                    const decisionDelay = game.passesDone === 0 ? 0.38 : (0.35 + Math.random() * 0.25);
+
+                    if (game.stateTimer > decisionDelay && !game.plan) {
+                        const teammates = players.filter(p => p.team === game.offenseTeam && p !== game.carrier);
+                        const distToRim = game.carrier.char.root.position.distanceTo(hoop.rimPos);
+                        const rand = Math.random();
+
+                        const distToDef = onBallDefender ? onBallDefender.char.root.position.distanceTo(carrierPos) : 3.0;
+
+                        if (distToRim < cArch.shootRange && distToDef > 1.9 && (rand < (1.0 - cArch.passTendency) || game.passesDone >= 3)) {
+                            // Open jumper
+                            game.state = 'SHOOT';
+                            game.stateTimer = 0;
+                            lastHandPt.copy(getHandPoint(game.carrier, true));
+                            setPlayStatus(distToRim > 13.0 ? '🎯 Open look from downtown! Three pointer up!' : '🔥 Clean pull-up jumper from mid-range!');
+                        } else if (rand < cArch.passTendency && teammates.length > 0 && game.passesDone < 4) {
+                            // Swing pass to open teammate in formation
+                            game.plan = 'pass';
+                            let bestRec = teammates[0], bestScore = -Infinity;
+                            teammates.forEach(tm => {
+                                const dCarrier = tm.char.root.position.distanceTo(carrierPos);
+                                const dRim = tm.char.root.position.distanceTo(hoop.rimPos);
+                                const score = (20 - dRim) + (dCarrier > 4 && dCarrier < 16 ? 10 : 0);
+                                if (score > bestScore) { bestScore = score; bestRec = tm; }
+                            });
+                            game.receiver = bestRec;
+                        } else {
+                            // Drive to the basket!
                             game.plan = 'drive';
                         }
                     }
+
                     if (game.plan === 'drive') {
                         game.plan = null;
                         game.state = 'DRIVE';
                         game.stateTimer = 0;
-                        setPlayStatus(game.offenseTeam === 0 ? 'Driving into the painted key!' : 'Fast break drive to the hoop!');
-                    } else if (game.plan === 'pass' && ballGroup.position.y > 0.9) {
-                        // Release near the top of the dribble so the pass leaves the hand
+                        setPlayStatus(game.offenseTeam === 0 
+                            ? '🏀 Crossover attack! Driving hard toward the rim!' 
+                            : '🏀 Slashing drive into the paint!');
+                    } else if (game.plan === 'pass' && ballGroup.position.y > 0.85) {
                         launchPass(game.carrier, game.receiver);
                         game.passesDone++;
                     }
                 } else if (game.state === 'DRIVE') {
+                    // Carrier attacks rim
+                    const attackX = rimX - attackDir * 2.8;
                     const attackSpot = new THREE.Vector3(
-                        hoop.rimPos.x + (game.offenseTeam === 0 ? -5.5 : 5.5),
+                        attackX,
                         0.18,
-                        (Math.sin(elapsed * 2) * 3.5)
+                        THREE.MathUtils.clamp(carrierPos.z * 0.7, -3.5, 3.5)
                     );
-                    game.carrier.target.copy(attackSpot);
-                    if (game.carrier.char.root.position.distanceTo(attackSpot) < 2.2 || game.stateTimer > 1.8) {
-                        // Elevate for Jump Shot!
+                    game.carrier.targetSpot.copy(attackSpot);
+
+                    // ================================================================
+                    // THE DEFENDER BLOCKS THE CARRIER'S DRIVE
+                    // ================================================================
+                    if (onBallDefender) {
+                        const distToDef = carrierPos.distanceTo(onBallDefender.char.root.position);
+                        if (distToDef < 1.35) {
+                            // Defender blocks the drive!
+                            onBallDefender.char.leftArm.rotation.x = -1.45;
+                            onBallDefender.char.rightArm.rotation.x = -1.45;
+                            onBallDefender.char.leftArm.rotation.z = -0.55;
+                            onBallDefender.char.rightArm.rotation.z = 0.55;
+
+                            if (Math.random() < 0.5) {
+                                // Forced contested pull-up
+                                game.state = 'SHOOT';
+                                game.stateTimer = 0;
+                                lastHandPt.copy(getHandPoint(game.carrier, true));
+                                setPlayStatus('🛑 Drive BLOCKED by defender! Carrier forced into contested shot!');
+                            } else {
+                                // Forced kick-out pass to open wing
+                                const teammates = players.filter(t => t.team === game.offenseTeam && t !== game.carrier);
+                                game.plan = 'pass';
+                                game.receiver = teammates[Math.floor(Math.random() * teammates.length)];
+                                setPlayStatus('🛑 Drive walled off and blocked! Kick-out pass to the wing!');
+                            }
+                        }
+                    }
+
+                    const distToHoop = carrierPos.distanceTo(hoop.rimPos);
+                    if (distToHoop < 5.2 || game.stateTimer > 1.25) {
                         game.state = 'SHOOT';
                         game.stateTimer = 0;
                         lastHandPt.copy(getHandPoint(game.carrier, true));
-                        setPlayStatus('Elevating for the jump shot...');
+                        setPlayStatus(distToHoop < 4.0 ? '💥 Contested layup at the rim!' : '🔥 High floater launched over defense!');
                     }
                 } else if (game.state === 'SHOOT') {
-                    // Shooter jump arc
-                    game.carrier.jumpY = Math.sin(Math.min(1, game.stateTimer / 0.65) * Math.PI) * 1.15;
-                    if (game.stateTimer >= 0.45) {
+                    game.carrier.jumpY = Math.sin(Math.min(1, game.stateTimer / 0.55) * Math.PI) * 1.25;
+
+                    // ================================================================
+                    // THE DEFENDER LEAPS TO CONTEST / BLOCK THE SHOT IN MID-AIR
+                    // ================================================================
+                    if (onBallDefender) {
+                        const distToCarrier = onBallDefender.char.root.position.distanceTo(carrierPos);
+                        if (distToCarrier < 2.0) {
+                            onBallDefender.jumpY = game.carrier.jumpY * 0.95;
+                            onBallDefender.char.leftArm.rotation.x = -2.75;
+                            onBallDefender.char.rightArm.rotation.x = -2.75;
+
+                            // 35% chance to swat and reject the shot
+                            if (distToCarrier < 1.45 && game.stateTimer >= 0.28 && game.stateTimer <= 0.36 && !game.shotBlocked) {
+                                if (Math.random() < 0.35) {
+                                    game.shotBlocked = true;
+                                    onBallDefender.char.rightArm.rotation.x = -1.6;
+                                    onBallDefender.char.rightArm.rotation.z = 0.45;
+                                    releaseBall(game.carrier, 'LOOSE', 0.5);
+                                    ballVel.set(-attackDir * 6.8, 3.8, (Math.random() - 0.5) * 6.0);
+                                    game.shotInFlight = false;
+                                    game.blockClaimTeam = onBallDefender.team;
+                                    game.blockClaimTimer = 0.8;
+                                    setPlayStatus('🚫 BLOCKED! Swatted out of the air by the defender!');
+                                    return;
+                                }
+                            }
+                        }
+                    }
+
+                    if (!game.shotBlocked && game.stateTimer >= 0.38) {
                         launchShot(game.carrier, hoop);
                     }
                 }
-                // LOOSE: the ball is in flight or on the floor; physics and the pickup rule drive it
 
-                // Animate net ripple when a shot goes through
+                // Net ripple
                 if (game.netRippleTimer > 0) {
                     game.netRippleTimer -= dt;
                     const s = 1 + Math.sin(game.netRippleTimer * 28) * 0.28;
@@ -1899,7 +2430,7 @@
                     rightHoop.netMesh.scale.set(1, 1, 1);
                 }
 
-                // While the ball is loose, the nearest player on each team goes to pick it up
+                // Loose ball scramble: ONLY ONE CHASER PER TEAM (no 10-man crowd!)
                 const chasers = new Set();
                 if (game.ballFree) {
                     [0, 1].forEach(team => {
@@ -1913,102 +2444,163 @@
                     });
                 }
 
-                // Update all 10 Players' Positions, Anti-Clumping Spacing & 2-Joint Limb Animations
+                // ====================================================================
+                // 4. BALANCED FORMATION & STRICT 1-ON-1 MAN DEFENSE (NO CROWDING!)
+                // ====================================================================
                 players.forEach(p => {
-                    const isOffense = p.team === game.offenseTeam;
+                    const isOffense = (p.team === game.offenseTeam);
                     const isCarrier = (p === game.carrier) && (game.state === 'DRIBBLE' || game.state === 'DRIVE');
 
                     if (chasers.has(p)) {
-                        p.target.set(
-                            THREE.MathUtils.clamp(ballGroup.position.x, -19.5, 19.5),
+                        p.targetSpot.set(
+                            THREE.MathUtils.clamp(ballGroup.position.x, -19.2, 19.2),
                             0.18,
-                            THREE.MathUtils.clamp(ballGroup.position.z, -10.5, 10.5)
+                            THREE.MathUtils.clamp(ballGroup.position.z, -10.2, 10.2)
                         );
-                    } else if (!isCarrier && !(p === game.carrier && game.state === 'SHOOT')) {
-                        if (isOffense) {
-                            p.target.copy(p.homeOff).add(p.cutOffset);
+                    } else if (isOffense) {
+                        // OFFENSE: Each player holds their unique formation spot
+                        if (isCarrier) {
+                            if (game.state === 'DRIBBLE') {
+                                const formSpot = getFormationSpot(hoop, p.slot);
+                                p.targetSpot.set(
+                                    formSpot.x + Math.sin(elapsed * 2.0 + p.phase) * 0.5,
+                                    0.18,
+                                    formSpot.z + Math.cos(elapsed * 2.0 + p.phase) * 0.5
+                                );
+                            }
                         } else {
-                            // Defenders stay near their assigned zone/man with wide spacing
-                            const man = players[(p.id + 5) % 10];
-                            p.target.copy(p.homeDef).lerp(man.char.root.position, 0.38);
-                            p.target.y = 0.18;
+                            // Off-ball players hold their assigned formation spot
+                            const formSpot = getFormationSpot(hoop, p.slot);
+                            p.targetSpot.copy(formSpot);
                         }
-                    } else if (game.state === 'DRIBBLE') {
-                        p.target.copy(p.homeOff).add(p.cutOffset.clone().multiplyScalar(0.45));
+                    } else {
+                        // DEFENSE: Strictly 1-on-1 man defense matching offensive slots
+                        if (p === onBallDefender && game.carrier) {
+                            // ALWAYS DEFEND THE BALL CARRIER! (1.38 units away)
+                            const toHoop = hoop.rimPos.clone().sub(carrierPos).normalize();
+                            p.targetSpot.copy(carrierPos).addScaledVector(toHoop, 1.38);
+                            p.isGuardingBall = true;
+                        } else {
+                            // Each off-ball defender guards their assigned offensive slot
+                            const man = players.find(t => t.team === game.offenseTeam && t.slot === p.slot);
+                            if (man) {
+                                const manPos = man.char.root.position;
+                                const toHoopMan = hoop.rimPos.clone().sub(manPos).normalize();
+                                // Positioned 1.8 units in front of their man toward the basket
+                                p.targetSpot.copy(manPos).addScaledVector(toHoopMan, 1.8);
+                            }
+                            p.isGuardingBall = false;
+                        }
                     }
 
-                    // Personal-space repulsion so players never bunch up in a pile
-                    players.forEach(other => {
-                        if (other !== p && !chasers.has(p)) {
-                            const sepX = p.char.root.position.x - other.char.root.position.x;
-                            const sepZ = p.char.root.position.z - other.char.root.position.z;
-                            const d = Math.hypot(sepX, sepZ);
-                            if (d < 3.4 && d > 0.001) {
-                                const push = (3.4 - d) * 1.4;
-                                p.target.x += (sepX / d) * push;
-                                p.target.z += (sepZ / d) * push;
-                            }
-                        }
-                    });
+                    // Strict boundary clamping
+                    p.targetSpot.x = THREE.MathUtils.clamp(p.targetSpot.x, -19.2, 19.2);
+                    p.targetSpot.z = THREE.MathUtils.clamp(p.targetSpot.z, -10.2, 10.2);
+                    p.target.copy(p.targetSpot);
 
-                    // Keep players inside court bounds
-                    p.target.x = THREE.MathUtils.clamp(p.target.x, -19.5, 19.5);
-                    p.target.z = THREE.MathUtils.clamp(p.target.z, -10.5, 10.5);
-
+                    // ================================================================
+                    // MOVEMENT & SMOOTH STANCE TRANSITIONS
+                    // ================================================================
                     const pos = p.char.root.position;
-                    const dx = p.target.x - pos.x;
-                    const dz = p.target.z - pos.z;
+                    const dx = p.targetSpot.x - pos.x;
+                    const dz = p.targetSpot.z - pos.z;
                     const dist = Math.hypot(dx, dz);
-                    const moveSpeed = chasers.has(p) ? 6.4 : (isCarrier ? 6.0 : 5.2);
 
-                    if (dist > 0.18) {
+                    let moveSpeed = p.archetype.baseSpeed;
+                    if (chasers.has(p)) moveSpeed = p.archetype.sprintSpeed + 0.5;
+                    else if (isCarrier && game.state === 'DRIVE') moveSpeed = p.archetype.sprintSpeed + 0.4;
+                    else if (p === onBallDefender) moveSpeed = p.archetype.baseSpeed * 1.1;
+
+                    // When arrived at formation spot (dist <= 0.25), hold stationary stance (no ice-skating!)
+                    const isMoving = dist > 0.25;
+                    if (isMoving) {
                         pos.x += (dx / dist) * Math.min(dist, moveSpeed * dt);
                         pos.z += (dz / dist) * Math.min(dist, moveSpeed * dt);
                     }
-                    // A shooter who has released the ball lands smoothly
-                    if (p !== game.carrier) p.jumpY = Math.max(0, (p.jumpY || 0) - dt * 3);
-                    pos.y = 0.18 + (p.jumpY || 0);
 
-                    // Face the ball or hoop
-                    const lookTarget = isCarrier ? hoop.rimPos : ballGroup.position;
+                    // Shooter landing
+                    if (p !== game.carrier && p !== onBallDefender) p.jumpY = Math.max(0, (p.jumpY || 0) - dt * 3.5);
+                    pos.y = 0.18 + (p.jumpY || 0);
+                    if (p.contactAO) {
+                        p.contactAO.position.x = pos.x;
+                        p.contactAO.position.z = pos.z;
+                        p.contactAO.material.opacity = Math.max(0.2, 0.82 - (p.jumpY || 0) * 0.45);
+                    }
+
+                    // Facing: Carrier faces rim; defense faces carrier/man; offense faces ball
+                    const lookTarget = isCarrier ? hoop.rimPos : (p === onBallDefender ? carrierPos : ballGroup.position);
                     const targetYaw = Math.atan2(lookTarget.x - pos.x, lookTarget.z - pos.z);
                     p.char.root.rotation.y = targetYaw;
 
-                    // Articulated Running & Knee Flexion
-                    const stridePhase = elapsed * 10.5 + p.phase;
-                    const isMoving = dist > 0.25;
-                    const stride = isMoving ? Math.sin(stridePhase) * 0.62 : Math.sin(elapsed * 3 + p.phase) * 0.08;
+                    // Leg strides
+                    const stridePhase = elapsed * (moveSpeed * 1.6) + p.phase;
+                    const stride = isMoving ? Math.sin(stridePhase) * 0.62 : Math.sin(elapsed * 2.5 + p.phase) * 0.05;
                     p.char.leftLeg.rotation.x = stride;
                     p.char.rightLeg.rotation.x = -stride;
 
                     if (p.char.leftLeg.userData.knee) {
-                        p.char.leftLeg.userData.knee.rotation.x = isMoving ? Math.max(0.1, -Math.cos(stridePhase) * 0.65) : 0.18;
-                        p.char.rightLeg.userData.knee.rotation.x = isMoving ? Math.max(0.1, Math.cos(stridePhase) * 0.65) : 0.18;
+                        p.char.leftLeg.userData.knee.rotation.x = isMoving ? Math.max(0.1, -Math.cos(stridePhase) * 0.65) : 0.16;
+                        p.char.rightLeg.userData.knee.rotation.x = isMoving ? Math.max(0.1, Math.cos(stridePhase) * 0.65) : 0.16;
                     }
 
-                    if (isCarrier) {
-                        // Active Dribbling Shoulder + Elbow Flexion & Ball Bounce
-                        // The arm pushes the ball down as it meets the floor and lifts as it rises (ball height is from physics)
+                    // Arm and body postures
+                    if (p.stealSwipeTimer > 0) {
+                        // VISIBLE REACHING STEAL SWIPE ARM MOVEMENT!
+                        p.stealSwipeTimer -= dt;
+                        p.char.rightArm.rotation.x = -1.45;
+                        p.char.rightArm.rotation.y = -0.55;
+                        p.char.rightArm.rotation.z = 0.42;
+                        if (p.char.rightArm.userData.elbow) p.char.rightArm.userData.elbow.rotation.x = -0.3;
+                        p.char.leftArm.rotation.x = -1.1;
+                    } else if (isCarrier && p.shieldArmTimer > 0) {
+                        // Off-arm shielding the ball from the swipe
+                        p.shieldArmTimer -= dt;
+                        p.char.leftArm.rotation.x = -0.95;
+                        p.char.leftArm.rotation.z = -0.65;
+                        p.char.rightArm.rotation.x = -0.55;
+                    } else if (isCarrier) {
                         const bounce = 1 - THREE.MathUtils.clamp((ballGroup.position.y - FLOOR_BALL_Y) / 0.8, 0, 1);
                         p.char.rightArm.rotation.x = -0.55 + bounce * 0.35;
+                        p.char.rightArm.rotation.y = 0;
+                        p.char.rightArm.rotation.z = 0;
                         if (p.char.rightArm.userData.elbow) p.char.rightArm.userData.elbow.rotation.x = -0.85 + bounce * 0.55;
                         p.char.leftArm.rotation.x = -0.35;
+                        p.char.leftArm.rotation.y = 0;
+                        p.char.leftArm.rotation.z = 0;
                         if (p.char.leftArm.userData.elbow) p.char.leftArm.userData.elbow.rotation.x = -0.55;
                     } else if (p === game.carrier && game.state === 'SHOOT') {
-                        // Follow-through shooting arms raised high
                         p.char.rightArm.rotation.x = -2.6;
+                        p.char.rightArm.rotation.y = 0;
+                        p.char.rightArm.rotation.z = 0;
                         if (p.char.rightArm.userData.elbow) p.char.rightArm.userData.elbow.rotation.x = -0.25;
                         p.char.leftArm.rotation.x = -2.35;
+                        p.char.leftArm.rotation.y = 0;
+                        p.char.leftArm.rotation.z = 0;
                         if (p.char.leftArm.userData.elbow) p.char.leftArm.userData.elbow.rotation.x = -0.35;
-                    } else if (!isOffense && pos.distanceTo(ballGroup.position) < 6.0) {
-                        // Active Athletic Defensive Stance
-                        p.char.leftArm.rotation.x = -1.35 + Math.sin(elapsed * 8 + p.phase) * 0.22;
-                        p.char.rightArm.rotation.x = -1.35 - Math.sin(elapsed * 8 + p.phase) * 0.22;
-                        if (p.char.leftArm.userData.elbow) p.char.leftArm.userData.elbow.rotation.x = -0.65;
-                        if (p.char.rightArm.userData.elbow) p.char.rightArm.userData.elbow.rotation.x = -0.65;
+                    } else if (p === onBallDefender) {
+                        // Dedicated low on-ball defensive stance: arms wide contesting
+                        p.char.leftArm.rotation.x = -1.15 + Math.sin(elapsed * 6 + p.phase) * 0.15;
+                        p.char.rightArm.rotation.x = -1.15 - Math.sin(elapsed * 6 + p.phase) * 0.15;
+                        p.char.leftArm.rotation.y = 0;
+                        p.char.rightArm.rotation.y = 0;
+                        p.char.leftArm.rotation.z = -0.45;
+                        p.char.rightArm.rotation.z = 0.45;
+                    } else if (isOffense && !isMoving) {
+                        // Triple-threat ready stance: hands ready to receive pass
+                        p.char.leftArm.rotation.x = -0.95;
+                        p.char.rightArm.rotation.x = -0.95;
+                        p.char.leftArm.rotation.y = 0;
+                        p.char.rightArm.rotation.y = 0;
+                        p.char.leftArm.rotation.z = 0;
+                        p.char.rightArm.rotation.z = 0;
                     } else {
+                        // Natural jogging / running swing
                         p.char.leftArm.rotation.x = -stride * 0.65;
                         p.char.rightArm.rotation.x = stride * 0.65;
+                        p.char.leftArm.rotation.y = 0;
+                        p.char.rightArm.rotation.y = 0;
+                        p.char.leftArm.rotation.z = 0;
+                        p.char.rightArm.rotation.z = 0;
                         if (p.char.leftArm.userData.elbow) p.char.leftArm.userData.elbow.rotation.x = -0.45;
                         if (p.char.rightArm.userData.elbow) p.char.rightArm.userData.elbow.rotation.x = -0.45;
                     }
@@ -2016,13 +2608,12 @@
 
                 separatePlayers();
 
-                // Physics runs after players move so the hand spring tracks current hand positions
+                // Ball physics and claims
                 stepBallPhysics(dt);
                 checkBallClaims();
                 ballMesh.rotation.x += (ballVel.z * dt) / BALL_R;
                 ballMesh.rotation.z -= (ballVel.x * dt) / BALL_R;
 
-                // Sync ground shadow under ball
                 ballShadow.position.x = ballGroup.position.x;
                 ballShadow.position.z = ballGroup.position.z;
                 const hScale = Math.max(0.35, 1.15 - ballGroup.position.y * 0.1);
@@ -2406,6 +2997,8 @@
                 foamSquares.forEach(fm => {
                     fm.mesh.position.z = fm.baseZ + Math.sin(elapsed * 2.4 + fm.phase) * 0.22;
                 });
+
+
                 ducks.forEach(d => {
                     const angle = elapsed * d.speed + d.phase;
                     const nx = d.cx + Math.cos(angle) * d.rx;
@@ -2455,26 +3048,90 @@
                     pivot.rotation.x = Math.sin(elapsed * 2.8 + idx * 1.8) * 0.52;
                 });
 
-                slideProgress = (slideProgress + dt * 0.42) % 1;
-                if (slideProgress < 0.55) {
-                    // Sliding down the blue chute
-                    const t = slideProgress / 0.55;
-                    slideKid.root.position.set(-33.8, 2.5 - t * 2.2, -13.6 + t * 3.6);
-                    slideKid.root.rotation.y = 0;
-                    slideKid.leftLeg.rotation.x = -0.9;
-                    slideKid.rightLeg.rotation.x = -0.9;
-                    slideKid.leftArm.rotation.x = -1.8;
-                    slideKid.rightArm.rotation.x = -1.8;
-                } else {
-                    // Running back around to climb the ladder
-                    const t = (slideProgress - 0.55) / 0.45;
-                    slideKid.root.position.set(-33.8 - Math.sin(t * Math.PI) * 1.4, 0.25 + t * 2.2, -10.0 - t * 3.6);
-                    slideKid.root.rotation.y = Math.PI;
-                    slideKid.leftLeg.rotation.x = Math.sin(elapsed * 12) * 0.6;
-                    slideKid.rightLeg.rotation.x = -Math.sin(elapsed * 12) * 0.6;
-                }
+                slideProgress = (slideProgress + dt * 0.16) % 1; // Smooth ~6.2 second complete play cycle
 
-                // 7. Strolling Pedestrians & Road Car
+                if (slideProgress < 0.28) {
+                    // Phase 1: Sliding down the blue chute (accelerates realistically into sand)
+                    const p = slideProgress / 0.28;
+                    const t = p * p; // Quadratic acceleration down slide
+
+                    // Slide chute runs in world space from (-32.9, 2.52, -12.7) down to (-32.9, 0.32, -9.1)
+                    const curY = THREE.MathUtils.lerp(2.52, 0.32, t);
+                    const curZ = THREE.MathUtils.lerp(-12.7, -9.1, t);
+
+                    slideKid.root.position.set(-32.9, curY, curZ);
+                    slideKid.root.rotation.set(0.55, 0, 0); // Tilted back naturally along chute incline
+                    slideKid.leftLeg.rotation.x = -1.45;   // Sitting down, legs straight out in chute
+                    slideKid.rightLeg.rotation.x = -1.45;
+                    slideKid.leftArm.rotation.x = -0.45;   // Hands on chute side rails
+                    slideKid.rightArm.rotation.x = -0.45;
+                } else if (slideProgress < 0.60) {
+                    // Phase 2: Landing in sand, turning, and running around tower to base of stairs
+                    const p = (slideProgress - 0.28) / 0.32;
+                    // Path curving around side of tower from (-32.9, -9.1) around to stairs base at (-33.3, -18.0)
+                    const angle = p * Math.PI;
+                    const curX = -32.9 + Math.sin(angle) * 2.2;
+                    const curZ = THREE.MathUtils.lerp(-9.1, -18.0, p);
+
+                    // Compute heading along trajectory
+                    const nextP = Math.min(1.0, p + 0.05);
+                    const nextAngle = nextP * Math.PI;
+                    const nextX = -32.9 + Math.sin(nextAngle) * 2.2;
+                    const nextZ = THREE.MathUtils.lerp(-9.1, -18.0, nextP);
+                    const yaw = Math.atan2(nextX - curX, nextZ - curZ);
+
+                    slideKid.root.position.set(curX, 0.22, curZ);
+                    slideKid.root.rotation.set(0, yaw, 0);
+
+                    // Running animation
+                    const runPhase = elapsed * 15;
+                    slideKid.leftLeg.rotation.x = Math.sin(runPhase) * 0.68;
+                    slideKid.rightLeg.rotation.x = -Math.sin(runPhase) * 0.68;
+                    slideKid.leftArm.rotation.x = -Math.sin(runPhase) * 0.55;
+                    slideKid.rightArm.rotation.x = Math.sin(runPhase) * 0.55;
+                } else if (slideProgress < 0.86) {
+                    // Phase 3: Climbing up the staircase step-by-step to the platform
+                    const p = (slideProgress - 0.60) / 0.26;
+                    // Stairs lead from (-33.3, 0.22, -18.0) up to platform deck at (-33.3, 2.45, -15.4)
+                    const curY = THREE.MathUtils.lerp(0.22, 2.45, p);
+                    const curZ = THREE.MathUtils.lerp(-18.0, -15.4, p);
+
+                    slideKid.root.position.set(-33.3, curY, curZ);
+                    slideKid.root.rotation.set(0, 0, 0); // Facing +Z up the staircase
+
+                    // Stepping legs animation climbing the 6 steps
+                    const stepStride = Math.sin(p * Math.PI * 12);
+                    slideKid.leftLeg.rotation.x = stepStride * 0.72;
+                    slideKid.rightLeg.rotation.x = -stepStride * 0.72;
+                    slideKid.leftArm.rotation.x = -0.85; // Hands holding handrails
+                    slideKid.rightArm.rotation.x = -0.85;
+                } else {
+                    // Phase 4: Walking across the yellow deck and sitting down at top of slide
+                    const p = (slideProgress - 0.86) / 0.14;
+                    // Walks from stairs mouth at (-33.3, 2.45, -15.4) across to slide mouth at (-32.9, 2.52, -12.7)
+                    const curX = THREE.MathUtils.lerp(-33.3, -32.9, p);
+                    const curZ = THREE.MathUtils.lerp(-15.4, -12.7, p);
+
+                    slideKid.root.position.set(curX, 2.45, curZ);
+                    slideKid.root.rotation.set(0, 0, 0);
+
+                    if (p < 0.75) {
+                        // Walking across deck
+                        const walkPhase = elapsed * 10;
+                        slideKid.leftLeg.rotation.x = Math.sin(walkPhase) * 0.45;
+                        slideKid.rightLeg.rotation.x = -Math.sin(walkPhase) * 0.45;
+                        slideKid.leftArm.rotation.x = -Math.sin(walkPhase) * 0.35;
+                        slideKid.rightArm.rotation.x = Math.sin(walkPhase) * 0.35;
+                    } else {
+                        // Sitting down into slide chute
+                        const sitP = (p - 0.75) / 0.25;
+                        slideKid.root.position.y = THREE.MathUtils.lerp(2.45, 2.52, sitP);
+                        slideKid.root.rotation.x = sitP * 0.55;
+                        slideKid.leftLeg.rotation.x = -sitP * 1.45;
+                        slideKid.rightLeg.rotation.x = -sitP * 1.45;
+                    }
+                }
+// 7. Strolling Pedestrians & Road Car
                 walkers.forEach((w, idx) => {
                     w.t += dt * w.speed;
                     const pingPong = 0.5 - 0.5 * Math.cos(w.t * Math.PI);
