@@ -2660,36 +2660,44 @@
                 pendingKick: null,
                 dribbleTimer: 0,
                 diveTimer: 0,
-                diveDir: 0
+                diveDir: 0,
+                wanderTimer: Math.random() * 3.0,
+                wanderOffsetX: (Math.random() - 0.5) * 4.0,
+                wanderOffsetZ: (Math.random() - 0.5) * 4.0,
+                wanderTargetX: (Math.random() - 0.5) * 4.0,
+                wanderTargetZ: (Math.random() - 0.5) * 4.0,
+                smoothSpeed: 0,
+                stridePhase: Math.random() * Math.PI * 2
             };
         }
 // Squad formations aligned with standard pitch (all home coordinates in respective halves)
+        // WIDE-STRETCHED SQUAD FORMATIONS (Spreading naturally across full 54m pitch width)
         const argSquad = [
             { num: 23, name: 'Emiliano Martínez', shortName: 'E. MARTÍNEZ', role: 'GK',  x:   0.0, z:  34.5, kitType: 'GK_BLUE', shortsColor: 0x0284c7, socksColor: 0x0284c7 },
-            { num: 4,  name: 'Gonzalo Montiel',   shortName: 'MONTIEL',     role: 'DEF', x: -14.0, z:  24.0, shortsColor: 0x111827, socksColor: 0xffffff },
-            { num: 13, name: 'Cristian Romero',   shortName: 'ROMERO',      role: 'DEF', x:  -5.5, z:  22.0, shortsColor: 0x111827, socksColor: 0xffffff },
-            { num: 6,  name: 'Lisandro Martínez', shortName: 'L. MARTÍNEZ', role: 'DEF', x:   5.5, z:  22.0, shortsColor: 0x111827, socksColor: 0xffffff },
-            { num: 3,  name: 'Nicolás Tagliafico',shortName: 'TAGLIAFICO',  role: 'DEF', x:  14.0, z:  24.0, shortsColor: 0x111827, socksColor: 0xffffff },
-            { num: 7,  name: 'Rodrigo De Paul',   shortName: 'DE PAUL',     role: 'MID', x:  -8.0, z:  12.0, shortsColor: 0x111827, socksColor: 0xffffff },
-            { num: 24, name: 'Enzo Fernández',    shortName: 'ENZO',        role: 'MID', x:   0.0, z:  10.0, shortsColor: 0x111827, socksColor: 0xffffff },
-            { num: 20, name: 'Alexis Mac Allister',shortName:'MAC ALLISTER',role: 'MID', x:   8.0, z:  12.0, shortsColor: 0x111827, socksColor: 0xffffff },
-            { num: 15, name: 'Nicolás González',  shortName: 'N. GONZÁLEZ', role: 'MID', x: -12.0, z:   6.0, shortsColor: 0x111827, socksColor: 0xffffff },
+            { num: 4,  name: 'Gonzalo Montiel',   shortName: 'MONTIEL',     role: 'DEF', x: -18.5, z:  24.5, shortsColor: 0x111827, socksColor: 0xffffff },
+            { num: 13, name: 'Cristian Romero',   shortName: 'ROMERO',      role: 'DEF', x:  -6.8, z:  22.5, shortsColor: 0x111827, socksColor: 0xffffff },
+            { num: 6,  name: 'Lisandro Martínez', shortName: 'L. MARTÍNEZ', role: 'DEF', x:   6.8, z:  22.5, shortsColor: 0x111827, socksColor: 0xffffff },
+            { num: 3,  name: 'Nicolás Tagliafico',shortName: 'TAGLIAFICO',  role: 'DEF', x:  18.5, z:  24.5, shortsColor: 0x111827, socksColor: 0xffffff },
+            { num: 7,  name: 'Rodrigo De Paul',   shortName: 'DE PAUL',     role: 'MID', x: -10.0, z:  13.5, shortsColor: 0x111827, socksColor: 0xffffff },
+            { num: 24, name: 'Enzo Fernández',    shortName: 'ENZO',        role: 'MID', x:   0.0, z:  11.5, shortsColor: 0x111827, socksColor: 0xffffff },
+            { num: 20, name: 'Alexis Mac Allister',shortName:'MAC ALLISTER',role: 'MID', x:  10.0, z:  13.5, shortsColor: 0x111827, socksColor: 0xffffff },
+            { num: 15, name: 'Nicolás González',  shortName: 'N. GONZÁLEZ', role: 'MID', x: -16.5, z:   6.5, shortsColor: 0x111827, socksColor: 0xffffff },
             { num: 10, name: 'Lionel Messi',      shortName: 'L. MESSI',    role: 'FWD', x:  -2.5, z:   4.0, shortsColor: 0x111827, socksColor: 0xffffff, speed: 11.5, isKickoffTaker: true },
-            { num: 9,  name: 'Julián Álvarez',    shortName: 'J. ÁLVAREZ',  role: 'FWD', x:   5.0, z:   4.5, shortsColor: 0x0284c7, socksColor: 0xffffff, speed: 11.2 }
+            { num: 9,  name: 'Julián Álvarez',    shortName: 'J. ÁLVAREZ',  role: 'FWD', x:   8.5, z:   4.5, shortsColor: 0x0284c7, socksColor: 0xffffff, speed: 11.2 }
         ];
 
         const espSquad = [
             { num: 23, name: 'Unai Simón',        shortName: 'UNAI SIMÓN',  role: 'GK',  x:   0.0, z: -34.5, kitType: 'GK_BLACK', shortsColor: 0x111827, socksColor: 0x111827 },
-            { num: 12, name: 'Pedro Porro',       shortName: 'P. PORRO',    role: 'DEF', x:  14.0, z: -24.0, shortsColor: 0x1e3a8a, socksColor: 0xdc2626 },
-            { num: 22, name: 'Pau Cubarsí',       shortName: 'CUBARSÍ',     role: 'DEF', x:   5.5, z: -22.0, shortsColor: 0x1e3a8a, socksColor: 0xdc2626 },
-            { num: 14, name: 'Aymeric Laporte',   shortName: 'LAPORTE',     role: 'DEF', x:  -5.5, z: -22.0, shortsColor: 0x1e3a8a, socksColor: 0xdc2626 },
-            { num: 24, name: 'Marc Cucurella',    shortName: 'CUCURELLA',   role: 'DEF', x: -14.0, z: -24.0, shortsColor: 0x1e3a8a, socksColor: 0xdc2626, hairStyle: 'cucurella' },
-            { num: 16, name: 'Rodri',             shortName: 'RODRI',       role: 'MID', x:   0.0, z: -10.0, shortsColor: 0x1e3a8a, socksColor: 0xdc2626 },
-            { num: 8,  name: 'Fabián Ruiz',       shortName: 'FABIÁN RUIZ', role: 'MID', x:   7.5, z: -12.0, shortsColor: 0x1e3a8a, socksColor: 0xdc2626 },
-            { num: 19, name: 'Lamine Yamal',      shortName: 'L. YAMAL',    role: 'FWD', x:  12.0, z:  -5.5, shortsColor: 0x1e3a8a, socksColor: 0xdc2626, skinColor: 0x8d5524, speed: 11.6 },
-            { num: 10, name: 'Dani Olmo',         shortName: 'DANI OLMO',   role: 'MID', x:  -7.5, z: -12.0, shortsColor: 0x1e3a8a, socksColor: 0xdc2626 },
-            { num: 15, name: 'Álex Baena',        shortName: 'BAENA',       role: 'FWD', x: -12.0, z:  -6.0, shortsColor: 0x1e3a8a, socksColor: 0xdc2626 },
-            { num: 21, name: 'Mikel Oyarzabal',   shortName: 'OYARZABAL',   role: 'FWD', x:   0.0, z:  -5.0, shortsColor: 0x1e3a8a, socksColor: 0xdc2626, speed: 11.0, isKickoffTaker: true }
+            { num: 12, name: 'Pedro Porro',       shortName: 'P. PORRO',    role: 'DEF', x:  18.5, z: -24.5, shortsColor: 0x1e3a8a, socksColor: 0xdc2626 },
+            { num: 22, name: 'Pau Cubarsí',       shortName: 'CUBARSÍ',     role: 'DEF', x:   6.8, z: -22.5, shortsColor: 0x1e3a8a, socksColor: 0xdc2626 },
+            { num: 14, name: 'Aymeric Laporte',   shortName: 'LAPORTE',     role: 'DEF', x:  -6.8, z: -22.5, shortsColor: 0x1e3a8a, socksColor: 0xdc2626 },
+            { num: 24, name: 'Marc Cucurella',    shortName: 'CUCURELLA',   role: 'DEF', x: -18.5, z: -24.5, shortsColor: 0x1e3a8a, socksColor: 0xdc2626, hairStyle: 'cucurella' },
+            { num: 16, name: 'Rodri',             shortName: 'RODRI',       role: 'MID', x:   0.0, z: -11.5, shortsColor: 0x1e3a8a, socksColor: 0xdc2626 },
+            { num: 8,  name: 'Fabián Ruiz',       shortName: 'FABIÁN RUIZ', role: 'MID', x:  10.0, z: -13.5, shortsColor: 0x1e3a8a, socksColor: 0xdc2626 },
+            { num: 19, name: 'Lamine Yamal',      shortName: 'L. YAMAL',    role: 'FWD', x:  16.5, z:  -6.0, shortsColor: 0x1e3a8a, socksColor: 0xdc2626, skinColor: 0x8d5524, speed: 11.6 },
+            { num: 10, name: 'Dani Olmo',         shortName: 'DANI OLMO',   role: 'MID', x: -10.0, z: -13.5, shortsColor: 0x1e3a8a, socksColor: 0xdc2626 },
+            { num: 15, name: 'Álex Baena',        shortName: 'BAENA',       role: 'FWD', x: -16.5, z:  -6.5, shortsColor: 0x1e3a8a, socksColor: 0xdc2626 },
+            { num: 21, name: 'Mikel Oyarzabal',   shortName: 'OYARZABAL',   role: 'FWD', x:   0.0, z:  -4.5, shortsColor: 0x1e3a8a, socksColor: 0xdc2626, speed: 11.0, isKickoffTaker: true }
         ];
 
         const players = [];
@@ -4051,12 +4059,36 @@
                     return;
                 }
 
+                // ORGANIC INDIVIDUAL WANDERING & TACTICAL DRIFT (Softly following formation with natural randomness)
+                if (p.wanderTimer !== undefined) {
+                    p.wanderTimer -= dt;
+                    if (p.wanderTimer <= 0) {
+                        p.wanderTimer = 2.4 + Math.random() * 2.8;
+                        const wanderRangeX = (Math.abs(p.homeX) > 10) ? 4.2 : 3.0;
+                        const wanderRangeZ = (p.role === 'FWD') ? 4.5 : (p.role === 'MID' ? 3.8 : 2.8);
+                        p.wanderTargetX = (Math.random() - 0.5) * wanderRangeX * 2;
+                        p.wanderTargetZ = (Math.random() - 0.5) * wanderRangeZ * 2;
+                    }
+                    p.wanderOffsetX += (p.wanderTargetX - p.wanderOffsetX) * Math.min(1.0, dt * 1.6);
+                    p.wanderOffsetZ += (p.wanderTargetZ - p.wanderOffsetZ) * Math.min(1.0, dt * 1.6);
+                }
+
                 let tx = p.homeX;
                 let tz = p.homeZ;
 
                 if (p.role === 'GK') {
-                    tx = THREE.MathUtils.clamp(bx * 0.4, -4.0, 4.0);
-                    tz = p.homeZ;
+                    const tx = THREE.MathUtils.clamp(bx * 0.38, -4.0, 4.0);
+                    const tz = p.homeZ;
+                    const gkDx = tx - p.x;
+                    const gkDist = Math.abs(gkDx);
+                    let gkTargetSpd = 0;
+                    if (gkDist > 0.8) gkTargetSpd = p.speed;
+                    else if (gkDist > 0.08) gkTargetSpd = p.speed * (gkDist / 0.8);
+                    const desiredGkVx = (gkDist > 0.02) ? Math.sign(gkDx) * gkTargetSpd : 0;
+                    p.vx += (desiredGkVx - p.vx) * Math.min(1.0, 9.0 * dt);
+                    p.vz = 0;
+                    p.x += p.vx * dt;
+
                     if (Math.hypot(p.x - bx, p.z - bz) < 2.5 && ball.cooldown <= 0) {
                         const clearDir = (p.team === 'ARG') ? -1 : 1;
                         const spreadX = (Math.random() - 0.5) * 16;
@@ -4082,52 +4114,80 @@
                     tx = bx;
                     tz = bz;
                 } else {
-                    // DYNAMIC FORMATION ADVANCE: PUSH WHOLE TEAM FORWARD INTO OPPONENT'S SIDE WHEN ATTACKING
+                    // STRETCHED FORMATION WITH ORGANIC RANDOM DRIFT (Wide pitch coverage, no crowding)
                     let pushZ = 0;
                     if (p.team === 'ARG') {
                         // Argentina defends +Z (goal at +39), attacks -Z (Spain goal at -39)
-                        // When ball moves toward Spain half (bz < 18), entire formation pushes forward into Spain's side
                         const atkProgress = THREE.MathUtils.clamp((18 - bz) / 46.0, 0, 1);
                         const defDrop = THREE.MathUtils.clamp((bz - 4) / 32.0, 0, 1);
                         if (p.role === 'FWD') {
-                            pushZ = -atkProgress * 28.5 + defDrop * 6.0;
+                            pushZ = -atkProgress * 28.5 + defDrop * 5.5;
                         } else if (p.role === 'MID') {
-                            pushZ = -atkProgress * 25.5 + defDrop * 8.0;
+                            pushZ = -atkProgress * 25.0 + defDrop * 7.5;
                         } else if (p.role === 'DEF') {
-                            pushZ = -atkProgress * 23.0 + defDrop * 8.0;
+                            pushZ = -atkProgress * 22.5 + defDrop * 7.5;
                         }
                     } else {
                         // Spain defends -Z (goal at -39), attacks +Z (Argentina goal at +39)
-                        // When ball moves toward Argentina half (bz > -18), entire formation pushes forward into Argentina's side
                         const atkProgress = THREE.MathUtils.clamp((bz - (-18)) / 46.0, 0, 1);
                         const defDrop = THREE.MathUtils.clamp((-bz - 4) / 32.0, 0, 1);
                         if (p.role === 'FWD') {
-                            pushZ = atkProgress * 28.5 - defDrop * 6.0;
+                            pushZ = atkProgress * 28.5 - defDrop * 5.5;
                         } else if (p.role === 'MID') {
-                            pushZ = atkProgress * 25.5 - defDrop * 8.0;
+                            pushZ = atkProgress * 25.0 - defDrop * 7.5;
                         } else if (p.role === 'DEF') {
-                            pushZ = atkProgress * 23.0 - defDrop * 8.0;
+                            pushZ = atkProgress * 22.5 - defDrop * 7.5;
                         }
                     }
 
-                    const shiftX = (bx / hw) * 5.0;
-                    tx = THREE.MathUtils.clamp(p.homeX + shiftX + Math.sin(time * 1.4 + p.phase) * 1.4, -hw + 3, hw - 3);
-                    tz = THREE.MathUtils.clamp(p.homeZ + pushZ + Math.cos(time * 1.2 + p.phase) * 1.5, -hl + 3, hl - 3);
+                    // Stretched lateral width with organic drift
+                    const shiftX = (bx / hw) * 4.5;
+                    const wX = (p.wanderOffsetX || 0);
+                    const wZ = (p.wanderOffsetZ || 0);
+                    tx = THREE.MathUtils.clamp(p.homeX + shiftX + wX, -hw + 2.4, hw - 2.4);
+                    tz = THREE.MathUtils.clamp(p.homeZ + pushZ + wZ, -hl + 2.8, hl - 2.8);
+
+                    // Soft teammate anti-crowding repulsion (guarantees players maintain clear spacing)
+                    players.forEach(other => {
+                        if (other !== p && other.team === p.team && other.role !== 'GK') {
+                            const odx = tx - other.x;
+                            const odz = tz - other.z;
+                            const distSq = odx * odx + odz * odz;
+                            const minDist = 6.2;
+                            if (distSq < minDist * minDist && distSq > 0.04) {
+                                const od = Math.sqrt(distSq);
+                                const force = ((minDist - od) / minDist) * 2.2;
+                                tx += (odx / od) * force;
+                                tz += (odz / od) * force;
+                            }
+                        }
+                    });
+                    tx = THREE.MathUtils.clamp(tx, -hw + 2.2, hw - 2.2);
+                    tz = THREE.MathUtils.clamp(tz, -hl + 2.6, hl - 2.6);
                 }
 
                 const dx = tx - p.x;
                 const dz = tz - p.z;
                 const dist = Math.hypot(dx, dz);
-                if (dist > 0.35) {
-                    const step = Math.min(dist, p.speed * dt);
-                    p.vx = (dx / dist) * p.speed;
-                    p.vz = (dz / dist) * p.speed;
-                    p.x += (dx / dist) * step;
-                    p.z += (dz / dist) * step;
+
+                // Smooth physical deceleration / arrival curve (no sudden speed snapping)
+                let targetSpd = 0;
+                if (dist > 1.6) {
+                    targetSpd = p.speed;
+                } else if (dist > 0.12) {
+                    const norm = (dist - 0.12) / 1.48;
+                    targetSpd = p.speed * norm * norm; // Quadratic ease-out deceleration
                 } else {
-                    p.vx *= 0.4;
-                    p.vz *= 0.4;
+                    targetSpd = 0;
                 }
+
+                const desiredVx = (dist > 0.04) ? (dx / dist) * targetSpd : 0;
+                const desiredVz = (dist > 0.04) ? (dz / dist) * targetSpd : 0;
+                const accel = (targetSpd > 0.2) ? 8.5 : 6.5;
+                p.vx += (desiredVx - p.vx) * Math.min(1.0, accel * dt);
+                p.vz += (desiredVz - p.vz) * Math.min(1.0, accel * dt);
+                p.x += p.vx * dt;
+                p.z += p.vz * dt;
 
                 // Interception / Kicking with foot strike animation and pause
                 if (Math.hypot(bx - p.x, bz - p.z) < 1.45 && ball.mesh.position.y < 1.8 && ball.cooldown <= 0 && matchState.goalTimer <= 0) {
@@ -4160,14 +4220,29 @@
                             text: `#${p.num} ${p.shortName} (${p.team}) blasts a shot toward goal!`
                         };
                     } else {
+                        // Varied, realistic passing options (through balls, wide switches, combination passes)
                         const mates = players.filter(m => m.team === p.team && m !== p && m.role !== 'GK');
-                        const mate = mates[Math.floor(Math.random() * mates.length)];
-                        const pdx = mate.x - p.x;
-                        const pdz = mate.z - p.z;
+                        let targetMate = null;
+                        const roll = Math.random();
+                        if (roll < 0.45) {
+                            // Forward attacking pass to teammate in front
+                            const fwdMates = mates.filter(m => (p.team === 'ARG' ? m.z < p.z : m.z > p.z));
+                            if (fwdMates.length > 0) targetMate = fwdMates[Math.floor(Math.random() * fwdMates.length)];
+                        } else if (roll < 0.75) {
+                            // Wide switch to opposite flank winger/fullback
+                            const wideMates = mates.filter(m => Math.sign(m.x) !== Math.sign(p.x) && Math.abs(m.x) > 9);
+                            if (wideMates.length > 0) targetMate = wideMates[Math.floor(Math.random() * wideMates.length)];
+                        }
+                        if (!targetMate) {
+                            targetMate = mates[Math.floor(Math.random() * mates.length)];
+                        }
+
+                        const pdx = targetMate.x - p.x;
+                        const pdz = targetMate.z - p.z;
                         const pl = Math.max(1, Math.hypot(pdx, pdz));
                         const spd = Math.min(26, 13 + pl * 0.45);
-                        const varX = (Math.random() - 0.5) * 2.5;
-                        const varZ = (Math.random() - 0.5) * 2.5;
+                        const varX = (Math.random() - 0.5) * 2.2;
+                        const varZ = (Math.random() - 0.5) * 2.2;
 
                         p.kickDuration = 0.56;
                         p.kickTimer = 0.56;
@@ -4181,7 +4256,7 @@
                             vx: ((pdx + varX) / pl) * spd,
                             vz: ((pdz + varZ) / pl) * spd,
                             vy: (pl > 18) ? 5.2 : 1.4,
-                            text: `#${p.num} ${p.shortName} passes to #${mate.num} ${mate.shortName}`
+                            text: `#${p.num} ${p.shortName} passes to #${targetMate.num} ${targetMate.shortName}`
                         };
                     }
                 }
@@ -4191,14 +4266,15 @@
             const rtz = THREE.MathUtils.clamp(bz * 0.45, -20, 20);
             const rdx = rtx - referee.x, rdz = rtz - referee.z;
             const rd = Math.hypot(rdx, rdz);
-            if (rd > 1.2) {
-                referee.vx = (rdx / rd) * referee.speed;
-                referee.vz = (rdz / rd) * referee.speed;
-                referee.x += (rdx / rd) * Math.min(rd, referee.speed * dt);
-                referee.z += (rdz / rd) * Math.min(rd, referee.speed * dt);
-            } else {
-                referee.vx = 0; referee.vz = 0;
-            }
+            let rTargetSpd = 0;
+            if (rd > 1.8) rTargetSpd = referee.speed;
+            else if (rd > 0.2) rTargetSpd = referee.speed * ((rd - 0.2) / 1.6);
+            const desiredRvx = (rd > 0.05) ? (rdx / rd) * rTargetSpd : 0;
+            const desiredRvz = (rd > 0.05) ? (rdz / rd) * rTargetSpd : 0;
+            referee.vx += (desiredRvx - referee.vx) * Math.min(1.0, 7.5 * dt);
+            referee.vz += (desiredRvz - referee.vz) * Math.min(1.0, 7.5 * dt);
+            referee.x += referee.vx * dt;
+            referee.z += referee.vz * dt;
 
             solveCharacterCollisions();
 
@@ -4360,11 +4436,21 @@
                     return;
                 }
                 p.root.position.set(p.x, 0, p.z);
-                const spd = Math.hypot(p.vx, p.vz);
-                if (spd > RUN_SPEED_THRESHOLD) {
-                    p.root.rotation.y = Math.atan2(p.vx, p.vz);
-                } else {
-                    p.root.rotation.y = Math.atan2(bx - p.x, bz - p.z);
+                const currentSpd = Math.hypot(p.vx, p.vz);
+                // Continuous exponentially smoothed speed (zero jitter / popping at edges)
+                p.smoothSpeed = THREE.MathUtils.lerp(p.smoothSpeed || 0, currentSpd, Math.min(1.0, 9.0 * dt));
+
+                // Continuous walk/run weight using smoothstep hermite interpolation from 0.25 to 3.2 m/s
+                const walkWeight = THREE.MathUtils.smoothstep(p.smoothSpeed, 0.25, 3.2);
+
+                // Smooth body orientation (shortest-arc interpolation, smoothly turns between heading and ball)
+                if (p.kickTimer <= 0) {
+                    const desiredHeading = (walkWeight > 0.18)
+                        ? Math.atan2(p.vx, p.vz)
+                        : Math.atan2(bx - p.x, bz - p.z);
+                    let diffAngle = desiredHeading - p.root.rotation.y;
+                    diffAngle = Math.atan2(Math.sin(diffAngle), Math.cos(diffAngle));
+                    p.root.rotation.y += diffAngle * Math.min(1.0, 8.5 * dt);
                 }
 
                 // Dynamic head tracking: player's head looks toward the action and camera
@@ -4379,25 +4465,24 @@
                     p.bodyPivot.position.y = 0.25;
                 } else if (p.kickTimer <= 0) {
                     p.bodyPivot.rotation.z = 0;
-                    // Run animation triggers strictly if speed is greater than threshold
-                    if (spd > RUN_SPEED_THRESHOLD) {
-                        const runNorm = THREE.MathUtils.clamp((spd - RUN_SPEED_THRESHOLD) / (p.speed - RUN_SPEED_THRESHOLD), 0.35, 1.0);
-                        const strideRate = 11.0 + runNorm * 6.5;
-                        const cyc = time * strideRate + p.phase;
-                        const s = Math.sin(cyc);
-                        p.leftLeg.rotation.x  =  s * 0.78 * runNorm;
-                        p.rightLeg.rotation.x = -s * 0.78 * runNorm;
-                        p.leftArm.rotation.x  = -s * 0.62 * runNorm;
-                        p.rightArm.rotation.x =  s * 0.62 * runNorm;
-                        p.bodyPivot.position.y = Math.abs(Math.cos(cyc)) * 0.18 * runNorm;
+                    if (walkWeight > 0.01) {
+                        // Continuous stride frequency & amplitude scaled smoothly by walkWeight
+                        const strideRate = 8.0 + walkWeight * 8.5;
+                        p.stridePhase = (p.stridePhase || 0) + strideRate * dt;
+                        const s = Math.sin(p.stridePhase + p.phase);
+                        p.leftLeg.rotation.x  =  s * 0.78 * walkWeight;
+                        p.rightLeg.rotation.x = -s * 0.78 * walkWeight;
+                        p.leftArm.rotation.x  = -s * 0.60 * walkWeight;
+                        p.rightArm.rotation.x =  s * 0.60 * walkWeight;
+                        p.bodyPivot.position.y = Math.abs(Math.cos(p.stridePhase + p.phase)) * 0.18 * walkWeight;
                     } else {
-                        // Below threshold: smooth blend to standing ready stance (no leg swinging while stationary)
-                        p.leftLeg.rotation.x *= 0.55;
-                        p.rightLeg.rotation.x *= 0.55;
-                        p.leftArm.rotation.x *= 0.55;
-                        p.rightArm.rotation.x *= 0.55;
-                        p.bodyPivot.position.y *= 0.55;
-                        if (Math.abs(p.leftLeg.rotation.x) < 0.02) {
+                        // Smoothly ease limbs to natural standing ready stance
+                        p.leftLeg.rotation.x *= 0.75;
+                        p.rightLeg.rotation.x *= 0.75;
+                        p.leftArm.rotation.x *= 0.75;
+                        p.rightArm.rotation.x *= 0.75;
+                        p.bodyPivot.position.y *= 0.75;
+                        if (Math.abs(p.leftLeg.rotation.x) < 0.005) {
                             p.leftLeg.rotation.x = 0;
                             p.rightLeg.rotation.x = 0;
                             p.leftArm.rotation.x = 0;
