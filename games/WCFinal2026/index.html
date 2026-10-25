@@ -180,6 +180,10 @@
             <button id="btn-goal-arg" class="hud-btn shrink-0 px-2 py-1 rounded text-cyan-300 font-bold">🎆 GOAL ARG</button>
             <button id="btn-goal-esp" class="hud-btn shrink-0 px-2 py-1 rounded text-amber-300 font-bold">🎆 GOAL ESP</button>
             <span class="text-slate-600 mx-0.5 shrink-0">|</span>
+            <button id="btn-corner" class="hud-btn shrink-0 px-2 py-1 rounded text-emerald-300 font-bold" title="Trigger Corner Kick">🚩 CORNER</button>
+            <button id="btn-throw" class="hud-btn shrink-0 px-2 py-1 rounded text-orange-300 font-bold" title="Trigger Throw-in">🤾 THROW</button>
+            <button id="btn-goalkick" class="hud-btn shrink-0 px-2 py-1 rounded text-teal-300 font-bold" title="Trigger Goal Kick">🥅 GOAL KICK</button>
+            <span class="text-slate-600 mx-0.5 shrink-0">|</span>
             <button id="cam-ref" class="hud-btn active shrink-0 px-2 py-1 rounded">REF<span class="hidden sm:inline"> VIEW</span></button>
             <button id="cam-ball" class="hud-btn shrink-0 px-2 py-1 rounded"><span class="hidden sm:inline">FOLLOW </span>BALL</button>
             <span class="text-slate-600 mx-0.5 shrink-0">|</span>
@@ -188,6 +192,7 @@
             <button id="px-165" class="hud-btn shrink-0 px-2 py-1 rounded" title="Classic 16-Bit Pixel Art (1.65x)">1.65x</button>
             <button id="btn-gi" class="hud-btn active shrink-0 px-2 py-1 rounded text-emerald-300">GI: HIGH</button>
             <button id="btn-tag" class="hud-btn active shrink-0 px-2 py-1 rounded text-amber-300">TAG: ON</button>
+            <button id="btn-audio" class="hud-btn active shrink-0 px-2 py-1 rounded text-cyan-300">🔊 SOUND</button>
         </div>
     </div>
 
@@ -316,6 +321,7 @@
 
         const PITCH_W = 54;
         const PITCH_L = 78;
+        const RUN_SPEED_THRESHOLD = 1.5;
         const APRON_W = 66;
         const APRON_L = 90;
 
@@ -707,7 +713,7 @@
         // 4. SCOREBOARD TEXTURE & MATCH STATE (STARTS 00:00, 0:0)
         // ============================================================================
         const matchState = {
-            phase: 'READY_KICKOFF', // 'READY_KICKOFF' | 'PLAYING' | 'CELEBRATION' | 'RETURNING'
+            phase: 'READY_KICKOFF', // 'READY_KICKOFF' | 'PLAYING' | 'CELEBRATION' | 'RETURNING' | 'SET_PIECE'
             kickoffTeam: 'ARG',
             readyTimer: 2.2,
             returningTimer: 0,
@@ -720,26 +726,116 @@
             waveTimer: 0
         };
 
-        // Realistic referee whistle audio synthesizer (Web Audio API)
+        // ============================================================================
+        // COMPREHENSIVE WEB AUDIO SFX & AUDIENCE ENGINE (Zero External Assets)
+        // ============================================================================
         let audioCtx = null;
-        function playWhistleSound() {
+        let masterGain = null;
+        let isAudioMuted = false;
+        let stadiumAmbienceNode = null;
+        let stadiumAmbienceGain = null;
+
+        function getAudioContext() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                masterGain = audioCtx.createGain();
+                masterGain.gain.setValueAtTime(isAudioMuted ? 0.0001 : 1.0, audioCtx.currentTime);
+                masterGain.connect(audioCtx.destination);
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume().catch(() => {});
+            }
+            return audioCtx;
+        }
+
+        function toggleMasterAudio(muted) {
+            isAudioMuted = muted;
+            if (masterGain && audioCtx) {
+                masterGain.gain.setValueAtTime(muted ? 0.0001 : 1.0, audioCtx.currentTime);
+            }
+        }
+
+        // 1. Continuous Ambient Stadium Audience (Chanting, Murmur, World Cup Final Atmosphere)
+        function startStadiumAmbience() {
             try {
-                if (!audioCtx) {
-                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const ctx = getAudioContext();
+                if (!ctx || stadiumAmbienceNode) return;
+
+                // 4 seconds stereo loop of live stadium audience murmur & subtle chanting
+                const len = Math.floor(ctx.sampleRate * 4.2);
+                const buf = ctx.createBuffer(2, len, ctx.sampleRate);
+                const left = buf.getChannelData(0);
+                const right = buf.getChannelData(1);
+
+                let lastL = 0, lastR = 0;
+                for (let i = 0; i < len; i++) {
+                    const whiteL = Math.random() * 2 - 1;
+                    const whiteR = Math.random() * 2 - 1;
+                    // Lowpass random walk for authentic stadium acoustic roar
+                    lastL = (lastL + 0.045 * whiteL) / 1.045;
+                    lastR = (lastR + 0.045 * whiteR) / 1.045;
+
+                    // Organic crowd chanting modulation in stands
+                    const timeSec = i / ctx.sampleRate;
+                    const chant = 1.0 + 0.24 * Math.sin(timeSec * Math.PI * 1.5) * Math.cos(timeSec * Math.PI * 0.75);
+                    left[i] = lastL * chant;
+                    right[i] = lastR * chant;
                 }
-                if (audioCtx.state === 'suspended') {
-                    audioCtx.resume();
+
+                // Seamless looping crossfade at edges
+                const fadeLen = 2500;
+                for (let i = 0; i < fadeLen; i++) {
+                    const t = i / fadeLen;
+                    left[i] = left[i] * t + left[len - fadeLen + i] * (1 - t);
+                    right[i] = right[i] * t + right[len - fadeLen + i] * (1 - t);
                 }
-                const now = audioCtx.currentTime;
-                // Double blast: tweet - tweeeet!
-                const blasts = [
-                    { start: now + 0.0, dur: 0.16, vol: 0.25 },
-                    { start: now + 0.20, dur: 0.35, vol: 0.32 }
-                ];
+
+                const src = ctx.createBufferSource();
+                src.buffer = buf;
+                src.loop = true;
+
+                // Bandpass filter shaping authentic human crowd resonance
+                const bpf = ctx.createBiquadFilter();
+                bpf.type = 'bandpass';
+                bpf.frequency.value = 750;
+                bpf.Q.value = 0.9;
+
+                stadiumAmbienceGain = ctx.createGain();
+                stadiumAmbienceGain.gain.setValueAtTime(0.14, ctx.currentTime);
+
+                src.connect(bpf);
+                bpf.connect(stadiumAmbienceGain);
+                stadiumAmbienceGain.connect(masterGain || ctx.destination);
+
+                src.start(0);
+                stadiumAmbienceNode = src;
+            } catch (e) {}
+        }
+
+        function playWhistleSound(type = 'kickoff') {
+            try {
+                const ctx = getAudioContext();
+                if (!ctx) return;
+                const now = ctx.currentTime;
+                const blasts = (type === 'goal')
+                    ? [
+                        { start: now + 0.0, dur: 0.13, vol: 0.28 },
+                        { start: now + 0.17, dur: 0.13, vol: 0.28 },
+                        { start: now + 0.35, dur: 0.44, vol: 0.34 }
+                    ]
+                    : (type === 'stoppage')
+                    ? [
+                        { start: now + 0.0, dur: 0.22, vol: 0.28 }
+                    ]
+                    : [
+                        { start: now + 0.0, dur: 0.16, vol: 0.25 },
+                        { start: now + 0.20, dur: 0.35, vol: 0.32 }
+                    ];
+
                 blasts.forEach(b => {
-                    const osc1 = audioCtx.createOscillator();
-                    const osc2 = audioCtx.createOscillator();
-                    const gain = audioCtx.createGain();
+                    const osc1 = ctx.createOscillator();
+                    const osc2 = ctx.createOscillator();
+                    const gain = ctx.createGain();
                     osc1.type = 'sine';
                     osc1.frequency.setValueAtTime(2850, b.start);
                     osc1.frequency.exponentialRampToValueAtTime(2950, b.start + b.dur);
@@ -752,7 +848,7 @@
                     gain.gain.exponentialRampToValueAtTime(0.001, b.start + b.dur);
                     osc1.connect(gain);
                     osc2.connect(gain);
-                    gain.connect(audioCtx.destination);
+                    gain.connect(masterGain || ctx.destination);
                     osc1.start(b.start);
                     osc2.start(b.start);
                     osc1.stop(b.start + b.dur);
@@ -760,8 +856,327 @@
                 });
             } catch (e) {}
         }
+
+        // 1. Kick & Pass Impact Sound (crisp leather boot impact & punchy pop)
+        function playKickSound(type = 'pass') {
+            try {
+                const ctx = getAudioContext();
+                if (!ctx) return;
+                const now = ctx.currentTime;
+
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+
+                if (type === 'shot') {
+                    // Deep powerful strike
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(175, now);
+                    osc.frequency.exponentialRampToValueAtTime(38, now + 0.14);
+                    gain.gain.setValueAtTime(0.42, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+                } else {
+                    // Snappy crisp pass
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(240, now);
+                    osc.frequency.exponentialRampToValueAtTime(55, now + 0.08);
+                    gain.gain.setValueAtTime(0.28, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+                }
+
+                // Boot leather impact transient noise
+                const bufSize = Math.floor(ctx.sampleRate * 0.025);
+                const noiseBuf = ctx.createBuffer(1, bufSize, ctx.sampleRate);
+                const out = noiseBuf.getChannelData(0);
+                for (let i = 0; i < bufSize; i++) {
+                    out[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufSize * 0.25));
+                }
+                const noise = ctx.createBufferSource();
+                noise.buffer = noiseBuf;
+                const noiseFilter = ctx.createBiquadFilter();
+                noiseFilter.type = 'bandpass';
+                noiseFilter.frequency.value = (type === 'shot') ? 1200 : 1800;
+                noiseFilter.Q.value = 1.8;
+                const noiseGain = ctx.createGain();
+                noiseGain.gain.setValueAtTime(type === 'shot' ? 0.32 : 0.20, now);
+                noiseGain.gain.exponentialRampToValueAtTime(0.001, now + 0.035);
+
+                noise.connect(noiseFilter);
+                noiseFilter.connect(noiseGain);
+                noiseGain.connect(masterGain || ctx.destination);
+
+                osc.connect(gain);
+                gain.connect(masterGain || ctx.destination);
+
+                osc.start(now);
+                osc.stop(now + 0.16);
+                noise.start(now);
+                noise.stop(now + 0.04);
+            } catch (e) {}
+        }
+
+        // 2. Goalkeeper Diving Save & Glove Catch Sound
+        function playSaveSound() {
+            try {
+                const ctx = getAudioContext();
+                if (!ctx) return;
+                const now = ctx.currentTime;
+
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(140, now);
+                osc.frequency.exponentialRampToValueAtTime(45, now + 0.12);
+                gain.gain.setValueAtTime(0.35, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.13);
+                osc.connect(gain);
+                gain.connect(masterGain || ctx.destination);
+                osc.start(now);
+                osc.stop(now + 0.14);
+
+                const bufLen = Math.floor(ctx.sampleRate * 0.12);
+                const noiseBuf = ctx.createBuffer(1, bufLen, ctx.sampleRate);
+                const data = noiseBuf.getChannelData(0);
+                for (let i = 0; i < bufLen; i++) {
+                    data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufLen * 0.4));
+                }
+                const noise = ctx.createBufferSource();
+                noise.buffer = noiseBuf;
+                const filter = ctx.createBiquadFilter();
+                filter.type = 'lowpass';
+                filter.frequency.setValueAtTime(1400, now);
+                filter.frequency.exponentialRampToValueAtTime(400, now + 0.12);
+                const nGain = ctx.createGain();
+                nGain.gain.setValueAtTime(0.25, now);
+                nGain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+                noise.connect(filter);
+                filter.connect(nGain);
+                nGain.connect(masterGain || ctx.destination);
+                noise.start(now);
+                noise.stop(now + 0.13);
+            } catch (e) {}
+        }
+
+        // 3. Goal Post & Crossbar Metallic Clang Sound
+        function playPostClangSound() {
+            try {
+                const ctx = getAudioContext();
+                if (!ctx) return;
+                const now = ctx.currentTime;
+                [880, 1320, 2140].forEach(f => {
+                    const osc = ctx.createOscillator();
+                    const gain = ctx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.value = f;
+                    gain.gain.setValueAtTime(0.18, now);
+                    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.65);
+                    osc.connect(gain);
+                    gain.connect(masterGain || ctx.destination);
+                    osc.start(now);
+                    osc.stop(now + 0.7);
+                });
+            } catch (e) {}
+        }
+
+        // 4. Massive Stadium Goal Cheer & Celebration Roar (Sustained 4.6s Frenzy + Air Horns + Net Swoosh)
+        function playGoalSound(team = 'ARG') {
+            try {
+                const ctx = getAudioContext();
+                if (!ctx) return;
+                const now = ctx.currentTime;
+
+                // A) Swell continuous stadium audience ambience during the goal cheer
+                if (stadiumAmbienceGain) {
+                    stadiumAmbienceGain.gain.cancelScheduledValues(now);
+                    stadiumAmbienceGain.gain.setValueAtTime(stadiumAmbienceGain.gain.value, now);
+                    stadiumAmbienceGain.gain.linearRampToValueAtTime(0.38, now + 0.35);
+                    stadiumAmbienceGain.gain.setValueAtTime(0.38, now + 3.8);
+                    stadiumAmbienceGain.gain.linearRampToValueAtTime(0.14, now + 4.8);
+                }
+
+                // B) Massive multi-band crowd eruption roar (4.6 seconds of stadium ecstasy)
+                const cheerDur = 4.6;
+                const cheerLen = Math.floor(ctx.sampleRate * cheerDur);
+                const cheerBuf = ctx.createBuffer(2, cheerLen, ctx.sampleRate);
+                const cL = cheerBuf.getChannelData(0);
+                const cR = cheerBuf.getChannelData(1);
+
+                for (let i = 0; i < cheerLen; i++) {
+                    const t = i / cheerLen;
+                    let env = 1.0;
+                    if (t < 0.05) {
+                        env = t / 0.05; // Rapid 0.2s roar explosion
+                    } else if (t > 0.72) {
+                        env = (1 - t) / 0.28; // Tapering as celebration wraps up
+                    }
+                    // Rhythmic cheer pulses inside crowd
+                    const chantBeat = Math.sin((i / ctx.sampleRate) * Math.PI * 4.0);
+                    const chantMod = 1.0 + 0.35 * Math.max(0, chantBeat);
+                    cL[i] = (Math.random() * 2 - 1) * env * chantMod;
+                    cR[i] = (Math.random() * 2 - 1) * env * chantMod;
+                }
+
+                const cheerSrc = ctx.createBufferSource();
+                cheerSrc.buffer = cheerBuf;
+
+                const vocalFilter = ctx.createBiquadFilter();
+                vocalFilter.type = 'lowpass';
+                vocalFilter.frequency.setValueAtTime(1000, now);
+                vocalFilter.frequency.linearRampToValueAtTime(2800, now + 0.35);
+                vocalFilter.frequency.setValueAtTime(2500, now + 3.2);
+                vocalFilter.frequency.linearRampToValueAtTime(1100, now + cheerDur);
+
+                const cheerGain = ctx.createGain();
+                cheerGain.gain.setValueAtTime(0.01, now);
+                cheerGain.gain.linearRampToValueAtTime(0.48, now + 0.25);
+                cheerGain.gain.setValueAtTime(0.48, now + 3.2);
+                cheerGain.gain.exponentialRampToValueAtTime(0.001, now + cheerDur);
+
+                cheerSrc.connect(vocalFilter);
+                vocalFilter.connect(cheerGain);
+                cheerGain.connect(masterGain || ctx.destination);
+                cheerSrc.start(now);
+                cheerSrc.stop(now + cheerDur + 0.05);
+
+                // C) Stadium Celebration Air Horns ("BZZT - BZZT - BZZZZZT!")
+                const hornBeats = [
+                    { start: now + 0.25, dur: 0.32 },
+                    { start: now + 0.68, dur: 0.32 },
+                    { start: now + 1.15, dur: 0.85 }
+                ];
+                hornBeats.forEach(hb => {
+                    [440, 554.37].forEach(f => {
+                        const hornOsc = ctx.createOscillator();
+                        const hornGain = ctx.createGain();
+                        hornOsc.type = 'sawtooth';
+                        hornOsc.frequency.setValueAtTime(f, hb.start);
+
+                        const hornFilter = ctx.createBiquadFilter();
+                        hornFilter.type = 'lowpass';
+                        hornFilter.frequency.value = 1800;
+
+                        hornGain.gain.setValueAtTime(0.001, hb.start);
+                        hornGain.gain.linearRampToValueAtTime(0.09, hb.start + 0.04);
+                        hornGain.gain.setValueAtTime(0.09, hb.start + hb.dur - 0.06);
+                        hornGain.gain.exponentialRampToValueAtTime(0.001, hb.start + hb.dur);
+
+                        hornOsc.connect(hornFilter);
+                        hornFilter.connect(hornGain);
+                        hornGain.connect(masterGain || ctx.destination);
+
+                        hornOsc.start(hb.start);
+                        hornOsc.stop(hb.start + hb.dur);
+                    });
+                });
+
+                // D) Net rustle impact swoosh
+                const netLen = Math.floor(ctx.sampleRate * 0.35);
+                const netBuf = ctx.createBuffer(1, netLen, ctx.sampleRate);
+                const netData = netBuf.getChannelData(0);
+                for (let i = 0; i < netLen; i++) {
+                    netData[i] = (Math.random() * 2 - 1) * (1 - i / netLen);
+                }
+                const netSrc = ctx.createBufferSource();
+                netSrc.buffer = netBuf;
+                const netFilter = ctx.createBiquadFilter();
+                netFilter.type = 'bandpass';
+                netFilter.frequency.setValueAtTime(1600, now);
+                netFilter.frequency.exponentialRampToValueAtTime(500, now + 0.3);
+                const netGain = ctx.createGain();
+                netGain.gain.setValueAtTime(0.42, now);
+                netGain.gain.exponentialRampToValueAtTime(0.001, now + 0.32);
+                netSrc.connect(netFilter);
+                netFilter.connect(netGain);
+                netGain.connect(masterGain || ctx.destination);
+                netSrc.start(now);
+                netSrc.stop(now + 0.35);
+
+                // E) Triple Goal Whistle Blast
+                playWhistleSound('goal');
+            } catch (e) {}
+        }
+
+        // Pyrotechnic firework explosion pop & crackle
+        function playFireworkBoomSound() {
+            try {
+                const ctx = getAudioContext();
+                if (!ctx) return;
+                const now = ctx.currentTime;
+
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(120 + Math.random() * 35, now);
+                osc.frequency.exponentialRampToValueAtTime(28, now + 0.22);
+                gain.gain.setValueAtTime(0.20, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.24);
+                osc.connect(gain);
+                gain.connect(masterGain || ctx.destination);
+                osc.start(now);
+                osc.stop(now + 0.25);
+
+                const len = Math.floor(ctx.sampleRate * 0.16);
+                const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+                const d = buf.getChannelData(0);
+                for (let i = 0; i < len; i++) {
+                    d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (len * 0.25));
+                }
+                const noise = ctx.createBufferSource();
+                noise.buffer = buf;
+                const filter = ctx.createBiquadFilter();
+                filter.type = 'bandpass';
+                filter.frequency.value = 1400;
+                const nGain = ctx.createGain();
+                nGain.gain.setValueAtTime(0.16, now);
+                nGain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+                noise.connect(filter);
+                filter.connect(nGain);
+                nGain.connect(masterGain || ctx.destination);
+                noise.start(now);
+                noise.stop(now + 0.16);
+            } catch (e) {}
+        }
+
+        // 5. Crowd Wave Sound Swell
+        function playCheerWaveSound() {
+            try {
+                const ctx = getAudioContext();
+                if (!ctx) return;
+                const now = ctx.currentTime;
+                const waveLen = Math.floor(ctx.sampleRate * 2.0);
+                const buf = ctx.createBuffer(1, waveLen, ctx.sampleRate);
+                const data = buf.getChannelData(0);
+                for (let i = 0; i < waveLen; i++) {
+                    const t = i / waveLen;
+                    data[i] = (Math.random() * 2 - 1) * Math.sin(t * Math.PI);
+                }
+                const src = ctx.createBufferSource();
+                src.buffer = buf;
+                const filter = ctx.createBiquadFilter();
+                filter.type = 'bandpass';
+                filter.frequency.setValueAtTime(600, now);
+                filter.frequency.linearRampToValueAtTime(1800, now + 0.9);
+                filter.frequency.exponentialRampToValueAtTime(700, now + 1.9);
+                filter.Q.value = 2.0;
+                const gain = ctx.createGain();
+                gain.gain.setValueAtTime(0.01, now);
+                gain.gain.linearRampToValueAtTime(0.28, now + 0.8);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 2.0);
+
+                src.connect(filter);
+                filter.connect(gain);
+                gain.connect(masterGain || ctx.destination);
+                src.start(now);
+                src.stop(now + 2.05);
+            } catch (e) {}
+        }
+
         window.addEventListener('click', () => {
-            if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+            getAudioContext();
+            startStadiumAmbience();
+        }, { once: true });
+        window.addEventListener('touchstart', () => {
+            getAudioContext();
+            startStadiumAmbience();
         }, { once: true });
 
         const kickoffBannerEl = document.getElementById('kickoff-banner');
@@ -2239,6 +2654,11 @@
                 radius: 0.95,
                 phase: Math.random() * Math.PI * 2,
                 kickTimer: 0,
+                kickDuration: 0.58,
+                kickType: 'pass',
+                kickTargetAngle: 0,
+                pendingKick: null,
+                dribbleTimer: 0,
                 diveTimer: 0,
                 diveDir: 0
             };
@@ -2435,7 +2855,9 @@
             vy: 0,
             vz: 0,
             cooldown: 0,
-            carrier: players[9] // Messi
+            carrier: players[9], // Messi
+            lastTouchTeam: 'ARG',
+            lastTouchPlayer: players[9]
         };
         window.ball = ball;
 
@@ -2561,6 +2983,7 @@
         function detonateRocket(r) {
             scene.remove(r.mesh);
             r.mesh.geometry.dispose();
+            playFireworkBoomSound();
 
             // Dynamic point light flash
             const light = celebrationFX.lights.find(l => l.intensity <= 0.1) || celebrationFX.lights[0];
@@ -2799,13 +3222,9 @@
             celebrationState.targetX = signX * 19.5;
             celebrationState.targetZ = (team === 'ARG') ? -32.0 : 32.0;
 
-            // Dynamic camera zoom into celebrating scorer
+            // Keep view mode and camera as is (do not force follow ball or zoom)
             celebrationState.prevZoom = viewState.zoom;
             celebrationState.prevFocus = viewState.focusPlayer;
-            viewState.focusPlayer = scoringPlayer;
-            viewState.mode = 'ball';
-            viewState.zoom = 1.65;
-            viewState.showTag = true;
 
             const who = `#${scoringPlayer.num} ${scoringPlayer.shortName}`;
             if (team === 'ARG') {
@@ -2820,17 +3239,15 @@
             redrawScoreboard();
             setTicker(`¡GOOOOOL! ${who} scores! ARG ${matchState.argScore} - ${matchState.espScore} ESP`);
 
-            // Trigger magnificent fireworks & audience ribbon splashes
+            // Trigger magnificent fireworks, audience sound & goal cheer
             launchCelebration(team);
+            playGoalSound(team);
 
             setTimeout(() => {
                 document.getElementById('goal-banner').classList.add('hidden');
                 celebrationState.active = false;
                 celebrationState.scorer = null;
-                if (celebrationState.prevZoom) {
-                    viewState.zoom = celebrationState.prevZoom;
-                }
-                viewState.focusPlayer = celebrationState.prevFocus || null;
+                // Retain view as is
                 players.forEach(p => {
                     p.bodyPivot.position.set(0, 0, 0);
                     p.bodyPivot.rotation.set(0, 0, 0);
@@ -2858,15 +3275,14 @@
             ball.cooldown = 0.5;
             ball.carrier = null;
 
-            // Smoothly pan camera back toward pitch center
-            viewState.focusPlayer = null;
-            viewState.mode = 'ball';
+            // Retain view mode as is
 
             showKickoffBanner('🔄 RETURNING TO POSITION', `${kickoffTeam === 'ARG' ? 'Argentina' : 'Spain'} Kick Off • Moving back into position...`);
             setTicker(`Players returning to positions for ${kickoffTeam === 'ARG' ? 'Argentina' : 'Spain'} Kick Off...`);
         }
 
         function executeKickoff() {
+            startStadiumAmbience();
             const team = matchState.kickoffTeam;
             playWhistleSound();
 
@@ -2875,8 +3291,14 @@
 
             const kicker = players.find(p => p.team === team && p.isKickoffTaker) || players[team === 'ARG' ? 9 : 21];
             if (kicker) {
-                kicker.kickTimer = 0.4;
+                kicker.kickTimer = 0.58;
+                kicker.kickDuration = 0.58;
+                kicker.kickType = 'pass';
+                kicker.vx = 0; kicker.vz = 0;
             }
+            playKickSound('pass');
+            ball.lastTouchTeam = team;
+            ball.lastTouchPlayer = kicker;
 
             // Kick the ball backward/inward into play to a teammate midfielder
             if (team === 'ARG') {
@@ -2923,18 +3345,28 @@
 
             ball.mesh.position.set(striker.x, 0.42, striker.z + (team === 'ARG' ? -0.8 : 0.8));
             ball.carrier = striker;
+            ball.lastTouchTeam = team;
+            ball.lastTouchPlayer = striker;
             ball.cooldown = 0.35;
 
-            const aimX = (Math.random() - 0.5) * 7.5;
+            // Aim toward goal (occasionally slightly wide to generate realistic goal kicks/corners)
+            const aimX = (Math.random() < 0.72) ? (Math.random() - 0.5) * 7.5 : (Math.random() - 0.5) * 14.0;
             const dx = aimX - striker.x;
             const dz = targetGoalZ - striker.z;
             const len = Math.hypot(dx, dz);
-            ball.vx = (dx / len) * 33;
-            ball.vz = (dz / len) * 33;
-            ball.vy = 5.2 + Math.random() * 2.5;
-            striker.kickTimer = 0.4;
-
-            setTicker(`#${striker.num} ${striker.shortName} (${team}) blasts a shot toward goal!`);
+            striker.kickDuration = 0.62;
+            striker.kickTimer = 0.62;
+            striker.kickType = 'shot';
+            striker.kickTargetAngle = Math.atan2(dx, dz);
+            striker.root.rotation.y = striker.kickTargetAngle;
+            striker.vx = 0; striker.vz = 0;
+            striker.pendingKick = {
+                isShot: true,
+                vx: (dx / len) * 33,
+                vz: (dz / len) * 33,
+                vy: 5.2 + Math.random() * 2.5,
+                text: `#${striker.num} ${striker.shortName} (${team}) blasts a shot toward goal!`
+            };
         }
 
         const tagEl = document.getElementById('carrier-tag');
@@ -3032,6 +3464,236 @@
                 cf.rotation.y = Math.sin(time * 6 + i) * 0.25;
             });
         }
+
+        // ============================================================================
+        // FULL SOCCER RULES ENGINE: THROW-IN, CORNER KICK & GOAL KICK
+        // ============================================================================
+        const setPieceState = {
+            active: false,
+            type: null, // 'THROW_IN' | 'CORNER_KICK' | 'GOAL_KICK'
+            team: null, // 'ARG' | 'ESP'
+            spotX: 0,
+            spotZ: 0,
+            taker: null,
+            timer: 0,
+            setupDuration: 1.55
+        };
+        window.setPieceState = setPieceState;
+
+        function startSetPiece(type, team, spotX, spotZ) {
+            if (celebrationState.active || matchState.goalTimer > 0) return;
+            const hw = PITCH_W / 2;
+            const hl = PITCH_L / 2;
+
+            matchState.phase = 'SET_PIECE';
+            setPieceState.active = true;
+            setPieceState.type = type;
+            setPieceState.team = team;
+            setPieceState.timer = 0;
+
+            playWhistleSound('stoppage');
+
+            ball.vx = 0; ball.vy = 0; ball.vz = 0;
+            ball.cooldown = 0.5;
+
+            let taker = null;
+
+            if (type === 'GOAL_KICK') {
+                setPieceState.setupDuration = 1.65;
+                setPieceState.spotX = 0;
+                setPieceState.spotZ = (team === 'ESP') ? -34.5 : 34.5;
+                taker = players.find(p => p.team === team && p.role === 'GK') || players[team === 'ARG' ? 0 : 11];
+                setPieceState.taker = taker;
+
+                ball.mesh.position.set(0, 0.42, setPieceState.spotZ);
+                ball.shadow.position.set(0, 0.025, setPieceState.spotZ);
+
+                taker.x = 0;
+                taker.z = setPieceState.spotZ + (team === 'ARG' ? 1.6 : -1.6);
+                taker.vx = 0; taker.vz = 0;
+                taker.root.position.set(taker.x, 0, taker.z);
+                taker.root.rotation.y = (team === 'ARG') ? Math.PI : 0;
+
+                showKickoffBanner('🥅 GOAL KICK — ' + (team === 'ARG' ? 'ARGENTINA' : 'SPAIN'), 'Restart by #' + taker.num + ' ' + taker.shortName, 2200);
+                setTicker('🥅 Ball over the defending end line! Goal kick awarded to ' + (team === 'ARG' ? 'Argentina' : 'Spain') + '!');
+            } else if (type === 'CORNER_KICK') {
+                setPieceState.setupDuration = 1.75;
+                const signX = (spotX >= 0) ? 1 : -1;
+                const signZ = (spotZ >= 0) ? 1 : -1;
+                setPieceState.spotX = signX * (hw - 0.7);
+                setPieceState.spotZ = signZ * (hl - 0.7);
+
+                // Select closest attacking winger/forward
+                const candidates = players.filter(p => p.team === team && p.role !== 'GK');
+                candidates.sort((a, b) => Math.hypot(a.x - setPieceState.spotX, a.z - setPieceState.spotZ) - Math.hypot(b.x - setPieceState.spotX, b.z - setPieceState.spotZ));
+                taker = candidates[0] || players[team === 'ARG' ? 9 : 17];
+                setPieceState.taker = taker;
+
+                ball.mesh.position.set(setPieceState.spotX, 0.42, setPieceState.spotZ);
+                ball.shadow.position.set(setPieceState.spotX, 0.025, setPieceState.spotZ);
+
+                taker.x = setPieceState.spotX + signX * 0.9;
+                taker.z = setPieceState.spotZ + signZ * 0.9;
+                taker.vx = 0; taker.vz = 0;
+                taker.root.position.set(taker.x, 0, taker.z);
+                const targetZ = (setPieceState.spotZ < 0) ? -hl + 9 : hl - 9;
+                taker.root.rotation.y = Math.atan2(0 - taker.x, targetZ - taker.z);
+
+                showKickoffBanner('🚩 CORNER KICK — ' + (team === 'ARG' ? 'ARGENTINA' : 'SPAIN'), 'Corner delivery by #' + taker.num + ' ' + taker.shortName, 2200);
+                setTicker('🚩 Ball deflected over goal line by defender! Corner kick for ' + (team === 'ARG' ? 'Argentina' : 'Spain') + '!');
+            } else {
+                // THROW_IN
+                setPieceState.setupDuration = 1.60;
+                const signX = (spotX >= 0) ? 1 : -1;
+                setPieceState.spotX = signX * (hw + 0.3);
+                setPieceState.spotZ = THREE.MathUtils.clamp(spotZ, -hl + 3.0, hl - 3.0);
+
+                const candidates = players.filter(p => p.team === team && p.role !== 'GK');
+                candidates.sort((a, b) => Math.hypot(a.x - setPieceState.spotX, a.z - setPieceState.spotZ) - Math.hypot(b.x - setPieceState.spotX, b.z - setPieceState.spotZ));
+                taker = candidates[0] || players[team === 'ARG' ? 1 : 12];
+                setPieceState.taker = taker;
+
+                ball.mesh.position.set(setPieceState.spotX, 0.42, setPieceState.spotZ);
+                ball.shadow.position.set(setPieceState.spotX, 0.025, setPieceState.spotZ);
+
+                taker.x = setPieceState.spotX;
+                taker.z = setPieceState.spotZ;
+                taker.vx = 0; taker.vz = 0;
+                taker.root.position.set(taker.x, 0, taker.z);
+                taker.root.rotation.y = (signX > 0) ? -Math.PI / 2 : Math.PI / 2;
+
+                showKickoffBanner('🤾 THROW-IN — ' + (team === 'ARG' ? 'ARGENTINA' : 'SPAIN'), 'Taken on sideline by #' + taker.num + ' ' + taker.shortName, 2200);
+                setTicker('🤾 Ball over the touchline! Throw-in awarded to ' + (team === 'ARG' ? 'Argentina' : 'Spain') + '!');
+            }
+
+            ball.carrier = taker;
+        }
+        window.startSetPiece = startSetPiece;
+
+        function executeSetPiece() {
+            const type = setPieceState.type;
+            const team = setPieceState.team;
+            const taker = setPieceState.taker;
+            const sx = setPieceState.spotX;
+            const sz = setPieceState.spotZ;
+            const hw = PITCH_W / 2;
+            const hl = PITCH_L / 2;
+
+            if (type === 'THROW_IN') {
+                // Find teammate inside the pitch
+                const mates = players.filter(m => m.team === team && m !== taker && Math.abs(m.x) < hw - 1.5);
+                mates.sort((a, b) => Math.hypot(a.x - sx, a.z - sz) - Math.hypot(b.x - sx, b.z - sz));
+                const receiver = mates[0] || players.find(m => m.team === team && m !== taker);
+
+                const dx = receiver ? (receiver.x - sx) : -Math.sign(sx) * 10;
+                const dz = receiver ? (receiver.z - sz) : 0;
+                const dist = Math.max(1, Math.hypot(dx, dz));
+
+                taker.kickTimer = 0.42;
+                taker.kickDuration = 0.42;
+                taker.kickType = 'pass';
+                taker.leftArm.rotation.x = 0.85;
+                taker.rightArm.rotation.x = 0.85;
+                taker.bodyPivot.rotation.x = -0.22;
+
+                ball.mesh.position.set(sx - Math.sign(sx) * 0.85, 1.45, sz);
+                const spd = Math.min(18.5, 9.5 + dist * 0.50);
+                ball.vx = (dx / dist) * spd;
+                ball.vz = (dz / dist) * spd;
+                ball.vy = 3.4;
+                ball.cooldown = 0.42;
+                ball.carrier = null;
+                ball.lastTouchTeam = team;
+                ball.lastTouchPlayer = taker;
+
+                playKickSound('pass');
+                const who = receiver ? `to #${receiver.num} ${receiver.shortName}` : 'into play';
+                setTicker(`🤾 #${taker.num} ${taker.shortName} (${team}) throws ${who}!`);
+            } else if (type === 'CORNER_KICK') {
+                taker.kickTimer = 0.62;
+                taker.kickDuration = 0.62;
+                taker.kickType = 'shot';
+
+                const targetEndZ = (sz < 0) ? -hl : hl;
+                const targetSign = (sz < 0) ? 1 : -1;
+                const targetX = (Math.random() - 0.5) * 8.5;
+                const targetZ = targetEndZ + targetSign * (9.5 + Math.random() * 4.5);
+
+                const dx = targetX - sx;
+                const dz = targetZ - sz;
+                const dist = Math.max(1, Math.hypot(dx, dz));
+
+                taker.kickTargetAngle = Math.atan2(dx, dz);
+                taker.root.rotation.y = taker.kickTargetAngle;
+                taker.vx = 0; taker.vz = 0;
+                playKickSound('shot');
+
+                ball.mesh.position.set(sx, 0.42, sz);
+                ball.vx = (dx / dist) * 19.8;
+                ball.vz = (dz / dist) * 19.8;
+                ball.vy = 7.8;
+                ball.cooldown = 0.50;
+                ball.carrier = null;
+                ball.lastTouchTeam = team;
+                ball.lastTouchPlayer = taker;
+
+                setTicker(`🚩 #${taker.num} ${taker.shortName} (${team}) crosses corner kick into the box!`);
+            } else if (type === 'GOAL_KICK') {
+                taker.kickTimer = 0.65;
+                taker.kickDuration = 0.65;
+                taker.kickType = 'shot';
+
+                const targetX = (Math.random() - 0.5) * 16.0;
+                const targetZ = (team === 'ARG') ? -6.0 : 6.0;
+                const dx = targetX - sx;
+                const dz = targetZ - sz;
+                const dist = Math.max(1, Math.hypot(dx, dz));
+
+                taker.kickTargetAngle = Math.atan2(dx, dz);
+                taker.root.rotation.y = taker.kickTargetAngle;
+                taker.vx = 0; taker.vz = 0;
+                playKickSound('shot');
+
+                ball.mesh.position.set(sx, 0.42, sz);
+                ball.vx = (dx / dist) * 23.0;
+                ball.vz = (dz / dist) * 23.0;
+                ball.vy = 10.2;
+                ball.cooldown = 0.55;
+                ball.carrier = null;
+                ball.lastTouchTeam = team;
+                ball.lastTouchPlayer = taker;
+
+                setTicker(`🥅 #${taker.num} ${taker.shortName} (${team}) launches a long goal kick downfield!`);
+            }
+
+            setPieceState.active = false;
+            matchState.phase = 'PLAYING';
+            setTimeout(() => {
+                hideKickoffBanner();
+            }, 1400);
+        }
+
+        function triggerSetPiece(type, team) {
+            if (matchState.phase !== 'PLAYING') {
+                setTicker('Wait for open play before triggering set piece!');
+                return;
+            }
+            const hw = PITCH_W / 2;
+            const hl = PITCH_L / 2;
+            if (type === 'CORNER_KICK') {
+                const signX = (Math.random() < 0.5) ? 1 : -1;
+                const cornerZ = (team === 'ARG') ? (-hl + 0.6) : (hl - 0.6);
+                startSetPiece('CORNER_KICK', team, signX * (hw - 0.6), cornerZ);
+            } else if (type === 'THROW_IN') {
+                const signX = (Math.random() < 0.5) ? 1 : -1;
+                const throwZ = (Math.random() - 0.5) * 44;
+                startSetPiece('THROW_IN', team, signX * hw, throwZ);
+            } else if (type === 'GOAL_KICK') {
+                const kickZ = (team === 'ARG') ? 34.5 : -34.5;
+                startSetPiece('GOAL_KICK', team, 0, kickZ);
+            }
+        }
+        window.triggerSetPiece = triggerSetPiece;
 
         function stepMatchSimulation(dt, time) {
             if (matchState.goalTimer > 0) matchState.goalTimer -= dt;
@@ -3147,6 +3809,126 @@
                 return;
             }
 
+            // 2.5 SET_PIECE PHASE: Throw-in, Corner Kick, or Goal Kick positioning
+            if (matchState.phase === 'SET_PIECE') {
+                setPieceState.timer += dt;
+                const t = setPieceState.timer;
+                const taker = setPieceState.taker;
+                const type = setPieceState.type;
+                const team = setPieceState.team;
+                const hw = PITCH_W / 2;
+                const hl = PITCH_L / 2;
+
+                if (type === 'THROW_IN') {
+                    if (t > 0.4 && taker) {
+                        ball.mesh.position.set(taker.x, 1.88, taker.z);
+                        ball.shadow.position.set(taker.x, 0.025, taker.z);
+                        taker.leftArm.rotation.x = -2.45 + Math.sin(t * 5.0) * 0.12;
+                        taker.rightArm.rotation.x = -2.45 + Math.sin(t * 5.0) * 0.12;
+                        taker.bodyPivot.rotation.x = 0.14;
+                        taker.root.rotation.y = (taker.x > 0) ? -Math.PI / 2 : Math.PI / 2;
+                    } else {
+                        ball.mesh.position.set(setPieceState.spotX, 0.42, setPieceState.spotZ);
+                        ball.shadow.position.set(setPieceState.spotX, 0.025, setPieceState.spotZ);
+                    }
+                } else {
+                    ball.mesh.position.set(setPieceState.spotX, 0.42, setPieceState.spotZ);
+                    ball.shadow.position.set(setPieceState.spotX, 0.025, setPieceState.spotZ);
+                }
+                ball.vx = 0; ball.vy = 0; ball.vz = 0;
+
+                players.forEach(p => {
+                    if (p === taker) {
+                        const dx = setPieceState.spotX - p.x;
+                        const dz = setPieceState.spotZ - p.z;
+                        const dist = Math.hypot(dx, dz);
+                        if (dist > 0.35) {
+                            const spd = p.speed * 1.1;
+                            p.vx = (dx / dist) * spd;
+                            p.vz = (dz / dist) * spd;
+                            p.x += p.vx * dt;
+                            p.z += p.vz * dt;
+                            p.root.rotation.y = Math.atan2(p.vx, p.vz);
+                        } else {
+                            p.vx = 0; p.vz = 0;
+                            if (type === 'THROW_IN') {
+                                p.root.rotation.y = (p.x > 0) ? -Math.PI / 2 : Math.PI / 2;
+                            } else if (type === 'CORNER_KICK') {
+                                const boxTargetZ = (p.z < 0) ? (-hl + 10) : (hl - 10);
+                                p.root.rotation.y = Math.atan2(0 - p.x, boxTargetZ - p.z);
+                            } else if (type === 'GOAL_KICK') {
+                                p.root.rotation.y = (p.team === 'ARG') ? Math.PI : 0;
+                            }
+                        }
+                        return;
+                    }
+
+                    let tx = p.homeX;
+                    let tz = p.homeZ;
+
+                    if (type === 'CORNER_KICK') {
+                        const targetEndZ = (setPieceState.spotZ < 0) ? -hl : hl;
+                        const targetSign = (setPieceState.spotZ < 0) ? 1 : -1;
+                        if (p.role === 'FWD' || p.role === 'MID') {
+                            tx = p.homeX * 0.42;
+                            tz = targetEndZ + targetSign * (6.0 + (p.num % 5) * 2.2);
+                        } else if (p.role === 'DEF') {
+                            tx = p.homeX * 0.38;
+                            tz = targetEndZ + targetSign * (4.5 + (p.num % 4) * 2.0);
+                        }
+                    } else if (type === 'THROW_IN') {
+                        const sideSign = Math.sign(setPieceState.spotX);
+                        const distToSide = Math.abs(setPieceState.spotZ - p.homeZ);
+                        if (distToSide < 22) {
+                            tx = p.homeX * 0.5 + sideSign * 12.0;
+                            tz = THREE.MathUtils.clamp(p.homeZ * 0.6 + setPieceState.spotZ * 0.4, -hl + 3, hl - 3);
+                        }
+                    } else if (type === 'GOAL_KICK') {
+                        tx = p.homeX;
+                        tz = p.homeZ * 0.65;
+                    }
+
+                    const dx = tx - p.x;
+                    const dz = tz - p.z;
+                    const dist = Math.hypot(dx, dz);
+                    if (dist > 0.8) {
+                        const spd = p.speed * 0.85;
+                        p.vx = (dx / dist) * spd;
+                        p.vz = (dz / dist) * spd;
+                        p.x += p.vx * dt;
+                        p.z += p.vz * dt;
+                        p.root.rotation.y = Math.atan2(p.vx, p.vz);
+                    } else {
+                        p.vx = 0; p.vz = 0;
+                    }
+                });
+
+                // Referee positions to observe set piece
+                const rtx = THREE.MathUtils.clamp(setPieceState.spotX * 0.65, -15, 15);
+                const rtz = THREE.MathUtils.clamp(setPieceState.spotZ * 0.65, -20, 20);
+                const rdx = rtx - referee.x, rdz = rtz - referee.z;
+                const rd = Math.hypot(rdx, rdz);
+                if (rd > 1.0) {
+                    referee.vx = (rdx / rd) * referee.speed;
+                    referee.vz = (rdz / rd) * referee.speed;
+                    referee.x += referee.vx * dt;
+                    referee.z += referee.vz * dt;
+                    referee.root.rotation.y = Math.atan2(rdx, rdz);
+                } else {
+                    referee.vx = 0; referee.vz = 0;
+                    referee.root.rotation.y = Math.atan2(setPieceState.spotX - referee.x, setPieceState.spotZ - referee.z);
+                }
+
+                solveCharacterCollisions();
+
+                if (setPieceState.timer >= setPieceState.setupDuration) {
+                    executeSetPiece();
+                }
+
+                updateOverlayTags(time);
+                return;
+            }
+
             // 3. PLAYING or CELEBRATION
             if (celebrationState.active) {
                 ball.mesh.position.set(0, 0.42, 0);
@@ -3176,21 +3958,77 @@
             const hw = PITCH_W / 2;
             const hl = PITCH_L / 2;
 
-            if (Math.abs(bz) > hl && Math.abs(bx) < 4.8 && ball.mesh.position.y < 3.4) {
-                if (matchState.goalTimer <= 0 && matchState.phase === 'PLAYING') {
-                    celebrateGoal(bz < 0 ? 'ARG' : 'ESP', ball.carrier);
+            // FULL SOCCER BOUNDARY RULES: GOAL, GOAL KICK, CORNER KICK, THROW-IN
+            if (Math.abs(bz) > hl) {
+                if (Math.abs(bx) < 4.8 && ball.mesh.position.y < 3.4) {
+                    // GOAL! Ball entered between the goal posts under crossbar
+                    if (matchState.goalTimer <= 0 && matchState.phase === 'PLAYING') {
+                        playGoalSound();
+                        celebrateGoal(bz < 0 ? 'ARG' : 'ESP', ball.lastTouchPlayer || ball.carrier);
+                        return;
+                    }
+                } else {
+                    // Ball exited across defending goal line outside of the goal mouth
+                    if (matchState.phase === 'PLAYING' && matchState.goalTimer <= 0 && ball.cooldown <= 0) {
+                        const cornerSignX = Math.sign(bx) || 1;
+                        if (bz < -hl) {
+                            // Ball crossed Spain's defending endline
+                            if (ball.lastTouchTeam === 'ARG') {
+                                // Attacking team (ARG) touched last -> GOAL KICK for Spain
+                                startSetPiece('GOAL_KICK', 'ESP', 0, -34.5);
+                            } else {
+                                // Defending team (ESP) touched last -> CORNER KICK for Argentina
+                                startSetPiece('CORNER_KICK', 'ARG', cornerSignX * (hw - 0.7), -hl + 0.7);
+                            }
+                            return;
+                        } else {
+                            // Ball crossed Argentina's defending endline
+                            if (ball.lastTouchTeam === 'ESP') {
+                                // Attacking team (ESP) touched last -> GOAL KICK for Argentina
+                                startSetPiece('GOAL_KICK', 'ARG', 0, 34.5);
+                            } else {
+                                // Defending team (ARG) touched last -> CORNER KICK for Spain
+                                startSetPiece('CORNER_KICK', 'ESP', cornerSignX * (hw - 0.7), hl - 0.7);
+                            }
+                            return;
+                        }
+                    } else if (matchState.phase !== 'PLAYING') {
+                        ball.mesh.position.z = Math.sign(bz) * hl;
+                        ball.vz = -ball.vz * 0.5;
+                    }
                 }
-            } else {
-                if (Math.abs(bx) > hw) {
+            } else if (Math.abs(bx) > hw) {
+                // Ball exited across touchline (sideline) -> THROW-IN
+                if (matchState.phase === 'PLAYING' && matchState.goalTimer <= 0 && ball.cooldown <= 0) {
+                    const awardTeam = (ball.lastTouchTeam === 'ARG') ? 'ESP' : 'ARG';
+                    const exitX = Math.sign(bx) * hw;
+                    const exitZ = THREE.MathUtils.clamp(bz, -hl + 2.5, hl - 2.5);
+                    startSetPiece('THROW_IN', awardTeam, exitX, exitZ);
+                    return;
+                } else if (matchState.phase !== 'PLAYING') {
                     ball.mesh.position.x = Math.sign(bx) * hw;
-                    ball.vx = -ball.vx * 0.65;
-                }
-                if (Math.abs(bz) > hl) {
-                    ball.mesh.position.z = Math.sign(bz) * hl;
-                    ball.vz = -ball.vz * 0.65;
+                    ball.vx = -ball.vx * 0.5;
                 }
             }
 
+            // Ball bouncing off goal posts with metallic clang
+            goalPostColliders.forEach(gp => {
+                const bdx = bx - gp.x;
+                const bdz = bz - gp.z;
+                const minD = 0.42 + gp.r;
+                const dSq = bdx * bdx + bdz * bdz;
+                if (dSq < minD * minD && ball.mesh.position.y < 3.5) {
+                    const d = Math.max(0.001, Math.sqrt(dSq));
+                    ball.mesh.position.x = gp.x + (bdx / d) * minD;
+                    ball.mesh.position.z = gp.z + (bdz / d) * minD;
+                    ball.vx = (bdx / d) * Math.max(14, Math.abs(ball.vx));
+                    ball.vz = (bdz / d) * Math.max(14, Math.abs(ball.vz));
+                    playPostClangSound();
+                    setTicker('CLANG! Ball rattles off the goal post!');
+                }
+            });
+
+            // ORIGINAL BALANCED TACTICAL FORMATION BEHAVIOR (No crowding: each team has 1 closest ball chaser; others hold shape)
             let cArg = null, dArg = 999;
             let cEsp = null, dEsp = 999;
             players.forEach(p => {
@@ -3205,6 +4043,14 @@
                     // During goal celebration, regular match AI is suspended
                     return;
                 }
+
+                // If kicking or passing, pause in place at that spot!
+                if (p.kickTimer > 0) {
+                    p.vx = 0;
+                    p.vz = 0;
+                    return;
+                }
+
                 let tx = p.homeX;
                 let tz = p.homeZ;
 
@@ -3213,22 +4059,60 @@
                     tz = p.homeZ;
                     if (Math.hypot(p.x - bx, p.z - bz) < 2.5 && ball.cooldown <= 0) {
                         const clearDir = (p.team === 'ARG') ? -1 : 1;
-                        ball.vx = (Math.random() - 0.5) * 16;
-                        ball.vz = clearDir * 24;
-                        ball.vy = 7.0;
-                        ball.cooldown = 0.4;
+                        const spreadX = (Math.random() - 0.5) * 16;
+                        ball.vx = spreadX;
+                        ball.vz = clearDir * (15 + Math.random() * 10);
+                        ball.vy = 6.2 + Math.random() * 2.5;
+                        ball.cooldown = 0.42;
+                        ball.carrier = null;
+                        ball.lastTouchTeam = p.team;
+                        ball.lastTouchPlayer = p;
                         p.diveTimer = 0.55;
                         p.diveDir = Math.sign(bx - p.x) || 1;
+                        p.kickTimer = 0.52;
+                        p.kickDuration = 0.52;
+                        p.kickType = 'shot';
+                        p.kickTargetAngle = Math.atan2(spreadX, clearDir * 20);
+                        p.vx = 0; p.vz = 0;
+                        playSaveSound();
                         setTicker(`Save by #${p.num} ${p.shortName} (${p.team})!`);
                     }
                 } else if (p === cArg || p === cEsp) {
+                    // Active ball chaser (only 1 player per team moves to the ball)
                     tx = bx;
                     tz = bz;
                 } else {
-                    const shiftX = (bx / hw) * 6.0;
-                    const shiftZ = (bz / hl) * 10.0;
-                    tx = THREE.MathUtils.clamp(p.homeX + shiftX + Math.sin(time * 1.4 + p.phase) * 1.8, -hw + 3, hw - 3);
-                    tz = THREE.MathUtils.clamp(p.homeZ + shiftZ + Math.cos(time * 1.2 + p.phase) * 2.0, -hl + 3, hl - 3);
+                    // DYNAMIC FORMATION ADVANCE: PUSH WHOLE TEAM FORWARD INTO OPPONENT'S SIDE WHEN ATTACKING
+                    let pushZ = 0;
+                    if (p.team === 'ARG') {
+                        // Argentina defends +Z (goal at +39), attacks -Z (Spain goal at -39)
+                        // When ball moves toward Spain half (bz < 18), entire formation pushes forward into Spain's side
+                        const atkProgress = THREE.MathUtils.clamp((18 - bz) / 46.0, 0, 1);
+                        const defDrop = THREE.MathUtils.clamp((bz - 4) / 32.0, 0, 1);
+                        if (p.role === 'FWD') {
+                            pushZ = -atkProgress * 28.5 + defDrop * 6.0;
+                        } else if (p.role === 'MID') {
+                            pushZ = -atkProgress * 25.5 + defDrop * 8.0;
+                        } else if (p.role === 'DEF') {
+                            pushZ = -atkProgress * 23.0 + defDrop * 8.0;
+                        }
+                    } else {
+                        // Spain defends -Z (goal at -39), attacks +Z (Argentina goal at +39)
+                        // When ball moves toward Argentina half (bz > -18), entire formation pushes forward into Argentina's side
+                        const atkProgress = THREE.MathUtils.clamp((bz - (-18)) / 46.0, 0, 1);
+                        const defDrop = THREE.MathUtils.clamp((-bz - 4) / 32.0, 0, 1);
+                        if (p.role === 'FWD') {
+                            pushZ = atkProgress * 28.5 - defDrop * 6.0;
+                        } else if (p.role === 'MID') {
+                            pushZ = atkProgress * 25.5 - defDrop * 8.0;
+                        } else if (p.role === 'DEF') {
+                            pushZ = atkProgress * 23.0 - defDrop * 8.0;
+                        }
+                    }
+
+                    const shiftX = (bx / hw) * 5.0;
+                    tx = THREE.MathUtils.clamp(p.homeX + shiftX + Math.sin(time * 1.4 + p.phase) * 1.4, -hw + 3, hw - 3);
+                    tz = THREE.MathUtils.clamp(p.homeZ + pushZ + Math.cos(time * 1.2 + p.phase) * 1.5, -hl + 3, hl - 3);
                 }
 
                 const dx = tx - p.x;
@@ -3245,23 +4129,36 @@
                     p.vz *= 0.4;
                 }
 
+                // Interception / Kicking with foot strike animation and pause
                 if (Math.hypot(bx - p.x, bz - p.z) < 1.45 && ball.mesh.position.y < 1.8 && ball.cooldown <= 0 && matchState.goalTimer <= 0) {
-                    ball.cooldown = 0.30;
+                    ball.cooldown = 0.35;
                     ball.carrier = p;
-                    p.kickTimer = 0.35;
+                    ball.lastTouchTeam = p.team;
+                    ball.lastTouchPlayer = p;
 
                     const oppGoalZ = (p.team === 'ARG') ? -hl : hl;
                     const distGoal = Math.abs(oppGoalZ - p.z);
 
                     if (distGoal < 24 && Math.random() < 0.65) {
-                        const aimX = (Math.random() - 0.5) * 7.2;
+                        const aimX = (Math.random() < 0.72) ? (Math.random() - 0.5) * 7.2 : (Math.random() - 0.5) * 15.0;
                         const sdx = aimX - p.x;
                         const sdz = oppGoalZ - p.z;
                         const sl = Math.hypot(sdx, sdz);
-                        ball.vx = (sdx / sl) * 31;
-                        ball.vz = (sdz / sl) * 31;
-                        ball.vy = 4.5 + Math.random() * 3.5;
-                        setTicker(`#${p.num} ${p.shortName} (${p.team}) shoots toward goal!`);
+
+                        p.kickDuration = 0.62;
+                        p.kickTimer = 0.62;
+                        p.kickType = 'shot';
+                        p.kickTargetAngle = Math.atan2(sdx, sdz);
+                        p.root.rotation.y = p.kickTargetAngle;
+                        p.vx = 0; p.vz = 0; // Pause at the place!
+
+                        p.pendingKick = {
+                            isShot: true,
+                            vx: (sdx / sl) * 31,
+                            vz: (sdz / sl) * 31,
+                            vy: 4.8 + Math.random() * 3.2,
+                            text: `#${p.num} ${p.shortName} (${p.team}) blasts a shot toward goal!`
+                        };
                     } else {
                         const mates = players.filter(m => m.team === p.team && m !== p && m.role !== 'GK');
                         const mate = mates[Math.floor(Math.random() * mates.length)];
@@ -3269,10 +4166,23 @@
                         const pdz = mate.z - p.z;
                         const pl = Math.max(1, Math.hypot(pdx, pdz));
                         const spd = Math.min(26, 13 + pl * 0.45);
-                        ball.vx = (pdx / pl) * spd;
-                        ball.vz = (pdz / pl) * spd;
-                        ball.vy = (pl > 18) ? 5.2 : 1.4;
-                        setTicker(`#${p.num} ${p.shortName} passes to #${mate.num} ${mate.shortName}`);
+                        const varX = (Math.random() - 0.5) * 2.5;
+                        const varZ = (Math.random() - 0.5) * 2.5;
+
+                        p.kickDuration = 0.56;
+                        p.kickTimer = 0.56;
+                        p.kickType = 'pass';
+                        p.kickTargetAngle = Math.atan2(pdx, pdz);
+                        p.root.rotation.y = p.kickTargetAngle;
+                        p.vx = 0; p.vz = 0; // Pause at the place!
+
+                        p.pendingKick = {
+                            isShot: false,
+                            vx: ((pdx + varX) / pl) * spd,
+                            vz: ((pdz + varZ) / pl) * spd,
+                            vy: (pl > 18) ? 5.2 : 1.4,
+                            text: `#${p.num} ${p.shortName} passes to #${mate.num} ${mate.shortName}`
+                        };
                     }
                 }
             });
@@ -3281,7 +4191,7 @@
             const rtz = THREE.MathUtils.clamp(bz * 0.45, -20, 20);
             const rdx = rtx - referee.x, rdz = rtz - referee.z;
             const rd = Math.hypot(rdx, rdz);
-            if (rd > 0.5) {
+            if (rd > 1.2) {
                 referee.vx = (rdx / rd) * referee.speed;
                 referee.vz = (rdz / rd) * referee.speed;
                 referee.x += (rdx / rd) * Math.min(rd, referee.speed * dt);
@@ -3436,9 +4346,22 @@
                     // Handled by celebration choreography above
                     return;
                 }
+                if (setPieceState.active && setPieceState.type === 'THROW_IN' && p === setPieceState.taker && setPieceState.timer > 0.4) {
+                    p.root.position.set(p.x, 0, p.z);
+                    p.root.rotation.y = (p.x > 0) ? -Math.PI / 2 : Math.PI / 2;
+                    p.leftArm.rotation.x = -2.45 + Math.sin(time * 4) * 0.1;
+                    p.rightArm.rotation.x = -2.45 + Math.sin(time * 4) * 0.1;
+                    p.leftArm.rotation.z = -0.15;
+                    p.rightArm.rotation.z = 0.15;
+                    p.leftLeg.rotation.x = 0;
+                    p.rightLeg.rotation.x = 0;
+                    p.bodyPivot.rotation.x = 0.14;
+                    p.bodyPivot.position.y = 0;
+                    return;
+                }
                 p.root.position.set(p.x, 0, p.z);
                 const spd = Math.hypot(p.vx, p.vz);
-                if (spd > 0.7) {
+                if (spd > RUN_SPEED_THRESHOLD) {
                     p.root.rotation.y = Math.atan2(p.vx, p.vz);
                 } else {
                     p.root.rotation.y = Math.atan2(bx - p.x, bz - p.z);
@@ -3454,28 +4377,128 @@
                     p.diveTimer -= dt;
                     p.bodyPivot.rotation.z = p.diveDir * 1.15;
                     p.bodyPivot.position.y = 0.25;
-                } else {
+                } else if (p.kickTimer <= 0) {
                     p.bodyPivot.rotation.z = 0;
-                    if (spd > 0.7) {
-                        const cyc = time * 15.0 + p.phase;
+                    // Run animation triggers strictly if speed is greater than threshold
+                    if (spd > RUN_SPEED_THRESHOLD) {
+                        const runNorm = THREE.MathUtils.clamp((spd - RUN_SPEED_THRESHOLD) / (p.speed - RUN_SPEED_THRESHOLD), 0.35, 1.0);
+                        const strideRate = 11.0 + runNorm * 6.5;
+                        const cyc = time * strideRate + p.phase;
                         const s = Math.sin(cyc);
-                        p.leftLeg.rotation.x  =  s * 0.75;
-                        p.rightLeg.rotation.x = -s * 0.75;
-                        p.leftArm.rotation.x  = -s * 0.60;
-                        p.rightArm.rotation.x =  s * 0.60;
-                        p.bodyPivot.position.y = Math.abs(Math.cos(cyc)) * 0.18;
+                        p.leftLeg.rotation.x  =  s * 0.78 * runNorm;
+                        p.rightLeg.rotation.x = -s * 0.78 * runNorm;
+                        p.leftArm.rotation.x  = -s * 0.62 * runNorm;
+                        p.rightArm.rotation.x =  s * 0.62 * runNorm;
+                        p.bodyPivot.position.y = Math.abs(Math.cos(cyc)) * 0.18 * runNorm;
                     } else {
-                        p.leftLeg.rotation.x  = 0;
-                        p.rightLeg.rotation.x = 0;
-                        p.leftArm.rotation.x  = 0;
-                        p.rightArm.rotation.x = 0;
-                        p.bodyPivot.position.y = 0;
+                        // Below threshold: smooth blend to standing ready stance (no leg swinging while stationary)
+                        p.leftLeg.rotation.x *= 0.55;
+                        p.rightLeg.rotation.x *= 0.55;
+                        p.leftArm.rotation.x *= 0.55;
+                        p.rightArm.rotation.x *= 0.55;
+                        p.bodyPivot.position.y *= 0.55;
+                        if (Math.abs(p.leftLeg.rotation.x) < 0.02) {
+                            p.leftLeg.rotation.x = 0;
+                            p.rightLeg.rotation.x = 0;
+                            p.leftArm.rotation.x = 0;
+                            p.rightArm.rotation.x = 0;
+                            p.bodyPivot.position.y = 0;
+                        }
                     }
                 }
 
+                // DEDICATED SOCCER KICK & PASS ANIMATION (Windup, Foot Strike & Ball Launch, Follow-Through Pause, Recovery)
                 if (p.kickTimer > 0) {
                     p.kickTimer -= dt;
-                    p.rightLeg.rotation.x = -1.2;
+                    const dur = p.kickDuration || 0.60;
+                    const progress = THREE.MathUtils.clamp(1 - (p.kickTimer / dur), 0, 1);
+                    const isShot = (p.kickType === 'shot');
+
+                    // Player pauses at the place while kicking: zero velocity and maintain position
+                    p.vx = 0;
+                    p.vz = 0;
+                    p.root.position.set(p.x, 0, p.z);
+                    if (p.kickTargetAngle !== undefined) {
+                        p.root.rotation.y = p.kickTargetAngle;
+                    }
+
+                    // BALL IMPACT & LAUNCH: Ball launches when kicking foot contacts ball (progress >= 0.32)
+                    if (progress >= 0.32 && p.pendingKick) {
+                        const kAngle = p.kickTargetAngle || p.root.rotation.y;
+                        ball.mesh.position.set(p.x + Math.sin(kAngle) * 0.82, 0.42, p.z + Math.cos(kAngle) * 0.82);
+                        ball.vx = p.pendingKick.vx;
+                        ball.vz = p.pendingKick.vz;
+                        ball.vy = p.pendingKick.vy;
+                        ball.cooldown = 0.36;
+                        ball.carrier = null;
+                        ball.lastTouchTeam = p.team;
+                        ball.lastTouchPlayer = p;
+                        playKickSound(isShot ? 'shot' : 'pass');
+                        setTicker(p.pendingKick.text);
+                        p.pendingKick = null;
+                    }
+
+                    if (progress < 0.28) {
+                        // PHASE 1: Windup & plant foot (drawing kicking foot back, leaning over plant foot)
+                        const windupP = progress / 0.28;
+                        p.rightLeg.rotation.x = windupP * (isShot ? 1.45 : 1.15);
+                        p.rightLeg.rotation.z = 0.15;
+                        p.leftLeg.rotation.x = 0.12; // Plant foot solidly on ground
+
+                        p.bodyPivot.rotation.x = -windupP * (isShot ? 0.28 : 0.16);
+                        p.bodyPivot.rotation.z = -windupP * 0.18;
+                        p.bodyPivot.position.y = 0;
+
+                        p.leftArm.rotation.x = -windupP * 0.90;
+                        p.leftArm.rotation.z = windupP * 0.35;
+                        p.rightArm.rotation.x = windupP * 0.70;
+                        p.rightArm.rotation.z = windupP * 0.45;
+                        p.headGroup.rotation.x = 0.22;
+                    } else if (progress < 0.50) {
+                        // PHASE 2: Explosive foot strike through the ball
+                        const strikeP = (progress - 0.28) / 0.22;
+                        const strikeAngle = isShot ? -1.62 : -1.30;
+                        const startAngle = isShot ? 1.45 : 1.15;
+
+                        const easeStrike = Math.sin(strikeP * Math.PI * 0.5);
+                        p.rightLeg.rotation.x = startAngle + (strikeAngle - startAngle) * easeStrike;
+                        p.rightLeg.rotation.z = (1 - strikeP) * 0.15;
+                        p.leftLeg.rotation.x = (1 - strikeP) * 0.12;
+
+                        p.bodyPivot.rotation.x = -0.15 + 0.40 * strikeP;
+                        p.bodyPivot.rotation.z = -0.18 * (1 - strikeP);
+                        p.bodyPivot.position.y = Math.sin(strikeP * Math.PI) * (isShot ? 0.24 : 0.10);
+
+                        p.leftArm.rotation.x = -0.90 + strikeP * 1.25;
+                        p.leftArm.rotation.z = 0.35 * (1 - strikeP);
+                        p.rightArm.rotation.x = 0.70 - strikeP * 1.45;
+                        p.rightArm.rotation.z = -0.25 * strikeP;
+                        p.headGroup.rotation.x = 0.22 * (1 - strikeP);
+                    } else if (progress < 0.82) {
+                        // PHASE 3: THE PAUSE / FOLLOW-THROUGH HOLD (Player pauses at the place!)
+                        const strikeAngle = isShot ? -1.62 : -1.30;
+                        p.rightLeg.rotation.x = strikeAngle; // Kicking foot held extended in air
+                        p.rightLeg.rotation.z = 0;
+                        p.leftLeg.rotation.x = 0.05; // Plant foot solid
+                        p.bodyPivot.rotation.x = 0.25; // Torso leaning forward in follow-through
+                        p.bodyPivot.rotation.z = 0;
+                        p.bodyPivot.position.y = 0;
+                        p.leftArm.rotation.x = 0.35;
+                        p.rightArm.rotation.x = -0.75;
+                        p.headGroup.rotation.x = -0.12; // Looking downfield at ball flight
+                    } else {
+                        // PHASE 4: Recovery back to neutral ready stance
+                        const recP = (progress - 0.82) / 0.18;
+                        const strikeAngle = isShot ? -1.62 : -1.30;
+                        p.rightLeg.rotation.x = strikeAngle * (1 - recP);
+                        p.rightLeg.rotation.z = 0;
+                        p.leftLeg.rotation.x = 0;
+                        p.bodyPivot.rotation.set(0, 0, 0);
+                        p.bodyPivot.position.y = 0;
+                        p.leftArm.rotation.set(0, 0, 0);
+                        p.rightArm.rotation.set(0, 0, 0);
+                        p.headGroup.rotation.set(0, 0, 0);
+                    }
                 }
             });
 
@@ -3689,8 +4712,16 @@
         if (bGoalArg) bGoalArg.onclick = () => celebrateGoal('ARG');
         const bGoalEsp = document.getElementById('btn-goal-esp');
         if (bGoalEsp) bGoalEsp.onclick = () => celebrateGoal('ESP');
+
+        const bCorner = document.getElementById('btn-corner');
+        if (bCorner) bCorner.onclick = () => triggerSetPiece('CORNER_KICK', Math.random() < 0.5 ? 'ARG' : 'ESP');
+        const bThrow = document.getElementById('btn-throw');
+        if (bThrow) bThrow.onclick = () => triggerSetPiece('THROW_IN', Math.random() < 0.5 ? 'ARG' : 'ESP');
+        const bGoalKick = document.getElementById('btn-goalkick');
+        if (bGoalKick) bGoalKick.onclick = () => triggerSetPiece('GOAL_KICK', Math.random() < 0.5 ? 'ARG' : 'ESP');
         document.getElementById('btn-wave').onclick = () => {
             matchState.waveTimer = 4.5;
+            playCheerWaveSound();
             setTicker('Stadium crowd cheering wave in full swing!');
         };
 
@@ -3745,6 +4776,16 @@
             e.currentTarget.classList.toggle('active', viewState.showTag);
         };
 
+        const bAudio = document.getElementById('btn-audio');
+        if (bAudio) {
+            bAudio.onclick = (e) => {
+                isAudioMuted = !isAudioMuted;
+                toggleMasterAudio(isAudioMuted);
+                e.currentTarget.textContent = isAudioMuted ? '🔇 MUTE' : '🔊 SOUND';
+                e.currentTarget.classList.toggle('active', !isAudioMuted);
+            };
+        }
+
         // ============================================================================
         // 9. ANIMATION LOOP & LIVE TIME TICKING UP FROM 00:00
         // ============================================================================
@@ -3756,7 +4797,7 @@
             const dt = Math.min(clock.getDelta(), 0.05);
             const elapsed = clock.getElapsedTime();
 
-            if (matchState.phase === 'PLAYING') {
+            if (matchState.phase === 'PLAYING' || matchState.phase === 'SET_PIECE') {
                 matchState.seconds += dt;
                 if (Math.floor(matchState.seconds) !== prevSec) {
                     prevSec = Math.floor(matchState.seconds);
