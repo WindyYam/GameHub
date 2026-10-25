@@ -67,6 +67,21 @@
         .goal-popup {
             animation: goalBounce 0.35s infinite alternate;
         }
+        .kickoff-popup {
+            animation: kickoffPulse 0.45s infinite alternate;
+        }
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+            -webkit-overflow-scrolling: touch;
+        }
+        @keyframes kickoffPulse {
+            0% { transform: scale(1); }
+            100% { transform: scale(1.025) translateY(-2px); }
+        }
         @keyframes goalBounce {
             0% { transform: scale(1) translateY(0); }
             100% { transform: scale(1.04) translateY(-4px); }
@@ -141,23 +156,38 @@
         </div>
     </div>
 
-    <!-- Compact Bottom Control Bar -->
-    <div class="fixed bottom-2.5 left-1/2 -translate-x-1/2 z-20 pointer-events-auto max-w-[98vw]">
-        <div class="hud-bar px-3 py-1.5 rounded-lg flex flex-wrap items-center justify-center gap-1.5 text-xs">
-            <button id="btn-atk-arg" class="hud-btn px-2 py-1 rounded text-sky-300 font-bold">⚽ ARG ATTACK</button>
-            <button id="btn-atk-esp" class="hud-btn px-2 py-1 rounded text-red-300 font-bold">⚽ ESP ATTACK</button>
-            <button id="btn-wave" class="hud-btn px-2 py-1 rounded text-yellow-300 font-bold">🙌 CHEER WAVE</button>
-            <button id="btn-goal-arg" class="hud-btn px-2 py-1 rounded text-cyan-300 font-bold">🎆 GOAL ARG</button>
-            <button id="btn-goal-esp" class="hud-btn px-2 py-1 rounded text-amber-300 font-bold">🎆 GOAL ESP</button>
-            <span class="text-slate-600 mx-0.5">|</span>
-            <button id="cam-ref" class="hud-btn active px-2 py-1 rounded">REF VIEW</button>
-            <button id="cam-ball" class="hud-btn px-2 py-1 rounded">FOLLOW BALL</button>
-            <span class="text-slate-600 mx-0.5">|</span>
-            <button id="px-125" class="hud-btn active px-2 py-1 rounded" title="High-Res Fine Pixel Art (1.25x)">HD PIXEL 1.25x</button>
-            <button id="px-100" class="hud-btn px-2 py-1 rounded" title="Ultra-Crisp Native HD (1.0x)">ULTRA 1x</button>
-            <button id="px-165" class="hud-btn px-2 py-1 rounded" title="Classic 16-Bit Pixel Art (1.65x)">RETRO 1.65x</button>
-            <button id="btn-gi" class="hud-btn active px-2 py-1 rounded text-emerald-300">GI: HIGH</button>
-            <button id="btn-tag" class="hud-btn active px-2 py-1 rounded text-amber-300">TAG: ON</button>
+    <!-- Kickoff Status Banner -->
+    <div id="kickoff-banner" class="fixed inset-0 pointer-events-none flex items-start justify-center pt-14 z-30 hidden transition-opacity duration-300">
+        <div class="kickoff-popup hud-bar px-6 py-4 rounded-xl border-2 border-emerald-400 text-center bg-slate-950/95 shadow-2xl">
+            <div id="kickoff-title" class="pixel-font text-xl sm:text-2xl text-emerald-300 mb-1">📢 KICK OFF</div>
+            <div id="kickoff-sub" class="text-sm sm:text-base text-sky-200 tracking-wider">TEAMS IN POSITION</div>
+        </div>
+    </div>
+
+    <!-- Compact Bottom Control Bar (Never stacks vertically; swipeable single row on mobile with collapse toggle) -->
+    <div id="bottom-ui-wrapper" class="fixed bottom-2 left-1/2 -translate-x-1/2 z-20 pointer-events-auto max-w-[96vw] flex flex-col items-center gap-1 transition-all duration-200">
+        <!-- Collapse / Expand Toggle Tab -->
+        <button id="btn-toggle-hud" class="hud-btn px-2.5 py-0.5 rounded-full text-[9px] text-slate-300 hover:text-white flex items-center gap-1 shadow-md bg-slate-900/90 border border-slate-600">
+            <span id="hud-toggle-icon">▼</span>
+            <span id="hud-toggle-text">HIDE</span>
+        </button>
+
+        <!-- Main Single-Row Control Bar -->
+        <div id="bottom-hud-bar" class="hud-bar px-2 py-1 sm:px-3 sm:py-1.5 rounded-lg flex flex-nowrap items-center gap-1 sm:gap-1.5 text-xs overflow-x-auto no-scrollbar max-w-full shadow-2xl">
+            <button id="btn-atk-arg" class="hud-btn shrink-0 px-2 py-1 rounded text-sky-300 font-bold">⚽ ARG<span class="hidden sm:inline"> ATTACK</span></button>
+            <button id="btn-atk-esp" class="hud-btn shrink-0 px-2 py-1 rounded text-red-300 font-bold">⚽ ESP<span class="hidden sm:inline"> ATTACK</span></button>
+            <button id="btn-wave" class="hud-btn shrink-0 px-2 py-1 rounded text-yellow-300 font-bold">🙌 WAVE</button>
+            <button id="btn-goal-arg" class="hud-btn shrink-0 px-2 py-1 rounded text-cyan-300 font-bold">🎆 GOAL ARG</button>
+            <button id="btn-goal-esp" class="hud-btn shrink-0 px-2 py-1 rounded text-amber-300 font-bold">🎆 GOAL ESP</button>
+            <span class="text-slate-600 mx-0.5 shrink-0">|</span>
+            <button id="cam-ref" class="hud-btn active shrink-0 px-2 py-1 rounded">REF<span class="hidden sm:inline"> VIEW</span></button>
+            <button id="cam-ball" class="hud-btn shrink-0 px-2 py-1 rounded"><span class="hidden sm:inline">FOLLOW </span>BALL</button>
+            <span class="text-slate-600 mx-0.5 shrink-0">|</span>
+            <button id="px-125" class="hud-btn active shrink-0 px-2 py-1 rounded" title="High-Res Fine Pixel Art (1.25x)">1.25x</button>
+            <button id="px-100" class="hud-btn shrink-0 px-2 py-1 rounded" title="Ultra-Crisp Native HD (1.0x)">1.0x</button>
+            <button id="px-165" class="hud-btn shrink-0 px-2 py-1 rounded" title="Classic 16-Bit Pixel Art (1.65x)">1.65x</button>
+            <button id="btn-gi" class="hud-btn active shrink-0 px-2 py-1 rounded text-emerald-300">GI: HIGH</button>
+            <button id="btn-tag" class="hud-btn active shrink-0 px-2 py-1 rounded text-amber-300">TAG: ON</button>
         </div>
     </div>
 
@@ -677,6 +707,10 @@
         // 4. SCOREBOARD TEXTURE & MATCH STATE (STARTS 00:00, 0:0)
         // ============================================================================
         const matchState = {
+            phase: 'READY_KICKOFF', // 'READY_KICKOFF' | 'PLAYING' | 'CELEBRATION' | 'RETURNING'
+            kickoffTeam: 'ARG',
+            readyTimer: 2.2,
+            returningTimer: 0,
             argScore: 0,
             espScore: 0,
             seconds: 0,
@@ -685,6 +719,75 @@
             lastScorer: '',
             waveTimer: 0
         };
+
+        // Realistic referee whistle audio synthesizer (Web Audio API)
+        let audioCtx = null;
+        function playWhistleSound() {
+            try {
+                if (!audioCtx) {
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                if (audioCtx.state === 'suspended') {
+                    audioCtx.resume();
+                }
+                const now = audioCtx.currentTime;
+                // Double blast: tweet - tweeeet!
+                const blasts = [
+                    { start: now + 0.0, dur: 0.16, vol: 0.25 },
+                    { start: now + 0.20, dur: 0.35, vol: 0.32 }
+                ];
+                blasts.forEach(b => {
+                    const osc1 = audioCtx.createOscillator();
+                    const osc2 = audioCtx.createOscillator();
+                    const gain = audioCtx.createGain();
+                    osc1.type = 'sine';
+                    osc1.frequency.setValueAtTime(2850, b.start);
+                    osc1.frequency.exponentialRampToValueAtTime(2950, b.start + b.dur);
+                    osc2.type = 'sine';
+                    osc2.frequency.setValueAtTime(3120, b.start);
+                    osc2.frequency.exponentialRampToValueAtTime(3220, b.start + b.dur);
+                    gain.gain.setValueAtTime(0.001, b.start);
+                    gain.gain.linearRampToValueAtTime(b.vol, b.start + 0.02);
+                    gain.gain.setValueAtTime(b.vol, b.start + b.dur - 0.04);
+                    gain.gain.exponentialRampToValueAtTime(0.001, b.start + b.dur);
+                    osc1.connect(gain);
+                    osc2.connect(gain);
+                    gain.connect(audioCtx.destination);
+                    osc1.start(b.start);
+                    osc2.start(b.start);
+                    osc1.stop(b.start + b.dur);
+                    osc2.stop(b.start + b.dur);
+                });
+            } catch (e) {}
+        }
+        window.addEventListener('click', () => {
+            if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+        }, { once: true });
+
+        const kickoffBannerEl = document.getElementById('kickoff-banner');
+        const kickoffTitleEl = document.getElementById('kickoff-title');
+        const kickoffSubEl = document.getElementById('kickoff-sub');
+        let kickoffBannerTimeout = null;
+
+        function showKickoffBanner(title, sub, autoHideMs = 0) {
+            if (!kickoffBannerEl) return;
+            if (kickoffBannerTimeout) {
+                clearTimeout(kickoffBannerTimeout);
+                kickoffBannerTimeout = null;
+            }
+            if (kickoffTitleEl) kickoffTitleEl.textContent = title;
+            if (kickoffSubEl) kickoffSubEl.textContent = sub;
+            kickoffBannerEl.classList.remove('hidden');
+            if (autoHideMs > 0) {
+                kickoffBannerTimeout = setTimeout(() => {
+                    hideKickoffBanner();
+                }, autoHideMs);
+            }
+        }
+
+        function hideKickoffBanner() {
+            if (kickoffBannerEl) kickoffBannerEl.classList.add('hidden');
+        }
 
         const sbCanvas = document.createElement('canvas');
         sbCanvas.width = 512;
@@ -2127,6 +2230,7 @@
                 shortName: cfg.shortName,
                 homeX: cfg.x,
                 homeZ: cfg.z,
+                isKickoffTaker: !!cfg.isKickoffTaker,
                 x: cfg.x,
                 z: cfg.z,
                 vx: 0,
@@ -2139,19 +2243,19 @@
                 diveDir: 0
             };
         }
-// Squad formations aligned with standard pitch
+// Squad formations aligned with standard pitch (all home coordinates in respective halves)
         const argSquad = [
             { num: 23, name: 'Emiliano Martínez', shortName: 'E. MARTÍNEZ', role: 'GK',  x:   0.0, z:  34.5, kitType: 'GK_BLUE', shortsColor: 0x0284c7, socksColor: 0x0284c7 },
             { num: 4,  name: 'Gonzalo Montiel',   shortName: 'MONTIEL',     role: 'DEF', x: -14.0, z:  24.0, shortsColor: 0x111827, socksColor: 0xffffff },
             { num: 13, name: 'Cristian Romero',   shortName: 'ROMERO',      role: 'DEF', x:  -5.5, z:  22.0, shortsColor: 0x111827, socksColor: 0xffffff },
             { num: 6,  name: 'Lisandro Martínez', shortName: 'L. MARTÍNEZ', role: 'DEF', x:   5.5, z:  22.0, shortsColor: 0x111827, socksColor: 0xffffff },
             { num: 3,  name: 'Nicolás Tagliafico',shortName: 'TAGLIAFICO',  role: 'DEF', x:  14.0, z:  24.0, shortsColor: 0x111827, socksColor: 0xffffff },
-            { num: 7,  name: 'Rodrigo De Paul',   shortName: 'DE PAUL',     role: 'MID', x:  -8.0, z:  10.0, shortsColor: 0x111827, socksColor: 0xffffff },
-            { num: 24, name: 'Enzo Fernández',    shortName: 'ENZO',        role: 'MID', x:   0.0, z:   8.0, shortsColor: 0x111827, socksColor: 0xffffff },
-            { num: 20, name: 'Alexis Mac Allister',shortName:'MAC ALLISTER',role: 'MID', x:   8.0, z:  10.0, shortsColor: 0x111827, socksColor: 0xffffff },
-            { num: 15, name: 'Nicolás González',  shortName: 'N. GONZÁLEZ', role: 'MID', x: -12.0, z:  -2.0, shortsColor: 0x111827, socksColor: 0xffffff },
-            { num: 10, name: 'Lionel Messi',      shortName: 'L. MESSI',    role: 'FWD', x:  -2.5, z:  -4.0, shortsColor: 0x111827, socksColor: 0xffffff, speed: 11.5 },
-            { num: 9,  name: 'Julián Álvarez',    shortName: 'J. ÁLVAREZ',  role: 'FWD', x:   7.5, z:  -8.0, shortsColor: 0x0284c7, socksColor: 0xffffff, speed: 11.2 }
+            { num: 7,  name: 'Rodrigo De Paul',   shortName: 'DE PAUL',     role: 'MID', x:  -8.0, z:  12.0, shortsColor: 0x111827, socksColor: 0xffffff },
+            { num: 24, name: 'Enzo Fernández',    shortName: 'ENZO',        role: 'MID', x:   0.0, z:  10.0, shortsColor: 0x111827, socksColor: 0xffffff },
+            { num: 20, name: 'Alexis Mac Allister',shortName:'MAC ALLISTER',role: 'MID', x:   8.0, z:  12.0, shortsColor: 0x111827, socksColor: 0xffffff },
+            { num: 15, name: 'Nicolás González',  shortName: 'N. GONZÁLEZ', role: 'MID', x: -12.0, z:   6.0, shortsColor: 0x111827, socksColor: 0xffffff },
+            { num: 10, name: 'Lionel Messi',      shortName: 'L. MESSI',    role: 'FWD', x:  -2.5, z:   4.0, shortsColor: 0x111827, socksColor: 0xffffff, speed: 11.5, isKickoffTaker: true },
+            { num: 9,  name: 'Julián Álvarez',    shortName: 'J. ÁLVAREZ',  role: 'FWD', x:   5.0, z:   4.5, shortsColor: 0x0284c7, socksColor: 0xffffff, speed: 11.2 }
         ];
 
         const espSquad = [
@@ -2160,25 +2264,57 @@
             { num: 22, name: 'Pau Cubarsí',       shortName: 'CUBARSÍ',     role: 'DEF', x:   5.5, z: -22.0, shortsColor: 0x1e3a8a, socksColor: 0xdc2626 },
             { num: 14, name: 'Aymeric Laporte',   shortName: 'LAPORTE',     role: 'DEF', x:  -5.5, z: -22.0, shortsColor: 0x1e3a8a, socksColor: 0xdc2626 },
             { num: 24, name: 'Marc Cucurella',    shortName: 'CUCURELLA',   role: 'DEF', x: -14.0, z: -24.0, shortsColor: 0x1e3a8a, socksColor: 0xdc2626, hairStyle: 'cucurella' },
-            { num: 16, name: 'Rodri',             shortName: 'RODRI',       role: 'MID', x:   0.0, z:  -9.0, shortsColor: 0x1e3a8a, socksColor: 0xdc2626 },
-            { num: 8,  name: 'Fabián Ruiz',       shortName: 'FABIÁN RUIZ', role: 'MID', x:   7.5, z: -10.0, shortsColor: 0x1e3a8a, socksColor: 0xdc2626 },
-            { num: 19, name: 'Lamine Yamal',      shortName: 'L. YAMAL',    role: 'FWD', x:  13.0, z:   2.0, shortsColor: 0x1e3a8a, socksColor: 0xdc2626, skinColor: 0x8d5524, speed: 11.6 },
-            { num: 10, name: 'Dani Olmo',         shortName: 'DANI OLMO',   role: 'MID', x:  -6.5, z:  -8.0, shortsColor: 0x1e3a8a, socksColor: 0xdc2626 },
-            { num: 15, name: 'Álex Baena',        shortName: 'BAENA',       role: 'FWD', x:  -9.0, z:   1.0, shortsColor: 0x1e3a8a, socksColor: 0xdc2626 },
-            { num: 21, name: 'Mikel Oyarzabal',   shortName: 'OYARZABAL',   role: 'FWD', x:   0.0, z:   3.0, shortsColor: 0x1e3a8a, socksColor: 0xdc2626, speed: 11.0 }
+            { num: 16, name: 'Rodri',             shortName: 'RODRI',       role: 'MID', x:   0.0, z: -10.0, shortsColor: 0x1e3a8a, socksColor: 0xdc2626 },
+            { num: 8,  name: 'Fabián Ruiz',       shortName: 'FABIÁN RUIZ', role: 'MID', x:   7.5, z: -12.0, shortsColor: 0x1e3a8a, socksColor: 0xdc2626 },
+            { num: 19, name: 'Lamine Yamal',      shortName: 'L. YAMAL',    role: 'FWD', x:  12.0, z:  -5.5, shortsColor: 0x1e3a8a, socksColor: 0xdc2626, skinColor: 0x8d5524, speed: 11.6 },
+            { num: 10, name: 'Dani Olmo',         shortName: 'DANI OLMO',   role: 'MID', x:  -7.5, z: -12.0, shortsColor: 0x1e3a8a, socksColor: 0xdc2626 },
+            { num: 15, name: 'Álex Baena',        shortName: 'BAENA',       role: 'FWD', x: -12.0, z:  -6.0, shortsColor: 0x1e3a8a, socksColor: 0xdc2626 },
+            { num: 21, name: 'Mikel Oyarzabal',   shortName: 'OYARZABAL',   role: 'FWD', x:   0.0, z:  -5.0, shortsColor: 0x1e3a8a, socksColor: 0xdc2626, speed: 11.0, isKickoffTaker: true }
         ];
 
-        
-const players = [];
+        const players = [];
         argSquad.forEach(c => players.push(createVoxelPlayer({ ...c, team: 'ARG' })));
         espSquad.forEach(c => players.push(createVoxelPlayer({ ...c, team: 'ESP' })));
         window.players = players;
         window.viewState = viewState;
         window.camera = camera;
-        
+
         const referee = createVoxelPlayer({
             team: 'REF', role: 'REF', num: 1, name: 'Match Referee', shortName: 'REFEREE',
-            x: 4.5, z: 2.5, shortsColor: 0x111827, socksColor: 0x111827, speed: 9.8
+            x: 6.5, z: 2.5, shortsColor: 0x111827, socksColor: 0x111827, speed: 9.8
+        });
+
+        function getKickoffPosition(p, kickoffTeam) {
+            if (p.team === 'REF') {
+                return {
+                    x: kickoffTeam === 'ARG' ? 6.5 : -6.5,
+                    z: kickoffTeam === 'ARG' ? 2.5 : -2.5
+                };
+            }
+            if (p.team === kickoffTeam && p.isKickoffTaker) {
+                // Standing at the ball on center circle
+                return {
+                    x: 0.0,
+                    z: p.team === 'ARG' ? 0.7 : -0.7
+                };
+            }
+            // All other players wait in formation on their respective halves
+            return {
+                x: p.homeX,
+                z: p.homeZ
+            };
+        }
+
+        // Set initial kickoff positions for everyone
+        const allCharsInit = [...players, referee];
+        allCharsInit.forEach(p => {
+            const pos = getKickoffPosition(p, 'ARG');
+            p.x = pos.x;
+            p.z = pos.z;
+            p.vx = 0;
+            p.vz = 0;
+            p.root.position.set(p.x, 0, p.z);
+            p.root.rotation.y = Math.atan2(0 - p.x, 0 - p.z);
         });
 
         function populateSquadLists() {
@@ -2226,7 +2362,7 @@ const players = [];
                     pl.num = s.newNum;
                     pl.name = s.name;
                     pl.shortName = s.shortName;
-                    pl.torso.material = createJerseyMaterials(pl.team, pl.num, null);
+                    pl.torso.material = new THREE.MeshLambertMaterial({ map: createJerseyTexture(pl.team, pl.num, null) });
                 }
             });
             populateSquadLists();
@@ -2301,6 +2437,7 @@ const players = [];
             cooldown: 0,
             carrier: players[9] // Messi
         };
+        window.ball = ball;
 
         const tickerEl = document.getElementById('live-ticker');
         function setTicker(txt) {
@@ -2703,16 +2840,77 @@ const players = [];
                     p.rightLeg.rotation.set(0, 0, 0);
                     p.headGroup.rotation.set(0, 0, 0);
                 });
-                ball.mesh.position.set(0, 0.42, 0);
-                ball.vx = (Math.random() - 0.5) * 6;
-                ball.vz = (Math.random() - 0.5) * 6;
-                ball.vy = 2;
-                ball.carrier = players.find(p => p.team !== team && p.role === 'FWD') || players[9];
+                // WAIT FOR EVERYONE TO GO BACK INTO POSITION BEFORE NEXT KICK OFF
+                const nextKickoffTeam = (team === 'ARG') ? 'ESP' : 'ARG';
+                startReturnToPosition(nextKickoffTeam);
             }, 4600);
         }
         window.celebrateGoal = celebrateGoal;
 
+        function startReturnToPosition(kickoffTeam) {
+            matchState.phase = 'RETURNING';
+            matchState.kickoffTeam = kickoffTeam;
+            matchState.returningTimer = 0;
+
+            // Ball is placed stationary on center circle
+            ball.mesh.position.set(0, 0.42, 0);
+            ball.vx = 0; ball.vy = 0; ball.vz = 0;
+            ball.cooldown = 0.5;
+            ball.carrier = null;
+
+            // Smoothly pan camera back toward pitch center
+            viewState.focusPlayer = null;
+            viewState.mode = 'ball';
+
+            showKickoffBanner('🔄 RETURNING TO POSITION', `${kickoffTeam === 'ARG' ? 'Argentina' : 'Spain'} Kick Off • Moving back into position...`);
+            setTicker(`Players returning to positions for ${kickoffTeam === 'ARG' ? 'Argentina' : 'Spain'} Kick Off...`);
+        }
+
+        function executeKickoff() {
+            const team = matchState.kickoffTeam;
+            playWhistleSound();
+
+            showKickoffBanner('📢 WHISTLE BLOWS!', `${team === 'ARG' ? 'Argentina' : 'Spain'} Kick Off!`, 1600);
+            setTicker(`📢 TWEET! Whistle blows! Kick off taken by ${team === 'ARG' ? 'Argentina' : 'Spain'}!`);
+
+            const kicker = players.find(p => p.team === team && p.isKickoffTaker) || players[team === 'ARG' ? 9 : 21];
+            if (kicker) {
+                kicker.kickTimer = 0.4;
+            }
+
+            // Kick the ball backward/inward into play to a teammate midfielder
+            if (team === 'ARG') {
+                const receiver = players.find(p => p.team === 'ARG' && (p.num === 24 || p.role === 'MID')) || players[6];
+                const dx = receiver.x - 0;
+                const dz = receiver.z - 0.7;
+                const dist = Math.max(1, Math.hypot(dx, dz));
+                ball.mesh.position.set(0, 0.42, 0.7);
+                ball.vx = (dx / dist) * 13.5;
+                ball.vz = (dz / dist) * 13.5;
+                ball.vy = 0.5;
+                ball.cooldown = 0.35;
+                ball.carrier = receiver;
+            } else {
+                const receiver = players.find(p => p.team === 'ESP' && (p.num === 16 || p.role === 'MID')) || players[16];
+                const dx = receiver.x - 0;
+                const dz = receiver.z - (-0.7);
+                const dist = Math.max(1, Math.hypot(dx, dz));
+                ball.mesh.position.set(0, 0.42, -0.7);
+                ball.vx = (dx / dist) * 13.5;
+                ball.vz = (dz / dist) * 13.5;
+                ball.vy = 0.5;
+                ball.cooldown = 0.35;
+                ball.carrier = receiver;
+            }
+
+            matchState.phase = 'PLAYING';
+        }
+
         function triggerAttack(team) {
+            if (matchState.phase !== 'PLAYING') {
+                setTicker('Wait for kick off before launching attack!');
+                return;
+            }
             const fwds = players.filter(p => p.team === team && (p.role === 'FWD' || p.role === 'MID'));
             const striker = fwds[Math.floor(Math.random() * fwds.length)];
             if (!striker) return;
@@ -2804,11 +3002,152 @@ const players = [];
             }
         }
 
+        function updateOverlayTags(time) {
+            const active = viewState.focusPlayer || ball.carrier;
+            if (viewState.showTag && active && active !== hoveredPlayer) {
+                projVec.set(active.x, 3.1, active.z).project(camera);
+                const sx = (projVec.x *  0.5 + 0.5) * window.innerWidth;
+                const sy = (projVec.y * -0.5 + 0.5) * window.innerHeight;
+                tagEl.style.left = `${sx}px`;
+                tagEl.style.top  = `${sy}px`;
+                tagEl.classList.remove('hidden');
+                tagNum.textContent  = `#${active.num}`;
+                tagName.textContent = active.shortName;
+            } else {
+                tagEl.classList.add('hidden');
+            }
+
+            if (hoveredPlayer && hoverTagEl) {
+                hoverProjVec.set(hoveredPlayer.x, 3.25, hoveredPlayer.z).project(camera);
+                const sx = (hoverProjVec.x *  0.5 + 0.5) * window.innerWidth;
+                const sy = (hoverProjVec.y * -0.5 + 0.5) * window.innerHeight;
+                hoverTagEl.style.left = `${sx}px`;
+                hoverTagEl.style.top  = `${sy}px`;
+                hoverTagEl.classList.remove('hidden');
+            } else if (hoverTagEl) {
+                hoverTagEl.classList.add('hidden');
+            }
+
+            cornerFlags.forEach((cf, i) => {
+                cf.rotation.y = Math.sin(time * 6 + i) * 0.25;
+            });
+        }
+
         function stepMatchSimulation(dt, time) {
             if (matchState.goalTimer > 0) matchState.goalTimer -= dt;
             if (matchState.waveTimer > 0) matchState.waveTimer -= dt;
             if (ball.cooldown > 0) ball.cooldown -= dt;
 
+            const allChars = [...players, referee];
+
+            // 1. READY_KICKOFF PHASE: Everyone in position waiting for whistle
+            if (matchState.phase === 'READY_KICKOFF') {
+                ball.mesh.position.set(0, 0.42, 0);
+                ball.vx = 0; ball.vy = 0; ball.vz = 0;
+                ball.shadow.position.set(0, 0.025, 0);
+
+                allChars.forEach(p => {
+                    const target = getKickoffPosition(p, matchState.kickoffTeam);
+                    p.x = target.x;
+                    p.z = target.z;
+                    p.vx = 0; p.vz = 0;
+                    p.root.position.set(p.x, 0, p.z);
+                    p.root.rotation.y = Math.atan2(0 - p.x, 0 - p.z);
+                    p.leftLeg.rotation.x = 0;
+                    p.rightLeg.rotation.x = 0;
+                    p.leftArm.rotation.x = 0;
+                    p.rightArm.rotation.x = 0;
+                    p.bodyPivot.position.set(0, 0, 0);
+                    p.bodyPivot.rotation.set(0, 0, 0);
+                    p.headGroup.rotation.set(0, 0, 0);
+                });
+
+                matchState.readyTimer -= dt;
+                if (matchState.readyTimer <= 0) {
+                    executeKickoff();
+                }
+
+                updateOverlayTags(time);
+                return;
+            }
+
+            // 2. RETURNING PHASE: Players jog back to their kickoff positions
+            if (matchState.phase === 'RETURNING') {
+                matchState.returningTimer += dt;
+                ball.mesh.position.set(0, 0.42, 0);
+                ball.vx = 0; ball.vy = 0; ball.vz = 0;
+                ball.shadow.position.set(0, 0.025, 0);
+
+                let allInPosition = true;
+
+                allChars.forEach(p => {
+                    const target = getKickoffPosition(p, matchState.kickoffTeam);
+                    const dx = target.x - p.x;
+                    const dz = target.z - p.z;
+                    const dist = Math.hypot(dx, dz);
+
+                    if (dist > 0.45) {
+                        allInPosition = false;
+                        const runSpd = p.speed * 1.15;
+                        const step = Math.min(dist, runSpd * dt);
+                        p.vx = (dx / dist) * runSpd;
+                        p.vz = (dz / dist) * runSpd;
+                        p.x += (dx / dist) * step;
+                        p.z += (dz / dist) * step;
+                        p.root.position.set(p.x, 0, p.z);
+                        p.root.rotation.y = Math.atan2(p.vx, p.vz);
+
+                        const cyc = time * 18.0 + p.phase;
+                        p.leftLeg.rotation.x  =  Math.sin(cyc) * 0.75;
+                        p.rightLeg.rotation.x = -Math.sin(cyc) * 0.75;
+                        p.leftArm.rotation.x  = -Math.sin(cyc) * 0.60;
+                        p.rightArm.rotation.x =  Math.sin(cyc) * 0.60;
+                        p.bodyPivot.position.y = Math.abs(Math.cos(cyc)) * 0.18;
+                        p.headGroup.rotation.set(0, 0, 0);
+                    } else {
+                        // In position
+                        p.x = target.x;
+                        p.z = target.z;
+                        p.vx = 0; p.vz = 0;
+                        p.root.position.set(p.x, 0, p.z);
+                        p.root.rotation.y = Math.atan2(0 - p.x, 0 - p.z);
+                        p.leftLeg.rotation.x = 0;
+                        p.rightLeg.rotation.x = 0;
+                        p.leftArm.rotation.x = 0;
+                        p.rightArm.rotation.x = 0;
+                        p.bodyPivot.position.set(0, 0, 0);
+                        p.bodyPivot.rotation.set(0, 0, 0);
+                        p.headGroup.rotation.set(0, 0, 0);
+                    }
+                });
+
+                solveCharacterCollisions();
+
+                // Check if all players have returned, or safety timeout (5.5s)
+                if (allInPosition || matchState.returningTimer > 5.5) {
+                    allChars.forEach(p => {
+                        const target = getKickoffPosition(p, matchState.kickoffTeam);
+                        p.x = target.x; p.z = target.z;
+                        p.vx = 0; p.vz = 0;
+                        p.root.position.set(p.x, 0, p.z);
+                        p.root.rotation.y = Math.atan2(0 - p.x, 0 - p.z);
+                        p.leftLeg.rotation.x = 0; p.rightLeg.rotation.x = 0;
+                        p.leftArm.rotation.x = 0; p.rightArm.rotation.x = 0;
+                        p.bodyPivot.position.set(0, 0, 0);
+                        p.bodyPivot.rotation.set(0, 0, 0);
+                        p.headGroup.rotation.set(0, 0, 0);
+                    });
+                    matchState.phase = 'READY_KICKOFF';
+                    matchState.readyTimer = 1.0;
+                    showKickoffBanner('⚽ TEAMS IN POSITION', 'All players in position • Ready for Kick Off...');
+                    setTicker('All players in position! Referee whistle ready...');
+                }
+
+                updateOverlayTags(time);
+                return;
+            }
+
+            // 3. PLAYING or CELEBRATION
             if (celebrationState.active) {
                 ball.mesh.position.set(0, 0.42, 0);
                 ball.vx = 0; ball.vy = 0; ball.vz = 0;
@@ -2838,7 +3177,7 @@ const players = [];
             const hl = PITCH_L / 2;
 
             if (Math.abs(bz) > hl && Math.abs(bx) < 4.8 && ball.mesh.position.y < 3.4) {
-                if (matchState.goalTimer <= 0) {
+                if (matchState.goalTimer <= 0 && matchState.phase === 'PLAYING') {
                     celebrateGoal(bz < 0 ? 'ARG' : 'ESP', ball.carrier);
                 }
             } else {
@@ -3092,8 +3431,7 @@ const players = [];
                 });
             }
 
-            const allChars = [...players, referee];
-            allChars.forEach(p => {
+                        allChars.forEach(p => {
                 if (celebrationState.active && (p === celebrationState.scorer || (p.team === celebrationState.team && p.role !== 'GK'))) {
                     // Handled by celebration choreography above
                     return;
@@ -3141,36 +3479,7 @@ const players = [];
                 }
             });
 
-            const active = viewState.focusPlayer || ball.carrier;
-            // Carrier tag (visible when showTag is on, unless hovered player is currently displayed over same player)
-            if (viewState.showTag && active && active !== hoveredPlayer) {
-                projVec.set(active.x, 3.1, active.z).project(camera);
-                const sx = (projVec.x *  0.5 + 0.5) * window.innerWidth;
-                const sy = (projVec.y * -0.5 + 0.5) * window.innerHeight;
-                tagEl.style.left = `${sx}px`;
-                tagEl.style.top  = `${sy}px`;
-                tagEl.classList.remove('hidden');
-                tagNum.textContent  = `#${active.num}`;
-                tagName.textContent = active.shortName;
-            } else {
-                tagEl.classList.add('hidden');
-            }
-
-            // Hover tag position update
-            if (hoveredPlayer && hoverTagEl) {
-                hoverProjVec.set(hoveredPlayer.x, 3.25, hoveredPlayer.z).project(camera);
-                const sx = (hoverProjVec.x *  0.5 + 0.5) * window.innerWidth;
-                const sy = (hoverProjVec.y * -0.5 + 0.5) * window.innerHeight;
-                hoverTagEl.style.left = `${sx}px`;
-                hoverTagEl.style.top  = `${sy}px`;
-                hoverTagEl.classList.remove('hidden');
-            } else if (hoverTagEl) {
-                hoverTagEl.classList.add('hidden');
-            }
-
-            cornerFlags.forEach((cf, i) => {
-                cf.rotation.y = Math.sin(time * 6 + i) * 0.25;
-            });
+            updateOverlayTags(time);
         }
 
         // ============================================================================
@@ -3360,6 +3669,20 @@ const players = [];
             }
         }, { passive: false });
 
+        const toggleBtn = document.getElementById('btn-toggle-hud');
+        const bottomBar = document.getElementById('bottom-hud-bar');
+        const toggleIcon = document.getElementById('hud-toggle-icon');
+        const toggleText = document.getElementById('hud-toggle-text');
+        let hudCollapsed = false;
+        if (toggleBtn && bottomBar) {
+            toggleBtn.onclick = () => {
+                hudCollapsed = !hudCollapsed;
+                bottomBar.classList.toggle('hidden', hudCollapsed);
+                if (toggleIcon) toggleIcon.textContent = hudCollapsed ? '▲' : '▼';
+                if (toggleText) toggleText.textContent = hudCollapsed ? 'CONTROLS' : 'HIDE';
+            };
+        }
+
         document.getElementById('btn-atk-arg').onclick = () => triggerAttack('ARG');
         document.getElementById('btn-atk-esp').onclick = () => triggerAttack('ESP');
         const bGoalArg = document.getElementById('btn-goal-arg');
@@ -3433,15 +3756,17 @@ const players = [];
             const dt = Math.min(clock.getDelta(), 0.05);
             const elapsed = clock.getElapsedTime();
 
-            matchState.seconds += dt;
-            if (Math.floor(matchState.seconds) !== prevSec) {
-                prevSec = Math.floor(matchState.seconds);
-                redrawScoreboard();
-                const m = Math.floor(matchState.seconds / 60);
-                const s = Math.floor(matchState.seconds % 60);
-                const cStr = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-                if (matchState.goalTimer <= 0) {
-                    setTicker(`${cStr} | ARGENTINA ${matchState.argScore} - ${matchState.espScore} SPAIN`);
+            if (matchState.phase === 'PLAYING') {
+                matchState.seconds += dt;
+                if (Math.floor(matchState.seconds) !== prevSec) {
+                    prevSec = Math.floor(matchState.seconds);
+                    redrawScoreboard();
+                    const m = Math.floor(matchState.seconds / 60);
+                    const s = Math.floor(matchState.seconds % 60);
+                    const cStr = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+                    if (matchState.goalTimer <= 0) {
+                        setTicker(`${cStr} | ARGENTINA ${matchState.argScore} - ${matchState.espScore} SPAIN`);
+                    }
                 }
             }
 
@@ -3452,6 +3777,10 @@ const players = [];
 
             renderer.render(scene, camera);
         }
+        // Initialize game in READY_KICKOFF phase: everyone in position waiting for kickoff whistle
+        showKickoffBanner('📢 2026 WORLD CUP FINAL', 'TEAMS IN POSITION • READY FOR KICK OFF');
+        setTicker('00:00 | Teams in position. Ready for Kick Off...');
+
         animate();
         if (window.location.search.includes('celebrate=arg')) {
             setTimeout(() => { celebrateGoal('ARG'); }, 400);
