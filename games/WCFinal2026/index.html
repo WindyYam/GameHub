@@ -1313,7 +1313,89 @@
         });
         const whitePostMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
 
-        function addGoalMesh(x, z, facingDir, width = 10.4, height = 3.5, depth = 3.0) {
+        // ============================================================================
+        // DYNAMIC GOAL NET DEFORMATION & RUSTLE AUDIO SYSTEM
+        // ============================================================================
+        const netPhysics = {
+            esp: { mesh: null, facingDir: 1, energy: 0, impactX: 0, impactY: 0, phase: 0 },
+            arg: { mesh: null, facingDir: -1, energy: 0, impactX: 0, impactY: 0, phase: 0 }
+        };
+        window.netPhysics = netPhysics;
+
+        function playNetRustleSound() {
+            try {
+                const ctx = getAudioContext();
+                if (!ctx) return;
+                const now = ctx.currentTime;
+                const netLen = Math.floor(ctx.sampleRate * 0.38);
+                const netBuf = ctx.createBuffer(1, netLen, ctx.sampleRate);
+                const netData = netBuf.getChannelData(0);
+                for (let i = 0; i < netLen; i++) {
+                    netData[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / netLen, 1.3);
+                }
+                const netSrc = ctx.createBufferSource();
+                netSrc.buffer = netBuf;
+                const netFilter = ctx.createBiquadFilter();
+                netFilter.type = 'bandpass';
+                netFilter.frequency.setValueAtTime(1400, now);
+                netFilter.frequency.exponentialRampToValueAtTime(420, now + 0.32);
+                const netGain = ctx.createGain();
+                netGain.gain.setValueAtTime(0.55, now);
+                netGain.gain.exponentialRampToValueAtTime(0.001, now + 0.36);
+                netSrc.connect(netFilter);
+                netFilter.connect(netGain);
+                netGain.connect(masterGain || ctx.destination);
+                netSrc.start(now);
+                netSrc.stop(now + 0.38);
+            } catch (e) {}
+        }
+        window.playNetRustleSound = playNetRustleSound;
+
+        function triggerNetDeformation(key, worldX, worldY) {
+            const net = netPhysics[key];
+            if (!net || !net.mesh) return;
+            net.energy = 1.0;
+            net.impactX = worldX;
+            net.impactY = worldY - 1.75;
+            net.phase = 0;
+            playNetRustleSound();
+        }
+        window.triggerNetDeformation = triggerNetDeformation;
+
+        function updateNetDeformation(dt) {
+            ['esp', 'arg'].forEach(key => {
+                const net = netPhysics[key];
+                if (!net || !net.mesh) return;
+                const posAttr = net.mesh.geometry.attributes.position;
+                if (net.energy > 0.005) {
+                    net.energy *= Math.pow(0.035, dt);
+                    net.phase += dt * 28.0;
+                    const bulge = (net.energy * 1.15) * (0.85 + 0.15 * Math.sin(net.phase));
+                    const sign = (key === 'esp') ? -1 : 1;
+                    for (let i = 0; i < posAttr.count; i++) {
+                        const vx = posAttr.getX(i);
+                        const vy = posAttr.getY(i);
+                        const d = Math.hypot(vx - net.impactX, vy - net.impactY);
+                        if (d < 2.8) {
+                            const disp = Math.cos((d / 2.8) * (Math.PI / 2)) * bulge;
+                            posAttr.setZ(i, sign * disp);
+                        } else {
+                            posAttr.setZ(i, 0);
+                        }
+                    }
+                    posAttr.needsUpdate = true;
+                } else if (net.energy > 0) {
+                    net.energy = 0;
+                    for (let i = 0; i < posAttr.count; i++) {
+                        posAttr.setZ(i, 0);
+                    }
+                    posAttr.needsUpdate = true;
+                }
+            });
+        }
+        window.updateNetDeformation = updateNetDeformation;
+
+        function addGoalMesh(x, z, facingDir, width = 10.4, height = 3.5, depth = 3.0, goalKey = null) {
             const g = new THREE.Group();
             const postGeo = new THREE.BoxGeometry(0.26, height, 0.26);
 
@@ -1342,9 +1424,14 @@
             backBot.position.set(0, 0.1, bz);
             g.add(backBot);
 
-            const backNet = new THREE.Mesh(new THREE.PlaneGeometry(width, height), netMat);
+            const backNetGeo = new THREE.PlaneGeometry(width, height, 18, 12);
+            const backNet = new THREE.Mesh(backNetGeo, netMat);
             backNet.position.set(0, height / 2, bz);
             g.add(backNet);
+            if (goalKey && netPhysics[goalKey]) {
+                netPhysics[goalKey].mesh = backNet;
+                netPhysics[goalKey].facingDir = facingDir;
+            }
 
             const topNet = new THREE.Mesh(new THREE.PlaneGeometry(width, depth), netMat);
             topNet.position.set(0, height, bz / 2);
@@ -1365,9 +1452,9 @@
             scene.add(g);
         }
 
-        // EXACTLY TWO GOALS (MATCHING REFERENCE IMAGE)
-        addGoalMesh(0,  PITCH_L / 2, -1, 10.4, 3.5, 3.0); // Bottom-Left (Argentina)
-        addGoalMesh(0, -PITCH_L / 2,  1, 10.4, 3.5, 3.0); // Top-Right (Spain)
+        // EXACTLY TWO GOALS (WITH DYNAMIC DEFORMING NETS)
+        addGoalMesh(0,  PITCH_L / 2, -1, 10.4, 3.5, 3.0, 'arg'); // Argentina goal at +Z (39m)
+        addGoalMesh(0, -PITCH_L / 2,  1, 10.4, 3.5, 3.0, 'esp'); // Spain goal at -Z (-39m)
 
         const goalPostColliders = [
             { x: -5.2, z:  PITCH_L / 2, r: 0.6 },
@@ -3219,10 +3306,20 @@
 
             celebrationState.active = true;
             celebrationState.timer = 0;
-            // Hold ball dead at center circle during celebration
-            ball.mesh.position.set(0, 0.42, 0);
-            ball.vx = 0; ball.vy = 0; ball.vz = 0;
             celebrationState.scorer = scoringPlayer;
+            celebrationState.team = team;
+            ball.carrier = null;
+
+            // Common physics: If manually triggered from afar, ensure ball drives into goal mouth to deform net
+            if (Math.abs(ball.mesh.position.z) < 36.0) {
+                const targetZ = (team === 'ARG') ? -PITCH_L / 2 : PITCH_L / 2;
+                const gdx = (Math.random() - 0.5) * 6.0 - ball.mesh.position.x;
+                const gdz = targetZ - ball.mesh.position.z;
+                const glen = Math.max(1, Math.hypot(gdx, gdz));
+                ball.vx = (gdx / glen) * 31.0;
+                ball.vz = (gdz / glen) * 31.0;
+                ball.vy = 4.0;
+            }
             celebrationState.team = team;
 
             // Exhilarating victory run along the field toward corner flag & grandstand
@@ -3484,7 +3581,9 @@
             spotZ: 0,
             taker: null,
             timer: 0,
-            setupDuration: 1.55
+            setupDuration: 2.5,
+            ballPositioned: false,
+            ballHeld: false
         };
         window.setPieceState = setPieceState;
 
@@ -3498,60 +3597,43 @@
             setPieceState.type = type;
             setPieceState.team = team;
             setPieceState.timer = 0;
+            setPieceState.ballPositioned = false;
+            setPieceState.ballHeld = false;
 
             playWhistleSound('stoppage');
 
-            ball.vx = 0; ball.vy = 0; ball.vz = 0;
+            // DO NOT stop or teleport the ball! The ball continues rolling with common physics,
+            // bouncing off the advertising board walls and slowing down naturally.
             ball.cooldown = 0.5;
 
             let taker = null;
 
             if (type === 'GOAL_KICK') {
-                setPieceState.setupDuration = 1.65;
+                setPieceState.setupDuration = 2.6;
                 setPieceState.spotX = 0;
                 setPieceState.spotZ = (team === 'ESP') ? -34.5 : 34.5;
                 taker = players.find(p => p.team === team && p.role === 'GK') || players[team === 'ARG' ? 0 : 11];
                 setPieceState.taker = taker;
 
-                ball.mesh.position.set(0, 0.42, setPieceState.spotZ);
-                ball.shadow.position.set(0, 0.025, setPieceState.spotZ);
-
-                taker.x = 0;
-                taker.z = setPieceState.spotZ + (team === 'ARG' ? 1.6 : -1.6);
-                taker.vx = 0; taker.vz = 0;
-                taker.root.position.set(taker.x, 0, taker.z);
-                taker.root.rotation.y = (team === 'ARG') ? Math.PI : 0;
-
                 showKickoffBanner('🥅 GOAL KICK — ' + (team === 'ARG' ? 'ARGENTINA' : 'SPAIN'), 'Restart by #' + taker.num + ' ' + taker.shortName, 2200);
                 setTicker('🥅 Ball over the defending end line! Goal kick awarded to ' + (team === 'ARG' ? 'Argentina' : 'Spain') + '!');
             } else if (type === 'CORNER_KICK') {
-                setPieceState.setupDuration = 1.75;
+                setPieceState.setupDuration = 2.6;
                 const signX = (spotX >= 0) ? 1 : -1;
                 const signZ = (spotZ >= 0) ? 1 : -1;
                 setPieceState.spotX = signX * (hw - 0.7);
                 setPieceState.spotZ = signZ * (hl - 0.7);
 
-                // Select closest attacking winger/forward
                 const candidates = players.filter(p => p.team === team && p.role !== 'GK');
                 candidates.sort((a, b) => Math.hypot(a.x - setPieceState.spotX, a.z - setPieceState.spotZ) - Math.hypot(b.x - setPieceState.spotX, b.z - setPieceState.spotZ));
                 taker = candidates[0] || players[team === 'ARG' ? 9 : 17];
                 setPieceState.taker = taker;
 
-                ball.mesh.position.set(setPieceState.spotX, 0.42, setPieceState.spotZ);
-                ball.shadow.position.set(setPieceState.spotX, 0.025, setPieceState.spotZ);
-
-                taker.x = setPieceState.spotX + signX * 0.9;
-                taker.z = setPieceState.spotZ + signZ * 0.9;
-                taker.vx = 0; taker.vz = 0;
-                taker.root.position.set(taker.x, 0, taker.z);
-                const targetZ = (setPieceState.spotZ < 0) ? -hl + 9 : hl - 9;
-                taker.root.rotation.y = Math.atan2(0 - taker.x, targetZ - taker.z);
-
                 showKickoffBanner('🚩 CORNER KICK — ' + (team === 'ARG' ? 'ARGENTINA' : 'SPAIN'), 'Corner delivery by #' + taker.num + ' ' + taker.shortName, 2200);
                 setTicker('🚩 Ball deflected over goal line by defender! Corner kick for ' + (team === 'ARG' ? 'Argentina' : 'Spain') + '!');
             } else {
                 // THROW_IN
-                setPieceState.setupDuration = 1.60;
+                setPieceState.setupDuration = 2.4;
                 const signX = (spotX >= 0) ? 1 : -1;
                 setPieceState.spotX = signX * (hw + 0.3);
                 setPieceState.spotZ = THREE.MathUtils.clamp(spotZ, -hl + 3.0, hl - 3.0);
@@ -3560,15 +3642,6 @@
                 candidates.sort((a, b) => Math.hypot(a.x - setPieceState.spotX, a.z - setPieceState.spotZ) - Math.hypot(b.x - setPieceState.spotX, b.z - setPieceState.spotZ));
                 taker = candidates[0] || players[team === 'ARG' ? 1 : 12];
                 setPieceState.taker = taker;
-
-                ball.mesh.position.set(setPieceState.spotX, 0.42, setPieceState.spotZ);
-                ball.shadow.position.set(setPieceState.spotX, 0.025, setPieceState.spotZ);
-
-                taker.x = setPieceState.spotX;
-                taker.z = setPieceState.spotZ;
-                taker.vx = 0; taker.vz = 0;
-                taker.root.position.set(taker.x, 0, taker.z);
-                taker.root.rotation.y = (signX > 0) ? -Math.PI / 2 : Math.PI / 2;
 
                 showKickoffBanner('🤾 THROW-IN — ' + (team === 'ARG' ? 'ARGENTINA' : 'SPAIN'), 'Taken on sideline by #' + taker.num + ' ' + taker.shortName, 2200);
                 setTicker('🤾 Ball over the touchline! Throw-in awarded to ' + (team === 'ARG' ? 'Argentina' : 'Spain') + '!');
@@ -3675,6 +3748,8 @@
             }
 
             setPieceState.active = false;
+            setPieceState.ballHeld = false;
+            setPieceState.ballPositioned = false;
             matchState.phase = 'PLAYING';
             setTimeout(() => {
                 hideKickoffBanner();
@@ -3817,7 +3892,7 @@
                 return;
             }
 
-            // 2.5 SET_PIECE PHASE: Throw-in, Corner Kick, or Goal Kick positioning
+            // 2.5 SET_PIECE PHASE: Common physics ball retrieval & taker positioning
             if (matchState.phase === 'SET_PIECE') {
                 setPieceState.timer += dt;
                 const t = setPieceState.timer;
@@ -3827,23 +3902,30 @@
                 const hw = PITCH_W / 2;
                 const hl = PITCH_L / 2;
 
-                if (type === 'THROW_IN') {
-                    if (t > 0.4 && taker) {
-                        ball.mesh.position.set(taker.x, 1.88, taker.z);
-                        ball.shadow.position.set(taker.x, 0.025, taker.z);
-                        taker.leftArm.rotation.x = -2.45 + Math.sin(t * 5.0) * 0.12;
-                        taker.rightArm.rotation.x = -2.45 + Math.sin(t * 5.0) * 0.12;
-                        taker.bodyPivot.rotation.x = 0.14;
-                        taker.root.rotation.y = (taker.x > 0) ? -Math.PI / 2 : Math.PI / 2;
+                // Common physics: Ball continues moving/rolling until retrieved by taker
+                if (t >= 1.2 || Math.hypot(ball.vx, ball.vz) < 0.6) {
+                    setPieceState.ballPositioned = true;
+                }
+
+                if (setPieceState.ballPositioned) {
+                    if (type === 'THROW_IN') {
+                        setPieceState.ballHeld = true;
+                        ball.vx = 0; ball.vy = 0; ball.vz = 0;
+                        if (taker) {
+                            ball.mesh.position.set(taker.x, 1.88, taker.z);
+                            ball.shadow.position.set(taker.x, 0.025, taker.z);
+                            taker.leftArm.rotation.x = -2.45 + Math.sin(t * 5.0) * 0.12;
+                            taker.rightArm.rotation.x = -2.45 + Math.sin(t * 5.0) * 0.12;
+                            taker.bodyPivot.rotation.x = 0.14;
+                            taker.root.rotation.y = (taker.x > 0) ? -Math.PI / 2 : Math.PI / 2;
+                        }
                     } else {
+                        setPieceState.ballHeld = false;
+                        ball.vx = 0; ball.vy = 0; ball.vz = 0;
                         ball.mesh.position.set(setPieceState.spotX, 0.42, setPieceState.spotZ);
                         ball.shadow.position.set(setPieceState.spotX, 0.025, setPieceState.spotZ);
                     }
-                } else {
-                    ball.mesh.position.set(setPieceState.spotX, 0.42, setPieceState.spotZ);
-                    ball.shadow.position.set(setPieceState.spotX, 0.025, setPieceState.spotZ);
                 }
-                ball.vx = 0; ball.vy = 0; ball.vz = 0;
 
                 players.forEach(p => {
                     if (p === taker) {
@@ -3937,72 +4019,119 @@
                 return;
             }
 
-            // 3. PLAYING or CELEBRATION
-            if (celebrationState.active) {
-                ball.mesh.position.set(0, 0.42, 0);
-                ball.vx = 0; ball.vy = 0; ball.vz = 0;
-            } else {
+            // 3. COMMON BALL PHYSICS (Continuous in PLAYING, CELEBRATION, and out-of-bounds)
+            if (!setPieceState.ballHeld) {
                 ball.mesh.position.x += ball.vx * dt;
                 ball.mesh.position.z += ball.vz * dt;
                 ball.mesh.position.y += ball.vy * dt;
-            }
 
-            if (ball.mesh.position.y > 0.42) {
-                ball.vy -= 21.0 * dt;
-            } else {
-                ball.mesh.position.y = 0.42;
-                if (Math.abs(ball.vy) > 2.0) ball.vy = -ball.vy * 0.45;
-                else ball.vy = 0;
-                ball.vx *= Math.pow(0.30, dt);
-                ball.vz *= Math.pow(0.30, dt);
-            }
+                if (ball.mesh.position.y > 0.42) {
+                    ball.vy -= 21.0 * dt; // Gravity
+                } else {
+                    ball.mesh.position.y = 0.42;
+                    if (Math.abs(ball.vy) > 1.8) {
+                        ball.vy = -ball.vy * 0.45; // Bounce on grass
+                    } else {
+                        ball.vy = 0;
+                    }
+                    ball.vx *= Math.pow(0.32, dt);
+                    ball.vz *= Math.pow(0.32, dt);
+                }
 
-            ball.mesh.rotation.z -= ball.vx * dt * 1.4;
-            ball.mesh.rotation.x += ball.vz * dt * 1.4;
-            ball.shadow.position.set(ball.mesh.position.x, 0.025, ball.mesh.position.z);
+                ball.mesh.rotation.z -= ball.vx * dt * 1.4;
+                ball.mesh.rotation.x += ball.vz * dt * 1.4;
+                ball.shadow.position.set(ball.mesh.position.x, 0.025, ball.mesh.position.z);
+            }
 
             const bx = ball.mesh.position.x;
             const bz = ball.mesh.position.z;
+            const by = ball.mesh.position.y;
             const hw = PITCH_W / 2;
             const hl = PITCH_L / 2;
 
-            // FULL SOCCER BOUNDARY RULES: GOAL, GOAL KICK, CORNER KICK, THROW-IN
+            // PERIMETER ADVERTISING BOARD (WALL) COLLISIONS: Hit the wall, bounce off
+            if (Math.abs(bx) >= 32.5) {
+                ball.mesh.position.x = Math.sign(bx) * 32.42;
+                ball.vx = -ball.vx * 0.48;
+                if (Math.abs(ball.vx) > 1.2) playKickSound('pass');
+            }
+            if (Math.abs(bz) >= 44.5) {
+                ball.mesh.position.z = Math.sign(bz) * 44.42;
+                ball.vz = -ball.vz * 0.48;
+                if (Math.abs(ball.vz) > 1.2) playKickSound('pass');
+            }
+
+            // DYNAMIC GOAL NET IMPACT & DEFORMATION COLLISIONS
+            // A) Spain Goal Mouth (-39m to -42m, |x| < 5.0)
+            if (bz < -39.0 && bz > -42.5 && Math.abs(bx) < 5.1 && by < 3.5) {
+                // Back Net Collision (-41.3m): Net bulges backward and absorbs shot momentum
+                if (bz <= -41.3) {
+                    ball.mesh.position.z = -41.3;
+                    ball.vz = -ball.vz * 0.10;
+                    ball.vx *= 0.35;
+                    ball.vy = Math.min(ball.vy, 0.4);
+                    triggerNetDeformation('esp', bx, by);
+                }
+                // Side Netting Collisions (|x| = 4.95m)
+                if (Math.abs(bx) >= 4.95) {
+                    ball.mesh.position.x = Math.sign(bx) * 4.90;
+                    ball.vx = -ball.vx * 0.20;
+                }
+                // Top Netting Collision (y = 3.35m)
+                if (by >= 3.35) {
+                    ball.mesh.position.y = 3.35;
+                    ball.vy = -Math.abs(ball.vy) * 0.20;
+                }
+            }
+
+            // B) Argentina Goal Mouth (39m to 42m, |x| < 5.0)
+            if (bz > 39.0 && bz < 42.5 && Math.abs(bx) < 5.1 && by < 3.5) {
+                // Back Net Collision (+41.3m): Net bulges backward and absorbs shot momentum
+                if (bz >= 41.3) {
+                    ball.mesh.position.z = 41.3;
+                    ball.vz = -ball.vz * 0.10;
+                    ball.vx *= 0.35;
+                    ball.vy = Math.min(ball.vy, 0.4);
+                    triggerNetDeformation('arg', bx, by);
+                }
+                // Side Netting Collisions (|x| = 4.95m)
+                if (Math.abs(bx) >= 4.95) {
+                    ball.mesh.position.x = Math.sign(bx) * 4.90;
+                    ball.vx = -ball.vx * 0.20;
+                }
+                // Top Netting Collision (y = 3.35m)
+                if (by >= 3.35) {
+                    ball.mesh.position.y = 3.35;
+                    ball.vy = -Math.abs(ball.vy) * 0.20;
+                }
+            }
+
+            // SOCCER RULES: GOAL & OUT-OF-BOUNDS DETECTION (No instant teleportation; common physics preserved)
             if (Math.abs(bz) > hl) {
-                if (Math.abs(bx) < 4.8 && ball.mesh.position.y < 3.4) {
+                if (Math.abs(bx) < 4.8 && by < 3.4) {
                     // GOAL! Ball entered between the goal posts under crossbar
                     if (matchState.goalTimer <= 0 && matchState.phase === 'PLAYING') {
-                        playGoalSound();
                         celebrateGoal(bz < 0 ? 'ARG' : 'ESP', ball.lastTouchPlayer || ball.carrier);
-                        return;
                     }
                 } else {
                     // Ball exited across defending goal line outside of the goal mouth
                     if (matchState.phase === 'PLAYING' && matchState.goalTimer <= 0 && ball.cooldown <= 0) {
                         const cornerSignX = Math.sign(bx) || 1;
                         if (bz < -hl) {
-                            // Ball crossed Spain's defending endline
+                            // Crossed Spain's defending endline
                             if (ball.lastTouchTeam === 'ARG') {
-                                // Attacking team (ARG) touched last -> GOAL KICK for Spain
                                 startSetPiece('GOAL_KICK', 'ESP', 0, -34.5);
                             } else {
-                                // Defending team (ESP) touched last -> CORNER KICK for Argentina
                                 startSetPiece('CORNER_KICK', 'ARG', cornerSignX * (hw - 0.7), -hl + 0.7);
                             }
-                            return;
                         } else {
-                            // Ball crossed Argentina's defending endline
+                            // Crossed Argentina's defending endline
                             if (ball.lastTouchTeam === 'ESP') {
-                                // Attacking team (ESP) touched last -> GOAL KICK for Argentina
                                 startSetPiece('GOAL_KICK', 'ARG', 0, 34.5);
                             } else {
-                                // Defending team (ARG) touched last -> CORNER KICK for Spain
                                 startSetPiece('CORNER_KICK', 'ESP', cornerSignX * (hw - 0.7), hl - 0.7);
                             }
-                            return;
                         }
-                    } else if (matchState.phase !== 'PLAYING') {
-                        ball.mesh.position.z = Math.sign(bz) * hl;
-                        ball.vz = -ball.vz * 0.5;
                     }
                 }
             } else if (Math.abs(bx) > hw) {
@@ -4012,10 +4141,6 @@
                     const exitX = Math.sign(bx) * hw;
                     const exitZ = THREE.MathUtils.clamp(bz, -hl + 2.5, hl - 2.5);
                     startSetPiece('THROW_IN', awardTeam, exitX, exitZ);
-                    return;
-                } else if (matchState.phase !== 'PLAYING') {
-                    ball.mesh.position.x = Math.sign(bx) * hw;
-                    ball.vx = -ball.vx * 0.5;
                 }
             }
 
@@ -4899,6 +5024,7 @@
             stepMatchSimulation(dt, elapsed);
             animateCheeringCrowd(elapsed);
             updateCelebration(dt, elapsed);
+            updateNetDeformation(dt);
             updateCamera(dt);
 
             renderer.render(scene, camera);
