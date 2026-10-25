@@ -105,11 +105,15 @@ const CUMULUS_DENSITY_GLSL = `
     }
 
     float sampleGiantCumulus3D(vec3 pos, out float outHeightFrac, out float outTowerCore) {
-        float hFrac = (pos.y - 30.0) / 530.0;
+        float hFrac = (pos.y - 30.0) / 700.0;
         outHeightFrac = clamp(hFrac, 0.0, 1.0);
         outTowerCore = 0.0;
         if (pos.y <= 8.0 || uCumulusCoverage <= 0.01) return 0.0;
 
+        float towerSeed = hash(vec2(uCumulusSeed + 2.1, 12.1));
+        float towerBaseY = mix(105.0, 190.0, hash(vec2(uCumulusSeed + 5.3, 18.7)));
+        float towerHeight = mix(480.0, 700.0, hash(vec2(uCumulusSeed + 8.9, 23.4)));
+        float towerHFrac = (pos.y - towerBaseY) / towerHeight;
         vec2 relP = pos.xz - BASE_CUMULUS_AREA_CENTER;
         float posU = dot(relP, BASE_CUMULUS_WIND_DIR);
         float posV = dot(relP, BASE_CUMULUS_WIND_PERP);
@@ -122,31 +126,30 @@ const CUMULUS_DENSITY_GLSL = `
         // Gentle orbital flow rate circulating around the island (~16 min per full orbit)
         float flowRate = 0.0065;
         // Upper-altitude wind shear tilting plumes downwind along the flow direction
-        float windShearAngle = pow(max(hFrac, 0.0), 1.45) * 0.14;
+        float windShearAngle = pow(max(towerHFrac, 0.0), 1.45) * 0.14;
         float relAngle = theta - (uTime * flowRate + windShearAngle);
 
         // Generate one distinct cumulus tower formation around the island
-        float towerOffset = 0.72 + (hash(vec2(uCumulusSeed + 4.7, 12.1)) - 0.5) * 1.4;
+        float towerOffset = hash(vec2(uCumulusSeed + 4.7, 12.1)) * 6.28318;
+        float targetRadius = mix(620.0, 1050.0, hash(vec2(uCumulusSeed + 6.1, 16.8)));
+        float radialRadius = mix(185.0, 285.0, hash(vec2(uCumulusSeed + 9.7, 20.3)));
+        float tangentRadius = mix(200.0, 330.0, hash(vec2(uCumulusSeed + 12.4, 25.6)));
 
         float minTowerDist = 9999.0;
         for (int i = 0; i < 1; i++) {
             float towerIndex = float(i);
-            float towerSeed = hash(vec2(uCumulusSeed + towerIndex * 13.7 + 2.1, 12.1));
             float angleOffset = 0.0;
             float towerJitter = (hash(vec2(uCumulusSeed + towerIndex * 7.3 + 6.2, 13.4)) - 0.5) * 0.16;
             float towerAngle = towerOffset + angleOffset + towerJitter;
             float dAngle = atan(sin(relAngle - towerAngle), cos(relAngle - towerAngle));
-            float targetRadius = 720.0 + towerSeed * 90.0;
             float radialOffset = r - targetRadius;
             float tangentOffset = dAngle * r;
-            float radialRadius = 195.0 + towerSeed * 49.0;
-            float tangentRadius = 218.0 + towerSeed * 62.0;
             float localRadius = length(vec2(radialOffset / radialRadius, tangentOffset / tangentRadius));
             minTowerDist = min(minTowerDist, localRadius);
         }
 
         // Expansive base bounds up to 3.15, while convective towers above hFrac 0.38 taper to 1.65
-        float maxRadiusLimit = mix(3.15, 1.65, smoothstep(0.08, 0.38, hFrac));
+        float maxRadiusLimit = mix(3.15, 1.65, smoothstep(0.08, 0.38, towerHFrac));
         bool towerActive = distBounds > 0.001 && minTowerDist <= maxRadiusLimit;
 
         // Local co-rotating coordinates so the cloud body and detail noises travel together smoothly around the island
@@ -174,37 +177,33 @@ const CUMULUS_DENSITY_GLSL = `
 
         for (int i = 0; i < 1; i++) {
             float towerIndex = float(i);
-            float towerSeed = hash(vec2(uCumulusSeed + towerIndex * 13.7 + 2.1, 12.1));
             float angleOffset = 0.0;
             float towerJitter = (hash(vec2(uCumulusSeed + towerIndex * 7.3 + 6.2, 13.4)) - 0.5) * 0.16;
             float towerAngle = towerOffset + angleOffset + towerJitter;
             float dAngle = atan(sin(relAngle - towerAngle), cos(relAngle - towerAngle));
-            float targetRadius = 720.0 + towerSeed * 90.0;
             float radialOffset = r - targetRadius;
             float tangentOffset = dAngle * r;
-            float radialRadius = 195.0 + towerSeed * 49.0;
-            float tangentRadius = 218.0 + towerSeed * 62.0;
             float localRadius = length(vec2(radialOffset / radialRadius, tangentOffset / tangentRadius));
 
             float lobePhase = atan(tangentOffset / tangentRadius, radialOffset / radialRadius) * 4.0
-                            + hFrac * 19.0 + broadShapeNoise * 6.0;
+                            + towerHFrac * 19.0 + broadShapeNoise * 6.0;
             float sideLobes = 0.5 + 0.5 * sin(lobePhase);
             // Convective side billows are pronounced on the rising tower, not breaking the cohesive base
             float lobeBulge = (sideLobes - 0.5) * 0.28
-                            * smoothstep(0.20, 0.40, hFrac)
-                            * (1.0 - smoothstep(0.72, 0.92, hFrac));
+                            * smoothstep(0.20, 0.40, towerHFrac)
+                            * (1.0 - smoothstep(0.72, 0.92, towerHFrac));
 
             // Base width scale: significantly wider than the tower column (typically 1.8x to 2.4x)
-            float baseScale = mix(1.20, 2.30, hash(vec2(uCumulusSeed + towerIndex * 3.7 + 7.1, 14.3)));
+            float baseScale = mix(1.45, 2.65, hash(vec2(uCumulusSeed + towerIndex * 3.7 + 7.1, 14.3)));
 
             // Convective tower column profile: narrow waist, billowing cauliflower head
             float towerWidth = 0.86
-                - 0.14 * smoothstep(0.22, 0.48, hFrac)
-                + 0.26 * smoothstep(0.50, 0.80, hFrac)
-                - 0.16 * smoothstep(0.80, 0.98, hFrac);
+                - 0.14 * smoothstep(0.22, 0.48, towerHFrac)
+                + 0.26 * smoothstep(0.50, 0.80, towerHFrac)
+                - 0.16 * smoothstep(0.80, 0.98, towerHFrac);
 
             // Smoothly taper from the expansive cloud base up into the convective column
-            float baseDecay = 1.0 - smoothstep(0.06, 0.32, hFrac);
+            float baseDecay = 1.0 - smoothstep(0.06, 0.32, towerHFrac);
             float widthProfile = mix(towerWidth, baseScale, baseDecay);
 
             float shapeDistortion = clamp(
@@ -226,9 +225,9 @@ const CUMULUS_DENSITY_GLSL = `
             float domeRadiusFrac = clamp(localRadius / max(0.001, towerWidth * 1.08), 0.0, 1.25);
             float domeDrop = pow(domeRadiusFrac, 2.2) * 0.26;
             float effectiveTop = topHeight - domeDrop;
-            float topCap = 1.0 - smoothstep(effectiveTop - 0.045, effectiveTop + 0.035, hFrac);
+            float topCap = 1.0 - smoothstep(effectiveTop - 0.045, effectiveTop + 0.035, towerHFrac);
 
-            float bottomY = 30.0 + underMeters + (towerSeed - 0.5) * 8.0;
+            float bottomY = towerBaseY + underMeters + (towerSeed - 0.5) * 16.0;
             float underBase = smoothstep(bottomY - 8.0, bottomY + 16.0, pos.y);
 
             float towerMass = bodyMask * topCap * underBase * (towerActive ? 1.0 : 0.0);
