@@ -1,0 +1,2522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Isometric 2D-Style Park Basketball Scene — Three.js</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Inter:wght@500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #18241b;
+            font-family: 'Inter', sans-serif;
+            user-select: none;
+        }
+        #canvas-container {
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        .pixel-mode canvas {
+            image-rendering: pixelated;
+            image-rendering: crisp-edges;
+        }
+        .retro-font {
+            font-family: 'Press Start 2P', monospace;
+        }
+        .hud-panel {
+            background: rgba(20, 28, 24, 0.88);
+            border: 2px solid #3f5e46;
+            box-shadow: 0 4px 0 #0d1410, 0 8px 20px rgba(0,0,0,0.45);
+            backdrop-filter: blur(6px);
+        }
+        .retro-btn {
+            background: #2b4231;
+            border: 2px solid #537a5a;
+            box-shadow: 0 3px 0 #142017;
+            transition: all 0.1s ease;
+        }
+        .retro-btn:hover {
+            background: #385740;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 0 #142017;
+        }
+        .retro-btn:active, .retro-btn.active {
+            background: #d97724;
+            border-color: #f6ad55;
+            transform: translateY(2px);
+            box-shadow: 0 1px 0 #142017;
+            color: #fff;
+        }
+        .cam-btn {
+            flex-shrink: 0;
+            white-space: nowrap;
+        }
+        .camera-bar {
+            scrollbar-width: none;
+        }
+        .camera-bar::-webkit-scrollbar {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="canvas-container"></div>
+
+    <!-- Top Scoreboard & Live Event Banner -->
+    <div class="fixed top-3 left-3 right-3 flex flex-wrap items-center justify-between gap-1 pointer-events-none z-10">
+        <!-- Live Scoreboard -->
+        <div class="hud-panel rounded-xl px-3 py-2 flex items-center gap-3 pointer-events-auto text-white">
+            <div class="flex items-center gap-2">
+                <span class="w-3 h-3 rounded-full bg-red-500 inline-block border border-white"></span>
+                <div>
+                    <div class="text-[10px] text-emerald-300 uppercase font-bold tracking-wider">Street Red/Blue</div>
+                    <div id="score-a" class="retro-font text-lg text-amber-300">24</div>
+                </div>
+            </div>
+            <div class="text-xs font-bold text-gray-400 px-1">VS</div>
+            <div class="flex items-center gap-2">
+                <div>
+                    <div class="text-[10px] text-emerald-300 uppercase font-bold tracking-wider text-right">Park White/Dark</div>
+                    <div id="score-b" class="retro-font text-lg text-amber-300 text-right">22</div>
+                </div>
+                <span class="w-3 h-3 rounded-full bg-gray-100 inline-block border border-gray-500"></span>
+            </div>
+            <div class="border-l border-emerald-800 pl-3 ml-1 hidden xl:block">
+                <div class="text-[10px] uppercase text-emerald-400 font-semibold">Play-by-Play AI</div>
+                <div id="play-status" class="text-xs font-semibold text-amber-100 min-w-[175px]">Point guard dribbling top key...</div>
+            </div>
+        </div>
+
+        <!-- Render Style & Lighting Controls -->
+        <div class="hud-panel rounded-xl px-2.5 py-1.5 flex flex-wrap items-center gap-1.5 pointer-events-auto text-xs text-white">
+            <button id="btn-pixel" class="retro-btn px-2 py-1.5 rounded-lg font-semibold">Pixel 2D Art</button>
+            <button id="btn-outlines" class="retro-btn active px-2 py-1.5 rounded-lg font-semibold">Ink Borders</button>
+            <button id="btn-time" class="retro-btn px-2 py-1.5 rounded-lg font-semibold">☀️ Afternoon</button>
+            <div class="flex items-center gap-1.5 pl-2 border-l border-emerald-800">
+                <span class="text-emerald-300 font-medium">Speed</span>
+                <input id="speed-slider" type="range" min="0.2" max="2.5" step="0.1" value="1.0" class="w-16 accent-amber-500 cursor-pointer">
+            </div>
+        </div>
+    </div>
+
+    <!-- Bottom Camera Preset Bar -->
+    <div class="camera-bar fixed bottom-3 left-1/2 -translate-x-1/2 hud-panel rounded-xl px-2 py-1.5 flex flex-nowrap items-center justify-center gap-1 z-10 text-xs text-white max-w-[96vw] overflow-x-auto">
+        <span class="text-emerald-300 font-bold uppercase tracking-wider mr-1 hidden md:inline">Camera:</span>
+        <button data-cam="reference" class="cam-btn retro-btn active px-2 py-1.5 rounded-lg font-semibold">📐 Reference Isometric</button>
+        <button data-cam="court" class="cam-btn retro-btn px-2 py-1.5 rounded-lg font-semibold">🏀 Court Action</button>
+        <button data-cam="lake" class="cam-btn retro-btn px-2 py-1.5 rounded-lg font-semibold">🦆 Waterfront & Dog</button>
+        <button data-cam="playground" class="cam-btn retro-btn px-2 py-1.5 rounded-lg font-semibold">🛝 Playground</button>
+        <button data-cam="follow" class="cam-btn retro-btn px-2 py-1.5 rounded-lg font-semibold">🎥 Follow Ball</button>
+    </div>
+
+    <script>
+        window.onload = function () {
+            // ============================================================================
+            // 1. SCENE, ISOMETRIC CAMERA & PIXEL-ART / CEL-SHADED RENDERER SETUP
+            // ============================================================================
+            const container = document.getElementById('canvas-container');
+            const scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x527a48);
+
+            let pixelScale = 1.0;
+            let outlinesEnabled = true;
+            let simSpeed = 1.0;
+            let cameraMode = 'reference';
+
+            const aspect = window.innerWidth / window.innerHeight;
+            const frustumSize = 86;
+            const camera = new THREE.OrthographicCamera(
+                -frustumSize * aspect / 2,
+                frustumSize * aspect / 2,
+                frustumSize / 2,
+                -frustumSize / 2,
+                -200,
+                500
+            );
+
+            // Exact isometric match to reference image:
+            // Camera sits at (+X, +Y, +Z) looking at origin.
+            // Screen-Right = (+X - Z), Screen-Down = (+X + Z).
+            // Court long axis runs along X (top-left = -X, bottom-right = +X)
+            // Court width runs along Z (top-right bleachers = -Z, bottom-left lake = +Z)
+            camera.position.set(78, 72, 78);
+            camera.lookAt(0, 0, 0);
+            camera.zoom = referenceZoom();
+            camera.updateProjectionMatrix();
+
+            // Zoom that keeps the whole square diorama in view. Its isometric diamond spans about
+            // ±73 units horizontally and ±40 vertically, so the width sets the limit on wide screens.
+            function referenceZoom() {
+                const a = window.innerWidth / window.innerHeight;
+                return Math.min((frustumSize * a / 2) / 80, (frustumSize / 2) / 46);
+            }
+
+            const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * pixelScale);
+            renderer.outputEncoding = THREE.sRGBEncoding;
+            renderer.toneMapping = THREE.NoToneMapping;
+            renderer.toneMappingExposure = 1.05;
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            const controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.target.set(0, 0, 0);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.08;
+            controls.maxPolarAngle = Math.PI / 2.15;
+            controls.minZoom = 0.55;
+            controls.maxZoom = 3.5;
+
+            // ============================================================================
+            // 2. MATERIALS & PROCEDURAL TEXTURES
+            // ============================================================================
+            const outlineMeshes = [];
+            const outlineMat = new THREE.MeshBasicMaterial({
+                color: 0x161a1d,
+                side: THREE.BackSide
+            });
+
+            function finishColorTexture(texture) {
+                texture.encoding = THREE.sRGBEncoding;
+                texture.magFilter = THREE.LinearFilter;
+                texture.minFilter = THREE.LinearMipmapLinearFilter;
+                texture.anisotropy = Math.min(8, renderer.capabilities.getMaxAnisotropy());
+                return texture;
+            }
+
+            // Adds per-pixel brightness noise so flat procedural fills read as real surfaces
+            function addSurfaceGrain(ctx, w, h, amount) {
+                const img = ctx.getImageData(0, 0, w, h);
+                const d = img.data;
+                for (let i = 0; i < d.length; i += 4) {
+                    const n = (Math.random() - 0.5) * amount * 255;
+                    d[i] = Math.min(255, Math.max(0, d[i] + n));
+                    d[i + 1] = Math.min(255, Math.max(0, d[i + 1] + n));
+                    d[i + 2] = Math.min(255, Math.max(0, d[i + 2] + n));
+                }
+                ctx.putImageData(img, 0, 0);
+            }
+
+            // Name kept from the cel-shaded version so call sites stay unchanged; now a physically lit material.
+            function toonMat(colorHex, extra = {}) {
+                return new THREE.MeshStandardMaterial({
+                    color: colorHex,
+                    roughness: 0.85,
+                    metalness: 0,
+                    ...extra
+                });
+            }
+
+            // Helper to add a 3D mesh with an optional ink border hull (hidden unless Ink Borders is on)
+            function addOutlinedMesh(geometry, material, parent, outlineThickness = 0.09, castShadow = true, receiveShadow = true) {
+                const mesh = new THREE.Mesh(geometry, material);
+                mesh.castShadow = castShadow;
+                mesh.receiveShadow = receiveShadow;
+
+                if (outlineThickness > 0) {
+                    const outline = new THREE.Mesh(geometry, outlineMat);
+                    outline.scale.setScalar(1 + outlineThickness);
+                    outline.castShadow = false;
+                    outline.receiveShadow = false;
+                    outline.visible = outlinesEnabled;
+                    mesh.add(outline);
+                    outlineMeshes.push(outline);
+                }
+                if (parent) parent.add(mesh);
+                return mesh;
+            }
+
+            // Procedural Basketball Court Texture matching the reference image
+            function createCourtTexture() {
+                const canvas = document.createElement('canvas');
+                canvas.width = 1024;
+                canvas.height = 576;
+                const ctx = canvas.getContext('2d');
+
+                // Outer border apron (dark slate/teal green)
+                ctx.fillStyle = '#3b6654';
+                ctx.fillRect(0, 0, 1024, 576);
+
+                // Subtle pixel stipple on apron
+                for (let i = 0; i < 6000; i++) {
+                    ctx.fillStyle = i % 2 === 0 ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.05)';
+                    ctx.fillRect((Math.random() * 1024) | 0, (Math.random() * 576) | 0, 3, 3);
+                }
+
+                const padX = 56;
+                const padY = 44;
+                const cW = 1024 - padX * 2;
+                const cH = 576 - padY * 2;
+
+                // Main playing court green
+                ctx.fillStyle = '#4d7c5b';
+                ctx.fillRect(padX, padY, cW, cH);
+
+                // Subtle worn pixel texture on court
+                for (let i = 0; i < 9000; i++) {
+                    ctx.fillStyle = i % 2 === 0 ? 'rgba(130, 185, 130, 0.06)' : 'rgba(30, 50, 38, 0.06)';
+                    ctx.fillRect(padX + ((Math.random() * cW) | 0), padY + ((Math.random() * cH) | 0), 4, 4);
+                }
+                addSurfaceGrain(ctx, 1024, 576, 0.05);
+
+                // Regulation geometry (94ft x 50ft court) scaled to the canvas
+                const ft = cW / 94;
+                const cy = 288;
+                const keyLen = 19 * ft;
+                const keyHalfW = 8 * ft;
+                const keyY = cy - keyHalfW;
+                const keyH = keyHalfW * 2;
+                const ftLineL = padX + keyLen;
+                const ftLineR = 1024 - ftLineL;
+                const ftR = 6 * ft;
+                const centerR = 6 * ft;
+                // Basket centers match the rim world x (±18.63) in createBasketballHoop
+                const basketL = 512 - 18.63 * (1024 / 46);
+                const basketR = 1024 - basketL;
+                const arcR = 23.75 * ft;
+                const cornerY = padY + 3 * ft;
+                const cornerDx = Math.sqrt(arcR * arcR - (cy - cornerY) ** 2);
+                const theta = Math.atan2(cy - cornerY, cornerDx);
+
+                // Terracotta Red Keys (Left & Right)
+                ctx.fillStyle = '#995247';
+                ctx.fillRect(padX, keyY, keyLen, keyH);
+                ctx.fillRect(1024 - padX - keyLen, keyY, keyLen, keyH);
+
+                // Center Circle Terracotta Red
+                ctx.beginPath();
+                ctx.arc(512, cy, centerR, 0, Math.PI * 2);
+                ctx.fillStyle = '#995247';
+                ctx.fill();
+
+                // Crisp White Court Lines
+                ctx.strokeStyle = '#e8ece6';
+                ctx.lineWidth = 6;
+
+                // Outer boundary
+                ctx.strokeRect(padX, padY, cW, cH);
+
+                // Half-court line
+                ctx.beginPath();
+                ctx.moveTo(512, padY);
+                ctx.lineTo(512, 576 - padY);
+                ctx.stroke();
+
+                // Center circle outline
+                ctx.beginPath();
+                ctx.arc(512, cy, centerR, 0, Math.PI * 2);
+                ctx.stroke();
+
+                // Keys and free-throw circles (the half-circle bulges toward the center)
+                ctx.strokeRect(padX, keyY, keyLen, keyH);
+                ctx.strokeRect(1024 - padX - keyLen, keyY, keyLen, keyH);
+                ctx.beginPath();
+                ctx.arc(ftLineL, cy, ftR, -Math.PI / 2, Math.PI / 2);
+                ctx.stroke();
+                ctx.beginPath();
+                ctx.arc(ftLineR, cy, ftR, Math.PI / 2, Math.PI * 1.5);
+                ctx.stroke();
+
+                // Left 3-Point line: straight corners parallel to the sidelines, then an arc around the basket
+                ctx.beginPath();
+                ctx.moveTo(padX, cornerY);
+                ctx.lineTo(basketL + cornerDx, cornerY);
+                ctx.arc(basketL, cy, arcR, -theta, theta);
+                ctx.lineTo(padX, 576 - cornerY);
+                ctx.stroke();
+
+                // Right 3-Point line (mirror of the left, arc runs through the inside of the court)
+                ctx.beginPath();
+                ctx.moveTo(1024 - padX, cornerY);
+                ctx.lineTo(basketR - cornerDx, cornerY);
+                ctx.arc(basketR, cy, arcR, Math.PI + theta, Math.PI - theta, true);
+                ctx.lineTo(1024 - padX, 576 - cornerY);
+                ctx.stroke();
+
+                return finishColorTexture(new THREE.CanvasTexture(canvas));
+            }
+
+            // Procedural Park Grass Texture
+            function createGrassTexture() {
+                const canvas = document.createElement('canvas');
+                canvas.width = 512;
+                canvas.height = 512;
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = '#456c3c';
+                ctx.fillRect(0, 0, 512, 512);
+
+                const colors = ['#3b6234', '#4d7440', '#587f45', '#365b2f'];
+                for (let i = 0; i < 8000; i++) {
+                    ctx.fillStyle = colors[i % colors.length];
+                    const x = (Math.random() * 512) | 0;
+                    const y = (Math.random() * 512) | 0;
+                    ctx.fillRect(x, y, 3, 2);
+                }
+                addSurfaceGrain(ctx, 512, 512, 0.07);
+                const tex = new THREE.CanvasTexture(canvas);
+                tex.wrapS = THREE.RepeatWrapping;
+                tex.wrapT = THREE.RepeatWrapping;
+                tex.repeat.set(10, 7);
+                return finishColorTexture(tex);
+            }
+
+            // Procedural Chain-Link Fence Diamond Texture
+            function createChainLinkTexture() {
+                const canvas = document.createElement('canvas');
+                canvas.width = 64;
+                canvas.height = 64;
+                const ctx = canvas.getContext('2d');
+                ctx.clearRect(0, 0, 64, 64);
+                ctx.strokeStyle = 'rgba(38, 58, 46, 0.78)';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.moveTo(0, 32); ctx.lineTo(32, 0); ctx.lineTo(64, 32); ctx.lineTo(32, 64); ctx.closePath();
+                ctx.stroke();
+
+                const tex = new THREE.CanvasTexture(canvas);
+                tex.wrapS = THREE.RepeatWrapping;
+                tex.wrapT = THREE.RepeatWrapping;
+                return finishColorTexture(tex);
+            }
+            const baseFenceTex = createChainLinkTexture();
+
+            // Procedural Paved Stone Walkway Texture
+            function createPavementTexture() {
+                const canvas = document.createElement('canvas');
+                canvas.width = 128;
+                canvas.height = 128;
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = '#c2baa6';
+                ctx.fillRect(0, 0, 128, 128);
+                ctx.strokeStyle = '#9e9583';
+                ctx.lineWidth = 3;
+                ctx.strokeRect(2, 2, 60, 60);
+                ctx.strokeRect(66, 2, 60, 60);
+                ctx.strokeRect(2, 66, 60, 60);
+                ctx.strokeRect(66, 66, 60, 60);
+                addSurfaceGrain(ctx, 128, 128, 0.06);
+
+                const tex = new THREE.CanvasTexture(canvas);
+                tex.wrapS = THREE.RepeatWrapping;
+                tex.wrapT = THREE.RepeatWrapping;
+                return finishColorTexture(tex);
+            }
+            const basePavementTex = createPavementTexture();
+
+            // Procedural Deep Teal/Cerulean River Water Texture matching reference image
+            function createWaterTexture() {
+                const canvas = document.createElement('canvas');
+                canvas.width = 512;
+                canvas.height = 512;
+                const ctx = canvas.getContext('2d');
+
+                const grad = ctx.createLinearGradient(0, 0, 0, 512);
+                grad.addColorStop(0.0, '#286d87');
+                grad.addColorStop(0.25, '#2d758d');
+                grad.addColorStop(0.5, '#317a91');
+                grad.addColorStop(0.75, '#2d758d');
+                grad.addColorStop(1.0, '#286d87');
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, 512, 512);
+
+                const waveColors = [
+                    'rgba(111, 190, 211, 0.22)',
+                    'rgba(20, 66, 91, 0.2)',
+                    'rgba(142, 210, 225, 0.16)',
+                    'rgba(35, 91, 116, 0.2)'
+                ];
+                for (let i = 0; i < 520; i++) {
+                    ctx.fillStyle = waveColors[i % waveColors.length];
+                    const x = (Math.random() * 512) | 0;
+                    const y = (Math.random() * 512) | 0;
+                    const w = 6 + Math.random() * 18;
+                    const h = 1 + Math.random() * 2;
+                    ctx.fillRect(x, y, w, h);
+                }
+
+                const tex = new THREE.CanvasTexture(canvas);
+                tex.wrapS = THREE.RepeatWrapping;
+                tex.wrapT = THREE.RepeatWrapping;
+                tex.repeat.set(2.72, 1.6);
+                return finishColorTexture(tex);
+            }
+
+            // Procedural Slate Shingle Roof Texture for Utility House
+            function createRoofShingleTexture() {
+                const canvas = document.createElement('canvas');
+                canvas.width = 256;
+                canvas.height = 256;
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = '#48545e';
+                ctx.fillRect(0, 0, 256, 256);
+
+                for (let y = 0; y < 256; y += 16) {
+                    ctx.fillStyle = (y / 16) % 2 === 0 ? '#3f4a54' : '#505d68';
+                    ctx.fillRect(0, y, 256, 14);
+                    ctx.fillStyle = '#2d353c';
+                    ctx.fillRect(0, y + 14, 256, 2);
+                    const offset = ((y / 16) % 2) * 16;
+                    for (let x = offset; x < 256; x += 32) {
+                        ctx.fillRect(x, y, 2, 16);
+                    }
+                }
+                const tex = new THREE.CanvasTexture(canvas);
+                tex.wrapS = THREE.RepeatWrapping;
+                tex.wrapT = THREE.RepeatWrapping;
+                return finishColorTexture(tex);
+            }
+            const roofShingleTex = createRoofShingleTexture();
+
+            // ============================================================================
+            // 3. LIGHTING (SUNNY AFTERNOON / GOLDEN HOUR / NIGHT PARK LIGHTS)
+            // ============================================================================
+            const hemiLight = new THREE.HemisphereLight(0xcfe6ff, 0x4a5e3a, 0.5);
+            scene.add(hemiLight);
+
+            const ambientLight = new THREE.AmbientLight(0xdcedc8, 0.3);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xfff1c1, 1.15);
+            dirLight.position.set(-45, 78, -32);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 4096;
+            dirLight.shadow.mapSize.height = 4096;
+            const d = 68;
+            dirLight.shadow.camera.left = -d;
+            dirLight.shadow.camera.right = d;
+            dirLight.shadow.camera.top = d;
+            dirLight.shadow.camera.bottom = -d;
+            dirLight.shadow.camera.near = 10;
+            dirLight.shadow.camera.far = 190;
+            dirLight.shadow.bias = -0.0005;
+            scene.add(dirLight);
+
+            const lampPointLights = [];
+            const lampBulbs = [];
+
+            // ============================================================================
+            // 4. WORLD GROUND, SIDEWALKS, LAKE, ROAD & CENTRAL BASKETBALL COURT
+            // ============================================================================
+        // 4. WORLD GROUND, SIDEWALKS, LAKE, ROAD & CENTRAL BASKETBALL COURT
+        // ============================================================================
+        // Base Park Lawn — Carved so it strictly terminates at the Z = 19.6 shoreline
+        // exposing the deep cerulean/teal river basin in the bottom-left corner!
+        const grassGeo = new THREE.BoxGeometry(100, 2, 69.5);
+        const grassMat = toonMat(0xffffff, { map: createGrassTexture() });
+        const grassMesh = new THREE.Mesh(grassGeo, grassMat);
+        grassMesh.position.set(0, -1, -15.25); // Square diorama: X ±50, Z -50 to +19.5
+        grassMesh.receiveShadow = true;
+        scene.add(grassMesh);
+
+        // Wooden plinth that makes the park read as a square miniature board
+        const plinthMat = toonMat(0x6b4e35);
+        addOutlinedMesh(new THREE.BoxGeometry(104, 6, 104), plinthMat, scene, 0.02, false, true).position.set(0, -4, 0);
+
+        // Central Basketball Court Slab
+        const courtW = 46;
+            const courtD = 26;
+            const courtGeo = new THREE.BoxGeometry(courtW, 0.28, courtD);
+            const courtMat = toonMat(0xffffff, { map: createCourtTexture() });
+            const courtSlab = addOutlinedMesh(courtGeo, courtMat, scene, 0.008, false, true);
+            courtSlab.position.set(0, 0.05, 0);
+
+            // Helper for paved stone paths
+            function addPathBox(x, z, w, d, rotY = 0) {
+                const tex = basePavementTex.clone();
+                tex.needsUpdate = true;
+                tex.repeat.set(w / 3.5, d / 3.5);
+                const mat = toonMat(0xffffff, { map: tex });
+                const mesh = addOutlinedMesh(new THREE.BoxGeometry(w, 0.22, d), mat, scene, 0.015, false, true);
+                mesh.position.set(x, 0.04, z);
+                mesh.rotation.y = rotY;
+                return mesh;
+            }
+
+            // Surrounding Paved Walkways matching reference layout
+            addPathBox(0, 16.5, 58, 4.2);   // Bottom-Left Lakeside Path (+Z)
+            addPathBox(4, -17.5, 68, 4.4);  // Upper-Right Scooter & Bleacher Path (-Z)
+            addPathBox(14, -27.5, 56, 3.6); // Far Upper-Right Sidewalk by Road
+            addPathBox(-27.5, -2, 4.2, 40); // Top-Left Crosswalk Path (-X)
+            addPathBox(27.5, 0, 4.2, 38);   // Bottom-Right Crosswalk Path (+X)
+            addPathBox(-38, 2, 22, 3.4);    // Path to Playground
+
+            // ============================================================================
+            // 5. BASKETBALL HOOPS, CHAIN-LINK FENCING & 3-TIER BLEACHERS
+            // ============================================================================
+            function createBasketballHoop(xPos, dir) {
+                const hoopGroup = new THREE.Group();
+                hoopGroup.position.set(xPos, 0, 0);
+                scene.add(hoopGroup);
+
+                const poleMat = toonMat(0x283038);
+                const boardMat = toonMat(0xf4f6f8);
+                const redMat = toonMat(0xd9483b);
+                const rimMat = toonMat(0xe8612c);
+
+                // Heavy Base & Vertical Support Post
+                const base = addOutlinedMesh(new THREE.BoxGeometry(1.1, 0.45, 1.1), poleMat, hoopGroup, 0.08);
+                base.position.set(0, 0.22, 0);
+
+                const post = addOutlinedMesh(new THREE.CylinderGeometry(0.24, 0.28, 6.2, 10), poleMat, hoopGroup, 0.08);
+                post.position.set(0, 3.1, 0);
+
+                // Angled Overhang Arm
+                const arm = addOutlinedMesh(new THREE.BoxGeometry(2.1, 0.26, 0.26), poleMat, hoopGroup, 0.08);
+                arm.position.set(dir * 0.95, 5.85, 0);
+
+                // Rectangular Backboard with Dark Border
+                const boardX = dir * 1.95;
+                const board = addOutlinedMesh(new THREE.BoxGeometry(0.18, 2.3, 3.4), boardMat, hoopGroup, 0.06);
+                board.position.set(boardX, 5.85, 0);
+
+                // Red Shooter's Square on Backboard
+                const sqOuter = new THREE.Mesh(new THREE.BoxGeometry(0.21, 0.85, 1.25), redMat);
+                sqOuter.position.set(boardX + dir * 0.02, 5.55, 0);
+                hoopGroup.add(sqOuter);
+                const sqInner = new THREE.Mesh(new THREE.BoxGeometry(0.23, 0.65, 1.05), boardMat);
+                sqInner.position.set(boardX + dir * 0.03, 5.55, 0);
+                hoopGroup.add(sqInner);
+
+                // Orange Rim
+                const rimX = boardX + dir * 0.62;
+                const rimY = 5.05;
+                const rim = addOutlinedMesh(new THREE.TorusGeometry(0.46, 0.065, 8, 18), rimMat, hoopGroup, 0.08);
+                rim.rotation.x = Math.PI / 2;
+                rim.position.set(rimX, rimY, 0);
+
+                // Animated Woven Net
+                const netGeo = new THREE.CylinderGeometry(0.44, 0.26, 0.85, 10, 2, true);
+                const netMat = new THREE.MeshBasicMaterial({
+                    color: 0xf1f5f9,
+                    wireframe: true,
+                    transparent: true,
+                    opacity: 0.88
+                });
+                const net = new THREE.Mesh(netGeo, netMat);
+                net.position.set(rimX, rimY - 0.42, 0);
+                hoopGroup.add(net);
+
+                return {
+                    rimPos: new THREE.Vector3(xPos + rimX, rimY, 0),
+                    boardFaceX: xPos + boardX + dir * 0.09,
+                    boardDir: dir,
+                    netMesh: net
+                };
+            }
+
+            const leftHoop = createBasketballHoop(-21.2, 1);
+            const rightHoop = createBasketballHoop(21.2, -1);
+
+            // Chain-Link Fence Builder
+            const fencePostMat = toonMat(0x1f3024);
+            function buildFenceSegment(x1, z1, x2, z2, height = 3.6) {
+                const dx = x2 - x1;
+                const dz = z2 - z1;
+                const len = Math.hypot(dx, dz);
+                const angle = Math.atan2(dz, dx);
+
+                const group = new THREE.Group();
+                group.position.set((x1 + x2) / 2, 0, (z1 + z2) / 2);
+                group.rotation.y = -angle;
+                scene.add(group);
+
+                // Top & Bottom Horizontal Rails
+                const topRail = addOutlinedMesh(new THREE.CylinderGeometry(0.06, 0.06, len, 6), fencePostMat, group, 0.05);
+                topRail.rotation.z = Math.PI / 2;
+                topRail.position.y = height;
+
+                const midRail = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, len, 6), fencePostMat);
+                midRail.rotation.z = Math.PI / 2;
+                midRail.position.y = 0.2;
+                group.add(midRail);
+
+                // Vertical Posts every ~5.5 units
+                const numPosts = Math.max(2, Math.round(len / 5.5) + 1);
+                for (let i = 0; i < numPosts; i++) {
+                    const px = -len / 2 + (i / (numPosts - 1)) * len;
+                    const post = addOutlinedMesh(new THREE.CylinderGeometry(0.08, 0.08, height + 0.15, 6), fencePostMat, group, 0.06);
+                    post.position.set(px, height / 2, 0);
+                }
+
+                // Translucent Chain-Link Mesh Plane
+                const tex = baseFenceTex.clone();
+                tex.needsUpdate = true;
+                tex.repeat.set(len / 2.2, height / 1.8);
+                const meshMat = new THREE.MeshBasicMaterial({
+                    map: tex,
+                    transparent: true,
+                    alphaTest: 0.15,
+                    side: THREE.DoubleSide
+                });
+                const meshPlane = new THREE.Mesh(new THREE.PlaneGeometry(len, height), meshMat);
+                meshPlane.position.y = height / 2;
+                group.add(meshPlane);
+            }
+
+            // Perimeter Court Fence with recessed Bleacher pocket on Upper-Right (-Z)
+            buildFenceSegment(-23.5, -13.2, -23.5, 13.2); // Top-Left Baseline (-X)
+            buildFenceSegment(23.5, -13.2, 23.5, 13.2);   // Bottom-Right Baseline (+X)
+            buildFenceSegment(-23.5, 13.2, 23.5, 13.2);   // Bottom-Left Lakeside Sideline (+Z)
+            // Upper-Right Sideline (-Z) with bleacher recess and entry gap
+            buildFenceSegment(-23.5, -13.2, -7.5, -13.2);
+            buildFenceSegment(-7.5, -13.2, -7.5, -15.6);  // Recess wall
+            buildFenceSegment(8.5, -15.6, 8.5, -13.2);    // Gate side post
+            buildFenceSegment(8.5, -13.2, 23.5, -13.2);
+
+            // 3-Tier Aluminum & Wood Bleachers at (x: 0.5, z: -14.3) facing +Z
+            const bleacherGroup = new THREE.Group();
+            bleacherGroup.position.set(0.5, 0, -14.2);
+            scene.add(bleacherGroup);
+
+            const aluMat = toonMat(0x8d99a6);
+            const frameMat = toonMat(0x3a444d);
+            for (let row = 0; row < 3; row++) {
+                const y = 0.65 + row * 0.62;
+                const z = 0.85 - row * 0.85;
+                // Seat plank
+                const plank = addOutlinedMesh(new THREE.BoxGeometry(12.2, 0.14, 0.58), aluMat, bleacherGroup, 0.05);
+                plank.position.set(0, y, z);
+                // Footrest plank
+                const foot = new THREE.Mesh(new THREE.BoxGeometry(12.2, 0.1, 0.42), frameMat);
+                foot.position.set(0, y - 0.3, z + 0.35);
+                bleacherGroup.add(foot);
+            }
+            for (let sx = -5.5; sx <= 5.5; sx += 2.75) {
+            const support = addOutlinedMesh(new THREE.BoxGeometry(0.18, 1.9, 2.3), frameMat, bleacherGroup, 0.05);
+            support.position.set(sx, 0.95, 0);
+        }
+
+        // ============================================================================
+        // 6. BOTTOM-LEFT LAKE, SHORELINE FOAM, ROCKS, WOODEN DECK & RAILINGS
+        // ============================================================================
+        const lakeGroup = new THREE.Group();
+        scene.add(lakeGroup);
+
+        // Deep Cerulean / Teal-Blue Water Basin (Fully visible in bottom-left)
+        const waterTex = createWaterTexture();
+        // Runs from the bottom-left edge to the bottom-right edge of the square (X -52..52, Z 19.5..52)
+        const waterGeo = new THREE.BoxGeometry(104, 1.6, 32.5);
+        const waterMat = toonMat(0xffffff, { map: waterTex });
+        const waterMesh = new THREE.Mesh(waterGeo, waterMat);
+        waterMesh.position.set(0, -1.05, 35.75); // Z = 19.5 shoreline out to the square edge at Z = 52
+        waterMesh.receiveShadow = true;
+        scene.add(waterMesh);
+
+        // Animated Crisp Pixel Wave Crests & Sparkle Highlights on Water
+        const sparkles = [];
+        const sparkleGeo = new THREE.BoxGeometry(1.15, 0.06, 0.28);
+        const sparkleMat = new THREE.MeshBasicMaterial({ color: 0xb8f2ff, transparent: true, opacity: 0.85 });
+        const subWaveMat = new THREE.MeshBasicMaterial({ color: 0x4ea8cc, transparent: true, opacity: 0.65 });
+        for (let i = 0; i < 95; i++) {
+            const sp = new THREE.Mesh(sparkleGeo, i % 3 === 0 ? sparkleMat : subWaveMat);
+            sp.position.set(-50 + Math.random() * 100, -0.22, 21.8 + Math.random() * 28);
+            scene.add(sp);
+            sparkles.push({ mesh: sp, phase: Math.random() * Math.PI * 2, baseX: sp.position.x });
+        }
+
+        // Grassy Embankment Slope & Detailed Boulders along Z = 19.8
+        const bankMat = toonMat(0x4b7435);
+        const bankSlope = addOutlinedMesh(new THREE.BoxGeometry(104, 1.35, 2.2), bankMat, scene, 0.03);
+        bankSlope.position.set(0, -0.32, 19.8);
+
+        const rockMat1 = toonMat(0x7c827d);
+        const rockMat2 = toonMat(0x5e635f);
+        const rockMat3 = toonMat(0x949994);
+        const foamSquares = [];
+        const foamMat = new THREE.MeshBasicMaterial({ color: 0xdff6ff, transparent: true, opacity: 0.82 });
+
+        for (let rx = -48; rx <= 50; rx += 1.15) {
+            const rSize = 0.58 + (Math.sin(rx * 3.7) * 0.25 + 0.25);
+            const rGeo = new THREE.DodecahedronGeometry(rSize, 1);
+            const rMat = rx % 3 === 0 ? rockMat1 : (rx % 2 === 0 ? rockMat2 : rockMat3);
+            const rMesh = addOutlinedMesh(rGeo, rMat, scene, 0.08);
+            rMesh.scale.set(1.25, 0.72, 1.05);
+            rMesh.position.set(rx + Math.sin(rx) * 0.25, -0.05, 20.55 + Math.cos(rx * 1.5) * 0.35);
+            rMesh.rotation.set(rx, rx * 0.5, 0);
+
+            // Shoreline water foam lapping against rocks
+            const foam = new THREE.Mesh(new THREE.BoxGeometry(1.35, 0.05, 0.55), foamMat);
+            foam.position.set(rx, -0.21, 21.35 + Math.cos(rx * 1.5) * 0.35);
+            scene.add(foam);
+            foamSquares.push({ mesh: foam, baseZ: foam.position.z, phase: rx * 0.6 });
+        }
+
+        // Reeds, Lily Pads & Cattails along the water edge
+        const reedMat = toonMat(0x688f34);
+        const cattailMat = toonMat(0x5c3a21);
+        for (let rx = -44; rx <= 30; rx += 3.4) {
+            for (let j = 0; j < 5; j++) {
+                const blade = new THREE.Mesh(new THREE.ConeGeometry(0.11, 1.55 + Math.random() * 0.65, 5), reedMat);
+                blade.position.set(rx + (Math.random() - 0.5) * 1.4, 0.42, 20.2 + Math.random() * 0.9);
+                blade.rotation.z = (Math.random() - 0.5) * 0.32;
+                scene.add(blade);
+            }
+            const head = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 0.42, 6), cattailMat);
+            head.position.set(rx, 0.98, 20.5);
+            scene.add(head);
+        }
+
+        // Wooden Waterfront Fence along Z = 18.8
+        const woodFenceMat = toonMat(0x7c5836);
+        for (let fx = -46; fx <= 32; fx += 3.2) {
+            const post = addOutlinedMesh(new THREE.BoxGeometry(0.28, 1.5, 0.28), woodFenceMat, scene, 0.08);
+            post.position.set(fx, 0.75, 18.9);
+            if (fx < 32 && !(fx >= -11 && fx <= -4) && !(fx >= 12 && fx <= 18)) {
+                const rail1 = addOutlinedMesh(new THREE.BoxGeometry(3.2, 0.16, 0.14), woodFenceMat, scene, 0.06);
+                rail1.position.set(fx + 1.6, 1.2, 18.9);
+                const rail2 = addOutlinedMesh(new THREE.BoxGeometry(3.2, 0.16, 0.14), woodFenceMat, scene, 0.06);
+                rail2.position.set(fx + 1.6, 0.65, 18.9);
+            }
+        }
+
+        // Two Wooden Viewing Decks / Steps Jutting Over the Shore (matching reference)
+        function buildWoodenDeck(centerX) {
+            const deckGroup = new THREE.Group();
+            deckGroup.position.set(centerX, 0, 19.9);
+            scene.add(deckGroup);
+            const plankMat = toonMat(0x8c643e);
+            const darkWood = toonMat(0x593e25);
+
+            for (let step = 0; step < 3; step++) {
+                const deck = addOutlinedMesh(new THREE.BoxGeometry(6.8, 0.25, 1.15), plankMat, deckGroup, 0.06);
+                deck.position.set(0, -step * 0.16, step * 1.05);
+            }
+            for (let px = -3.1; px <= 3.1; px += 3.1) {
+                const piling = addOutlinedMesh(new THREE.CylinderGeometry(0.18, 0.18, 1.6, 8), darkWood, deckGroup, 0.08);
+                piling.position.set(px, -0.45, 2.2);
+            }
+        }
+        buildWoodenDeck(-7.5);
+        buildWoodenDeck(15.2);
+
+        // ============================================================================
+        // 7. TOP-CENTER UTILITY BUILDING (FIXED GABLE ROOF), PLAYGROUND & ROAD
+        // ============================================================================
+        // Utility / Restroom Building (at x: -5.5, z: -26.5)
+        const buildingGroup = new THREE.Group();
+        buildingGroup.position.set(-5.5, 0, -26.5);
+        scene.add(buildingGroup);
+
+        const wallMat = toonMat(0xc8beab);
+        const brickBaseMat = toonMat(0x7d5847);
+        const trimMat = toonMat(0xe5e0d5);
+        const roofMat = toonMat(0xffffff, { map: roofShingleTex });
+        const doorMat = toonMat(0x3b6957);
+
+        // Brick Wainscot Foundation & Stucco Upper Walls
+        const bBase = addOutlinedMesh(new THREE.BoxGeometry(10.6, 1.25, 6.8), brickBaseMat, buildingGroup, 0.04);
+        bBase.position.y = 0.625;
+        const bWalls = addOutlinedMesh(new THREE.BoxGeometry(10.2, 3.2, 6.4), wallMat, buildingGroup, 0.04);
+        bWalls.position.y = 2.85;
+
+        // White Fascia Cornice Trim around Eaves
+        const eaveTrim = addOutlinedMesh(new THREE.BoxGeometry(10.5, 0.24, 6.7), trimMat, buildingGroup, 0.04);
+        eaveTrim.position.y = 4.42;
+
+        // Triangular Gable Wall Core so the pitched roof has solid triangular gable ends on -X & +X
+        const gableShape = new THREE.Shape();
+        gableShape.moveTo(-3.2, 0);
+        gableShape.lineTo(3.2, 0);
+        gableShape.lineTo(0, 1.85);
+        gableShape.closePath();
+        const gableGeo = new THREE.ExtrudeGeometry(gableShape, { depth: 10.2, bevelEnabled: false });
+        gableGeo.rotateY(Math.PI / 2);
+        gableGeo.translate(-5.1, 4.45, 0);
+        addOutlinedMesh(gableGeo, wallMat, buildingGroup, 0.04);
+
+        // Corrected Pitched Gable Roof Slopes (Highest at Ridge Z=0, sloping DOWN to eaves at Z = ±3.6)
+        const roofSlopeAngle = Math.atan2(1.85, 3.35); // ~28.9 degrees
+        const slopeLen = Math.hypot(1.85, 3.75);
+
+        // Front Roof Slope (+Z side: tilts DOWN as +Z increases -> positive X rotation)
+        const roofFront = addOutlinedMesh(new THREE.BoxGeometry(11.2, 0.26, slopeLen), roofMat, buildingGroup, 0.05);
+        roofFront.position.set(0, 5.42, 1.72);
+        roofFront.rotation.x = roofSlopeAngle;
+
+        // Back Roof Slope (-Z side: tilts DOWN as -Z decreases -> negative X rotation)
+        const roofBack = addOutlinedMesh(new THREE.BoxGeometry(11.2, 0.26, slopeLen), roofMat, buildingGroup, 0.05);
+        roofBack.position.set(0, 5.42, -1.72);
+        roofBack.rotation.x = -roofSlopeAngle;
+
+        // Roof Ridge Cap & Gable Bargeboards
+        const ridgeCap = addOutlinedMesh(new THREE.BoxGeometry(11.3, 0.24, 0.36), toonMat(0x2d353c), buildingGroup, 0.06);
+        ridgeCap.position.set(0, 6.32, 0);
+
+        // Attic Louver Vent on Right Gable (+X face)
+        const gableVent = addOutlinedMesh(new THREE.BoxGeometry(0.18, 0.55, 0.65), toonMat(0x3a444d), buildingGroup, 0.06);
+        gableVent.position.set(5.12, 5.2, 0);
+
+        // Roof Vents & Exhaust Pipes matching reference
+        for (let vx of [-2.2, 1.6]) {
+            const vent = addOutlinedMesh(new THREE.CylinderGeometry(0.22, 0.22, 0.85, 10), toonMat(0x283036), buildingGroup, 0.08);
+            vent.position.set(vx, 6.05, 0.95);
+            const cap = addOutlinedMesh(new THREE.CylinderGeometry(0.32, 0.32, 0.14, 10), toonMat(0x1b2126), buildingGroup, 0.08);
+            cap.position.set(vx, 6.48, 0.95);
+        }
+
+        // Front Recessed Green Doors, Transom & Louvered Windows (+Z & +X faces)
+        const doorFrame = addOutlinedMesh(new THREE.BoxGeometry(1.9, 3.0, 0.22), trimMat, buildingGroup, 0.05);
+        doorFrame.position.set(1.1, 1.5, 3.2);
+        const doorPanel = addOutlinedMesh(new THREE.BoxGeometry(1.6, 2.75, 0.26), doorMat, buildingGroup, 0.05);
+        doorPanel.position.set(1.1, 1.45, 3.22);
+
+        const winFrame1 = addOutlinedMesh(new THREE.BoxGeometry(2.5, 1.25, 0.22), trimMat, buildingGroup, 0.05);
+        winFrame1.position.set(-2.2, 2.75, 3.2);
+        const winGlass1 = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.95, 0.26), toonMat(0x526b78));
+        winGlass1.position.set(-2.2, 2.75, 3.22);
+        buildingGroup.add(winGlass1);
+
+        const winFrame2 = addOutlinedMesh(new THREE.BoxGeometry(0.22, 1.25, 2.2), trimMat, buildingGroup, 0.05);
+        winFrame2.position.set(5.1, 2.75, 0);
+        const winGlass2 = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.95, 1.9), toonMat(0x526b78));
+        winGlass2.position.set(5.12, 2.75, 0);
+        buildingGroup.add(winGlass2);
+
+        // Park Notice Board next to the building (x: 2.2, z: -24.2)
+        const boardGroup = new THREE.Group();
+        boardGroup.position.set(2.2, 0, -24.2);
+        scene.add(boardGroup);
+        for (let px of [-1.1, 1.1]) {
+            const p = addOutlinedMesh(new THREE.BoxGeometry(0.24, 2.6, 0.24), woodFenceMat, boardGroup, 0.08);
+            p.position.set(px, 1.3, 0);
+        }
+        const signFrame = addOutlinedMesh(new THREE.BoxGeometry(2.6, 1.5, 0.26), woodFenceMat, boardGroup, 0.06);
+        signFrame.position.set(0, 2.0, 0);
+        const flyer1 = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.0, 0.3), toonMat(0xf8fafc));
+        flyer1.position.set(-0.55, 2.0, 0);
+        boardGroup.add(flyer1);
+        const flyer2 = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.0, 0.3), toonMat(0xfef08a));
+        flyer2.position.set(0.55, 2.0, 0);
+        boardGroup.add(flyer2);
+
+        // Top-Left Playground in Sand Pit (at x: -35.5, z: -12.5)
+        const playGroup = new THREE.Group();
+        playGroup.position.set(-35.5, 0, -12.5);
+        scene.add(playGroup);
+
+        // Sand Pit Base & Wooden Border Curbs
+        const sandMat = toonMat(0xd8b88c);
+        const sandPit = addOutlinedMesh(new THREE.BoxGeometry(17.5, 0.2, 13.5), sandMat, playGroup, 0.02, false, true);
+        sandPit.position.y = 0.04;
+
+        // Blue & Yellow Slide Tower Structure
+        const playBlue = toonMat(0x2584b8);
+        const playYellow = toonMat(0xeab308);
+        const playRed = toonMat(0xd9483b);
+
+        const tower = new THREE.Group();
+        tower.position.set(2.2, 0, -1.5);
+        playGroup.add(tower);
+
+        for (let tx of [-1.3, 1.3]) {
+            for (let tz of [-1.3, 1.3]) {
+                const post = addOutlinedMesh(new THREE.CylinderGeometry(0.16, 0.16, 5.2, 8), playRed, tower, 0.08);
+                post.position.set(tx, 2.6, tz);
+            }
+        }
+        const deck = addOutlinedMesh(new THREE.BoxGeometry(3.0, 0.25, 3.0), playYellow, tower, 0.06);
+        deck.position.y = 2.4;
+
+        // Yellow Guard Panels
+            const guard1 = addOutlinedMesh(new THREE.BoxGeometry(3.0, 1.1, 0.16), playYellow, tower, 0.06);
+            guard1.position.set(0, 3.05, -1.4);
+            const guard2 = addOutlinedMesh(new THREE.BoxGeometry(0.16, 1.1, 3.0), playYellow, tower, 0.06);
+            guard2.position.set(-1.4, 3.05, 0);
+
+            // Blue Peaked Roof with Yellow Trim
+            const pyramidRoof = addOutlinedMesh(new THREE.ConeGeometry(2.5, 1.8, 4), playBlue, tower, 0.06);
+            pyramidRoof.position.y = 5.9;
+            pyramidRoof.rotation.y = Math.PI / 4;
+
+            // Blue Slide Chute extending toward +X, +Z
+            const slideChute = addOutlinedMesh(new THREE.BoxGeometry(1.2, 0.22, 4.4), playBlue, tower, 0.06);
+            slideChute.position.set(0.4, 1.25, 3.0);
+            slideChute.rotation.x = 0.56;
+
+            // Yellow Ladder on -Z/side
+            const ladder = addOutlinedMesh(new THREE.BoxGeometry(1.0, 2.7, 0.2), playYellow, tower, 0.06);
+            ladder.position.set(-0.5, 1.2, 1.8);
+            ladder.rotation.x = -0.35;
+
+            // Swing Set Frame (A-Frame with 2 Animated Swings)
+            const swingGroup = new THREE.Group();
+            swingGroup.position.set(-4.5, 0, 1.2);
+            playGroup.add(swingGroup);
+
+            const topBar = addOutlinedMesh(new THREE.CylinderGeometry(0.14, 0.14, 6.4, 8), playBlue, swingGroup, 0.07);
+            topBar.rotation.z = Math.PI / 2;
+            topBar.position.y = 4.1;
+
+            for (let sx of [-3.0, 3.0]) {
+                const leg1 = addOutlinedMesh(new THREE.CylinderGeometry(0.12, 0.12, 4.5, 8), playBlue, swingGroup, 0.07);
+                leg1.position.set(sx, 2.05, 1.1);
+                leg1.rotation.x = -0.26;
+                const leg2 = addOutlinedMesh(new THREE.CylinderGeometry(0.12, 0.12, 4.5, 8), playBlue, swingGroup, 0.07);
+                leg2.position.set(sx, 2.05, -1.1);
+                leg2.rotation.x = 0.26;
+            }
+
+            const swingPivots = [];
+            for (let sx of [-1.2, 1.2]) {
+                const pivot = new THREE.Group();
+                pivot.position.set(sx, 4.1, 0);
+                swingGroup.add(pivot);
+
+                const chainL = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 2.9, 6), frameMat);
+                chainL.position.set(-0.35, -1.45, 0);
+                pivot.add(chainL);
+                const chainR = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 2.9, 6), frameMat);
+                chainR.position.set(0.35, -1.45, 0);
+                pivot.add(chainR);
+
+                const seat = addOutlinedMesh(new THREE.BoxGeometry(0.85, 0.12, 0.45), playYellow, pivot, 0.08);
+                seat.position.set(0, -2.9, 0);
+                swingPivots.push(pivot);
+            }
+
+            // Asphalt road along the square's far edge (Z = -37.5), spanning X -50 to +50
+            const roadGeo = new THREE.BoxGeometry(100, 0.2, 13);
+            const roadMat = toonMat(0x373f47);
+            const roadMesh = addOutlinedMesh(roadGeo, roadMat, scene, 0.01, false, true);
+            roadMesh.position.set(0, 0.03, -37.5);
+
+            // White Dashed Road Markings
+        for (let dx = -46; dx <= 46; dx += 6.5) {
+            const dash = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.24, 0.35), toonMat(0xe2e8f0));
+            dash.position.set(dx, 0.04, -37.5);
+            scene.add(dash);
+        }
+
+        // Refined Detailed Car Builder (Sculpted Hood, Sloped Windshield, Wheel Arches, Bumpers)
+        function createCar(colorHex, isSUV = true) {
+            const car = new THREE.Group();
+            const bodyMat = toonMat(colorHex);
+            const glassMat = toonMat(0x59788e);
+            const tireMat = toonMat(0x1c2024);
+            const rimMat = toonMat(0xcbd5e1);
+            const bumperMat = toonMat(0x262b30);
+
+            // Lower Chassis Body
+            const lower = addOutlinedMesh(new THREE.BoxGeometry(5.6, 0.95, 2.65), bodyMat, car, 0.05);
+            lower.position.y = 0.82;
+
+            // Front & Rear Bumpers
+            const fBumper = addOutlinedMesh(new THREE.BoxGeometry(5.85, 0.36, 2.74), bumperMat, car, 0.05);
+            fBumper.position.y = 0.48;
+
+            // Sculpted Greenhouse Cabin with Sloped Pillars
+            const cabinLen = isSUV ? 3.55 : 2.85;
+            const cabinX = isSUV ? -0.35 : -0.2;
+            const cabin = addOutlinedMesh(new THREE.BoxGeometry(cabinLen, 0.92, 2.26), bodyMat, car, 0.05);
+            cabin.position.set(cabinX, 1.68, 0);
+
+            // Angled Front Windshield & Rear Window
+            const frontWindshield = addOutlinedMesh(new THREE.BoxGeometry(0.85, 0.86, 2.16), glassMat, car, 0.04);
+            frontWindshield.position.set(cabinX + cabinLen / 2 + 0.15, 1.56, 0);
+            frontWindshield.rotation.z = -0.46;
+
+            const sideWindows = new THREE.Mesh(new THREE.BoxGeometry(cabinLen - 0.35, 0.68, 2.32), glassMat);
+            sideWindows.position.set(cabinX, 1.72, 0);
+            car.add(sideWindows);
+
+            // Side Mirrors
+            for (let mz of [-1.25, 1.25]) {
+                const mirror = addOutlinedMesh(new THREE.BoxGeometry(0.24, 0.2, 0.32), bodyMat, car, 0.08);
+                mirror.position.set(0.95, 1.38, mz);
+            }
+
+            // Headlights, Grille & Taillights
+            const hlMat = new THREE.MeshBasicMaterial({ color: 0xfef08a });
+            const tlMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
+            const grille = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.38, 1.3), bumperMat);
+            grille.position.set(2.81, 0.82, 0);
+            car.add(grille);
+
+            for (let hz of [-0.92, 0.92]) {
+                const hl = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.28, 0.46), hlMat);
+                hl.position.set(2.81, 0.9, hz);
+                car.add(hl);
+                const tl = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.28, 0.48), tlMat);
+                tl.position.set(-2.81, 0.92, hz);
+                car.add(tl);
+            }
+
+            // 4 Detailed Wheels with Hubcaps
+            for (let wx of [-1.72, 1.72]) {
+                for (let wz of [-1.32, 1.32]) {
+                    const wheel = addOutlinedMesh(new THREE.CylinderGeometry(0.52, 0.52, 0.42, 16), tireMat, car, 0.08);
+                    wheel.rotation.x = Math.PI / 2;
+                    wheel.position.set(wx, 0.52, wz);
+
+                    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.45, 10), rimMat);
+                    hub.rotation.x = Math.PI / 2;
+                    hub.position.set(wx, 0.52, wz);
+                    car.add(hub);
+                }
+            }
+            scene.add(car);
+            return car;
+        }
+
+        const darkSUV = createCar(0x232d3b, true);
+            darkSUV.position.set(16, 0.1, -34.6);
+
+            const whiteSedan = createCar(0xf1f5f9, false);
+            whiteSedan.position.set(27, 0.1, -34.6);
+
+            const cruisingCar = createCar(0x8c3b32, false);
+            cruisingCar.position.set(-20, 0.1, -40.2);
+            cruisingCar.rotation.y = Math.PI;
+
+            // ============================================================================
+            // 8. PARK PROPS: STREETLAMPS, BENCHES, TRASH CANS, LUSH TREES & BUSHES
+            // ============================================================================
+            function addStreetLamp(x, z) {
+                const lamp = new THREE.Group();
+                lamp.position.set(x, 0, z);
+                scene.add(lamp);
+
+                const poleMat = toonMat(0x1e262b);
+                const base = addOutlinedMesh(new THREE.CylinderGeometry(0.28, 0.38, 0.9, 8), poleMat, lamp, 0.08);
+                base.position.y = 0.45;
+                const post = addOutlinedMesh(new THREE.CylinderGeometry(0.12, 0.16, 6.2, 8), poleMat, lamp, 0.08);
+                post.position.y = 3.2;
+
+                const bulbMat = new THREE.MeshBasicMaterial({ color: 0xfff3b0 });
+                const lantern = addOutlinedMesh(new THREE.CylinderGeometry(0.42, 0.26, 0.75, 6), bulbMat, lamp, 0.09);
+                lantern.position.y = 6.5;
+                lampBulbs.push(bulbMat);
+
+                const cap = addOutlinedMesh(new THREE.ConeGeometry(0.55, 0.45, 6), poleMat, lamp, 0.09);
+                cap.position.y = 6.95;
+
+                const ptLight = new THREE.PointLight(0xffb74d, 0, 22);
+                ptLight.position.set(x, 6.2, z);
+                scene.add(ptLight);
+                lampPointLights.push(ptLight);
+            }
+
+            // Streetlamp positions matching the reference image
+            [
+                [-24.8, 12.2], [-2.5, 14.2], [20.5, 14.2],
+                [-14.5, -14.5], [-10.5, -24.5], [24.2, -21.5], [29.5, -15.5]
+            ].forEach(([lx, lz]) => addStreetLamp(lx, lz));
+
+            function addParkBench(x, z, rotY = 0) {
+                const bench = new THREE.Group();
+                bench.position.set(x, 0, z);
+                bench.rotation.y = rotY;
+                scene.add(bench);
+
+                const woodMat = toonMat(0x9c6b3b);
+                const ironMat = toonMat(0x22282a);
+
+                const seat = addOutlinedMesh(new THREE.BoxGeometry(3.2, 0.18, 0.95), woodMat, bench, 0.07);
+                seat.position.set(0, 0.75, 0);
+
+                const back = addOutlinedMesh(new THREE.BoxGeometry(3.2, 0.85, 0.16), woodMat, bench, 0.07);
+                back.position.set(0, 1.25, -0.42);
+                back.rotation.x = -0.15;
+
+                for (let lx of [-1.3, 1.3]) {
+                    const leg = addOutlinedMesh(new THREE.BoxGeometry(0.22, 0.85, 0.95), ironMat, bench, 0.08);
+                    leg.position.set(lx, 0.42, 0);
+                }
+                return bench;
+            }
+
+            // Benches matching reference image
+            addParkBench(-6.2, 16.8, 0);          // Lakeside bench with Man & Golden Retriever
+            addParkBench(9.8, 16.8, 0);           // Second lakeside bench
+            addParkBench(-24.8, 7.5, Math.PI / 2);// Bench near left baseline fence
+            addParkBench(20.5, -19.2, 0);         // Bench on right sidewalk with seated person
+
+            function addTrashCan(x, z) {
+                const can = new THREE.Group();
+                can.position.set(x, 0, z);
+                scene.add(can);
+                const canMat = toonMat(0x2f5e41);
+                const body = addOutlinedMesh(new THREE.CylinderGeometry(0.48, 0.42, 1.35, 10), canMat, can, 0.09);
+                body.position.y = 0.68;
+                const rim = addOutlinedMesh(new THREE.TorusGeometry(0.48, 0.07, 6, 10), toonMat(0x1f3d2b), can, 0.08);
+                rim.rotation.x = Math.PI / 2;
+                rim.position.y = 1.35;
+            }
+
+            [
+            [-3.2, 16.8], [-8.8, -23.8], [-0.2, -24.8], [0.8, -24.8], [17.5, -19.2]
+        ].forEach(([cx, cz]) => addTrashCan(cx, cz));
+
+        // Multi-Clustered 2D-Style Outlined Trees & Bushes (Rich Organic Pixel-Art Foliage)
+        const trunkMat = toonMat(0x5e3f28);
+        const leafDark = toonMat(0x2e5926);
+        const leafMid = toonMat(0x47772f);
+        const leafBright = toonMat(0x689a35);
+
+            // Canopy shading: vertex colors give each leaf clump a lit top and a shaded underside, like the reference
+            const canopyLightDir = new THREE.Vector3(-0.45, 0.85, 0.35).normalize();
+            const canopyShadow = new THREE.Color(0x1f4b1b);
+            const canopyMid = new THREE.Color(0x4f8432);
+            const canopyLit = new THREE.Color(0xa3cf58);
+            const canopyMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, metalness: 0 });
+            const canopyGeoCache = new Map();
+
+            // Deterministic lumps keep duplicated icosahedron vertices welded together
+            function canopyLump(x, y, z) {
+                return 1 + 0.12 * Math.sin(x * 3.1 + y * 2.3) * Math.cos(z * 2.7 - x * 1.3) + 0.06 * Math.sin(y * 5.7 + z * 4.1);
+            }
+
+            function getCanopyGeometry(r) {
+                if (canopyGeoCache.has(r)) return canopyGeoCache.get(r);
+                const geo = new THREE.IcosahedronGeometry(r, 2);
+                const pos = geo.attributes.position;
+                const nor = geo.attributes.normal;
+                const colors = new Float32Array(pos.count * 3);
+                const c = new THREE.Color();
+                for (let i = 0; i < pos.count; i++) {
+                    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+                    const k = canopyLump(x, y, z);
+                    pos.setXYZ(i, x * k, y * k, z * k);
+                    const len = Math.hypot(x, y, z);
+                    const nx = x / len, ny = y / len, nz = z / len;
+                    nor.setXYZ(i, nx, ny, nz);
+                    const lit = nx * canopyLightDir.x + ny * canopyLightDir.y + nz * canopyLightDir.z;
+                    const t = THREE.MathUtils.clamp((lit + 0.25) / 1.25 + (k - 1) * 1.2, 0, 1);
+                    if (t < 0.5) c.copy(canopyShadow).lerp(canopyMid, t * 2);
+                    else c.copy(canopyMid).lerp(canopyLit, (t - 0.5) * 2);
+                    colors.set([c.r, c.g, c.b], i * 3);
+                }
+                geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+                pos.needsUpdate = true;
+                nor.needsUpdate = true;
+                canopyGeoCache.set(r, geo);
+                return geo;
+            }
+
+        function addLushTree(x, z, scale = 1.0) {
+            const tree = new THREE.Group();
+            tree.position.set(x, 0, z);
+            tree.scale.setScalar(scale);
+            scene.add(tree);
+
+            // Tapered Gnarled Trunk + Root Flare + Secondary Branches
+            const trunk = addOutlinedMesh(new THREE.CylinderGeometry(0.36, 0.68, 3.6, 8), trunkMat, tree, 0.08);
+            trunk.position.y = 1.8;
+
+            for (let b = 0; b < 3; b++) {
+                const ang = (b * Math.PI * 2) / 3 + 0.4;
+                const branch = addOutlinedMesh(new THREE.CylinderGeometry(0.16, 0.28, 2.0, 6), trunkMat, tree, 0.08);
+                branch.position.set(Math.cos(ang) * 0.55, 3.2, Math.sin(ang) * 0.55);
+                branch.rotation.z = -Math.cos(ang) * 0.55;
+                branch.rotation.x = Math.sin(ang) * 0.55;
+            }
+
+            const puffs = [
+                { x: 0.0,  y: 4.5, z: 0.0,  r: 1.85, sy: 0.82 },
+                { x: -1.5, y: 3.8, z: 0.9,  r: 1.45, sy: 0.78 },
+                { x: 1.6,  y: 3.7, z: -0.8, r: 1.50, sy: 0.78 },
+                { x: 1.2,  y: 3.9, z: 1.2,  r: 1.40, sy: 0.80 },
+                { x: -1.3, y: 3.9, z: -1.1, r: 1.45, sy: 0.80 },
+                { x: 0.0,  y: 3.7, z: 1.7,  r: 1.35, sy: 0.75 },
+                { x: 0.2,  y: 3.8, z: -1.6, r: 1.35, sy: 0.75 },
+                { x: -1.0, y: 4.8, z: 0.5,  r: 1.45, sy: 0.82 },
+                { x: 1.1,  y: 4.7, z: -0.3, r: 1.40, sy: 0.82 },
+                { x: 0.3,  y: 4.9, z: 1.0,  r: 1.35, sy: 0.82 },
+                { x: -0.7, y: 5.0, z: -0.8, r: 1.40, sy: 0.82 },
+                { x: -0.4, y: 5.75, z: -0.2, r: 1.45, sy: 0.80 },
+                { x: 0.65, y: 5.55, z: 0.35, r: 1.25, sy: 0.80 },
+                { x: -0.85, y: 5.45, z: 0.45, r: 1.10, sy: 0.78 }
+            ];
+            puffs.forEach(p => {
+                const mesh = addOutlinedMesh(getCanopyGeometry(p.r), canopyMat, tree, 0.05);
+                mesh.scale.set(1.08, p.sy, 1.08);
+                mesh.position.set(p.x, p.y, p.z);
+            });
+
+            // Small base shrubs around roots
+            for (let b = 0; b < 4; b++) {
+                const bMesh = addOutlinedMesh(new THREE.IcosahedronGeometry(0.55, 1), b % 2 === 0 ? leafMid : leafDark, tree, 0.08);
+                bMesh.scale.set(1.2, 0.75, 1.2);
+                bMesh.position.set(Math.cos(b * 1.6) * 0.9, 0.32, Math.sin(b * 1.6) * 0.9);
+            }
+        }
+
+        // Tree placements faithfully framing the court and paths like the reference image
+            const treeLocations = [
+                [17.5, 16.2, 1.25],   // Large tree at bottom-center foreground
+                [-17.2, 14.5, 0.92],  // Tree along lakeside fence
+                [-31.5, 12.5, 1.15],  // Left corner tree
+                [-36.5, 4.5, 1.05],   // Far left tree
+                [-23.5, -5.5, 0.95],  // Tree near top-left hoop
+                [-43.5, -4.5, 1.05],  // Tree left of playground
+                [-45.5, -15.5, 1.1],  // Far top-left tree
+                [-27.5, -23.5, 1.1],  // Top-left woods
+                [-18.5, -20.5, 1.0],  // Tree between playground and court
+                [-13.5, -24.5, 0.95], // Tree left of utility building
+                [8.5, -26.5, 1.35],   // Giant oak tree right of utility building
+                [14.5, -20.5, 0.88],  // Smaller tree by scooter path
+                [31.5, -23.5, 1.1],   // Far right tree
+                [32.5, -2.5, 1.2],    // Right corner tree
+                [27.5, 19.5, 1.15],   // Bottom-right corner tree
+                [36.5, 12.5, 1.1],    // Far bottom-right tree
+                [45.5, 18.5, 1.2],    // Extra canopy along the open lawn edge
+                [44.5, 1.5, 1.05],    // Tree framing the right-side path
+                [43.5, -22.5, 1.05]   // Tree beside the park road
+            ];
+            treeLocations.forEach(([tx, tz, ts]) => addLushTree(tx, tz, ts));
+
+            // Extra Hedge & Shrub Rows along the top road & fences
+        for (let hx = -15; hx <= 38; hx += 2.2) {
+            if (Math.abs(hx - 8) > 3) {
+                const bush = addOutlinedMesh(new THREE.IcosahedronGeometry(0.82, 2), hx % 4 === 0 ? leafBright : leafDark, scene, 0.07);
+                bush.scale.set(1.15, 0.82, 1.15);
+                bush.position.set(hx, 0.52, -30.5);
+            }
+        }
+
+        // ============================================================================
+        // 9. HIGH-DETAIL ARTICULATED HUMANOID CHARACTER FACTORY
+        //    (SCULPTED HEAD, HAIR STYLES, FACIAL DETAILS, TAPERED TORSO, 2-JOINT LIMBS)
+        // ============================================================================
+        function createHumanoid(config = {}) {
+            const {
+                shirtColor = 0xd93829,
+                shortsColor = 0x222629,
+                skinColor = 0xe0a882,
+                hairColor = 0x1e1b18,
+                shoeColor = 0xf1f5f9,
+                scale = 1.0,
+                hasHelmet = false,
+                helmetColor = 0x3b82f6,
+                isJersey = false,
+                hairStyle = 0,
+                hasCap = false,
+                capColor = 0x1e3a5f
+            } = config;
+
+            const root = new THREE.Group();
+            root.scale.setScalar(scale);
+
+            const skinMat = toonMat(skinColor);
+            const shirtMat = toonMat(shirtColor);
+            const shortsMat = toonMat(shortsColor);
+            const hairMat = toonMat(hairColor);
+            const shoeMat = toonMat(shoeColor);
+            const sockMat = toonMat(0xf8fafc);
+            const darkMat = toonMat(0x18181b);
+
+            // 1. Sculpted Pelvis / Hips & Shorts
+            const hips = addOutlinedMesh(new THREE.CylinderGeometry(0.32, 0.30, 0.36, 12), shortsMat, root, 0.08);
+            hips.scale.set(1.12, 1, 0.82);
+            hips.position.y = 0.96;
+
+            // 2. Tapered Athletic Chest / Torso
+            const torso = addOutlinedMesh(new THREE.CylinderGeometry(0.39, 0.31, 0.82, 12), shirtMat, root, 0.08);
+            torso.scale.set(1.14, 1, 0.76);
+            torso.position.y = 1.48;
+
+            // Rounded Collar / Neckline Trim
+            const collar = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.045, 6, 12), isJersey ? sockMat : shirtMat);
+            collar.rotation.x = Math.PI / 2;
+            collar.position.set(0, 1.88, 0.02);
+            root.add(collar);
+
+            // 3. Neck & Sculpted Spheroid Head Pivot
+            const headGroup = new THREE.Group();
+            headGroup.position.set(0, 1.92, 0);
+            root.add(headGroup);
+
+            const neck = addOutlinedMesh(new THREE.CylinderGeometry(0.13, 0.15, 0.22, 10), skinMat, headGroup, 0.08);
+            neck.position.y = 0.08;
+
+            const head = addOutlinedMesh(new THREE.SphereGeometry(0.31, 14, 12), skinMat, headGroup, 0.08);
+            head.scale.set(0.92, 1.06, 0.95);
+            head.position.y = 0.36;
+
+            // Ears & Subtle Eyes
+            for (let side of [-1, 1]) {
+                const ear = new THREE.Mesh(new THREE.SphereGeometry(0.065, 6, 6), skinMat);
+                ear.position.set(side * 0.28, 0.35, 0);
+                headGroup.add(ear);
+
+                const eye = new THREE.Mesh(new THREE.SphereGeometry(0.036, 6, 6), darkMat);
+                eye.position.set(side * 0.1, 0.38, 0.27);
+                headGroup.add(eye);
+            }
+
+            // Sculpted Hair / Helmet / Cap Variants
+            if (hasHelmet) {
+                const helmet = addOutlinedMesh(new THREE.SphereGeometry(0.35, 12, 10, 0, Math.PI * 2, 0, Math.PI * 0.62), toonMat(helmetColor), headGroup, 0.08);
+                helmet.position.set(0, 0.39, -0.01);
+            } else if (hasCap) {
+                const capCrown = addOutlinedMesh(new THREE.SphereGeometry(0.325, 12, 10, 0, Math.PI * 2, 0, Math.PI * 0.55), toonMat(capColor), headGroup, 0.08);
+                capCrown.position.set(0, 0.40, 0);
+                const visor = addOutlinedMesh(new THREE.CylinderGeometry(0.28, 0.28, 0.05, 12, 1, false, -Math.PI * 0.35, Math.PI * 0.7), toonMat(capColor), headGroup, 0.08);
+                visor.position.set(0, 0.42, 0.14);
+                visor.rotation.x = 0.18;
+            } else {
+                const hairCap = addOutlinedMesh(new THREE.SphereGeometry(0.325, 12, 10, 0, Math.PI * 2, 0, Math.PI * 0.58), hairMat, headGroup, 0.08);
+                hairCap.scale.set(0.96, 1.05, 1.0);
+                hairCap.position.set(0, 0.40, -0.02);
+                hairCap.rotation.x = -0.18;
+
+                if (hairStyle % 3 === 1) {
+                    // Textured Afro / Curly Top Puff
+                    const topPuff = addOutlinedMesh(new THREE.IcosahedronGeometry(0.24, 1), hairMat, headGroup, 0.08);
+                    topPuff.scale.set(1.15, 0.75, 1.15);
+                    topPuff.position.set(0, 0.64, -0.02);
+                } else if (hairStyle % 3 === 2) {
+                    // Sporty Headband
+                    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.305, 0.305, 0.08, 12), sockMat);
+                    band.position.set(0, 0.49, 0);
+                    headGroup.add(band);
+                }
+            }
+
+            // 4. Articulated 2-Segment Arms (Shoulder Deltoid -> Upper Arm -> Elbow -> Forearm -> Hand)
+            function makeArm(side) {
+                const pivot = new THREE.Group();
+                pivot.position.set(side * 0.45, 1.78, 0);
+                root.add(pivot);
+
+                // Shoulder / Sleeve Cap
+                const sleeveMat = isJersey ? skinMat : shirtMat;
+                const shoulder = addOutlinedMesh(new THREE.SphereGeometry(0.145, 10, 8), sleeveMat, pivot, 0.09);
+                shoulder.position.y = -0.04;
+
+                const upperArm = addOutlinedMesh(new THREE.CylinderGeometry(0.115, 0.098, 0.36, 10), skinMat, pivot, 0.09);
+                upperArm.position.y = -0.22;
+
+                const elbow = new THREE.Group();
+                elbow.position.set(0, -0.38, 0);
+                pivot.add(elbow);
+
+                const foreArm = addOutlinedMesh(new THREE.CylinderGeometry(0.096, 0.082, 0.34, 10), skinMat, elbow, 0.09);
+                foreArm.position.y = -0.17;
+                // Natural slight forward bend at the elbow
+                elbow.rotation.x = -0.28;
+
+                const hand = addOutlinedMesh(new THREE.SphereGeometry(0.105, 8, 8), skinMat, elbow, 0.09);
+                hand.scale.set(0.85, 1.1, 0.95);
+                hand.position.y = -0.36;
+
+                pivot.userData.elbow = elbow;
+                return pivot;
+            }
+            const leftArm = makeArm(-1);
+            const rightArm = makeArm(1);
+
+            // 5. Articulated 2-Segment Legs (Shorts Hem -> Thigh -> Knee -> Calf -> Sock -> Detailed Sneaker)
+            function makeLeg(side) {
+                const pivot = new THREE.Group();
+                pivot.position.set(side * 0.20, 0.88, 0);
+                root.add(pivot);
+
+                // Flared Shorts Leg
+                const shortLeg = addOutlinedMesh(new THREE.CylinderGeometry(0.175, 0.19, 0.34, 10), shortsMat, pivot, 0.08);
+                shortLeg.position.y = -0.15;
+
+                // Lower Leg / Knee Joint
+                const knee = new THREE.Group();
+                knee.position.set(0, -0.32, 0);
+                pivot.add(knee);
+
+                const calf = addOutlinedMesh(new THREE.CylinderGeometry(0.125, 0.095, 0.38, 10), skinMat, knee, 0.09);
+                calf.position.y = -0.18;
+
+                const sock = addOutlinedMesh(new THREE.CylinderGeometry(0.102, 0.098, 0.18, 10), sockMat, knee, 0.08);
+                sock.position.y = -0.36;
+
+                // Multi-Part Sneaker (Upper + Rounded Toe Box + White Rubber Sole)
+                const shoeUpper = addOutlinedMesh(new THREE.CylinderGeometry(0.11, 0.12, 0.34, 10), shoeMat, knee, 0.09);
+                shoeUpper.rotation.x = Math.PI / 2;
+                shoeUpper.scale.set(1.05, 1.0, 0.72);
+                shoeUpper.position.set(0, -0.46, 0.07);
+
+                const sole = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.06, 0.38), sockMat);
+                sole.position.set(0, -0.52, 0.07);
+                knee.add(sole);
+
+                pivot.userData.knee = knee;
+                return pivot;
+            }
+            const leftLeg = makeLeg(-1);
+            const rightLeg = makeLeg(1);
+
+            scene.add(root);
+            return { root, torso, headGroup, leftArm, rightArm, leftLeg, rightLeg };
+        }
+
+        // ============================================================================
+        // 10. FULL 5v5 BASKETBALL SIMULATION (WELL-SPACED FORMATIONS & JOINT POSES)
+        // ============================================================================
+        // Basketball Mesh with Seams
+        const ballGroup = new THREE.Group();
+        const ballMesh = addOutlinedMesh(new THREE.SphereGeometry(0.34, 14, 14), toonMat(0xe86825), ballGroup, 0.11);
+        scene.add(ballGroup);
+
+        // Ground Shadow Ring under Basketball for crisp depth readability
+        const ballShadow = new THREE.Mesh(
+            new THREE.CircleGeometry(0.38, 12),
+            new THREE.MeshBasicMaterial({ color: 0x111814, transparent: true, opacity: 0.45 })
+        );
+        ballShadow.rotation.x = -Math.PI / 2;
+        ballShadow.position.y = 0.21;
+        scene.add(ballShadow);
+
+        // 10 Court Players with Wide Half-Court & Transition Spacing matching reference image
+        const teamAConfigs = [
+            { shirtColor: 0xc9302c, shortsColor: 0x1e2226, hairColor: 0x181512, shoeColor: 0xf8fafc, isJersey: true, hairStyle: 0, role: 'PG', homeOff: [5.5, 3.2],   homeDef: [-5.5, 2.8] },
+            { shirtColor: 0x2563eb, shortsColor: 0x1e2226, hairColor: 0x2b1d12, shoeColor: 0xf8fafc, isJersey: true, hairStyle: 1, role: 'SG', homeOff: [2.8, -2.8],  homeDef: [-3.2, -2.5] },
+            { shirtColor: 0x2c3540, shortsColor: 0x181b1f, hairColor: 0x181512, shoeColor: 0xef4444, isJersey: true, hairStyle: 2, role: 'SF', homeOff: [10.5, -6.8], homeDef: [-11.5, -5.8] },
+            { shirtColor: 0xd97736, shortsColor: 0x222629, hairColor: 0x241911, shoeColor: 0xf8fafc, isJersey: true, hairStyle: 1, role: 'PF', homeOff: [-6.5, 1.8],  homeDef: [-13.5, 4.8] },
+            { shirtColor: 0x1f2937, shortsColor: 0x111827, hairColor: 0x181512, shoeColor: 0x38bdf8, isJersey: true, hairStyle: 0, role: 'C',  homeOff: [-13.8, -2.2],homeDef: [-16.2, -1.2] }
+        ];
+
+        const teamBConfigs = [
+            { shirtColor: 0xf1f5f9, shortsColor: 0x1e293b, hairColor: 0x181512, shoeColor: 0x1e293b, isJersey: true, hairStyle: 1, role: 'PG', homeOff: [-6.8, -2.2], homeDef: [10.8, 1.8] },
+            { shirtColor: 0x94a3b8, shortsColor: 0x1e293b, hairColor: 0x475569, shoeColor: 0xf8fafc, isJersey: true, hairStyle: 0, role: 'SG', homeOff: [-11.5, 5.2], homeDef: [8.5, 3.2] },
+            { shirtColor: 0xd1d5db, shortsColor: 0x1f2937, hairColor: 0x78553a, shoeColor: 0xf8fafc, isJersey: true, hairStyle: 2, role: 'SF', homeOff: [-12.5, -6.5],homeDef: [7.8, -3.5] },
+            { shirtColor: 0x334155, shortsColor: 0x0f172a, hairColor: 0x181512, shoeColor: 0xf8fafc, isJersey: true, hairStyle: 1, role: 'PF', homeOff: [4.2, -4.5],  homeDef: [-12.5, 4.2] },
+            { shirtColor: 0xe2e8f0, shortsColor: 0x1e293b, hairColor: 0x292524, shoeColor: 0xef4444, isJersey: true, hairStyle: 0, role: 'C',  homeOff: [-16.5, 1.2], homeDef: [-18.2, 6.2] }
+        ];
+
+        const players = [];
+            teamAConfigs.forEach((cfg, idx) => {
+                const char = createHumanoid(cfg);
+                char.root.position.set(cfg.homeOff[0], 0.18, cfg.homeOff[1]);
+                players.push({
+                    id: idx,
+                    team: 0, // Team A attacks Right Hoop (+X)
+                    char,
+                    homeOff: new THREE.Vector3(cfg.homeOff[0], 0.18, cfg.homeOff[1]),
+                    homeDef: new THREE.Vector3(cfg.homeDef[0], 0.18, cfg.homeDef[1]),
+                    target: new THREE.Vector3(cfg.homeOff[0], 0.18, cfg.homeOff[1]),
+                    cutOffset: new THREE.Vector3(),
+                    phase: idx * 1.3,
+                    jumpY: 0
+                });
+            });
+
+            teamBConfigs.forEach((cfg, idx) => {
+                const char = createHumanoid(cfg);
+                char.root.position.set(cfg.homeDef[0], 0.18, cfg.homeDef[1]);
+                players.push({
+                    id: idx + 5,
+                    team: 1, // Team B attacks Left Hoop (-X)
+                    char,
+                    homeOff: new THREE.Vector3(cfg.homeOff[0], 0.18, cfg.homeOff[1]),
+                    homeDef: new THREE.Vector3(cfg.homeDef[0], 0.18, cfg.homeDef[1]),
+                    target: new THREE.Vector3(cfg.homeDef[0], 0.18, cfg.homeDef[1]),
+                    cutOffset: new THREE.Vector3(),
+                    phase: (idx + 5) * 1.3,
+                    jumpY: 0
+                });
+            });
+
+            // Live Basketball Game State Machine
+            const game = {
+                offenseTeam: 0,
+                carrier: players[0],
+                state: 'DRIBBLE', // 'DRIBBLE' | 'DRIVE' | 'SHOOT' | 'LOOSE' (ball airborne or on the floor)
+                stateTimer: 0,
+                passesDone: 0,
+                scoreA: 24,
+                scoreB: 22,
+                ballFree: false,      // true while nobody holds the ball (airborne or loose)
+                plan: null,           // 'pass' | 'drive', decided once per dribble
+                receiver: null,
+                shotInFlight: false,
+                shotTeam: 0,
+                shotHoop: null,
+                reboundPending: false,
+                lastTouch: null,
+                touchGrace: 0,        // seconds the last toucher cannot catch their own throw
+                blockClaimTeam: -1,   // team barred from picking up the ball right after a made basket
+                blockClaimTimer: 0,
+                targetHoop: rightHoop,
+                netRippleTimer: 0
+            };
+
+            // Ball physics in scene units; gravity is scaled so the 5.05-unit rim matches a real 3.05 m rim
+            const BALL_R = 0.34;
+            const FLOOR_BALL_Y = 0.18 + BALL_R;
+            const GRAVITY = 16.3;
+            const DRIBBLE_PUSH = 4.0;                    // minimum upward speed the hand gives on each bounce
+            const BALL_HOLD_K = 60, BALL_HOLD_C = 11;    // spring pulling the held ball toward the hand
+            const RIM_R = 0.46, RIM_TUBE = 0.065;
+            const RIM_IN_R = RIM_R - RIM_TUBE - BALL_R * 0.5;   // ball centre inside this radius = clean swish
+            const RIM_OUT_R = RIM_R + RIM_TUBE + BALL_R * 0.5;  // ball centre beyond this radius = no contact
+            const allHoops = [leftHoop, rightHoop];
+            const ballVel = new THREE.Vector3();
+            const lastHandPt = new THREE.Vector3();
+
+            function getHandPoint(p, overhead) {
+                const root = p.char.root.position;
+                const yaw = p.char.root.rotation.y;
+                const fwd = overhead ? 0.2 : 0.55;
+                const side = overhead ? 0 : 0.3;
+                return new THREE.Vector3(
+                    root.x + Math.sin(yaw) * fwd + Math.cos(yaw) * side,
+                    root.y + (overhead ? 2.35 : 1.0),
+                    root.z + Math.cos(yaw) * fwd - Math.sin(yaw) * side
+                );
+            }
+
+            // Launch velocity that reaches `to` after `time` seconds under gravity
+            function launchVelocity(from, to, time) {
+                return new THREE.Vector3(
+                    (to.x - from.x) / time,
+                    (to.y - from.y) / time + 0.5 * GRAVITY * time,
+                    (to.z - from.z) / time
+                );
+            }
+
+            function releaseBall(passer, nextState, grace) {
+                game.carrier = null;
+                game.ballFree = true;
+                game.plan = null;
+                game.lastTouch = passer;
+                game.touchGrace = grace;
+                game.state = nextState;
+                game.stateTimer = 0;
+            }
+
+            function claimBall(p) {
+                const teamChanged = p.team !== game.offenseTeam;
+                const rebound = game.reboundPending;
+                game.ballFree = false;
+                game.carrier = p;
+                game.plan = null;
+                lastHandPt.copy(getHandPoint(p, false));
+                game.lastTouch = p;
+                game.touchGrace = 0;
+                game.shotInFlight = false;
+                game.reboundPending = false;
+                game.state = 'DRIBBLE';
+                game.stateTimer = 0;
+                if (teamChanged) {
+                    game.offenseTeam = p.team;
+                    game.passesDone = 0;
+                    setPlayStatus(p.team === 0 ? 'Street Team picks it up and takes over!' : 'Park Team picks it up and takes over!');
+                } else if (rebound) {
+                    setPlayStatus('Rebound secured! Keep the possession.');
+                } else {
+                    setPlayStatus('Clean catch!');
+                }
+            }
+
+            // A loose ball is only picked up by a player who reaches it
+            function checkBallClaims() {
+                if (!game.ballFree) return;
+                let best = null, bestDist = 1.05;
+                const y = ballGroup.position.y;
+                if (y < 0.3 || y > 2.7) return;
+                players.forEach(p => {
+                    if (p === game.lastTouch && game.touchGrace > 0) return;
+                    if (game.blockClaimTimer > 0 && p.team === game.blockClaimTeam) return;
+                    const d = Math.hypot(p.char.root.position.x - ballGroup.position.x, p.char.root.position.z - ballGroup.position.z);
+                    if (d < bestDist) { bestDist = d; best = p; }
+                });
+                if (best) claimBall(best);
+            }
+
+            function scoreShot() {
+                if (game.shotTeam === 0) {
+                    game.scoreA += 2;
+                    scoreAEl.textContent = game.scoreA;
+                } else {
+                    game.scoreB += 2;
+                    scoreBEl.textContent = game.scoreB;
+                }
+                game.netRippleTimer = 0.55;
+                game.shotInFlight = false;
+                game.blockClaimTeam = game.shotTeam;
+                game.blockClaimTimer = 1.5;
+                game.state = 'LOOSE';
+                setPlayStatus('🔥 SWISH! Nothing but net! (+2 PTS)');
+            }
+
+            // Integrates ball motion with gravity, floor/backboard/rim collisions, and the hand spring
+            function stepBallPhysics(dt) {
+                const holder = game.ballFree ? null : game.carrier;
+                const overhead = !!holder && game.state === 'SHOOT';
+                const steps = Math.max(1, Math.ceil(dt / (1 / 120)));
+                const h = dt / steps;
+                const pos = ballGroup.position;
+                let landed = false;
+                let hand = null, handVel = null;
+                if (holder) {
+                    // Hand velocity is measured once per frame, so the spring tracks a moving hand without lag
+                    hand = getHandPoint(holder, overhead);
+                    handVel = hand.clone().sub(lastHandPt).divideScalar(Math.max(dt, 1e-4));
+                    lastHandPt.copy(hand);
+                }
+
+                for (let i = 0; i < steps; i++) {
+                    const px0 = pos.x, py0 = pos.y;
+
+                    if (holder) {
+                        ballVel.x += (BALL_HOLD_K * (hand.x - pos.x) + BALL_HOLD_C * (handVel.x - ballVel.x)) * h;
+                        ballVel.z += (BALL_HOLD_K * (hand.z - pos.z) + BALL_HOLD_C * (handVel.z - ballVel.z)) * h;
+                        if (overhead) {
+                            ballVel.y += (BALL_HOLD_K * (hand.y - pos.y) + BALL_HOLD_C * (handVel.y - ballVel.y)) * h;
+                        } else {
+                            ballVel.y -= GRAVITY * h;
+                        }
+                    } else {
+                        ballVel.y -= GRAVITY * h;
+                    }
+                    pos.addScaledVector(ballVel, h);
+
+                    if (pos.y < FLOOR_BALL_Y) {
+                        pos.y = FLOOR_BALL_Y;
+                        if (ballVel.y < 0) {
+                            const impact = -ballVel.y;
+                            if (holder) {
+                                ballVel.y = Math.max(impact * 0.8, DRIBBLE_PUSH);
+                            } else {
+                                ballVel.y = impact > 1.0 ? impact * 0.6 : 0;
+                                landed = true;
+                            }
+                        }
+                        if (!holder) {
+                            const roll = Math.exp(-1.6 * h);
+                            ballVel.x *= roll;
+                            ballVel.z *= roll;
+                        }
+                    }
+
+                    if (!holder) {
+                        if (Math.abs(pos.x) > 19.9) { pos.x = Math.sign(pos.x) * 19.9; ballVel.x *= -0.5; }
+                        if (Math.abs(pos.z) > 10.9) { pos.z = Math.sign(pos.z) * 10.9; ballVel.z *= -0.5; }
+
+                        allHoops.forEach(hp => {
+                            // Backboard: the ball bounces off the court-facing surface inside the board's extent
+                            const plane = hp.boardFaceX + hp.boardDir * BALL_R;
+                            if ((px0 - plane) * hp.boardDir > 0 && (pos.x - plane) * hp.boardDir <= 0 &&
+                                Math.abs(pos.z) < 1.7 && pos.y > 4.7 && pos.y < 7.0) {
+                                pos.x = plane;
+                                ballVel.x = -ballVel.x * 0.55;
+                            }
+
+                            // Rim: crossing the rim plane downward either drops through, or bounces off the iron
+                            const rim = hp.rimPos;
+                            if (py0 > rim.y && pos.y <= rim.y && ballVel.y < 0) {
+                                const dx = pos.x - rim.x, dz = pos.z - rim.z;
+                                const d = Math.hypot(dx, dz);
+                                if (d < RIM_IN_R) {
+                                    if (hp === game.shotHoop && game.shotInFlight) scoreShot();
+                                    ballVel.x *= 0.7;   // net drag
+                                    ballVel.z *= 0.7;
+                                } else if (d < RIM_OUT_R) {
+                                    const nx = dx / d, nz = dz / d;
+                                    const vn = ballVel.x * nx + ballVel.z * nz;
+                                    if (vn < 0) {
+                                        ballVel.x -= 1.45 * vn * nx;
+                                        ballVel.z -= 1.45 * vn * nz;
+                                    }
+                                    ballVel.y = -ballVel.y * 0.35;
+                                    pos.y = rim.y + 0.01;
+                                    if (hp === game.shotHoop && game.shotInFlight) setPlayStatus('Rim! It rattles...');
+                                }
+                            }
+                        });
+                    }
+                }
+
+                if (landed) {
+                    game.state = 'LOOSE';
+                    if (game.shotInFlight) {
+                        game.shotInFlight = false;
+                        game.reboundPending = true;
+                        setPlayStatus('Missed! Battle for the rebound!');
+                    }
+                }
+            }
+
+            // Passes and shots are launched with a velocity; gravity and collisions do the rest
+            function launchPass(passer, receiver) {
+                const from = ballGroup.position.clone();
+                const rp = receiver.char.root.position;
+                // Lead the receiver a little toward the spot they are running to
+                const lead = new THREE.Vector3(receiver.target.x - rp.x, 0, receiver.target.z - rp.z);
+                if (lead.length() > 3) lead.setLength(3);
+                const aim = new THREE.Vector3(
+                    rp.x + lead.x + (Math.random() - 0.5) * 1.0,
+                    1.2,
+                    rp.z + lead.z + (Math.random() - 0.5) * 1.0
+                );
+                const horiz = Math.hypot(aim.x - from.x, aim.z - from.z);
+                const T = THREE.MathUtils.clamp(horiz / 9, 0.45, 1.1);
+                const vel = launchVelocity(from, aim, T);
+                vel.multiplyScalar(1 + (Math.random() - 0.5) * 0.06);
+                ballVel.copy(vel);
+                releaseBall(passer, 'LOOSE', 0.6);
+                setPlayStatus(passer.team === 0 ? 'Street Team crisp pass across court!' : 'Park Team swinging the rock!');
+            }
+
+            function launchShot(shooter, hoop) {
+                const from = ballGroup.position.clone();
+                const rim = hoop.rimPos;
+                const horiz = Math.hypot(rim.x - from.x, rim.z - from.z);
+                const T = THREE.MathUtils.clamp(horiz / 8.5, 0.7, 1.1);
+                // Random aim error inside the rim; whether it drops is decided by the rim collision
+                const ang = Math.random() * Math.PI * 2;
+                const rad = Math.sqrt(Math.random()) * 0.32;
+                const aim = new THREE.Vector3(rim.x + Math.cos(ang) * rad, rim.y, rim.z + Math.sin(ang) * rad);
+                const vel = launchVelocity(from, aim, T);
+                vel.multiplyScalar(1 + (Math.random() - 0.5) * 0.03);
+                ballVel.copy(vel);
+                game.shotHoop = hoop;
+                game.shotTeam = shooter.team;
+                game.shotInFlight = true;
+                releaseBall(shooter, 'LOOSE', 0.6);
+                setPlayStatus('Shot is up...');
+            }
+
+            ballGroup.position.copy(getHandPoint(game.carrier, false));
+            ballVel.set(0, 0, 0);
+
+            const scoreAEl = document.getElementById('score-a');
+            const scoreBEl = document.getElementById('score-b');
+            const statusEl = document.getElementById('play-status');
+
+            function setPlayStatus(text) {
+                statusEl.textContent = text;
+            }
+
+            // Hard body constraint: torsos are ~0.9 wide, so centres must stay 1.0 apart on the floor
+            function separatePlayers() {
+                const MIN_SEP = 1.0;
+                for (let iter = 0; iter < 4; iter++) {
+                    let overlapped = false;
+                    for (let i = 0; i < players.length; i++) {
+                        for (let j = i + 1; j < players.length; j++) {
+                            const a = players[i].char.root.position;
+                            const b = players[j].char.root.position;
+                            const dx = b.x - a.x, dz = b.z - a.z;
+                            const d = Math.hypot(dx, dz);
+                            if (d >= MIN_SEP) continue;
+                            overlapped = true;
+                            // Exactly stacked players get an arbitrary separating axis
+                            const nx = d > 1e-4 ? dx / d : 1;
+                            const nz = d > 1e-4 ? dz / d : 0;
+                            const push = (MIN_SEP - d) * 0.5;
+                            a.x -= nx * push; a.z -= nz * push;
+                            b.x += nx * push; b.z += nz * push;
+                        }
+                    }
+                    players.forEach(p => {
+                        const pos = p.char.root.position;
+                        pos.x = THREE.MathUtils.clamp(pos.x, -19.5, 19.5);
+                        pos.z = THREE.MathUtils.clamp(pos.z, -10.5, 10.5);
+                    });
+                    if (!overlapped) break;
+                }
+            }
+
+            function updateBasketballSimulation(dt, elapsed) {
+                game.stateTimer += dt;
+                game.touchGrace = Math.max(0, game.touchGrace - dt);
+                game.blockClaimTimer = Math.max(0, game.blockClaimTimer - dt);
+                const hoop = game.offenseTeam === 0 ? rightHoop : leftHoop;
+                game.targetHoop = hoop;
+
+                // Periodically refresh off-ball cutting offsets so all 10 players move organically
+                if (Math.floor((elapsed - dt) * 0.7) < Math.floor(elapsed * 0.7)) {
+                    players.forEach(p => {
+                        p.cutOffset.set((Math.random() - 0.5) * 5.2, 0, (Math.random() - 0.5) * 4.4);
+                    });
+                }
+
+                // State transitions
+                if (game.state === 'DRIBBLE') {
+                    if (game.stateTimer > 1.7 && !game.plan) {
+                        const teammates = players.filter(p => p.team === game.offenseTeam && p !== game.carrier);
+                        if (game.passesDone < 2 && Math.random() < 0.72) {
+                            game.plan = 'pass';
+                            game.receiver = teammates[Math.floor(Math.random() * teammates.length)];
+                        } else {
+                            game.plan = 'drive';
+                        }
+                    }
+                    if (game.plan === 'drive') {
+                        game.plan = null;
+                        game.state = 'DRIVE';
+                        game.stateTimer = 0;
+                        setPlayStatus(game.offenseTeam === 0 ? 'Driving into the painted key!' : 'Fast break drive to the hoop!');
+                    } else if (game.plan === 'pass' && ballGroup.position.y > 0.9) {
+                        // Release near the top of the dribble so the pass leaves the hand
+                        launchPass(game.carrier, game.receiver);
+                        game.passesDone++;
+                    }
+                } else if (game.state === 'DRIVE') {
+                    const attackSpot = new THREE.Vector3(
+                        hoop.rimPos.x + (game.offenseTeam === 0 ? -5.5 : 5.5),
+                        0.18,
+                        (Math.sin(elapsed * 2) * 3.5)
+                    );
+                    game.carrier.target.copy(attackSpot);
+                    if (game.carrier.char.root.position.distanceTo(attackSpot) < 2.2 || game.stateTimer > 1.8) {
+                        // Elevate for Jump Shot!
+                        game.state = 'SHOOT';
+                        game.stateTimer = 0;
+                        lastHandPt.copy(getHandPoint(game.carrier, true));
+                        setPlayStatus('Elevating for the jump shot...');
+                    }
+                } else if (game.state === 'SHOOT') {
+                    // Shooter jump arc
+                    game.carrier.jumpY = Math.sin(Math.min(1, game.stateTimer / 0.65) * Math.PI) * 1.15;
+                    if (game.stateTimer >= 0.45) {
+                        launchShot(game.carrier, hoop);
+                    }
+                }
+                // LOOSE: the ball is in flight or on the floor; physics and the pickup rule drive it
+
+                // Animate net ripple when a shot goes through
+                if (game.netRippleTimer > 0) {
+                    game.netRippleTimer -= dt;
+                    const s = 1 + Math.sin(game.netRippleTimer * 28) * 0.28;
+                    hoop.netMesh.scale.set(s, 1 - (s - 1) * 0.4, s);
+                } else {
+                    leftHoop.netMesh.scale.set(1, 1, 1);
+                    rightHoop.netMesh.scale.set(1, 1, 1);
+                }
+
+                // While the ball is loose, the nearest player on each team goes to pick it up
+                const chasers = new Set();
+                if (game.ballFree) {
+                    [0, 1].forEach(team => {
+                        let best = null, bestDist = Infinity;
+                        players.forEach(p => {
+                            if (p.team !== team) return;
+                            const d = Math.hypot(p.char.root.position.x - ballGroup.position.x, p.char.root.position.z - ballGroup.position.z);
+                            if (d < bestDist) { bestDist = d; best = p; }
+                        });
+                        if (best) chasers.add(best);
+                    });
+                }
+
+                // Update all 10 Players' Positions, Anti-Clumping Spacing & 2-Joint Limb Animations
+                players.forEach(p => {
+                    const isOffense = p.team === game.offenseTeam;
+                    const isCarrier = (p === game.carrier) && (game.state === 'DRIBBLE' || game.state === 'DRIVE');
+
+                    if (chasers.has(p)) {
+                        p.target.set(
+                            THREE.MathUtils.clamp(ballGroup.position.x, -19.5, 19.5),
+                            0.18,
+                            THREE.MathUtils.clamp(ballGroup.position.z, -10.5, 10.5)
+                        );
+                    } else if (!isCarrier && !(p === game.carrier && game.state === 'SHOOT')) {
+                        if (isOffense) {
+                            p.target.copy(p.homeOff).add(p.cutOffset);
+                        } else {
+                            // Defenders stay near their assigned zone/man with wide spacing
+                            const man = players[(p.id + 5) % 10];
+                            p.target.copy(p.homeDef).lerp(man.char.root.position, 0.38);
+                            p.target.y = 0.18;
+                        }
+                    } else if (game.state === 'DRIBBLE') {
+                        p.target.copy(p.homeOff).add(p.cutOffset.clone().multiplyScalar(0.45));
+                    }
+
+                    // Personal-space repulsion so players never bunch up in a pile
+                    players.forEach(other => {
+                        if (other !== p && !chasers.has(p)) {
+                            const sepX = p.char.root.position.x - other.char.root.position.x;
+                            const sepZ = p.char.root.position.z - other.char.root.position.z;
+                            const d = Math.hypot(sepX, sepZ);
+                            if (d < 3.4 && d > 0.001) {
+                                const push = (3.4 - d) * 1.4;
+                                p.target.x += (sepX / d) * push;
+                                p.target.z += (sepZ / d) * push;
+                            }
+                        }
+                    });
+
+                    // Keep players inside court bounds
+                    p.target.x = THREE.MathUtils.clamp(p.target.x, -19.5, 19.5);
+                    p.target.z = THREE.MathUtils.clamp(p.target.z, -10.5, 10.5);
+
+                    const pos = p.char.root.position;
+                    const dx = p.target.x - pos.x;
+                    const dz = p.target.z - pos.z;
+                    const dist = Math.hypot(dx, dz);
+                    const moveSpeed = chasers.has(p) ? 6.4 : (isCarrier ? 6.0 : 5.2);
+
+                    if (dist > 0.18) {
+                        pos.x += (dx / dist) * Math.min(dist, moveSpeed * dt);
+                        pos.z += (dz / dist) * Math.min(dist, moveSpeed * dt);
+                    }
+                    // A shooter who has released the ball lands smoothly
+                    if (p !== game.carrier) p.jumpY = Math.max(0, (p.jumpY || 0) - dt * 3);
+                    pos.y = 0.18 + (p.jumpY || 0);
+
+                    // Face the ball or hoop
+                    const lookTarget = isCarrier ? hoop.rimPos : ballGroup.position;
+                    const targetYaw = Math.atan2(lookTarget.x - pos.x, lookTarget.z - pos.z);
+                    p.char.root.rotation.y = targetYaw;
+
+                    // Articulated Running & Knee Flexion
+                    const stridePhase = elapsed * 10.5 + p.phase;
+                    const isMoving = dist > 0.25;
+                    const stride = isMoving ? Math.sin(stridePhase) * 0.62 : Math.sin(elapsed * 3 + p.phase) * 0.08;
+                    p.char.leftLeg.rotation.x = stride;
+                    p.char.rightLeg.rotation.x = -stride;
+
+                    if (p.char.leftLeg.userData.knee) {
+                        p.char.leftLeg.userData.knee.rotation.x = isMoving ? Math.max(0.1, -Math.cos(stridePhase) * 0.65) : 0.18;
+                        p.char.rightLeg.userData.knee.rotation.x = isMoving ? Math.max(0.1, Math.cos(stridePhase) * 0.65) : 0.18;
+                    }
+
+                    if (isCarrier) {
+                        // Active Dribbling Shoulder + Elbow Flexion & Ball Bounce
+                        // The arm pushes the ball down as it meets the floor and lifts as it rises (ball height is from physics)
+                        const bounce = 1 - THREE.MathUtils.clamp((ballGroup.position.y - FLOOR_BALL_Y) / 0.8, 0, 1);
+                        p.char.rightArm.rotation.x = -0.55 + bounce * 0.35;
+                        if (p.char.rightArm.userData.elbow) p.char.rightArm.userData.elbow.rotation.x = -0.85 + bounce * 0.55;
+                        p.char.leftArm.rotation.x = -0.35;
+                        if (p.char.leftArm.userData.elbow) p.char.leftArm.userData.elbow.rotation.x = -0.55;
+                    } else if (p === game.carrier && game.state === 'SHOOT') {
+                        // Follow-through shooting arms raised high
+                        p.char.rightArm.rotation.x = -2.6;
+                        if (p.char.rightArm.userData.elbow) p.char.rightArm.userData.elbow.rotation.x = -0.25;
+                        p.char.leftArm.rotation.x = -2.35;
+                        if (p.char.leftArm.userData.elbow) p.char.leftArm.userData.elbow.rotation.x = -0.35;
+                    } else if (!isOffense && pos.distanceTo(ballGroup.position) < 6.0) {
+                        // Active Athletic Defensive Stance
+                        p.char.leftArm.rotation.x = -1.35 + Math.sin(elapsed * 8 + p.phase) * 0.22;
+                        p.char.rightArm.rotation.x = -1.35 - Math.sin(elapsed * 8 + p.phase) * 0.22;
+                        if (p.char.leftArm.userData.elbow) p.char.leftArm.userData.elbow.rotation.x = -0.65;
+                        if (p.char.rightArm.userData.elbow) p.char.rightArm.userData.elbow.rotation.x = -0.65;
+                    } else {
+                        p.char.leftArm.rotation.x = -stride * 0.65;
+                        p.char.rightArm.rotation.x = stride * 0.65;
+                        if (p.char.leftArm.userData.elbow) p.char.leftArm.userData.elbow.rotation.x = -0.45;
+                        if (p.char.rightArm.userData.elbow) p.char.rightArm.userData.elbow.rotation.x = -0.45;
+                    }
+                });
+
+                separatePlayers();
+
+                // Physics runs after players move so the hand spring tracks current hand positions
+                stepBallPhysics(dt);
+                checkBallClaims();
+                ballMesh.rotation.x += (ballVel.z * dt) / BALL_R;
+                ballMesh.rotation.z -= (ballVel.x * dt) / BALL_R;
+
+                // Sync ground shadow under ball
+                ballShadow.position.x = ballGroup.position.x;
+                ballShadow.position.z = ballGroup.position.z;
+                const hScale = Math.max(0.35, 1.15 - ballGroup.position.y * 0.1);
+                ballShadow.scale.setScalar(hScale);
+            }
+
+            // ============================================================================
+            // 11. PARK LIFE SIMULATION: BLEACHER FANS, BENCH + GOLDEN RETRIEVER,
+            //     SWIMMING DUCKS, SCOOTER KIDS, PLAYGROUND & PEDESTRIANS
+            // ============================================================================
+            // A. 3 Bleacher Spectators cheering & watching the ball
+            const spectators = [];
+            const specData = [
+                { x: -3.2, row: 1, shirt: 0x64748b, shorts: 0x334155 },
+                { x: 0.4,  row: 2, shirt: 0x2563eb, shorts: 0x1e293b },
+                { x: 3.6,  row: 0, shirt: 0x3b82f6, shorts: 0x1f2937 }
+            ];
+            specData.forEach((s, idx) => {
+                const fan = createHumanoid({ shirtColor: s.shirt, shortsColor: s.shorts, scale: 0.92, hairStyle: idx });
+                const y = 0.22 + s.row * 0.62;
+                const z = -14.2 + (0.85 - s.row * 0.85) + 0.15;
+                fan.root.position.set(0.5 + s.x, y, z);
+                fan.leftLeg.rotation.x = -Math.PI / 2.1;
+                fan.rightLeg.rotation.x = -Math.PI / 2.1;
+                if (fan.leftLeg.userData.knee) {
+                    fan.leftLeg.userData.knee.rotation.x = Math.PI / 2.2;
+                    fan.rightLeg.userData.knee.rotation.x = Math.PI / 2.2;
+                }
+                spectators.push({ fan, phase: idx * 2.1 });
+            });
+
+            // B. Man in Blue Jacket & Cap + Sculpted Golden Retriever on Lakeside Bench (x: -6.2, z: 16.8)
+            const benchMan = createHumanoid({
+                shirtColor: 0x1e3a5f,
+                shortsColor: 0x2c353d,
+                hairColor: 0x1e293b,
+                hasCap: true,
+                capColor: 0x1e3a5f,
+                scale: 0.95
+            });
+            benchMan.root.position.set(-7.0, 0.34, 16.95);
+            benchMan.leftLeg.rotation.x = -Math.PI / 2.1;
+            benchMan.rightLeg.rotation.x = -Math.PI / 2.1;
+            if (benchMan.leftLeg.userData.knee) {
+                benchMan.leftLeg.userData.knee.rotation.x = Math.PI / 2.2;
+                benchMan.rightLeg.userData.knee.rotation.x = Math.PI / 2.2;
+            }
+
+            // Sculpted Organic Golden Retriever sitting next to him on the bench
+            const dogGroup = new THREE.Group();
+            dogGroup.position.set(-5.25, 0.78, 16.85);
+            scene.add(dogGroup);
+
+            const furMat = toonMat(0xd99b4e);
+            const chestFurMat = toonMat(0xe8b56b);
+            const earMat = toonMat(0xb3772e);
+            const noseMat = toonMat(0x1c1917);
+
+            const dogTorso = addOutlinedMesh(new THREE.CylinderGeometry(0.24, 0.28, 0.68, 10), furMat, dogGroup, 0.09);
+            dogTorso.position.set(0, 0.34, -0.04);
+            dogTorso.rotation.x = -0.38;
+
+            const dogChest = addOutlinedMesh(new THREE.SphereGeometry(0.25, 10, 8), chestFurMat, dogGroup, 0.08);
+            dogChest.position.set(0, 0.44, 0.14);
+
+            // Front Paws & Hind Haunches
+            for (let sx of [-0.14, 0.14]) {
+                const frontLeg = addOutlinedMesh(new THREE.CylinderGeometry(0.065, 0.055, 0.46, 8), furMat, dogGroup, 0.09);
+                frontLeg.position.set(sx, 0.22, 0.20);
+                const haunch = addOutlinedMesh(new THREE.SphereGeometry(0.15, 8, 8), furMat, dogGroup, 0.09);
+                haunch.scale.set(0.8, 1.1, 1.2);
+                haunch.position.set(sx * 1.2, 0.16, -0.18);
+            }
+
+            const dogHead = new THREE.Group();
+            dogHead.position.set(0, 0.76, 0.16);
+            dogGroup.add(dogHead);
+
+            const cranium = addOutlinedMesh(new THREE.SphereGeometry(0.23, 12, 10), furMat, dogHead, 0.09);
+            cranium.scale.set(0.95, 0.92, 1.05);
+
+            const snout = addOutlinedMesh(new THREE.CylinderGeometry(0.09, 0.13, 0.26, 10), chestFurMat, dogHead, 0.09);
+            snout.rotation.x = Math.PI / 2;
+            snout.position.set(0, -0.04, 0.22);
+
+            const nose = new THREE.Mesh(new THREE.SphereGeometry(0.045, 6, 6), noseMat);
+            nose.position.set(0, 0.01, 0.35);
+            dogHead.add(nose);
+
+            for (let sx of [-1, 1]) {
+                const ear = addOutlinedMesh(new THREE.SphereGeometry(0.11, 8, 8), earMat, dogHead, 0.09);
+                ear.scale.set(0.45, 1.35, 0.82);
+                ear.position.set(sx * 0.21, -0.04, -0.02);
+                ear.rotation.z = sx * -0.22;
+            }
+
+            const dogTail = addOutlinedMesh(new THREE.CylinderGeometry(0.045, 0.08, 0.52, 8), earMat, dogGroup, 0.1);
+            dogTail.rotation.x = -1.1;
+            dogTail.position.set(0, 0.18, -0.42);
+
+            // Second seated visitor on upper-right bench (x: 20.5, z: -19.2)
+            const rightBenchPerson = createHumanoid({ shirtColor: 0x1e293b, shortsColor: 0x334155, scale: 0.92 });
+            rightBenchPerson.root.position.set(20.5, 0.34, -19.05);
+            rightBenchPerson.leftLeg.rotation.x = -Math.PI / 2.1;
+            rightBenchPerson.rightLeg.rotation.x = -Math.PI / 2.1;
+            if (rightBenchPerson.leftLeg.userData.knee) {
+                rightBenchPerson.leftLeg.userData.knee.rotation.x = Math.PI / 2.2;
+                rightBenchPerson.rightLeg.userData.knee.rotation.x = Math.PI / 2.2;
+            }
+
+            // C. Two Sculpted Mallard Ducks Swimming in the Bottom-Left Lake
+            const ducks = [];
+            function createDuck(isMale = true) {
+                const dGroup = new THREE.Group();
+                const bodyMat = toonMat(isMale ? 0x8c7a6b : 0x73573d);
+                const wingMat = toonMat(isMale ? 0x6e5d4f : 0x5c432d);
+                const headMat = toonMat(isMale ? 0x156e43 : 0x634832);
+                const billMat = toonMat(0xeab308);
+                const ringMat = toonMat(0xf8fafc);
+
+                // Sculpted Ellipsoid Duck Body & Upturned Tail
+                const body = addOutlinedMesh(new THREE.SphereGeometry(0.42, 12, 10), bodyMat, dGroup, 0.1);
+                body.scale.set(0.82, 0.58, 1.32);
+                body.position.y = 0.14;
+
+                const wings = addOutlinedMesh(new THREE.SphereGeometry(0.36, 10, 8), wingMat, dGroup, 0.08);
+                wings.scale.set(0.92, 0.48, 1.05);
+                wings.position.set(0, 0.20, -0.04);
+
+                const tail = addOutlinedMesh(new THREE.ConeGeometry(0.16, 0.32, 6), bodyMat, dGroup, 0.1);
+                tail.position.set(0, 0.24, -0.52);
+                tail.rotation.x = -0.85;
+
+                // Graceful Neck, White Collar Ring, Iridescent Green Head & Beak
+                const neck = addOutlinedMesh(new THREE.CylinderGeometry(0.12, 0.15, 0.34, 10), headMat, dGroup, 0.1);
+                neck.position.set(0, 0.36, 0.34);
+                neck.rotation.x = 0.22;
+
+                if (isMale) {
+                    const neckRing = new THREE.Mesh(new THREE.CylinderGeometry(0.145, 0.15, 0.06, 10), ringMat);
+                    neckRing.position.set(0, 0.28, 0.32);
+                    neckRing.rotation.x = 0.22;
+                    dGroup.add(neckRing);
+                }
+
+                const head = addOutlinedMesh(new THREE.SphereGeometry(0.165, 10, 10), headMat, dGroup, 0.1);
+                head.scale.set(0.92, 0.95, 1.12);
+                head.position.set(0, 0.52, 0.38);
+
+                const bill = addOutlinedMesh(new THREE.ConeGeometry(0.095, 0.26, 8), billMat, dGroup, 0.1);
+                bill.rotation.x = Math.PI / 2;
+                bill.scale.set(1.1, 1.0, 0.55);
+                bill.position.set(0, 0.50, 0.58);
+
+                // Water wake rings around duck
+                const wake = new THREE.Mesh(
+                    new THREE.RingGeometry(0.52, 0.74, 16),
+                    new THREE.MeshBasicMaterial({ color: 0xdff6ff, side: THREE.DoubleSide, transparent: true, opacity: 0.78 })
+                );
+                wake.rotation.x = -Math.PI / 2;
+                wake.position.y = 0.03;
+                dGroup.add(wake);
+
+                scene.add(dGroup);
+                return { group: dGroup, wake };
+            }
+            ducks.push({ ...createDuck(true),  cx: -21.5, cz: 30.5, rx: 3.8, rz: 2.2, speed: 0.52, phase: 0 });
+            ducks.push({ ...createDuck(false), cx: -21.5, cz: 30.5, rx: 3.8, rz: 2.2, speed: 0.52, phase: -0.65 });
+
+            // D. Three Kids Riding Kick Scooters along the Upper-Right Sidewalk (Z = -17.5)
+            const scooterRiders = [];
+            // Riders heading toward each other step to opposite sides of the lane, pass, then return
+            const SCOOTER_LANE_Z = -17.5;
+            const SCOOTER_SIDESTEP = 1.0;
+            const SCOOTER_SEE = 4;
+            const scooterConfigs = [
+                { startX: 12, shirt: 0xec4899, helmet: 0xf472b6 },
+                { startX: 22, shirt: 0x2563eb, helmet: 0x38bdf8 },
+                { startX: 31, shirt: 0x4d7c0f, helmet: 0xa3e635 }
+            ];
+            scooterConfigs.forEach((sc, idx) => {
+                const kid = createHumanoid({
+                    shirtColor: sc.shirt,
+                    shortsColor: 0x1e293b,
+                    scale: 0.76,
+                    hasHelmet: true,
+                    helmetColor: sc.helmet
+                });
+
+                // Attach Kick Scooter Mesh to Kid
+                const scooter = new THREE.Group();
+                const metalMat = toonMat(0x94a3b8);
+                const deck = addOutlinedMesh(new THREE.BoxGeometry(0.42, 0.1, 1.55), toonMat(0x334155), scooter, 0.1);
+                deck.position.set(0, 0.22, 0);
+                const stem = addOutlinedMesh(new THREE.CylinderGeometry(0.06, 0.06, 1.45, 6), metalMat, scooter, 0.1);
+                stem.position.set(0, 0.92, 0.65);
+                const bars = addOutlinedMesh(new THREE.CylinderGeometry(0.05, 0.05, 0.85, 6), metalMat, scooter, 0.1);
+                bars.rotation.z = Math.PI / 2;
+                bars.position.set(0, 1.62, 0.65);
+
+                kid.root.add(scooter);
+                kid.leftArm.rotation.x = -1.1;
+                kid.rightArm.rotation.x = -1.1;
+                kid.root.position.set(sc.startX, 0.18, -17.5);
+                kid.root.rotation.y = Math.PI / 2;
+                scooterRiders.push({ kid, x: sc.startX, z: SCOOTER_LANE_Z, dir: 1, yaw: Math.PI / 2, idx, phase: idx * 1.7 });
+            });
+
+            // E. Playground Kids: Swinging Kids + Child Sliding Down Blue Slide
+            swingPivots.forEach((pivot, idx) => {
+                const swinger = createHumanoid({
+                    shirtColor: idx === 0 ? 0xf59e0b : 0xec4899,
+                    shortsColor: 0x1e3a8a,
+                    scale: 0.68
+                });
+                swinger.root.position.set(0, -3.55, 0.1);
+                swinger.leftLeg.rotation.x = -1.1;
+                swinger.rightLeg.rotation.x = -1.1;
+                swinger.leftArm.rotation.x = -0.8;
+                swinger.rightArm.rotation.x = -0.8;
+                pivot.add(swinger.root);
+            });
+
+            const slideKid = createHumanoid({ shirtColor: 0x3b82f6, shortsColor: 0xfacc15, scale: 0.68 });
+            let slideProgress = 0;
+
+            // F. Walking Pedestrians around the Park Paths
+            const walkers = [
+                {
+                    char: createHumanoid({ shirtColor: 0x475569, shortsColor: 0x1e293b, scale: 0.9 }),
+                    x1: -12, z1: -22.5, x2: 6, z2: -15.5, speed: 0.22, t: 0.2
+                },
+                {
+                    char: createHumanoid({ shirtColor: 0xfacc15, shortsColor: 0x1e3a8a, scale: 0.72 }),
+                    x1: -34, z1: -4.5, x2: -29, z2: 3.5, speed: 0.28, t: 0.6
+                },
+                {
+                    char: createHumanoid({ shirtColor: 0x15803d, shortsColor: 0x1e293b, scale: 0.9 }),
+                    x1: -39, z1: -1.5, x2: -31, z2: 6.5, speed: 0.2, t: 0.4
+                },
+                {
+                    char: createHumanoid({ shirtColor: 0x2563eb, shortsColor: 0x1e293b, scale: 0.9 }),
+                    x1: 25, z1: 14.5, x2: 29, z2: -4.5, speed: 0.18, t: 0.1
+                },
+                {
+                    char: createHumanoid({ shirtColor: 0x9ca3af, shortsColor: 0x1f2937, scale: 0.9 }),
+                    x1: 12, z1: -27.5, x2: 28, z2: -27.5, speed: 0.21, t: 0.5
+                }
+            ];
+
+            // ============================================================================
+            // 12. UI EVENT LISTENERS & CAMERA PRESET TRANSITIONS
+            // ============================================================================
+            const camTargetPos = new THREE.Vector3(78, 72, 78);
+            const camTargetLook = new THREE.Vector3(0, 0, 0);
+            let targetZoom = referenceZoom();
+            let isTransitioningCam = false;
+
+            const camPresets = {
+                reference:  { pos: [78, 72, 78],  look: [0, 0, 0],       get zoom() { return referenceZoom(); } },
+                court:      { pos: [55, 52, 55],  look: [1, 1.5, 0],     zoom: 1.75 },
+                lake:       { pos: [48, 42, 65],  look: [-9, 0.5, 21],   zoom: 2.15 },
+                playground: { pos: [35, 48, 45],  look: [-35, 1.5, -11], zoom: 2.05 },
+                follow:     { pos: [65, 58, 65],  look: [0, 1, 0],       zoom: 1.85 }
+            };
+
+            document.querySelectorAll('.cam-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    document.querySelectorAll('.cam-btn').forEach(b => b.classList.remove('active'));
+                    btn.classList.add('active');
+                    cameraMode = btn.dataset.cam;
+                    const preset = camPresets[cameraMode];
+                    camTargetPos.set(...preset.pos);
+                    camTargetLook.set(...preset.look);
+                    targetZoom = preset.zoom;
+                    isTransitioningCam = true;
+                });
+            });
+
+            // Pixel-Art Filter Toggle
+            const btnPixel = document.getElementById('btn-pixel');
+            btnPixel.addEventListener('click', () => {
+                const isPixel = document.body.classList.toggle('pixel-mode');
+                btnPixel.classList.toggle('active', isPixel);
+                pixelScale = isPixel ? 0.52 : 1.0;
+                renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2) * pixelScale);
+            });
+
+            // 2D Ink Outline Toggle
+            const btnOutlines = document.getElementById('btn-outlines');
+            btnOutlines.addEventListener('click', () => {
+                outlinesEnabled = !outlinesEnabled;
+                btnOutlines.classList.toggle('active', outlinesEnabled);
+                outlineMeshes.forEach(m => { m.visible = outlinesEnabled; });
+            });
+
+            // Time-of-Day Lighting Toggle
+            let timeMode = 0; // 0: Afternoon, 1: Golden Hour, 2: Night Park Lights
+            const btnTime = document.getElementById('btn-time');
+            btnTime.addEventListener('click', () => {
+                timeMode = (timeMode + 1) % 3;
+                if (timeMode === 0) {
+                    btnTime.textContent = '☀️ Afternoon';
+                    ambientLight.color.setHex(0xdcedc8);
+                    ambientLight.intensity = 0.3;
+                    dirLight.color.setHex(0xfff1c1);
+                    dirLight.intensity = 1.15;
+                    lampPointLights.forEach(l => { l.intensity = 0; });
+                } else if (timeMode === 1) {
+                    btnTime.textContent = '🌅 Golden Hour';
+                    ambientLight.color.setHex(0xfed7aa);
+                    ambientLight.intensity = 0.55;
+                    dirLight.color.setHex(0xfb923c);
+                    dirLight.intensity = 1.25;
+                    lampPointLights.forEach(l => { l.intensity = 0.4; });
+                } else {
+                    btnTime.textContent = '🌙 Night Court';
+                    ambientLight.color.setHex(0x1e293b);
+                    ambientLight.intensity = 0.48;
+                    dirLight.color.setHex(0x64748b);
+                    dirLight.intensity = 0.35;
+                    lampPointLights.forEach(l => { l.intensity = 1.35; });
+                }
+            });
+
+            document.getElementById('speed-slider').addEventListener('input', e => {
+                simSpeed = parseFloat(e.target.value);
+            });
+
+            window.addEventListener('resize', () => {
+                const newAspect = window.innerWidth / window.innerHeight;
+                camera.left = -frustumSize * newAspect / 2;
+                camera.right = frustumSize * newAspect / 2;
+                camera.top = frustumSize / 2;
+                camera.bottom = -frustumSize / 2;
+                if (cameraMode === 'reference') {
+                    targetZoom = referenceZoom();
+                    camera.zoom = targetZoom;
+                }
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+
+            // ============================================================================
+            // 13. MAIN ANIMATION LOOP
+            // ============================================================================
+            const clock = new THREE.Clock();
+            let elapsed = 0;
+
+            function animate() {
+                requestAnimationFrame(animate);
+                const rawDt = Math.min(0.05, clock.getDelta());
+                const dt = rawDt * simSpeed;
+                elapsed += dt;
+
+                // 1. Update 5v5 Basketball Match Simulation
+                updateBasketballSimulation(dt, elapsed);
+
+                // 2. Bleacher Spectators track ball & cheer
+                spectators.forEach((sp, i) => {
+                    const lookYaw = Math.atan2(
+                        ballGroup.position.x - sp.fan.root.position.x,
+                        ballGroup.position.z - sp.fan.root.position.z
+                    );
+                    sp.fan.headGroup.rotation.y = THREE.MathUtils.clamp(lookYaw, -0.7, 0.7);
+                    const cheer = game.netRippleTimer > 0 ? Math.sin(elapsed * 18 + sp.phase) * 0.8 - 1.6 : -0.3 + Math.sin(elapsed * 3 + sp.phase) * 0.15;
+                    sp.fan.leftArm.rotation.x = cheer;
+                    sp.fan.rightArm.rotation.x = cheer;
+                });
+
+                // 3. Lakeside Man petting & Golden Retriever wagging tail
+                benchMan.rightArm.rotation.x = -0.65 + Math.sin(elapsed * 4) * 0.2;
+                dogTail.rotation.y = Math.sin(elapsed * 14) * 0.45;
+                dogHead.rotation.y = Math.sin(elapsed * 2.2) * 0.28;
+
+                // 4. Lake Water Sparkles, Shoreline Foam & Swimming Ducks
+                sparkles.forEach(sp => {
+                    sp.mesh.scale.x = 0.45 + 0.55 * Math.sin(elapsed * 3.5 + sp.phase);
+                    sp.mesh.position.x = sp.baseX + Math.sin(elapsed * 1.8 + sp.phase) * 0.35;
+                });
+                foamSquares.forEach(fm => {
+                    fm.mesh.position.z = fm.baseZ + Math.sin(elapsed * 2.4 + fm.phase) * 0.22;
+                });
+                ducks.forEach(d => {
+                    const angle = elapsed * d.speed + d.phase;
+                    const nx = d.cx + Math.cos(angle) * d.rx;
+                    const nz = d.cz + Math.sin(angle * 2) * d.rz;
+                    const dx = nx - d.group.position.x;
+                    const dz = nz - d.group.position.z;
+                    if (Math.hypot(dx, dz) > 0.001) {
+                        d.group.rotation.y = Math.atan2(dx, dz);
+                    }
+                    d.group.position.set(nx, -0.22 + Math.sin(elapsed * 4 + d.phase) * 0.035, nz);
+                    d.wake.scale.setScalar(0.92 + Math.sin(elapsed * 5 + d.phase) * 0.16);
+                });
+
+                // 5. Kids on Kick Scooters gliding along right sidewalk
+                scooterRiders.forEach(sr => {
+                    sr.x += sr.dir * dt * 5.2;
+                    if (sr.x > 33) sr.dir = -1;
+                    if (sr.x < 8) sr.dir = 1;
+                });
+                // Riders heading at each other sidestep to opposite sides of the lane, pass, then return
+                scooterRiders.forEach(sr => {
+                    let target = SCOOTER_LANE_Z;
+                    scooterRiders.forEach(other => {
+                        if (other === sr || other.dir === sr.dir) return;
+                        const gap = (other.x - sr.x) * sr.dir;
+                        if (gap > 0 && gap < SCOOTER_SEE && target === SCOOTER_LANE_Z) {
+                            target = SCOOTER_LANE_Z + (sr.idx < other.idx ? -SCOOTER_SIDESTEP : SCOOTER_SIDESTEP);
+                        }
+                    });
+                    const zBefore = sr.z;
+                    sr.z += (target - sr.z) * (1 - Math.exp(-dt * 8));
+                    // Heading follows the actual velocity so the rider turns into the sidestep and back out of it
+                    const vz = dt > 0 ? (sr.z - zBefore) / dt : 0;
+                    const desiredYaw = Math.atan2(sr.dir * 5.2, vz);
+                    const diff = Math.atan2(Math.sin(desiredYaw - sr.yaw), Math.cos(desiredYaw - sr.yaw));
+                    sr.yaw += diff * (1 - Math.exp(-dt * 12));
+                });
+                scooterRiders.forEach(sr => {
+                    sr.kid.root.position.x = sr.x;
+                    sr.kid.root.position.z = sr.z;
+                    sr.kid.root.rotation.y = sr.yaw;
+                    sr.kid.rightLeg.rotation.x = Math.sin(elapsed * 9 + sr.phase) * 0.55;
+                });
+
+                // 6. Playground Swings & Slide Child Loop
+                swingPivots.forEach((pivot, idx) => {
+                    pivot.rotation.x = Math.sin(elapsed * 2.8 + idx * 1.8) * 0.52;
+                });
+
+                slideProgress = (slideProgress + dt * 0.42) % 1;
+                if (slideProgress < 0.55) {
+                    // Sliding down the blue chute
+                    const t = slideProgress / 0.55;
+                    slideKid.root.position.set(-33.8, 2.5 - t * 2.2, -13.6 + t * 3.6);
+                    slideKid.root.rotation.y = 0;
+                    slideKid.leftLeg.rotation.x = -0.9;
+                    slideKid.rightLeg.rotation.x = -0.9;
+                    slideKid.leftArm.rotation.x = -1.8;
+                    slideKid.rightArm.rotation.x = -1.8;
+                } else {
+                    // Running back around to climb the ladder
+                    const t = (slideProgress - 0.55) / 0.45;
+                    slideKid.root.position.set(-33.8 - Math.sin(t * Math.PI) * 1.4, 0.25 + t * 2.2, -10.0 - t * 3.6);
+                    slideKid.root.rotation.y = Math.PI;
+                    slideKid.leftLeg.rotation.x = Math.sin(elapsed * 12) * 0.6;
+                    slideKid.rightLeg.rotation.x = -Math.sin(elapsed * 12) * 0.6;
+                }
+
+                // 7. Strolling Pedestrians & Road Car
+                walkers.forEach((w, idx) => {
+                    w.t += dt * w.speed;
+                    const pingPong = 0.5 - 0.5 * Math.cos(w.t * Math.PI);
+                    const nx = THREE.MathUtils.lerp(w.x1, w.x2, pingPong);
+                    const nz = THREE.MathUtils.lerp(w.z1, w.z2, pingPong);
+                    const dx = nx - w.char.root.position.x;
+                    const dz = nz - w.char.root.position.z;
+                    if (Math.hypot(dx, dz) > 0.001) {
+                        w.char.root.rotation.y = Math.atan2(dx, dz);
+                    }
+                    w.char.root.position.set(nx, 0.18, nz);
+                    const step = Math.sin(elapsed * 7 + idx);
+                    w.char.leftLeg.rotation.x = step * 0.48;
+                    w.char.rightLeg.rotation.x = -step * 0.48;
+                    w.char.leftArm.rotation.x = -step * 0.35;
+                    w.char.rightArm.rotation.x = step * 0.35;
+                });
+
+                cruisingCar.position.x -= dt * 8.5;
+                if (cruisingCar.position.x < -53) cruisingCar.position.x = 53;
+
+                // 8. Smooth Camera Preset / Follow-Ball Tracking
+                if (cameraMode === 'follow') {
+                    controls.target.lerp(ballGroup.position, 0.08);
+                    camera.zoom = THREE.MathUtils.lerp(camera.zoom, targetZoom, 0.06);
+                    camera.updateProjectionMatrix();
+                } else if (isTransitioningCam) {
+                    camera.position.lerp(camTargetPos, 0.08);
+                    controls.target.lerp(camTargetLook, 0.08);
+                    camera.zoom = THREE.MathUtils.lerp(camera.zoom, targetZoom, 0.08);
+                    camera.updateProjectionMatrix();
+                    if (camera.position.distanceTo(camTargetPos) < 0.25 && Math.abs(camera.zoom - targetZoom) < 0.02) {
+                        isTransitioningCam = false;
+                    }
+                }
+
+                controls.update();
+                renderer.render(scene, camera);
+            }
+
+            animate();
+        };
+    </script>
+</body>
+</html>

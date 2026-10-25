@@ -1,0 +1,3534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CVN-78 USS Gerald R. Ford — Isometric Tactical Flight Ops</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #0b2239;
+            font-family: 'Inter', sans-serif;
+        }
+        #canvas-container {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .hud-glass {
+            background: rgba(8, 19, 34, 0.72);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border: 1px solid rgba(125, 211, 252, 0.22);
+            box-shadow: 0 10px 28px -4px rgba(0, 0, 0, 0.55);
+        }
+        .hud-btn {
+            background: linear-gradient(180deg, rgba(16, 36, 62, 0.88) 0%, rgba(10, 23, 42, 0.94) 100%);
+            border: 1px solid rgba(56, 189, 248, 0.32);
+            transition: all 0.16s ease;
+        }
+        .hud-btn:hover {
+            background: linear-gradient(180deg, rgba(26, 58, 98, 0.95) 0%, rgba(14, 34, 64, 1) 100%);
+            border-color: rgba(125, 211, 252, 0.85);
+            transform: translateY(-1px);
+        }
+        .hud-btn-active {
+            background: linear-gradient(180deg, rgba(14, 116, 144, 0.9) 0%, rgba(15, 76, 117, 0.96) 100%);
+            border-color: #38bdf8;
+            box-shadow: 0 0 12px rgba(56, 189, 248, 0.4);
+        }
+    </style>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+        }
+    }
+    </script>
+</head>
+<body class="text-slate-100">
+
+    <!-- 3D Viewport -->
+    <div id="canvas-container"></div>
+
+    <!-- Top-Right Compact Tactical Bar -->
+    <div id="hud-top" class="fixed top-3 right-3 z-20 flex flex-col items-end gap-2 pointer-events-auto">
+        <div class="hud-glass rounded-xl px-3.5 py-2.5 flex flex-wrap items-center gap-3">
+            <div class="flex items-center gap-2 pr-2 border-r border-sky-400/20">
+                <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                <div>
+                    <div class="mono text-[10px] text-sky-400 font-bold tracking-wider leading-none">CVN-78 • TRUE ORTHO ISOMETRIC</div>
+                    <div class="text-xs font-bold text-white leading-tight mt-0.5">USS GERALD R. FORD</div>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-1.5 text-[11px] font-medium">
+                <button data-cam="iso" class="cam-btn hud-btn hud-btn-active px-2.5 py-1 rounded-lg">Ortho Isometric</button>
+                <button data-cam="bow" class="cam-btn hud-btn px-2.5 py-1 rounded-lg">Bow Cats</button>
+                <button data-cam="island" class="cam-btn hud-btn px-2.5 py-1 rounded-lg">Island</button>
+                <button data-cam="stern" class="cam-btn hud-btn px-2.5 py-1 rounded-lg">Landing</button>
+            </div>
+
+            <div class="flex items-center gap-1 text-[11px] font-medium pl-1 border-l border-sky-400/20">
+                <button data-time="day" class="time-btn hud-btn hud-btn-active px-2 py-1 rounded-lg">Day</button>
+                <button data-time="sunset" class="time-btn hud-btn px-2 py-1 rounded-lg">Dusk</button>
+                <button id="btn-toggle-roster" class="hud-btn hud-btn-active px-2 py-1 rounded-lg text-sky-300 mono text-[10px]">ROSTER</button>
+                <button id="btn-toggle-hud" class="hud-btn px-2 py-1 rounded-lg text-sky-300 mono text-[10px]" title="Toggle HUD">HUD</button>
+            </div>
+        </div>
+
+        <div id="hud-log-pill" class="hud-glass rounded-lg px-3 py-1.5 flex items-center gap-2 text-[11px] mono">
+            <span class="text-sky-400 font-bold">PRI-FLY:</span>
+            <span id="ops-status-log" class="text-slate-200">PERSISTENT AIR WING • ZERO POP-IN • CLICK ANY AIRCRAFT</span>
+        </div>
+    </div>
+
+    <!-- Collapsible Right-Side Persistent Air Wing Roster & Unit Command Panel -->
+    <div id="hud-roster" class="fixed top-28 right-3 z-20 w-72 pointer-events-auto flex flex-col gap-2">
+        <div class="hud-glass rounded-xl p-3 flex flex-col gap-2">
+            <div class="flex items-center justify-between border-b border-sky-400/20 pb-1.5">
+                <div class="mono text-[11px] font-bold text-sky-300 tracking-wide">CVW-8 PERSISTENT ROSTER</div>
+                <span id="roster-summary" class="mono text-[10px] text-emerald-400 font-semibold">22 UNITS TRACKED</span>
+            </div>
+
+            <!-- Selected Aircraft Detail & Direct Action Bar -->
+            <div id="selected-unit-panel" class="bg-slate-950/75 border border-sky-400/30 rounded-lg p-2 flex flex-col gap-1.5">
+                <div class="flex items-center justify-between">
+                    <span id="sel-callsign" class="mono text-xs font-bold text-amber-300">VMFA-211 #201</span>
+                    <span id="sel-type" class="mono text-[10px] px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300">F-35C</span>
+                </div>
+                <div class="flex items-center justify-between text-[11px]">
+                    <span class="text-slate-400">STATE:</span>
+                    <span id="sel-state" class="mono font-semibold text-emerald-400">PARKED</span>
+                </div>
+                <div class="flex items-center gap-1.5 mt-0.5">
+                    <button id="btn-unit-action" class="hud-btn flex-1 py-1 px-2 rounded text-[10px] mono font-bold text-amber-300">
+                        TAXI & LAUNCH
+                    </button>
+                    <button id="btn-unit-follow" class="hud-btn py-1 px-2 rounded text-[10px] mono text-sky-300">
+                        FOLLOW: OFF
+                    </button>
+                </div>
+            </div>
+
+            <!-- Scrollable Live Aircraft List -->
+            <div id="roster-list" class="max-h-56 overflow-y-auto pr-1 flex flex-col gap-1 text-[11px] mono"></div>
+        </div>
+    </div>
+
+    <!-- Bottom-Left Compact Flight Ops Trigger Bar -->
+    <div id="hud-bottom" class="fixed bottom-3 left-3 z-20 pointer-events-auto">
+        <div class="hud-glass rounded-xl p-2 flex items-center gap-2">
+            <button id="btn-launch" class="hud-btn py-1.5 px-3 rounded-lg flex items-center gap-2 text-xs font-semibold text-white">
+                <span class="w-2 h-2 rounded-full bg-amber-400 shadow-[0_0_6px_#fbbf24]"></span>
+                <span>LAUNCH NEXT PARKED JET</span>
+            </button>
+            <button id="btn-recover" class="hud-btn py-1.5 px-3 rounded-lg flex items-center gap-2 text-xs font-semibold text-white">
+                <span class="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_6px_#34d399]"></span>
+                <span>RECOVER AIRBORNE JET</span>
+            </button>
+            <button id="btn-heli" class="hud-btn py-1.5 px-3 rounded-lg flex items-center gap-2 text-xs font-semibold text-white">
+                <span class="w-2 h-2 rounded-full bg-sky-400 shadow-[0_0_6px_#38bdf8]"></span>
+                <span>CYCLE SEAHAWK SORTIE</span>
+            </button>
+        </div>
+    </div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+        import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+
+        // ============================================================================
+        // 1. SCENE & TRUE ORTHOGRAPHIC ISOMETRIC CAMERA PIPELINE
+        // ============================================================================
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x091c33);
+        scene.fog = new THREE.FogExp2(0x0e2848, 0.00015);
+
+        const ORTHO_FRUSTUM_HEIGHT = 186;
+        const aspect = window.innerWidth / window.innerHeight;
+        const camera = new THREE.OrthographicCamera(
+            (-ORTHO_FRUSTUM_HEIGHT * aspect) / 2,
+            ( ORTHO_FRUSTUM_HEIGHT * aspect) / 2,
+             ORTHO_FRUSTUM_HEIGHT / 2,
+            -ORTHO_FRUSTUM_HEIGHT / 2,
+            -2000,
+            4000
+        );
+
+        // Reference framing matching desktop reference photo:
+        // Elevated aerial perspective looking from starboard bow quarter aft
+        const CAMERA_PRESETS = {
+            iso:    { pos: new THREE.Vector3(-248, 198, 238), target: new THREE.Vector3(-3, 10, -5), zoom: 1.15 },
+            bow:    { pos: new THREE.Vector3(-190, 145, 260), target: new THREE.Vector3(0, 12, 82),  zoom: 2.15 },
+            island: { pos: new THREE.Vector3(-230, 155, 45),  target: new THREE.Vector3(-22, 22, -52), zoom: 2.35 },
+            stern:  { pos: new THREE.Vector3(-210, 155, -165), target: new THREE.Vector3(6, 12, -55), zoom: 1.85 }
+        };
+        camera.position.copy(CAMERA_PRESETS.iso.pos);
+        camera.zoom = CAMERA_PRESETS.iso.zoom;
+        camera.updateProjectionMatrix();
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.02;
+        container.appendChild(renderer.domElement);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.target.copy(CAMERA_PRESETS.iso.target);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.06;
+        controls.maxPolarAngle = Math.PI * 0.47;
+        controls.minZoom = 0.55;
+        controls.maxZoom = 4.5;
+
+        const composer = new EffectComposer(renderer);
+        const renderPass = new RenderPass(scene, camera);
+        composer.addPass(renderPass);
+        const bloomPass = new UnrealBloomPass(
+            new THREE.Vector2(window.innerWidth, window.innerHeight),
+            0.15,
+            0.35,
+            0.88
+        );
+        composer.addPass(bloomPass);
+        composer.addPass(new OutputPass());
+
+        let desiredCamPos = null;
+        let desiredCamTarget = null;
+        let desiredCamZoom = null;
+        let followUnit = null;
+
+        controls.addEventListener('start', () => {
+            desiredCamPos = null;
+            desiredCamTarget = null;
+            desiredCamZoom = null;
+        });
+
+        function setStatusLog(text) {
+            const el = document.getElementById('ops-status-log');
+            if (el) el.textContent = text;
+        }
+
+        // ============================================================================
+        // 2. CRISP MARITIME DAYLIGHT LIGHTING
+        // ============================================================================
+        // Calibrated daylight illumination matching reference photo
+        const hemiLight = new THREE.HemisphereLight(0xb4d8fc, 0x142234, 0.52);
+        scene.add(hemiLight);
+
+        // Crisp sunlight casting sharp, clean shadows from island and aircraft
+        const sunLight = new THREE.DirectionalLight(0xfffaed, 3.25);
+        sunLight.position.set(150, 280, -85);
+        sunLight.castShadow = true;
+        sunLight.shadow.mapSize.width = 4096;
+        sunLight.shadow.mapSize.height = 4096;
+        sunLight.shadow.camera.near = 50;
+        sunLight.shadow.camera.far = 700;
+        const shadowD = 210;
+        sunLight.shadow.camera.left = -shadowD;
+        sunLight.shadow.camera.right = shadowD;
+        sunLight.shadow.camera.top = shadowD;
+        sunLight.shadow.camera.bottom = -shadowD;
+        sunLight.shadow.bias = -0.00018;
+        sunLight.shadow.normalBias = 0.02;
+        scene.add(sunLight);
+
+        // Subtle sky fill on the shadow side
+        const fillLight = new THREE.DirectionalLight(0x6aa2d8, 0.22);
+        fillLight.position.set(-180, 80, 140);
+        scene.add(fillLight);
+
+        // ============================================================================
+        // 3. FLIGHT DECK TEXTURE & MAPS (HIGH-FIDELITY NON-SKID & MARKINGS)
+        // ============================================================================
+        const DECK_MIN_X = -40;
+        const DECK_MAX_X = 44;
+        const DECK_MIN_Z = -155;
+        const DECK_MAX_Z = 155;
+
+        // Shared aircraft national insignia generator
+        function createUSNavyInsigniaTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+
+            ctx.clearRect(0, 0, 256, 128);
+
+            // Navy blue background disc
+            ctx.fillStyle = '#1e3a8a';
+            ctx.beginPath();
+            ctx.arc(128, 64, 46, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Flanking white bars
+            ctx.fillStyle = '#f8fafc';
+            ctx.fillRect(20, 48, 216, 32);
+
+            // Red center horizontal stripe
+            ctx.fillStyle = '#dc2626';
+            ctx.fillRect(20, 58, 216, 12);
+
+            // Re-draw circle outline and central star
+            ctx.fillStyle = '#1e3a8a';
+            ctx.beginPath();
+            ctx.arc(128, 64, 44, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Five point white star
+            ctx.fillStyle = '#f8fafc';
+            ctx.beginPath();
+            for (let i = 0; i < 5; i++) {
+                const aOuter = -Math.PI / 2 + (i * Math.PI * 2) / 5;
+                const aInner = aOuter + Math.PI / 5;
+                const rOuter = 38;
+                const rInner = 15;
+                const ox = 128 + Math.cos(aOuter) * rOuter;
+                const oy = 64 + Math.sin(aOuter) * rOuter;
+                const ix = 128 + Math.cos(aInner) * rInner;
+                const iy = 64 + Math.sin(aInner) * rInner;
+                if (i === 0) ctx.moveTo(ox, oy);
+                else ctx.lineTo(ox, oy);
+                ctx.lineTo(ix, iy);
+            }
+            ctx.closePath();
+            ctx.fill();
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.colorSpace = THREE.SRGBColorSpace;
+            return tex;
+        }
+        const usNavyInsigniaTex = createUSNavyInsigniaTexture();
+
+        function createFlightDeckMaps() {
+            const width = 2048;
+            const height = 4096;
+
+            const colorCanvas = document.createElement('canvas');
+            colorCanvas.width = width;
+            colorCanvas.height = height;
+            const ctx = colorCanvas.getContext('2d');
+
+            const bumpCanvas = document.createElement('canvas');
+            bumpCanvas.width = width;
+            bumpCanvas.height = height;
+            const bCtx = bumpCanvas.getContext('2d');
+
+            const toPx = (x) => ((x - DECK_MIN_X) / (DECK_MAX_X - DECK_MIN_X)) * width;
+            const toPy = (z) => (1.0 - (z - DECK_MIN_Z) / (DECK_MAX_Z - DECK_MIN_Z)) * height;
+
+            // 1. Authentic deep charcoal non-skid aggregate coat (MIL-PRF-24667)
+            ctx.fillStyle = '#22262e';
+            ctx.fillRect(0, 0, width, height);
+
+            bCtx.fillStyle = '#808080';
+            bCtx.fillRect(0, 0, width, height);
+
+            // Longitudinal roller application tooth texture
+            for (let x = 0; x < width; x += 18) {
+                ctx.fillStyle = (x % 36 === 0) ? 'rgba(255,255,255,0.018)' : 'rgba(0,0,0,0.024)';
+                ctx.fillRect(x, 0, 9, height);
+                bCtx.fillStyle = (x % 36 === 0) ? '#8a8a8a' : '#757575';
+                bCtx.fillRect(x, 0, 3, height);
+            }
+
+            // High-traffic taxiway non-skid tonal variation (subtle dark slate)
+            const trafficGrad = ctx.createRadialGradient(toPx(-5), toPy(15), 60, toPx(-2), toPy(0), 1100);
+            trafficGrad.addColorStop(0, 'rgba(46, 52, 62, 0.22)');
+            trafficGrad.addColorStop(0.65, 'rgba(38, 43, 52, 0.10)');
+            trafficGrad.addColorStop(1, 'rgba(30, 34, 41, 0.0)');
+            ctx.fillStyle = trafficGrad;
+            ctx.fillRect(0, 0, width, height);
+
+            // Fine aggregate non-skid grain stipple (120,000 micro-particles)
+            for (let i = 0; i < 90000; i++) {
+                const rx = Math.random() * width;
+                const ry = Math.random() * height;
+                const isBright = Math.random() > 0.52;
+                ctx.fillStyle = isBright ? 'rgba(226,232,240,0.028)' : 'rgba(12,16,22,0.045)';
+                ctx.fillRect(rx, ry, 2 + Math.random() * 3, 2 + Math.random() * 6);
+                bCtx.fillStyle = isBright ? '#949494' : '#6a6a6a';
+                bCtx.fillRect(rx, ry, 2, 2);
+            }
+
+            // 2. Realistic Cruciform Tie-Down Pad-Eyes (~20-ft grid across flight deck)
+            function drawPadEye(px, py) {
+                // Color map: outer rim, inner socket, metallic cruciform star
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(px, py, 6.2, 0, Math.PI * 2);
+                ctx.fillStyle = '#1c2026';
+                ctx.fill();
+
+                ctx.beginPath();
+                ctx.arc(px, py, 5.0, 0, Math.PI * 2);
+                ctx.strokeStyle = '#5a6472';
+                ctx.lineWidth = 1.2;
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.arc(px, py, 3.8, 0, Math.PI * 2);
+                ctx.fillStyle = '#14171d';
+                ctx.fill();
+
+                // Cruciform star
+                ctx.fillStyle = '#8f9baa';
+                ctx.fillRect(px - 1.0, py - 3.8, 2.0, 7.6);
+                ctx.fillRect(px - 3.8, py - 1.0, 7.6, 2.0);
+                ctx.restore();
+
+                // Bump map: depression with raised center
+                bCtx.save();
+                bCtx.beginPath();
+                bCtx.arc(px, py, 6.0, 0, Math.PI * 2);
+                bCtx.fillStyle = '#545454';
+                bCtx.fill();
+                bCtx.fillStyle = '#9e9e9e';
+                bCtx.fillRect(px - 1.0, py - 3.0, 2.0, 6.0);
+                bCtx.fillRect(px - 3.0, py - 1.0, 6.0, 2.0);
+                bCtx.restore();
+            }
+
+            for (let gz = -148; gz <= 148; gz += 4.2) {
+                const rowOffset = (Math.abs(Math.round(gz / 4.2)) % 2) * 2.1;
+                for (let gx = -35 + rowOffset; gx <= 39; gx += 4.2) {
+                    // Check if within deck perimeter
+                    const px = toPx(gx);
+                    const py = toPy(gz);
+                    if (px > 70 && px < width - 70 && py > 65 && py < height - 65) {
+                        drawPadEye(px, py);
+                    }
+                }
+            }
+
+            // 3. Angled Landing Runway with Heavy Rubber Skid Accumulation
+            const rStartX = toPx(-4.5), rStartY = toPy(-152);
+            const rEndX   = toPx(36.5),  rEndY   = toPy(42);
+            const rAngle  = Math.atan2(rEndY - rStartY, rEndX - rStartX);
+            const rLen    = Math.hypot(rEndX - rStartX, rEndY - rStartY);
+
+            ctx.save();
+            ctx.translate(rStartX, rStartY);
+            ctx.rotate(rAngle);
+
+            // Runway asphalt bed
+            const trapGrad = ctx.createLinearGradient(0, 0, rLen, 0);
+            trapGrad.addColorStop(0.0, 'rgba(26, 30, 36, 0.28)');
+            trapGrad.addColorStop(0.20, 'rgba(14, 17, 21, 0.65)'); // touchdown zone
+            trapGrad.addColorStop(0.55, 'rgba(20, 24, 29, 0.45)');
+            trapGrad.addColorStop(0.95, 'rgba(140, 150, 162, 0.08)');
+            ctx.fillStyle = trapGrad;
+            ctx.fillRect(0, -215, rLen, 430);
+
+            // Touchdown Zone Heavy Rubber Skid Burn Marks
+            for (let s = 0; s < 450; s++) {
+                const sProgress = 0.08 + Math.random() * 0.72;
+                const sx = sProgress * rLen;
+                const sy = (Math.random() - 0.5) * 320 * (1.0 - Math.abs(sProgress - 0.3) * 0.85);
+                const sLen = 80 + Math.random() * 320;
+                const sThick = 2.5 + Math.random() * 6.5;
+
+                ctx.fillStyle = (s % 5 === 0) ? 'rgba(226,232,240,0.06)' : 'rgba(8,10,14,0.22)';
+                ctx.fillRect(sx, sy, sLen, sThick);
+
+                bCtx.save();
+                bCtx.translate(rStartX, rStartY);
+                bCtx.rotate(rAngle);
+                bCtx.fillStyle = '#5c5c5c';
+                bCtx.fillRect(sx, sy, sLen, sThick);
+                bCtx.restore();
+            }
+
+            // Boundary tramlines
+            ctx.fillStyle = '#f8fafc';
+            ctx.fillRect(0, -222, rLen, 16);
+            ctx.fillRect(0, -196, rLen, 12);
+            ctx.fillStyle = '#eab308';
+            ctx.fillRect(0, -178, rLen, 7);
+
+            ctx.fillStyle = '#f8fafc';
+            ctx.fillRect(0, 204, rLen, 16);
+            ctx.fillRect(0, 182, rLen, 10);
+
+            // Runway threshold chevrons
+            for (let t = -180; t <= 165; t += 32) {
+                ctx.fillStyle = '#f8fafc';
+                ctx.fillRect(14, t, 58, 14);
+            }
+
+            // High-visibility dashed centerline (white & yellow alternating)
+            for (let d = 85; d < rLen - 40; d += 110) {
+                ctx.fillStyle = '#f8fafc';
+                ctx.fillRect(d, -9, 66, 18);
+                ctx.fillStyle = '#facc15';
+                ctx.fillRect(d + 66, -5, 24, 10);
+            }
+
+            // 4 Arresting Gear wire markings & guide tramlines
+            for (let w = 0; w < 4; w++) {
+                const wx = 240 + w * 125;
+                ctx.fillStyle = '#eab308';
+                ctx.fillRect(wx - 2, -185, 12, 370);
+                ctx.fillStyle = '#1e242c';
+                ctx.fillRect(wx + 2, -180, 4, 360);
+            }
+            ctx.restore();
+
+            // Safety foul line (alternating red and white dash)
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(toPx(-14.0), toPy(-150));
+            ctx.lineTo(toPx(16.0),  toPy(48));
+            ctx.lineWidth = 16;
+            ctx.strokeStyle = '#dc2626';
+            ctx.stroke();
+            ctx.setLineDash([36, 36]);
+            ctx.strokeStyle = '#f8fafc';
+            ctx.stroke();
+            ctx.restore();
+
+            // 4. Catapult Tracks with EMALS Center Slot Runners
+            function drawCatapultTrack(x1, z1, x2, z2) {
+                const p1x = toPx(x1), p1y = toPy(z1);
+                const p2x = toPx(x2), p2y = toPy(z2);
+                ctx.save();
+
+                // Track trough shadow
+                ctx.beginPath();
+                ctx.moveTo(p1x, p1y); ctx.lineTo(p2x, p2y);
+                ctx.lineWidth = 58;
+                ctx.strokeStyle = 'rgba(165, 175, 188, 0.12)';
+                ctx.stroke();
+
+                // Outer boundary stripes
+                ctx.beginPath();
+                ctx.moveTo(p1x - 22, p1y); ctx.lineTo(p2x - 22, p2y);
+                ctx.moveTo(p1x + 22, p1y); ctx.lineTo(p2x + 22, p2y);
+                ctx.lineWidth = 6;
+                ctx.strokeStyle = '#f8fafc';
+                ctx.stroke();
+
+                // Inner yellow hazard dashes
+                ctx.beginPath();
+                ctx.moveTo(p1x - 14, p1y); ctx.lineTo(p2x - 14, p2y);
+                ctx.moveTo(p1x + 14, p1y); ctx.lineTo(p2x + 14, p2y);
+                ctx.lineWidth = 5;
+                ctx.setLineDash([26, 18]);
+                ctx.strokeStyle = '#facc15';
+                ctx.stroke();
+                ctx.setLineDash([]);
+
+                // EMALS steel slot runner
+                ctx.beginPath();
+                ctx.moveTo(p1x, p1y); ctx.lineTo(p2x, p2y);
+                ctx.lineWidth = 14;
+                ctx.strokeStyle = '#181e25';
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.moveTo(p1x, p1y); ctx.lineTo(p2x, p2y);
+                ctx.lineWidth = 4.0;
+                ctx.strokeStyle = '#94a3b8';
+                ctx.stroke();
+
+                // Shuttle stop chevrons
+                const ang = Math.atan2(p2y - p1y, p2x - p1x);
+                ctx.translate(p2x, p2y);
+                ctx.rotate(ang);
+                ctx.fillStyle = '#f8fafc';
+                for (let h = -180; h <= -10; h += 24) {
+                    ctx.fillRect(h, -28, 10, 8);
+                    ctx.fillRect(h,  20, 10, 8);
+                }
+                ctx.restore();
+
+                // Bump map for catapult slot
+                bCtx.save();
+                bCtx.beginPath();
+                bCtx.moveTo(p1x, p1y); bCtx.lineTo(p2x, p2y);
+                bCtx.lineWidth = 14;
+                bCtx.strokeStyle = '#484848';
+                bCtx.stroke();
+                bCtx.beginPath();
+                bCtx.moveTo(p1x, p1y); bCtx.lineTo(p2x, p2y);
+                bCtx.lineWidth = 4;
+                bCtx.strokeStyle = '#b0b0b0';
+                bCtx.stroke();
+                bCtx.restore();
+            }
+
+            drawCatapultTrack(-7.5, 48, -6.5, 147); // Cat 1
+            drawCatapultTrack( 8.5, 42,  7.5, 147); // Cat 2
+            drawCatapultTrack(16.0, -55, 25.5, 42); // Cat 3
+            drawCatapultTrack(26.5, -65, 36.5, 28); // Cat 4
+
+            // 5. Bow "78" Hull Number matching reference photo:
+            // Tall longitudinal orientation, clean white US Navy stencil with feet pointing to bow tip
+            function drawBowHullNumber(x, z) {
+                ctx.save();
+                ctx.translate(toPx(x), toPy(z));
+                // Scale Y by -1.65 so top points aft (stern) and feet point forward (bow)
+                ctx.scale(0.85, -1.65);
+                ctx.font = '800 220px "JetBrains Mono", "Inter", sans-serif';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+
+                // Subtle dark drop border
+                ctx.lineWidth = 6;
+                ctx.strokeStyle = '#181e26';
+                ctx.strokeText('78', 0, 0);
+
+                // Clean white fill
+                ctx.fillStyle = '#e8eff7';
+                ctx.fillText('78', 0, 0);
+                ctx.restore();
+            }
+            drawBowHullNumber(0.5, 134.5);
+
+            // Clean runway touchdown zone at stern without arcade numbers
+
+            // Bow rim yellow caution line
+            ctx.save();
+            ctx.strokeStyle = '#eab308';
+            ctx.lineWidth = 10;
+            ctx.beginPath();
+            ctx.moveTo(toPx(-17.5), toPy(152.5));
+            ctx.lineTo(toPx( 17.5), toPy(152.5));
+            ctx.stroke();
+            ctx.restore();
+
+            const maxAniso = renderer.capabilities.getMaxAnisotropy();
+            const colorTex = new THREE.CanvasTexture(colorCanvas);
+            colorTex.anisotropy = maxAniso;
+            colorTex.colorSpace = THREE.SRGBColorSpace;
+            colorTex.needsUpdate = true;
+
+            const bumpTex = new THREE.CanvasTexture(bumpCanvas);
+            bumpTex.anisotropy = maxAniso;
+            bumpTex.needsUpdate = true;
+
+            return { colorTex, bumpTex };
+        }
+
+        function createIslandNumberTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+
+            ctx.fillStyle = '#838e9e';
+            ctx.fillRect(0, 0, 512, 512);
+
+            ctx.strokeStyle = 'rgba(26, 36, 50, 0.25)';
+            ctx.lineWidth = 3;
+            for (let y = 32; y < 512; y += 48) {
+                ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(512, y); ctx.stroke();
+            }
+
+            ctx.font = '900 290px "Inter", sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            // Shadow
+            ctx.fillStyle = '#0f172a';
+            ctx.fillText('78', 266, 280);
+
+            // White stencil
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText('78', 256, 270);
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.anisotropy = 8;
+            tex.colorSpace = THREE.SRGBColorSpace;
+            return tex;
+        }
+
+        function createUSFlagTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 144;
+            const ctx = canvas.getContext('2d');
+            const sh = canvas.height / 13;
+            for (let i = 0; i < 13; i++) {
+                ctx.fillStyle = i % 2 === 0 ? '#dc2626' : '#ffffff';
+                ctx.fillRect(0, i * sh, canvas.width, sh);
+            }
+            ctx.fillStyle = '#1e3a8a';
+            ctx.fillRect(0, 0, canvas.width * 0.42, sh * 7);
+            ctx.fillStyle = '#ffffff';
+            for (let r = 0; r < 5; r++) {
+                for (let c = 0; c < 6; c++) {
+                    ctx.fillRect(8 + c * 16, 6 + r * 13, 4, 4);
+                }
+            }
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.colorSpace = THREE.SRGBColorSpace;
+            return tex;
+        }
+
+        // ============================================================================
+        // 4. OCEAN & HYDRODYNAMIC WAKE (TRACE) SHADER
+        // ============================================================================
+        // Realistic open ocean optics: Gerstner physical wave synthesis, deep absorption,
+        // SSS aeration glow, sharp sun glint, and multi-component carrier wake
+        const oceanUniforms = {
+            uTime: { value: 0 },
+            uSunDir: { value: new THREE.Vector3(-0.55, 0.78, 0.35).normalize() },
+            uSunColor: { value: new THREE.Color(0xfffef2) },
+            uDeepColor: { value: new THREE.Color(0x06182c) },      // Deep Atlantic dark indigo
+            uMidColor: { value: new THREE.Color(0x0d2844) },       // Swell body oceanic blue
+            uSkyColor: { value: new THREE.Color(0x3d6b94) },       // Maritime sky reflection
+            uWakeTurquoise: { value: new THREE.Color(0x138e88) },  // Subsurface aeration turquoise
+            uFoamWhite: { value: new THREE.Color(0xd6e5f0) }       // Aerated pure white froth
+        };
+
+        const oceanMaterial = new THREE.ShaderMaterial({
+            uniforms: oceanUniforms,
+            vertexShader: `
+                uniform float uTime;
+                varying vec3 vWorldPos;
+                varying vec3 vNormal;
+                varying float vWaveHeight;
+                varying float vChop;
+
+                void addGerstnerWave(
+                    vec2 dir, float steepness, float wavelength, float speed,
+                    vec2 pos, float time,
+                    inout vec3 p, inout vec3 n
+                ) {
+                    float k = 6.2831853 / wavelength;
+                    float c = sqrt(9.81 / k) * speed;
+                    float f = k * (dot(dir, pos) - c * time);
+                    float a = steepness / k;
+
+                    p.x += dir.x * (a * cos(f));
+                    p.y += a * sin(f);
+                    p.z += dir.y * (a * cos(f));
+
+                    n.x -= dir.x * (steepness * sin(f));
+                    n.y -= steepness * cos(f);
+                    n.z -= dir.y * (steepness * sin(f));
+                }
+
+                void main() {
+                    vec4 wp = modelMatrix * vec4(position, 1.0);
+                    vec2 posXZ = wp.xz;
+                    float t = uTime;
+
+                    vec3 wavePos = vec3(0.0);
+                    vec3 waveNorm = vec3(0.0, 1.0, 0.0);
+
+                    // 5 Layered Gerstner wave octaves: Broad oceanic swells + wind chop + cross-seas
+                    addGerstnerWave(vec2(0.55, 0.83), 0.22, 145.0, 1.25, posXZ, t, wavePos, waveNorm);
+                    addGerstnerWave(vec2(-0.62, 0.78), 0.16, 68.0, 1.65, posXZ, t, wavePos, waveNorm);
+                    addGerstnerWave(vec2(0.82, 0.45), 0.11, 32.0, 2.20, posXZ, t, wavePos, waveNorm);
+                    addGerstnerWave(vec2(-0.35, 0.94), 0.07, 16.0, 2.85, posXZ, t, wavePos, waveNorm);
+                    addGerstnerWave(vec2(0.92, -0.38), 0.04, 8.5, 3.40, posXZ, t, wavePos, waveNorm);
+
+                    // Smoothly damp vertical displacement under the carrier hull so the ship doesn't clip
+                    float hullDistX = abs(wp.x);
+                    float hullDistZ = abs(wp.z);
+                    float hullMask = smoothstep(18.0, 36.0, hullDistX) + smoothstep(145.0, 175.0, hullDistZ);
+                    hullMask = clamp(hullMask, 0.25, 1.0);
+
+                    wp.xyz += wavePos * hullMask;
+                    vWorldPos = wp.xyz;
+                    vNormal = normalize(waveNorm);
+                    vWaveHeight = wavePos.y;
+                    vChop = wavePos.y * hullMask;
+
+                    gl_Position = projectionMatrix * viewMatrix * wp;
+                }
+            `,
+            fragmentShader: `
+                uniform float uTime;
+                uniform vec3 uSunDir;
+                uniform vec3 uSunColor;
+                uniform vec3 uDeepColor;
+                uniform vec3 uMidColor;
+                uniform vec3 uSkyColor;
+                uniform vec3 uWakeTurquoise;
+                uniform vec3 uFoamWhite;
+
+                varying vec3 vWorldPos;
+                varying vec3 vNormal;
+                varying float vWaveHeight;
+                varying float vChop;
+
+                float hash21(vec2 p) {
+                    p = fract(p * vec2(234.34, 435.345));
+                    p += dot(p, p + 34.23);
+                    return fract(p.x * p.y);
+                }
+
+                float noise(vec2 p) {
+                    vec2 i = floor(p);
+                    vec2 f = fract(p);
+                    f = f * f * (3.0 - 2.0 * f);
+                    float a = hash21(i);
+                    float b = hash21(i + vec2(1.0, 0.0));
+                    float c = hash21(i + vec2(0.0, 1.0));
+                    float d = hash21(i + vec2(1.0, 1.0));
+                    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+                }
+
+                float fbm(vec2 p) {
+                    float v = 0.0;
+                    v += 0.500 * noise(p);
+                    v += 0.250 * noise(p * 2.02 + vec2(1.2, 3.4));
+                    v += 0.125 * noise(p * 4.04 - vec2(2.3, 1.1));
+                    v += 0.062 * noise(p * 8.08 + vec2(0.7, 4.2));
+                    return v;
+                }
+
+                float wakeTurbulence(vec2 p, float speed) {
+                    vec2 q = p + vec2(0.0, uTime * speed);
+                    float n1 = noise(q * 0.45);
+                    float n2 = noise(q * 1.15 + vec2(n1 * 1.2, -n1 * 0.8));
+                    float n3 = noise(q * 2.85 - vec2(n2 * 1.4, n2 * 1.1));
+                    return n2 * 0.6 + n3 * 0.4;
+                }
+
+                void main() {
+                    float x = vWorldPos.x;
+                    float z = vWorldPos.z;
+                    float absX = abs(x);
+
+                    // Flow relative to carrier forward motion (+Z direction)
+                    float flowZ = z - uTime * 24.0;
+                    vec2 flowUV = vec2(x * 0.55, flowZ * 0.35);
+
+                    // Micro-capillary surface normal perturbation
+                    float nEps = 0.45;
+                    float hC = fbm(flowUV);
+                    float hR = fbm(flowUV + vec2(nEps, 0.0));
+                    float hU = fbm(flowUV + vec2(0.0, nEps));
+                    vec3 rippleNormal = normalize(vec3((hC - hR) * 2.2, 1.0, (hC - hU) * 2.2));
+                    vec3 normal = normalize(mix(vNormal, rippleNormal, 0.45));
+
+                    // View direction & Fresnel
+                    vec3 viewDir = normalize(cameraPosition - vWorldPos);
+                    float NdotV = max(dot(viewDir, normal), 0.0);
+                    float fresnel = pow(1.0 - NdotV, 4.0);
+
+                    // Base deep water gradient with wave crest illumination
+                    float waveSlope = clamp((normal.y - 0.7) / 0.3, 0.0, 1.0);
+                    vec3 oceanCol = mix(uDeepColor, uMidColor, waveSlope * 0.85 + vWaveHeight * 0.15);
+
+                    // Subsurface scattering on wave crests
+                    float sss = pow(max(dot(viewDir, -uSunDir), 0.0), 3.0) * smoothstep(0.1, 0.9, vWaveHeight);
+                    oceanCol += uWakeTurquoise * sss * 0.35;
+
+                    // Maritime sky reflection
+                    oceanCol = mix(oceanCol, uSkyColor, fresnel * 0.55);
+
+                    // Sun specular glint
+                    vec3 halfVec = normalize(uSunDir + viewDir);
+                    float NdotH = max(dot(normal, halfVec), 0.0);
+                    float sunGlint = pow(NdotH, 160.0) * 1.85;
+                    float sunShimmer = pow(NdotH, 28.0) * 0.22;
+                    oceanCol += uSunColor * (sunGlint + sunShimmer);
+
+                    // Natural ocean swell surface (deep pure navy matching reference photo)
+                    float subtleShimmer = fbm(vec2(x * 0.25 + z * 0.15, z * 0.45 - uTime * 16.0));
+                    float waveGlint = smoothstep(0.88, 0.96, subtleShimmer + vWaveHeight * 0.20) * 0.12;
+                    oceanCol = mix(oceanCol, uSkyColor * 1.2, waveGlint);
+
+                    // -------------------------------------------------------------------------
+                    // HYDRODYNAMIC WAKE & TRACE SYSTEM
+                    // -------------------------------------------------------------------------
+                    float totalWhiteFoam = 0.0;
+                    float totalTurquoise = 0.0;
+
+                    // Carrier hull profile half-width as function of Z
+                    float hullHalfW = 20.5;
+                    if (z > 70.0) {
+                        float tb = clamp((z - 70.0) / 78.0, 0.0, 1.0);
+                        hullHalfW = mix(20.5, 0.8, pow(tb, 1.35));
+                    } else if (z < -95.0) {
+                        float ts = clamp((-95.0 - z) / 55.0, 0.0, 1.0);
+                        hullHalfW = mix(20.5, 16.5, ts);
+                    }
+
+                    float distFromBow = 148.0 - z;
+
+                    // 1. Bow stem wave & outward breaking V-wave (crisp peeling foam with turquoise aeration)
+                    if (z <= 153.0 && z >= 25.0) {
+                        float bowWaveAngle = 0.42;
+                        float bowWaveDist = abs(absX - (distFromBow * bowWaveAngle + 0.8));
+                        float bowWaveRibbon = exp(-pow(bowWaveDist / (2.0 + distFromBow * 0.022), 2.0));
+                        bowWaveRibbon *= smoothstep(153.0, 144.0, z); // sharp onset right at the stem
+                        bowWaveRibbon *= smoothstep(25.0, 105.0, z);  // smoothly merges into flank wash
+
+                        float bowFroth = wakeTurbulence(vec2(absX * 2.0, z * 1.2), 34.0);
+                        float bowFoam = bowWaveRibbon * smoothstep(0.22, 0.65, bowFroth);
+
+                        totalWhiteFoam = max(totalWhiteFoam, bowFoam * 1.45);
+                        totalTurquoise = max(totalTurquoise, bowWaveRibbon * 1.05);
+                    }
+
+                    // 2. Hull boundary layer waterline contact wash
+                    if (z <= 147.0 && z >= -150.0) {
+                        float dHull = abs(absX - hullHalfW);
+                        float contactWash = exp(-pow(dHull / 2.8, 2.0));
+                        float contactTurb = wakeTurbulence(vec2(absX * 2.2, z * 1.2), 28.0);
+                        float contactFoam = contactWash * smoothstep(0.28, 0.68, contactTurb);
+
+                        totalWhiteFoam = max(totalWhiteFoam, contactFoam * 1.1);
+                        totalTurquoise = max(totalTurquoise, contactWash * 0.85);
+                    }
+
+                    // 3. Massive stern propeller churning wash (screws at z < -148.0)
+                    if (z <= -140.0 && z >= -980.0) {
+                        float distBehindStern = -148.0 - z;
+
+                        // Wake expands outward to ~72m width
+                        float wakeWidth = mix(20.0, 72.0, clamp(distBehindStern / 360.0, 0.0, 1.0));
+                        float centerWash = exp(-pow(absX / wakeWidth, 2.0));
+
+                        // Twin screw churning wash streams from the four 21-ft bronze propellers
+                        float screwL = exp(-pow((x - 10.5) / (5.2 + distBehindStern * 0.035), 2.0));
+                        float screwR = exp(-pow((x + 10.5) / (5.2 + distBehindStern * 0.035), 2.0));
+                        float screwWash = (screwL + screwR) * 0.90;
+
+                        // Boiling turbulence and vorticity
+                        float turbSpeed = 40.0;
+                        float sternFroth1 = wakeTurbulence(vec2(x * 0.48, z * 0.26), turbSpeed);
+                        float sternFroth2 = wakeTurbulence(vec2(x * 1.35, z * 0.68), turbSpeed * 1.25);
+                        float combinedFroth = sternFroth1 * 0.55 + sternFroth2 * 0.45;
+
+                        // Wake length attenuation
+                        float sternFade = smoothstep(-140.0, -150.0, z) * smoothstep(-980.0, -680.0, z);
+
+                        float washFoam = (centerWash * 0.78 + screwWash * 0.65) * sternFade;
+                        float foamIntensity = washFoam * smoothstep(0.20, 0.62, combinedFroth * 1.35);
+
+                        totalWhiteFoam = max(totalWhiteFoam, foamIntensity * 1.45);
+                        totalTurquoise = max(totalTurquoise, washFoam * sternFade * 1.15);
+
+                        // Kelvin outer wake shockwave arms spreading at 19.5 degrees
+                        float kelvinArm = abs(absX - (distBehindStern * 0.35 + 18.0));
+                        float kelvinShock = exp(-pow(kelvinArm / (4.2 + distBehindStern * 0.02), 2.0)) * sternFade;
+                        totalWhiteFoam = max(totalWhiteFoam, kelvinShock * smoothstep(0.32, 0.72, combinedFroth) * 0.85);
+                    }
+
+                    // Realistic multi-scale ocean foam lace & bubbling modulation
+                    float foamLace1 = noise(vec2(x * 0.85, z * 0.55) + uTime * 4.5);
+                    float foamLace2 = noise(vec2(x * 2.4, z * 1.6) - uTime * 8.5);
+                    float foamPattern = foamLace1 * 0.65 + foamLace2 * 0.35;
+
+                    // Calibrated wake brightness: natural aerated sea froth instead of harsh blown-out white
+                    float foamFactor = smoothstep(0.14, 0.76, totalWhiteFoam) * (0.60 + 0.40 * foamPattern);
+                    foamFactor = clamp(foamFactor, 0.0, 0.80);
+
+                    float aquaFactor = clamp(totalTurquoise, 0.0, 0.92) * (0.70 + 0.30 * foamPattern);
+
+                    // Blend turquoise subsurface aeration glow
+                    oceanCol = mix(oceanCol, uWakeTurquoise * 0.90, aquaFactor * 0.65);
+
+                    // Blend soft maritime froth with subtle wave lighting
+                    vec3 shadedFoam = uFoamWhite * (0.84 + 0.16 * waveSlope);
+                    oceanCol = mix(oceanCol, shadedFoam, foamFactor);
+
+                    // Distance aerial perspective fog
+                    float dist = length(cameraPosition - vWorldPos);
+                    float fogF = 1.0 - exp(-pow(dist * 0.00024, 2.0));
+                    oceanCol = mix(oceanCol, vec3(0.08, 0.22, 0.38), clamp(fogF, 0.0, 1.0));
+
+                    gl_FragColor = vec4(oceanCol, 1.0);
+                }
+            `
+        });
+
+        const oceanGeo = new THREE.PlaneGeometry(2800, 2800, 240, 240);
+        oceanGeo.rotateX(-Math.PI / 2);
+        const oceanMesh = new THREE.Mesh(oceanGeo, oceanMaterial);
+        scene.add(oceanMesh);
+
+        // ============================================================================
+        // 5. CARRIER HULL & SUPERSTRUCTURE (CVN-78 GERALD R. FORD)
+        // ============================================================================
+        const carrierGroup = new THREE.Group();
+        scene.add(carrierGroup);
+
+        const DECK_Y = 12.2;
+
+        // Shared PBR Materials
+        const hullGreyMat = new THREE.MeshStandardMaterial({ color: 0x8490a0, roughness: 0.50, metalness: 0.22, side: THREE.DoubleSide });
+        const hullDarkGreyMat = new THREE.MeshStandardMaterial({ color: 0x4f5763, roughness: 0.62, metalness: 0.28 });
+        const catwalkMat = new THREE.MeshStandardMaterial({ color: 0x5e6774, roughness: 0.66, metalness: 0.25 });
+        const islandMat = new THREE.MeshStandardMaterial({ color: 0x8692a2, roughness: 0.44, metalness: 0.18 });
+        const radarWhiteMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.30, metalness: 0.10 });
+        const bridgeGlassMat = new THREE.MeshStandardMaterial({ color: 0x0a1422, roughness: 0.10, metalness: 0.90 });
+        const nozzleDarkMat = new THREE.MeshStandardMaterial({ color: 0x22272e, roughness: 0.35, metalness: 0.85 });
+        const foldHingeRedMat = new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.50, metalness: 0.20 });
+        const f35DarkMat = new THREE.MeshStandardMaterial({ color: 0x768292, roughness: 0.44, metalness: 0.22 });
+        const f35LightRamMat = new THREE.MeshStandardMaterial({ color: 0x98a4b4, roughness: 0.40, metalness: 0.20 });
+        const f35NoseMat = new THREE.MeshStandardMaterial({ color: 0x5a6575, roughness: 0.48, metalness: 0.18 });
+        
+        const fa18GreyMat = new THREE.MeshStandardMaterial({ color: 0x8a97a8, roughness: 0.44, metalness: 0.20 });
+        const fa18NoseMat = new THREE.MeshStandardMaterial({ color: 0x58626f, roughness: 0.48, metalness: 0.22 });
+        const e2BodyMat = new THREE.MeshStandardMaterial({ color: 0xdce3ec, roughness: 0.38, metalness: 0.20 });
+        const heloDarkMat = new THREE.MeshStandardMaterial({ color: 0x2e3540, roughness: 0.48, metalness: 0.30 });
+        const canopyGoldMat = new THREE.MeshStandardMaterial({ color: 0x1f242d, roughness: 0.08, metalness: 0.88 });
+        const canopyBlueMat = new THREE.MeshStandardMaterial({ color: 0x0f1826, roughness: 0.10, metalness: 0.85 });
+        const tireBlackMat = new THREE.MeshStandardMaterial({ color: 0x141820, roughness: 0.86, metalness: 0.08 });
+
+        const deckContour = [
+            [-18.0, 154.0],
+            [ 18.0, 154.0],
+            [ 23.5,  96.0],
+            [ 43.0,  34.0],
+            [ 43.0, -36.0],
+            [ 33.5, -75.0],
+            [ 27.5, -152.0],
+            [-23.5, -152.0],
+            [-32.5, -112.0],
+            [-38.5, -72.0],
+            [-38.5,  36.0],
+            [-26.5,  98.0]
+        ];
+
+        const deckShape = new THREE.Shape();
+        deckContour.forEach(([x, z], idx) => {
+            if (idx === 0) deckShape.moveTo(x, -z);
+            else deckShape.lineTo(x, -z);
+        });
+        deckShape.closePath();
+
+        const deckTopGeo = new THREE.ShapeGeometry(deckShape, 1);
+        deckTopGeo.rotateX(-Math.PI / 2);
+
+        const posAttr = deckTopGeo.attributes.position;
+        const uvArray = new Float32Array(posAttr.count * 2);
+        for (let i = 0; i < posAttr.count; i++) {
+            const vx = posAttr.getX(i);
+            const vz = posAttr.getZ(i);
+            const u = (vx - DECK_MIN_X) / (DECK_MAX_X - DECK_MIN_X);
+            const v = (vz - DECK_MIN_Z) / (DECK_MAX_Z - DECK_MIN_Z);
+            uvArray[i * 2] = u;
+            uvArray[i * 2 + 1] = v;
+        }
+        deckTopGeo.setAttribute('uv', new THREE.BufferAttribute(uvArray, 2));
+        deckTopGeo.computeVertexNormals();
+
+        const deckMaps = createFlightDeckMaps();
+        const deckTopMat = new THREE.MeshStandardMaterial({
+            map: deckMaps.colorTex,
+            bumpMap: deckMaps.bumpTex,
+            bumpScale: 0.22,
+            roughnessMap: deckMaps.bumpTex,
+            roughness: 0.74,
+            metalness: 0.03,
+            roughness: 0.94
+        });
+
+        const flightDeckMesh = new THREE.Mesh(deckTopGeo, deckTopMat);
+        flightDeckMesh.position.y = DECK_Y;
+        flightDeckMesh.receiveShadow = true;
+        carrierGroup.add(flightDeckMesh);
+
+        const galleryExtrudeGeo = new THREE.ExtrudeGeometry(deckShape, { depth: 2.1, bevelEnabled: false });
+        galleryExtrudeGeo.rotateX(-Math.PI / 2);
+        const galleryMesh = new THREE.Mesh(galleryExtrudeGeo, hullGreyMat);
+        galleryMesh.position.y = DECK_Y - 2.12;
+        galleryMesh.castShadow = true;
+        galleryMesh.receiveShadow = true;
+        carrierGroup.add(galleryMesh);
+
+        function createLoftedCarrierHull() {
+            const levels = [
+                { y: -0.6, bowZ: 144.0, sternZ: -148.0, bowW: 0.6,  midW: 19.5, sternW: 15.0 },
+                { y:  3.2, bowZ: 147.5, sternZ: -150.0, bowW: 2.8,  midW: 21.5, sternW: 18.0 },
+                { y:  6.8, bowZ: 151.0, sternZ: -151.0, bowW: 8.5,  midW: 25.0, sternW: 21.0 },
+                { y: 10.1, bowZ: 153.8, sternZ: -152.0, bowW: 17.5, midW: 31.0, sternW: 23.5 }
+            ];
+
+            const zSamples = 32;
+            const ringVerts = [];
+
+            levels.forEach(lvl => {
+                const ring = [];
+                for (let i = 0; i <= zSamples; i++) {
+                    const t = i / zSamples;
+                    const z = THREE.MathUtils.lerp(lvl.bowZ, lvl.sternZ, t);
+                    let w;
+                    if (t < 0.28) {
+                        const tb = t / 0.28;
+                        w = THREE.MathUtils.lerp(lvl.bowW, lvl.midW, Math.pow(tb, 0.72));
+                    } else if (t > 0.78) {
+                        const ts = (t - 0.78) / 0.22;
+                        w = THREE.MathUtils.lerp(lvl.midW, lvl.sternW, ts);
+                    } else {
+                        w = lvl.midW;
+                    }
+                    ring.push(new THREE.Vector3(-w, lvl.y, z));
+                }
+                for (let i = zSamples; i >= 0; i--) {
+                    const t = i / zSamples;
+                    const z = THREE.MathUtils.lerp(lvl.bowZ, lvl.sternZ, t);
+                    let w;
+                    if (t < 0.28) {
+                        const tb = t / 0.28;
+                        w = THREE.MathUtils.lerp(lvl.bowW, lvl.midW, Math.pow(tb, 0.72));
+                    } else if (t > 0.78) {
+                        const ts = (t - 0.78) / 0.22;
+                        w = THREE.MathUtils.lerp(lvl.midW, lvl.sternW, ts);
+                    } else {
+                        w = lvl.midW;
+                    }
+                    ring.push(new THREE.Vector3(w, lvl.y, z));
+                }
+                ringVerts.push(ring);
+            });
+
+            const verts = [];
+            const indices = [];
+            const ptsPerRing = ringVerts[0].length;
+
+            ringVerts.forEach(ring => {
+                ring.forEach(v => { verts.push(v.x, v.y, v.z); });
+            });
+
+            for (let r = 0; r < ringVerts.length - 1; r++) {
+                for (let i = 0; i < ptsPerRing - 1; i++) {
+                    const a = r * ptsPerRing + i;
+                    const b = r * ptsPerRing + i + 1;
+                    const c = (r + 1) * ptsPerRing + i + 1;
+                    const d = (r + 1) * ptsPerRing + i;
+                    // Outward-facing normals (counter-clockwise from outside)
+                    indices.push(a, c, b);
+                    indices.push(a, d, c);
+                }
+                const a = r * ptsPerRing + (ptsPerRing - 1);
+                const b = r * ptsPerRing;
+                const c = (r + 1) * ptsPerRing;
+                const d = (r + 1) * ptsPerRing + (ptsPerRing - 1);
+                indices.push(a, c, b);
+                indices.push(a, d, c);
+            }
+
+            const geo = new THREE.BufferGeometry();
+            geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+            geo.setIndex(indices);
+            geo.computeVertexNormals();
+            return new THREE.Mesh(geo, hullGreyMat);
+        }
+
+        const loftedHull = createLoftedCarrierHull();
+        loftedHull.castShadow = true;
+        loftedHull.receiveShadow = true;
+        carrierGroup.add(loftedHull);
+
+        // Catwalks, Life Rafts & Defensive Sponsons
+        const hullDetailsGroup = new THREE.Group();
+        carrierGroup.add(hullDetailsGroup);
+
+        function getStarboardEdgeX(z) {
+            if (z >= 98) return THREE.MathUtils.lerp(-26.5, -18.0, (z - 98) / 56);
+            if (z >= 36) return THREE.MathUtils.lerp(-38.5, -26.5, (z - 36) / 62);
+            if (z >= -72) return -38.5;
+            if (z >= -112) return THREE.MathUtils.lerp(-32.5, -38.5, (z - (-112)) / 40);
+            return THREE.MathUtils.lerp(-23.5, -32.5, (z - (-152)) / 40);
+        }
+
+        function getPortEdgeX(z) {
+            if (z >= 96) return THREE.MathUtils.lerp(23.5, 18.0, (z - 96) / 58);
+            if (z >= 34) return THREE.MathUtils.lerp(43.0, 23.5, (z - 34) / 62);
+            if (z >= -36) return 43.0;
+            if (z >= -75) return THREE.MathUtils.lerp(33.5, 43.0, (z - (-75)) / 39);
+            return THREE.MathUtils.lerp(27.5, 33.5, (z - (-152)) / 77);
+        }
+
+        // Starboard catwalks & life raft drums
+        for (let z = -148; z <= 148; z += 4.5) {
+            const edgeX = getStarboardEdgeX(z);
+            const cw = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.9, 4.3), catwalkMat);
+            cw.position.set(edgeX - 0.9, DECK_Y - 0.75, z);
+            cw.castShadow = true;
+            hullDetailsGroup.add(cw);
+
+            const railing = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.85, 4.4), hullDarkGreyMat);
+            railing.position.set(edgeX - 1.95, DECK_Y - 0.25, z);
+            hullDetailsGroup.add(railing);
+
+            const rib = new THREE.Mesh(new THREE.BoxGeometry(4.2, 3.2, 0.65), hullDarkGreyMat);
+            rib.position.set(edgeX + 0.8, DECK_Y - 2.6, z);
+            rib.castShadow = true;
+            hullDetailsGroup.add(rib);
+
+            if (Math.abs(z) % 9 < 4.5) {
+                for (let c = -1.2; c <= 1.2; c += 1.2) {
+                    const canister = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.38, 1.15, 10), radarWhiteMat);
+                    canister.rotation.x = Math.PI / 2;
+                    canister.position.set(edgeX - 2.05, DECK_Y - 0.45, z + c);
+                    canister.castShadow = true;
+                    hullDetailsGroup.add(canister);
+                }
+            }
+        }
+
+        // Port catwalks & life rafts
+        for (let z = -146; z <= 146; z += 5.5) {
+            const edgeX = getPortEdgeX(z);
+            const cw = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.85, 5.2), catwalkMat);
+            cw.position.set(edgeX + 0.9, DECK_Y - 0.75, z);
+            cw.castShadow = true;
+            hullDetailsGroup.add(cw);
+
+            const railing = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.85, 5.3), hullDarkGreyMat);
+            railing.position.set(edgeX + 1.85, DECK_Y - 0.25, z);
+            hullDetailsGroup.add(railing);
+
+            if (Math.abs(z) % 11 < 5.5) {
+                const canister = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 1.15, 10), radarWhiteMat);
+                canister.rotation.x = Math.PI / 2;
+                canister.position.set(edgeX + 1.95, DECK_Y - 0.45, z);
+                hullDetailsGroup.add(canister);
+            }
+        }
+
+        const bowCatwalk = new THREE.Mesh(new THREE.BoxGeometry(35.5, 0.75, 2.2), catwalkMat);
+        bowCatwalk.position.set(0, DECK_Y - 0.65, 154.8);
+        hullDetailsGroup.add(bowCatwalk);
+
+        // Deck Edge Elevators with Structural Trusses
+        function addCarrierElevator(x, z, width, length, isStarboard = true) {
+            const elevGroup = new THREE.Group();
+            elevGroup.position.set(x, DECK_Y - 0.35, z);
+
+            const plat = new THREE.Mesh(new THREE.BoxGeometry(width, 0.65, length), hullDarkGreyMat);
+            plat.castShadow = true;
+            plat.receiveShadow = true;
+            elevGroup.add(plat);
+
+            const truss = new THREE.Mesh(new THREE.BoxGeometry(width - 1.0, 2.8, length - 2.0), hullGreyMat);
+            truss.position.set(isStarboard ? 0.8 : -0.8, -1.7, 0);
+            elevGroup.add(truss);
+
+            const guideRail = new THREE.Mesh(new THREE.BoxGeometry(0.35, 7.5, length), hullDarkGreyMat);
+            guideRail.position.set(isStarboard ? width * 0.5 - 0.2 : -width * 0.5 + 0.2, -3.2, 0);
+            elevGroup.add(guideRail);
+
+            hullDetailsGroup.add(elevGroup);
+        }
+
+        // Elevator 1 (Starboard Fwd), Elevator 2 (Starboard Aft of island)
+        [-92, -18, 22].forEach(elevZ => {
+            const ex = getStarboardEdgeX(elevZ);
+            addCarrierElevator(ex - 2.2, elevZ, 6.5, 15.5, true);
+        });
+        // Elevator 3 (Port Aft)
+        addCarrierElevator(getPortEdgeX(-65) + 2.2, -65, 6.5, 15.5, false);
+
+        // Detailed Defensive Sponsons: Phalanx CIWS, RAM Missiles & Sea Sparrow
+        function addPhalanxCIWS(x, y, z) {
+            const ciws = new THREE.Group();
+            ciws.position.set(x, y, z);
+
+            // Base platform & barbette
+            const base = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.8, 1.4, 12), hullGreyMat);
+            ciws.add(base);
+
+            // Rotating turret
+            const turret = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.6, 2.0), hullDarkGreyMat);
+            turret.position.y = 1.4;
+            ciws.add(turret);
+
+            // Iconic "R2-D2" white radome dome
+            const dome = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.85, 1.8, 14), radarWhiteMat);
+            dome.position.set(0, 2.8, -0.2);
+            dome.castShadow = true;
+            ciws.add(dome);
+
+            const domeCap = new THREE.Mesh(new THREE.SphereGeometry(0.85, 14, 10), radarWhiteMat);
+            domeCap.position.set(0, 3.7, -0.2);
+            ciws.add(domeCap);
+
+            // 20mm 6-barrel Vulcan rotary cannon
+            const gun = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 2.2, 8), nozzleDarkMat);
+            gun.rotation.x = Math.PI / 2;
+            gun.position.set(0, 1.35, 1.6);
+            gun.castShadow = true;
+            ciws.add(gun);
+
+            hullDetailsGroup.add(ciws);
+        }
+
+        function addRAMLauncher(x, y, z, rotY) {
+            const ram = new THREE.Group();
+            ram.position.set(x, y, z);
+            ram.rotation.y = rotY;
+
+            const pedestal = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.6, 1.2, 10), hullGreyMat);
+            ram.add(pedestal);
+
+            // 21-round box launcher tilted up 32 degrees
+            const box = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.8, 3.2), radarWhiteMat);
+            box.position.set(0, 1.8, 0);
+            box.rotation.x = -0.55;
+            box.castShadow = true;
+            ram.add(box);
+
+            hullDetailsGroup.add(ram);
+        }
+
+        // Sponsons around the hull
+        addPhalanxCIWS(getStarboardEdgeX(52) - 3.2, DECK_Y - 2.8, 52);
+        addRAMLauncher(getStarboardEdgeX(-6) - 3.2, DECK_Y - 2.8, -6, -Math.PI / 2);
+        addPhalanxCIWS(getStarboardEdgeX(-124) - 3.2, DECK_Y - 2.8, -124);
+        addRAMLauncher(getPortEdgeX(62) + 3.2, DECK_Y - 2.8, 62, Math.PI / 2);
+
+        // Island Superstructure (Faceted Stealth Architecture of Gerald R. Ford)
+        const islandGroup = new THREE.Group();
+        islandGroup.position.set(-30.5, DECK_Y, -56.0);
+        carrierGroup.add(islandGroup);
+
+        const islandNumTex = createIslandNumberTexture();
+        const islandNumMat = new THREE.MeshStandardMaterial({ map: islandNumTex, roughness: 0.48, metalness: 0.20 });
+
+        const baseMaterials = [islandNumMat, islandNumMat, islandMat, islandMat, islandNumMat, islandMat];
+        const lowerIsland = new THREE.Mesh(new THREE.BoxGeometry(9.2, 15.5, 25.0), baseMaterials);
+        lowerIsland.position.set(0, 7.75, 0);
+        lowerIsland.castShadow = true;
+        lowerIsland.receiveShadow = true;
+        islandGroup.add(lowerIsland);
+
+        const fwdSponson = new THREE.Mesh(new THREE.BoxGeometry(8.4, 9.5, 6.5), islandMat);
+        fwdSponson.position.set(-0.4, 4.75, 14.5);
+        fwdSponson.castShadow = true;
+        islandGroup.add(fwdSponson);
+
+        const aftSponson = new THREE.Mesh(new THREE.BoxGeometry(8.4, 10.5, 6.0), islandMat);
+        aftSponson.position.set(-0.4, 5.25, -14.0);
+        aftSponson.castShadow = true;
+        islandGroup.add(aftSponson);
+
+                // Navigation Bridge (Tier 1) & Pri-Fly Flight Control (Tier 2)
+        // Authentic slender wraparound tinted glass viewing ribbons with Haze Grey catwalk galleries
+        [
+            { y: 15.2, w: 9.8,  z: 21.0, glassH: 0.72 }, // Navigation Bridge
+            { y: 19.5, w: 10.5, z: 17.5, glassH: 0.68 }  // Primary Flight Control (Pri-Fly)
+        ].forEach(tier => {
+            const levelBox = new THREE.Mesh(new THREE.BoxGeometry(tier.w, 1.6, tier.z), islandMat);
+            levelBox.position.set(0.2, tier.y, 0.5);
+            levelBox.castShadow = true;
+            islandGroup.add(levelBox);
+
+            const glassBox = new THREE.Mesh(new THREE.BoxGeometry(tier.w + 0.15, tier.glassH, tier.z + 0.15), bridgeGlassMat);
+            glassBox.position.set(0.2, tier.y + 0.95, 0.5);
+            glassBox.castShadow = true;
+            islandGroup.add(glassBox);
+
+            const roofOverhang = new THREE.Mesh(new THREE.BoxGeometry(tier.w + 0.6, 0.35, tier.z + 0.6), islandMat);
+            roofOverhang.position.set(0.2, tier.y + 0.95 + tier.glassH * 0.5 + 0.18, 0.5);
+            roofOverhang.castShadow = true;
+            islandGroup.add(roofOverhang);
+
+            const galleryWalkway = new THREE.Mesh(new THREE.BoxGeometry(tier.w + 1.2, 0.35, tier.z + 1.2), catwalkMat);
+            galleryWalkway.position.set(0.2, tier.y - 0.7, 0.5);
+            galleryWalkway.castShadow = true;
+            islandGroup.add(galleryWalkway);
+        });
+
+        // Dual Band Radar (DBR / SPY-3 & SPY-4) Phased Array Tower
+        const dbrTower = new THREE.Mesh(new THREE.CylinderGeometry(4.2, 5.0, 9.5, 8), islandMat);
+        dbrTower.position.set(0, 29.5, -0.5);
+        dbrTower.castShadow = true;
+        islandGroup.add(dbrTower);
+
+        for (let a = 0; a < 4; a++) {
+            const panel = new THREE.Mesh(new THREE.BoxGeometry(3.2, 4.2, 0.4), bridgeGlassMat);
+            const ang = (a * Math.PI) / 2 + Math.PI / 4;
+            panel.position.set(Math.sin(ang) * 4.5, 29.5, -0.5 + Math.cos(ang) * 4.5);
+            panel.rotation.y = ang;
+            islandGroup.add(panel);
+        }
+
+        // Communication Radomes & TACAN Antennas
+        const radomeSpecs = [
+            [-2.2, 11.5, 15.2, 2.0],
+            [-3.5, 16.8,  9.8, 1.85],
+            [-3.5, 16.8, -9.8, 1.85],
+            [-2.0, 12.2, -14.8, 2.1],
+            [ 3.8, 26.5,  8.5, 1.65],
+            [-2.8, 35.2,  5.2, 1.95],
+            [ 2.8, 35.2, -5.8, 1.75]
+        ];
+        radomeSpecs.forEach(([rx, ry, rz, rad]) => {
+            const base = new THREE.Mesh(new THREE.CylinderGeometry(rad * 0.65, rad * 0.8, 1.2, 12), islandMat);
+            base.position.set(rx, ry - rad * 0.5, rz);
+            islandGroup.add(base);
+
+            const sphere = new THREE.Mesh(new THREE.SphereGeometry(rad, 18, 18), radarWhiteMat);
+            sphere.position.set(rx, ry + rad * 0.35, rz);
+            sphere.castShadow = true;
+            islandGroup.add(sphere);
+        });
+
+        const upperMast = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 2.3, 21, 8), islandMat);
+        upperMast.position.set(0, 43.5, -1.0);
+        upperMast.castShadow = true;
+        islandGroup.add(upperMast);
+
+        [-37, -42, -48].forEach((y, idx) => {
+            const yard = new THREE.Mesh(new THREE.BoxGeometry(15 - idx * 3, 0.55, 1.1), islandMat);
+            yard.position.set(0, -y, -1.0);
+            islandGroup.add(yard);
+        });
+
+        const spinningRadars = []; // CVN-78 uses fixed Dual Band Phased Array radars (SPY-3 & SPY-4)
+        // Authentic Naval Lattice Mast Yardarms, Anemometers & TACAN Antenna Spire
+        [-38, -43, -49].forEach((y, idx) => {
+            const yard = new THREE.Mesh(new THREE.BoxGeometry(16 - idx * 3.5, 0.45, 0.85), islandMat);
+            yard.position.set(0, -y, -1.0);
+            yard.castShadow = true;
+            islandGroup.add(yard);
+
+            // Outboard halyards & sensor pods
+            [-1, 1].forEach(side => {
+                const sensorPod = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 1.2, 8), radarWhiteMat);
+                sensorPod.position.set(side * (7.5 - idx * 1.6), -y + 0.6, -1.0);
+                sensorPod.castShadow = true;
+                islandGroup.add(sensorPod);
+            });
+        });
+
+        // TACAN URN-25 TACAN Antenna dome atop mast spire
+        const tacanDome = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.95, 2.2, 12), radarWhiteMat);
+        tacanDome.position.set(0, 54.5, -1.0);
+        tacanDome.castShadow = true;
+        islandGroup.add(tacanDome);
+        
+        const flagGeo = new THREE.PlaneGeometry(7.2, 4.0, 14, 8);
+        const flagMesh = new THREE.Mesh(
+            flagGeo,
+            new THREE.MeshStandardMaterial({ map: createUSFlagTexture(), side: THREE.DoubleSide, roughness: 0.55 })
+        );
+        flagMesh.position.set(-4.2, 39.8, -6.5);
+        flagMesh.rotation.y = Math.PI / 2;
+        islandGroup.add(flagMesh);
+
+        // ============================================================================
+        // 6. HIGH-FIDELITY AIRCRAFT & EQUIPMENT MODELS
+        // ============================================================================
+        // Materials defined above in Section 5
+
+        // Heavy Carrier Landing Gear (Dual Nose Wheel & Trailing Link Main Gear)
+        function addLandingGear(parent, noseZ, mainX, mainZ) {
+            const gearGroup = new THREE.Group();
+
+            // Nose gear dual wheels and catapult launch bar
+            const nStrut = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.95), radarWhiteMat);
+            nStrut.position.set(0, 0.48, noseZ);
+            gearGroup.add(nStrut);
+
+            const launchBar = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.72), radarWhiteMat);
+            launchBar.position.set(0, 0.28, noseZ + 0.32);
+            launchBar.rotation.x = 0.26;
+            gearGroup.add(launchBar);
+
+            const holdbackLink = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, 0.5), nozzleDarkMat);
+            holdbackLink.position.set(0, 0.32, noseZ - 0.25);
+            holdbackLink.rotation.x = -0.35;
+            gearGroup.add(holdbackLink);
+
+            [-0.15, 0.15].forEach(nx => {
+                const nTire = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 0.13, 14), tireBlackMat);
+                nTire.rotation.z = Math.PI / 2;
+                nTire.position.set(nx, 0.24, noseZ);
+                gearGroup.add(nTire);
+
+                const nHub = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.15, 10), radarWhiteMat);
+                nHub.rotation.z = Math.PI / 2;
+                nHub.position.set(nx, 0.24, noseZ);
+                gearGroup.add(nHub);
+            });
+
+            // Gear bay doors
+            [-0.26, 0.26].forEach(side => {
+                const door = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.36, 0.95), radarWhiteMat);
+                door.position.set(side, 0.70, noseZ);
+                gearGroup.add(door);
+            });
+
+            // Heavy main landing gear with trailing link oleo struts
+            [-mainX, mainX].forEach(mx => {
+                const mStrut = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.11, 0.98), radarWhiteMat);
+                mStrut.position.set(mx, 0.49, mainZ);
+                gearGroup.add(mStrut);
+
+                const mTrailingLink = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.14, 0.52), radarWhiteMat);
+                mTrailingLink.position.set(mx, 0.34, mainZ - 0.14);
+                gearGroup.add(mTrailingLink);
+
+                const brakeCaliper = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.24, 0.22), nozzleDarkMat);
+                brakeCaliper.position.set(mx, 0.34, mainZ + 0.05);
+                gearGroup.add(brakeCaliper);
+
+                const mTire = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.25, 16), tireBlackMat);
+                mTire.rotation.z = Math.PI / 2;
+                mTire.position.set(mx, 0.34, mainZ);
+                gearGroup.add(mTire);
+
+                const mHub = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.17, 0.27, 10), radarWhiteMat);
+                mHub.rotation.z = Math.PI / 2;
+                mHub.position.set(mx, 0.34, mainZ);
+                gearGroup.add(mHub);
+            });
+
+            parent.add(gearGroup);
+            parent.userData.gearGroup = gearGroup;
+        }
+
+                // F-35C Lightning II Carrier Strike Fighter
+        // Continuous 35° swept planform, seamless stealth chines, and vertical wing folding
+        function createF35C({ foldedWings = false } = {}) {
+            const jet = new THREE.Group();
+
+            // 1. Sleek Faceted Stealth Lifting Body & Integrated Radome
+            const stations = [
+                { z:  5.80, w: 0.05, yTop: 1.02, yBot: 0.98 },
+                { z:  4.60, w: 0.62, yTop: 1.20, yBot: 0.82 },
+                { z:  3.20, w: 1.15, yTop: 1.42, yBot: 0.72 },
+                { z:  1.80, w: 1.45, yTop: 1.48, yBot: 0.68 },
+                { z: -0.40, w: 1.50, yTop: 1.46, yBot: 0.68 },
+                { z: -2.60, w: 1.35, yTop: 1.32, yBot: 0.75 },
+                { z: -3.80, w: 0.70, yTop: 1.15, yBot: 0.85 }
+            ];
+
+            const bodyVerts = [];
+            const bodyIndices = [];
+            const numPts = 8;
+
+            stations.forEach((s) => {
+                const yMid = (s.yTop + s.yBot) * 0.5;
+                const h = (s.yTop - s.yBot) * 0.5;
+                bodyVerts.push(0, s.yTop, s.z);                      // 0: top spine
+                bodyVerts.push(-s.w * 0.72, yMid + h * 0.5, s.z);    // 1: stbd upper shoulder
+                bodyVerts.push(-s.w, yMid, s.z);                     // 2: stbd chine
+                bodyVerts.push(-s.w * 0.72, yMid - h * 0.5, s.z);    // 3: stbd lower shoulder
+                bodyVerts.push(0, s.yBot, s.z);                      // 4: bottom keel
+                bodyVerts.push(s.w * 0.72, yMid - h * 0.5, s.z);     // 5: port lower shoulder
+                bodyVerts.push(s.w, yMid, s.z);                      // 6: port chine
+                bodyVerts.push(s.w * 0.72, yMid + h * 0.5, s.z);     // 7: port upper shoulder
+            });
+
+            for (let r = 0; r < stations.length - 1; r++) {
+                for (let i = 0; i < numPts; i++) {
+                    const iNext = (i + 1) % numPts;
+                    const a = r * numPts + i;
+                    const b = r * numPts + iNext;
+                    const c = (r + 1) * numPts + iNext;
+                    const d = (r + 1) * numPts + i;
+                    bodyIndices.push(a, b, c);
+                    bodyIndices.push(a, c, d);
+                }
+            }
+
+            const bodyGeo = new THREE.BufferGeometry();
+            bodyGeo.setAttribute('position', new THREE.Float32BufferAttribute(bodyVerts, 3));
+            bodyGeo.setIndex(bodyIndices);
+            bodyGeo.computeVertexNormals();
+            const bodyMesh = new THREE.Mesh(bodyGeo, f35DarkMat);
+            bodyMesh.castShadow = true;
+            jet.add(bodyMesh);
+
+            // Forward Radome Cap (stealth dielectric nose)
+            const radomeCap = new THREE.Mesh(new THREE.ConeGeometry(0.38, 1.35, 8), f35NoseMat);
+            radomeCap.rotation.x = Math.PI / 2;
+            radomeCap.scale.set(1.4, 0.7, 1.0);
+            radomeCap.position.set(0, 1.02, 5.15);
+            jet.add(radomeCap);
+
+            // Under-nose Sapphire EOTS Window
+            const eots = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.55, 4), canopyGoldMat);
+            eots.rotation.x = Math.PI / 2;
+            eots.position.set(0, 0.76, 4.8);
+            jet.add(eots);
+
+            // 2. Cockpit Bubble Canopy & Ejection Seat
+            const canopy = new THREE.Mesh(new THREE.SphereGeometry(0.56, 16, 12), canopyGoldMat);
+            canopy.scale.set(0.72, 0.75, 2.30);
+            canopy.position.set(0, 1.42, 3.10);
+            jet.add(canopy);
+
+            const canopyArch = new THREE.Mesh(new THREE.TorusGeometry(0.48, 0.035, 6, 14, Math.PI), f35LightRamMat);
+            canopyArch.position.set(0, 1.40, 3.25);
+            jet.add(canopyArch);
+
+            const seat = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.35, 0.25), tireBlackMat);
+            seat.position.set(0, 1.45, 2.85);
+            jet.add(seat);
+
+            // 3. Diverterless Supersonic Intakes (DSI)
+            [-1, 1].forEach(side => {
+                const intake = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.58, 2.8), f35DarkMat);
+                intake.position.set(side * 1.32, 1.00, 1.10);
+                intake.castShadow = true;
+                jet.add(intake);
+
+                // Intake forward cowl bevel
+                const cowlLip = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.12, 0.8), f35LightRamMat);
+                cowlLip.position.set(side * 1.32, 1.26, 2.40);
+                cowlLip.rotation.y = side > 0 ? -0.28 : 0.28;
+                jet.add(cowlLip);
+            });
+
+            // 4. Continuous 35° Swept Inner Wing Panels
+            [-1, 1].forEach(side => {
+                const innerWingGeo = new THREE.BufferGeometry();
+                const v0 = [side * 1.40, 1.08,  2.20]; // Root LE
+                const v1 = [side * 3.80, 1.08,  0.52]; // Hinge LE (35° sweep)
+                const v2 = [side * 3.80, 1.08, -1.12]; // Hinge TE
+                const v3 = [side * 1.40, 1.08, -1.76]; // Root TE (15° forward sweep)
+                const b0 = [side * 1.40, 0.96,  2.20];
+                const b1 = [side * 3.80, 0.96,  0.52];
+                const b2 = [side * 3.80, 0.96, -1.12];
+                const b3 = [side * 1.40, 0.96, -1.76];
+
+                const verts = [
+                    ...v0, ...v1, ...v2, ...v3,
+                    ...b0, ...b1, ...b2, ...b3
+                ];
+                let indices;
+                if (side === 1) {
+                    indices = [
+                        0, 1, 2, 0, 2, 3,
+                        4, 6, 5, 4, 7, 6,
+                        0, 4, 5, 0, 5, 1,
+                        1, 5, 6, 1, 6, 2,
+                        2, 6, 7, 2, 7, 3,
+                        3, 7, 4, 3, 4, 0
+                    ];
+                } else {
+                    indices = [
+                        0, 2, 1, 0, 3, 2,
+                        4, 5, 6, 4, 6, 7,
+                        0, 5, 4, 0, 1, 5,
+                        1, 6, 5, 1, 2, 6,
+                        2, 7, 6, 2, 3, 7,
+                        3, 4, 7, 3, 0, 4
+                    ];
+                }
+                innerWingGeo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+                innerWingGeo.setIndex(indices);
+                innerWingGeo.computeVertexNormals();
+                const innerMesh = new THREE.Mesh(innerWingGeo, f35DarkMat);
+                innerMesh.castShadow = true;
+                jet.add(innerMesh);
+
+                // Titanium Hinge Rib & Red Hydraulic Lock Pin
+                const hingeStrip = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.16, 1.8), foldHingeRedMat);
+                hingeStrip.position.set(side * 3.80, 1.02, -0.30);
+                jet.add(hingeStrip);
+            });
+
+            // Port wing national insignia
+            const insigniaDecal = new THREE.Mesh(
+                new THREE.PlaneGeometry(1.4, 0.7),
+                new THREE.MeshStandardMaterial({ map: usNavyInsigniaTex, transparent: true, roughness: 0.5 })
+            );
+            insigniaDecal.rotation.x = -Math.PI / 2;
+            insigniaDecal.position.set(2.55, 1.10, -0.35);
+            jet.add(insigniaDecal);
+
+            // 5. Precision Folding Outer Wing Panels (Continuous 35° Sweep to Cropped Tip)
+            const wingFoldPivots = [];
+            [-1, 1].forEach(side => {
+                const foldPivot = new THREE.Group();
+                foldPivot.position.set(side * 3.80, 1.02, 0);
+
+                const outerWingGeo = new THREE.BufferGeometry();
+                const w0 = [0,             0.06,  0.52]; // Hinge LE
+                const w1 = [side * 1.60,   0.06, -0.60]; // Tip LE (continues exact 35° sweep)
+                const w2 = [side * 1.60,   0.06, -1.55]; // Tip TE
+                const w3 = [0,             0.06, -1.12]; // Hinge TE
+                const ub0 = [0,           -0.06,  0.52];
+                const ub1 = [side * 1.60, -0.06, -0.60];
+                const ub2 = [side * 1.60, -0.06, -1.55];
+                const ub3 = [0,           -0.06, -1.12];
+
+                const verts = [
+                    ...w0, ...w1, ...w2, ...w3,
+                    ...ub0, ...ub1, ...ub2, ...ub3
+                ];
+                let indices;
+                if (side === 1) {
+                    indices = [
+                        0, 1, 2, 0, 2, 3,
+                        4, 6, 5, 4, 7, 6,
+                        0, 4, 5, 0, 5, 1,
+                        1, 5, 6, 1, 6, 2,
+                        2, 6, 7, 2, 7, 3,
+                        3, 7, 4, 3, 4, 0
+                    ];
+                } else {
+                    indices = [
+                        0, 2, 1, 0, 3, 2,
+                        4, 5, 6, 4, 6, 7,
+                        0, 5, 4, 0, 1, 5,
+                        1, 6, 5, 1, 2, 6,
+                        2, 7, 6, 2, 3, 7,
+                        3, 4, 7, 3, 0, 4
+                    ];
+                }
+                outerWingGeo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+                outerWingGeo.setIndex(indices);
+                outerWingGeo.computeVertexNormals();
+                const outerMesh = new THREE.Mesh(outerWingGeo, f35DarkMat);
+                outerMesh.castShadow = true;
+                foldPivot.add(outerMesh);
+
+                // Wingtip missile launch rail / radar sensor pod
+                const rail = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.12, 1.15), f35LightRamMat);
+                rail.position.set(side * 1.60, 0, -1.07);
+                foldPivot.add(rail);
+
+                foldPivot.rotation.z = foldedWings ? (side * 1.536) : 0;
+                jet.add(foldPivot);
+                wingFoldPivots.push({ pivot: foldPivot, side, maxAngle: 1.536 });
+            });
+            jet.userData.wingFoldPivots = wingFoldPivots;
+            jet.userData.wingFoldRatio = foldedWings ? 1.0 : 0.0;
+
+            // 6. Canted All-Moving Horizontal Stabilators (35° Sweep)
+            [-1.95, 1.95].forEach(side => {
+                const stabShape = new THREE.Shape();
+                stabShape.moveTo(0, 0.85);
+                stabShape.lineTo(side * 1.65, -0.30);
+                stabShape.lineTo(side * 1.65, -1.45);
+                stabShape.lineTo(0, -1.15);
+                stabShape.closePath();
+
+                const stabGeo = new THREE.ExtrudeGeometry(stabShape, { depth: 0.10, bevelEnabled: false });
+                stabGeo.rotateX(Math.PI / 2);
+                const hTail = new THREE.Mesh(stabGeo, f35DarkMat);
+                hTail.position.set(side * 0.45, 0.98, -2.80);
+                hTail.castShadow = true;
+                jet.add(hTail);
+            });
+
+            // 7. Twin Canted Vertical Stabilizers (20° Outward Cant)
+            [-1.22, 1.22].forEach(side => {
+                const finShape = new THREE.Shape();
+                finShape.moveTo(0, 0);
+                finShape.lineTo(0, 2.15);
+                finShape.lineTo(-1.50, 2.15);
+                finShape.lineTo(-2.55, 0);
+                finShape.closePath();
+
+                const finGeo = new THREE.ExtrudeGeometry(finShape, { depth: 0.12, bevelEnabled: false });
+                const vTail = new THREE.Mesh(finGeo, f35DarkMat);
+                vTail.rotation.y = Math.PI / 2;
+                vTail.rotation.x = side * 0.35;
+                vTail.position.set(side * 1.15, 1.05, -1.85);
+                vTail.castShadow = true;
+                jet.add(vTail);
+
+                const finInsignia = new THREE.Mesh(
+                    new THREE.PlaneGeometry(0.85, 0.42),
+                    new THREE.MeshStandardMaterial({ map: usNavyInsigniaTex, transparent: true, roughness: 0.5 })
+                );
+                finInsignia.position.set(side * 1.48 + (side > 0 ? 0.08 : -0.08), 1.95, -3.05);
+                finInsignia.rotation.y = side > 0 ? Math.PI / 2 : -Math.PI / 2;
+                finInsignia.rotation.z = side > 0 ? 0.35 : -0.35;
+                jet.add(finInsignia);
+            });
+
+            // 8. Pratt & Whitney F135 Low-Observable Serrated Stealth Nozzle
+            const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.58, 0.68, 1.45, 16), nozzleDarkMat);
+            nozzle.rotation.x = Math.PI / 2;
+            nozzle.position.set(0, 0.98, -4.25);
+            jet.add(nozzle);
+
+            const burner = new THREE.Mesh(
+                new THREE.ConeGeometry(0.55, 4.0, 14),
+                new THREE.MeshBasicMaterial({ color: 0xff7b00, transparent: true, opacity: 0.92 })
+            );
+            burner.rotation.x = -Math.PI / 2;
+            burner.position.set(0, 0.98, -6.3);
+            burner.visible = false;
+            jet.add(burner);
+            jet.userData.afterburners = [burner];
+
+            addLandingGear(jet, 3.4, 1.48, -0.8);
+            return jet;
+        }
+
+        // F/A-18E Super Hornet Strike Fighter
+        function createFA18({ foldedWings = false } = {}) {
+            const jet = new THREE.Group();
+
+            // Fuselage & spine
+            const body = new THREE.Mesh(new THREE.BoxGeometry(2.05, 0.88, 8.8), fa18GreyMat);
+            body.position.set(0, 0.98, 0);
+            body.castShadow = true;
+            jet.add(body);
+
+            const spine = new THREE.Mesh(new THREE.CylinderGeometry(0.56, 0.70, 6.0, 12), fa18GreyMat);
+            spine.rotation.x = Math.PI / 2;
+            spine.scale.set(1.12, 0.68, 1.0);
+            spine.position.set(0, 1.30, -0.4);
+            jet.add(spine);
+
+            // Rectangular Caret Intakes
+            [-1.16, 1.16].forEach(side => {
+                const caretIntake = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.65, 4.5), fa18NoseMat);
+                caretIntake.position.set(side, 0.74, 0.2);
+                caretIntake.rotation.z = side > 0 ? 0.22 : -0.22;
+                jet.add(caretIntake);
+            });
+
+            // Sweeping Leading Edge Extensions (LEX)
+            const lex = new THREE.Mesh(new THREE.BoxGeometry(3.45, 0.15, 5.2), fa18GreyMat);
+            lex.position.set(0, 1.08, 2.20);
+            jet.add(lex);
+
+            // Radome Nose Cone
+            const nose = new THREE.Mesh(new THREE.ConeGeometry(0.90, 4.4, 14), fa18NoseMat);
+            nose.rotation.x = Math.PI / 2;
+            nose.scale.set(1.0, 0.76, 1.0);
+            nose.position.set(0, 0.96, 6.25);
+            nose.castShadow = true;
+            jet.add(nose);
+
+            const canopy = new THREE.Mesh(new THREE.SphereGeometry(0.70, 14, 12), canopyBlueMat);
+            canopy.scale.set(0.76, 0.66, 3.35);
+            canopy.position.set(0, 1.48, 2.40);
+            jet.add(canopy);
+
+            // Main Wings with Wingtip Missile Rails
+            const wingShape = new THREE.Shape();
+            wingShape.moveTo(0, 1.85);
+            wingShape.lineTo(4.75, -0.45);
+            wingShape.lineTo(4.75, -2.05);
+            wingShape.lineTo(0, -2.05);
+            wingShape.lineTo(-4.75, -2.05);
+            wingShape.lineTo(-4.75, -0.45);
+            wingShape.closePath();
+
+            const wingGeo = new THREE.ExtrudeGeometry(wingShape, { depth: 0.15, bevelEnabled: false });
+            wingGeo.rotateX(Math.PI / 2);
+            const mainWings = new THREE.Mesh(wingGeo, fa18GreyMat);
+            mainWings.position.set(0, 1.04, -0.1);
+            mainWings.castShadow = true;
+            jet.add(mainWings);
+
+            const wingFoldPivots = [];
+            [-1, 1].forEach(side => {
+                const hinge = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.16, 1.6), foldHingeRedMat);
+                hinge.position.set(side * 4.72, 1.05, -1.20);
+                jet.add(hinge);
+
+                const foldPivot = new THREE.Group();
+                foldPivot.position.set(side * 4.75, 1.04, -1.20);
+                const tip = new THREE.Mesh(new THREE.BoxGeometry(1.65, 0.13, 1.75), fa18GreyMat);
+                tip.position.set(side * 0.80, 0, 0);
+                tip.castShadow = true;
+                foldPivot.add(tip);
+
+                // AIM-9X Sidewinder silhouette on wingtip rail
+                const missile = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 2.4, 8), radarWhiteMat);
+                missile.rotation.x = Math.PI / 2;
+                missile.position.set(side * 1.65, 0, 0.2);
+                foldPivot.add(missile);
+
+                foldPivot.rotation.z = foldedWings ? (side * 1.52) : 0;
+                jet.add(foldPivot);
+                wingFoldPivots.push({ pivot: foldPivot, side, maxAngle: 1.52 });
+
+                // Underwing fuel tanks
+                const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.24, 3.4, 12), fa18NoseMat);
+                tank.rotation.x = Math.PI / 2;
+                tank.position.set(side * 2.20, 0.60, -0.25);
+                tank.castShadow = true;
+                jet.add(tank);
+            });
+            jet.userData.wingFoldPivots = wingFoldPivots;
+            jet.userData.wingFoldRatio = foldedWings ? 1.0 : 0.0;
+
+            // Stabilators
+            [-1.75, 1.75].forEach(side => {
+                const stab = new THREE.Mesh(new THREE.BoxGeometry(1.95, 0.13, 1.90), fa18GreyMat);
+                stab.rotation.y = side > 0 ? -0.32 : 0.32;
+                stab.position.set(side, 0.94, -3.8);
+                jet.add(stab);
+            });
+
+            // Twin Canted Vertical Fins
+            [-1.08, 1.08].forEach(side => {
+                const vTail = new THREE.Mesh(new THREE.BoxGeometry(0.15, 2.15, 2.35), fa18GreyMat);
+                vTail.position.set(side, 1.90, -3.0);
+                vTail.rotation.z = side > 0 ? -0.24 : 0.24;
+                vTail.castShadow = true;
+                jet.add(vTail);
+
+                const tailCap = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.34, 2.0), tireBlackMat);
+                tailCap.position.set(side * 1.18, 2.82, -3.05);
+                tailCap.rotation.z = side > 0 ? -0.24 : 0.24;
+                jet.add(tailCap);
+            });
+
+            // Twin GE F414 Exhaust Nozzles
+            const burners = [];
+            [-0.52, 0.52].forEach(side => {
+                const noz = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.44, 1.1, 12), nozzleDarkMat);
+                noz.rotation.x = Math.PI / 2;
+                noz.position.set(side, 0.94, -4.55);
+                jet.add(noz);
+
+                const ab = new THREE.Mesh(
+                    new THREE.ConeGeometry(0.38, 3.6, 12),
+                    new THREE.MeshBasicMaterial({ color: 0xff8800, transparent: true, opacity: 0.92 })
+                );
+                ab.rotation.x = -Math.PI / 2;
+                ab.position.set(side, 0.94, -6.3);
+                ab.visible = false;
+                jet.add(ab);
+                burners.push(ab);
+            });
+            jet.userData.afterburners = burners;
+
+            addLandingGear(jet, 3.8, 1.4, -0.9);
+            return jet;
+        }
+
+        const spinningPropsAndDomes = [];
+
+        function createRotodomeTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#f8fafc';
+            ctx.fillRect(0, 0, 512, 512);
+
+            // High-contrast dark navy black quadrants
+            ctx.fillStyle = '#0f172a';
+            ctx.beginPath();
+            ctx.moveTo(256, 256);
+            ctx.lineTo(175, 16);
+            ctx.lineTo(337, 16);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.moveTo(256, 256);
+            ctx.lineTo(175, 496);
+            ctx.lineTo(337, 496);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.strokeStyle = '#64748b';
+            ctx.lineWidth = 10;
+            ctx.beginPath();
+            ctx.arc(256, 256, 248, 0, Math.PI * 2);
+            ctx.stroke();
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.colorSpace = THREE.SRGBColorSpace;
+            return tex;
+        }
+        const rotodomeTex = createRotodomeTexture();
+
+        // E-2D Advanced Hawkeye Airborne Early Warning
+        function createE2DHawkeye({ foldedWings = false } = {}) {
+            const awacs = new THREE.Group();
+
+            const body = new THREE.Mesh(new THREE.CylinderGeometry(1.15, 0.95, 11.6, 18), e2BodyMat);
+            body.rotation.x = Math.PI / 2;
+            body.position.set(0, 1.48, 0);
+            body.castShadow = true;
+            awacs.add(body);
+
+            const dorsalScoop = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.48, 5.4), e2BodyMat);
+            dorsalScoop.position.set(0, 2.52, 0.6);
+            awacs.add(dorsalScoop);
+
+            const nose = new THREE.Mesh(new THREE.SphereGeometry(1.10, 16, 14), e2BodyMat);
+            nose.scale.set(0.96, 0.88, 1.70);
+            nose.position.set(0, 1.40, 5.65);
+            awacs.add(nose);
+
+            const radomeTip = new THREE.Mesh(new THREE.SphereGeometry(0.66, 12, 10), tireBlackMat);
+            radomeTip.scale.set(1, 0.85, 1.35);
+            radomeTip.position.set(0, 1.30, 6.85);
+            awacs.add(radomeTip);
+
+            const cockpit = new THREE.Mesh(new THREE.BoxGeometry(1.68, 0.60, 1.6), canopyBlueMat);
+            cockpit.position.set(0, 1.88, 4.55);
+            awacs.add(cockpit);
+
+            // High Wing Assembly
+            const centerWing = new THREE.Mesh(new THREE.BoxGeometry(8.4, 0.28, 2.4), e2BodyMat);
+            centerWing.position.set(0, 2.32, 0.9);
+            centerWing.castShadow = true;
+            awacs.add(centerWing);
+
+            [-1, 1].forEach(side => {
+                const outerWing = new THREE.Mesh(new THREE.BoxGeometry(4.4, 0.24, 1.9), e2BodyMat);
+                outerWing.castShadow = true;
+                if (foldedWings) {
+                    outerWing.position.set(side * 1.58, 2.18, -2.25);
+                    outerWing.rotation.y = side * 1.52;
+                    outerWing.rotation.z = side * 1.25;
+                } else {
+                    outerWing.position.set(side * 6.2, 2.32, 0.85);
+                }
+                awacs.add(outerWing);
+            });
+
+            // Twin Turboprop Engines with 8-Blade NP2000 Scimitar Propellers
+            [-3.40, 3.40].forEach(side => {
+                const nacelle = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.50, 4.0, 14), e2BodyMat);
+                nacelle.rotation.x = Math.PI / 2;
+                nacelle.position.set(side, 2.06, 2.10);
+                nacelle.castShadow = true;
+                awacs.add(nacelle);
+
+                const scoop = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.38, 1.9), fa18NoseMat);
+                scoop.position.set(side, 1.66, 2.25);
+                awacs.add(scoop);
+
+                const propGroup = new THREE.Group();
+                propGroup.position.set(side, 2.06, 4.15);
+                const spinner = new THREE.Mesh(new THREE.ConeGeometry(0.36, 0.92, 14), radarWhiteMat);
+                spinner.rotation.x = Math.PI / 2;
+                spinner.position.z = 0.30;
+                propGroup.add(spinner);
+
+                // 8 curved scimitar blades
+                for (let b = 0; b < 8; b++) {
+                    const blade = new THREE.Mesh(new THREE.BoxGeometry(2.95, 0.18, 0.05), tireBlackMat);
+                    blade.rotation.z = (b * Math.PI) / 4;
+                    const tipStripe = new THREE.Mesh(new THREE.BoxGeometry(0.45, 0.19, 0.06), radarWhiteMat);
+                    tipStripe.position.x = 1.25;
+                    blade.add(tipStripe);
+                    propGroup.add(blade);
+                }
+                awacs.add(propGroup);
+                spinningPropsAndDomes.push({ mesh: propGroup, axis: 'z', speed: 22.0 });
+            });
+
+            // Rotodome Pylon Struts
+            [[-0.48, 0.68], [0.48, 0.68], [-0.48, -0.48], [0.48, -0.48]].forEach(([sx, sz]) => {
+                const strut = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.11, 1.60, 8), e2BodyMat);
+                strut.position.set(sx, 3.10, sz);
+                strut.rotation.z = sx * 0.22;
+                awacs.add(strut);
+            });
+
+            // 24-Foot Diameter Rotating Rotodome Dish
+            const rotodome = new THREE.Group();
+            rotodome.position.set(0, 3.92, 0.1);
+            const dishMat = new THREE.MeshStandardMaterial({ map: rotodomeTex, roughness: 0.32 });
+            const dish = new THREE.Mesh(new THREE.CylinderGeometry(4.05, 4.05, 0.68, 36), dishMat);
+            dish.scale.set(1, 0.68, 1);
+            dish.castShadow = true;
+            rotodome.add(dish);
+
+            // High-contrast quadrant pattern disc on top of rotodome dish
+            const topCap = new THREE.Mesh(new THREE.CircleGeometry(4.02, 36), dishMat);
+            topCap.rotation.x = -Math.PI / 2;
+            topCap.position.y = 0.35;
+            rotodome.add(topCap);
+
+            awacs.add(rotodome);
+            spinningPropsAndDomes.push({ mesh: rotodome, axis: 'y', speed: 1.25 });
+
+            // 4-Fin Empennage Assembly
+            const hTail = new THREE.Mesh(new THREE.BoxGeometry(6.0, 0.18, 1.70), e2BodyMat);
+            hTail.position.set(0, 2.05, -5.05);
+            awacs.add(hTail);
+            [-2.75, -0.95, 0.95, 2.75].forEach(tx => {
+                const vFin = new THREE.Mesh(new THREE.BoxGeometry(0.16, 2.15, 1.85), e2BodyMat);
+                vFin.position.set(tx, 2.22, -5.05);
+                vFin.castShadow = true;
+                awacs.add(vFin);
+
+                const finCap = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.30, 1.70), tireBlackMat);
+                finCap.position.set(tx, 3.22, -5.05);
+                awacs.add(finCap);
+            });
+
+            addLandingGear(awacs, 4.3, 2.25, -0.4);
+            return awacs;
+        }
+
+        const allHeliRotors = [];
+
+        // MH-60S Seahawk Naval Combat Helicopter
+        function createSeahawk() {
+            const heli = new THREE.Group();
+
+            const cabin = new THREE.Mesh(new THREE.BoxGeometry(2.20, 1.70, 6.6), heloDarkMat);
+            cabin.position.set(0, 1.40, 0.6);
+            cabin.castShadow = true;
+            heli.add(cabin);
+
+            // Tinted Windows & Cockpit Greenhouse
+            [-1.11, 1.11].forEach(side => {
+                const sideWin = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.60, 2.9), canopyBlueMat);
+                sideWin.position.set(side, 1.54, 0.9);
+                heli.add(sideWin);
+            });
+
+            const doghouse = new THREE.Mesh(new THREE.BoxGeometry(1.70, 0.68, 3.9), heloDarkMat);
+            doghouse.position.set(0, 2.42, 0.35);
+            heli.add(doghouse);
+
+            // Infrared Suppressor Exhaust Cowlings
+            [-0.58, 0.58].forEach(ex => {
+                const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.30, 0.95, 10), nozzleDarkMat);
+                exhaust.rotation.x = Math.PI / 2;
+                exhaust.position.set(ex, 2.36, -1.70);
+                heli.add(exhaust);
+            });
+
+            const nose = new THREE.Mesh(new THREE.SphereGeometry(1.08, 16, 12), heloDarkMat);
+            nose.scale.set(0.96, 0.80, 1.48);
+            nose.position.set(0, 1.24, 3.80);
+            heli.add(nose);
+
+            // Nose FLIR Electro-Optical Turret Ball
+            const flirBall = new THREE.Mesh(new THREE.SphereGeometry(0.30, 12, 10), nozzleDarkMat);
+            flirBall.position.set(0, 0.96, 5.05);
+            heli.add(flirBall);
+
+            const windshield = new THREE.Mesh(new THREE.BoxGeometry(1.96, 0.70, 1.40), canopyBlueMat);
+            windshield.position.set(0, 1.70, 3.30);
+            windshield.rotation.x = -0.24;
+            heli.add(windshield);
+
+            const tailBoom = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.88, 6.0), heloDarkMat);
+            tailBoom.position.set(0, 1.60, -4.6);
+            tailBoom.castShadow = true;
+            heli.add(tailBoom);
+
+            const tailPylon = new THREE.Mesh(new THREE.BoxGeometry(0.38, 2.30, 1.40), heloDarkMat);
+            tailPylon.position.set(0, 2.46, -7.2);
+            tailPylon.rotation.x = -0.18;
+            heli.add(tailPylon);
+
+            const stabilator = new THREE.Mesh(new THREE.BoxGeometry(3.40, 0.12, 0.92), heloDarkMat);
+            stabilator.position.set(0, 1.38, -7.35);
+            heli.add(stabilator);
+
+            // Landing Wheels & Sponsons
+            [-1.28, 1.28].forEach(side => {
+                const sponson = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.38, 1.45), heloDarkMat);
+                sponson.position.set(side * 0.95, 0.84, 1.15);
+                heli.add(sponson);
+
+                const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 0.24, 14), tireBlackMat);
+                wheel.rotation.z = Math.PI / 2;
+                wheel.position.set(side, 0.35, 1.2);
+                heli.add(wheel);
+            });
+
+            const tailWheel = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.19, 0.15, 10), tireBlackMat);
+            tailWheel.rotation.z = Math.PI / 2;
+            tailWheel.position.set(0, 0.25, -4.9);
+            heli.add(tailWheel);
+
+            // 4-Blade Main Rotor with Swashplate
+            const mainRotor = new THREE.Group();
+            mainRotor.position.set(0, 2.92, 0.85);
+            const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 0.46, 14), nozzleDarkMat);
+            mainRotor.add(hub);
+            for (let i = 0; i < 4; i++) {
+                const blade = new THREE.Mesh(new THREE.BoxGeometry(10.6, 0.06, 0.42), tireBlackMat);
+                blade.rotation.y = (i * Math.PI) / 2;
+                blade.castShadow = true;
+                mainRotor.add(blade);
+            }
+            const rotorBlur = new THREE.Mesh(
+                new THREE.RingGeometry(0.95, 5.3, 32),
+                new THREE.MeshBasicMaterial({ color: 0xcbd5e1, side: THREE.DoubleSide, transparent: true, opacity: 0.16 })
+            );
+            rotorBlur.rotation.x = Math.PI / 2;
+            mainRotor.add(rotorBlur);
+            heli.add(mainRotor);
+
+            // Canted 4-Blade Tail Rotor
+            const tailRotor = new THREE.Group();
+            tailRotor.position.set(0.36, 3.02, -7.42);
+            for (let i = 0; i < 4; i++) {
+                const tBlade = new THREE.Mesh(new THREE.BoxGeometry(0.06, 2.30, 0.22), tireBlackMat);
+                tBlade.rotation.x = (i * Math.PI) / 4;
+                tailRotor.add(tBlade);
+            }
+            heli.add(tailRotor);
+
+            allHeliRotors.push({ mainRotor, tailRotor, speed: 17.5 });
+            return heli;
+        }
+
+        // Flight Deck Tow Mule (A/S32A-31A)
+        function createDeckTractor(colorHex = 0xeab308) {
+            const tug = new THREE.Group();
+            const bodyMat = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.40, metalness: 0.20 });
+
+            const chassis = new THREE.Mesh(new THREE.BoxGeometry(1.95, 0.75, 3.50), bodyMat);
+            chassis.position.y = 0.58;
+            chassis.castShadow = true;
+            tug.add(chassis);
+
+            const hood = new THREE.Mesh(new THREE.BoxGeometry(1.78, 0.30, 1.40), bodyMat);
+            hood.position.set(0, 1.00, 0.88);
+            hood.rotation.x = 0.12;
+            tug.add(hood);
+
+            const grille = new THREE.Mesh(new THREE.BoxGeometry(1.38, 0.48, 0.08), tireBlackMat);
+            grille.position.set(0, 0.68, 1.74);
+            tug.add(grille);
+
+            const cab = new THREE.Mesh(new THREE.BoxGeometry(1.44, 0.50, 1.28), tireBlackMat);
+            cab.position.set(0, 1.04, -0.45);
+            tug.add(cab);
+
+            // Steering wheel & driver console
+            const wheelRim = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.03, 6, 12), nozzleDarkMat);
+            wheelRim.position.set(0.35, 1.30, 0.1);
+            wheelRim.rotation.x = -0.55;
+            tug.add(wheelRim);
+
+            // Chunky black rubber tires with white hubcaps
+            [[-0.94, 1.05], [0.94, 1.05], [-0.94, -1.05], [0.94, -1.05]].forEach(([wx, wz]) => {
+                const tire = new THREE.Mesh(new THREE.CylinderGeometry(0.39, 0.39, 0.29, 14), tireBlackMat);
+                tire.rotation.z = Math.PI / 2;
+                tire.position.set(wx, 0.39, wz);
+                tire.castShadow = true;
+                tug.add(tire);
+
+                const rim = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.19, 0.31, 10), radarWhiteMat);
+                rim.rotation.z = Math.PI / 2;
+                rim.position.set(wx, 0.39, wz);
+                tug.add(rim);
+            });
+
+            return tug;
+        }
+
+        // 7. PERSISTENT AIR WING & FLIGHT DECK CREW
+        // ============================================================================
+        const deckAssetsGroup = new THREE.Group();
+        deckAssetsGroup.position.y = DECK_Y;
+        carrierGroup.add(deckAssetsGroup);
+
+        const selectionBracket = new THREE.Group();
+        const bracketMat = new THREE.LineBasicMaterial({ color: 0x38bdf8 });
+        const bSize = 6.2;
+        const bCorner = 1.8;
+        [[-1, -1], [1, -1], [1, 1], [-1, 1]].forEach(([sx, sz]) => {
+            const pts = [
+                new THREE.Vector3(sx * bSize, 0.35, sz * (bSize - bCorner)),
+                new THREE.Vector3(sx * bSize, 0.35, sz * bSize),
+                new THREE.Vector3(sx * (bSize - bCorner), 0.35, sz * bSize)
+            ];
+            selectionBracket.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), bracketMat));
+        });
+        deckAssetsGroup.add(selectionBracket);
+
+        const airWingUnits = [];
+        let selectedUnit = null;
+
+        function registerPersistentAircraft({
+            id, callsign, type, label, homeX, homeZ, homeRot, homeFolded = true, canCycleJet = true, catPref = 1
+        }) {
+            let mesh;
+            if (type === 'F-35C') mesh = createF35C({ foldedWings: homeFolded });
+            else if (type === 'F/A-18E') mesh = createFA18({ foldedWings: homeFolded });
+            else if (type === 'E-2D') mesh = createE2DHawkeye({ foldedWings: homeFolded });
+            else mesh = createSeahawk();
+
+            mesh.position.set(homeX, 0, homeZ);
+            mesh.rotation.set(0, homeRot, 0);
+            deckAssetsGroup.add(mesh);
+
+            const unit = {
+                id,
+                callsign,
+                type,
+                label,
+                mesh,
+                homePos: new THREE.Vector3(homeX, 0, homeZ),
+                homeRot,
+                homeFolded,
+                canCycleJet,
+                catIndex: catPref,
+                state: 'PARKED',
+                stateTimer: 0,
+                patrolAngle: Math.random() * Math.PI * 2,
+                patrolLaps: 0,
+                taxiCurve: null,
+                taxiDuration: 6.0,
+                taxiTargetRot: homeRot,
+                currentYaw: homeRot
+            };
+            mesh.userData.unit = unit;
+            airWingUnits.push(unit);
+            return unit;
+        }
+
+        const starboardEdgeF35Specs = [
+            { cs: 'VMFA-211 #201', x: -13.5, z: 108, rot: 0.92 - Math.PI, cat: 1 },
+            { cs: 'VMFA-211 #202', x: -17.5, z:  91, rot: 0.95 - Math.PI, cat: 1 },
+            { cs: 'VMFA-211 #203', x: -21.5, z:  74, rot: 0.96 - Math.PI, cat: 1 },
+            { cs: 'VMFA-211 #204', x: -25.5, z:  56, rot: 0.98 - Math.PI, cat: 1 },
+            { cs: 'VMFA-211 #205', x: -29.0, z:  38, rot: 1.00 - Math.PI, cat: 2 },
+            { cs: 'VMFA-211 #206', x: -30.5, z:  19, rot: 1.02 - Math.PI, cat: 2 },
+            { cs: 'VMFA-211 #207', x: -30.5, z:   1, rot: 1.00 - Math.PI, cat: 2 }
+        ];
+        starboardEdgeF35Specs.forEach((s, idx) => {
+            registerPersistentAircraft({
+                id: `f35-stbd-${idx}`,
+                callsign: s.cs,
+                type: 'F-35C',
+                label: 'F-35C Lightning II',
+                homeX: s.x,
+                homeZ: s.z,
+                homeRot: s.rot,
+                homeFolded: true,
+                canCycleJet: true,
+                catPref: s.cat
+            });
+        });
+
+        const midDeckSpecs = [
+            { cs: 'VFA-147 #301', type: 'F-35C',   folded: false, x:  7.8,  z:  78, rot:  0.00, cat: 2 },
+            { cs: 'VFA-147 #302', type: 'F-35C',   folded: false, x: -6.2,  z:  32, rot:  0.14, cat: 1 },
+            { cs: 'VFA-31 #101',  type: 'F/A-18E', folded: true,  x: -20.5, z: -14, rot:  0.65, cat: 1 },
+            { cs: 'VFA-31 #102',  type: 'F/A-18E', folded: true,  x: -21.5, z: -29, rot:  0.72, cat: 2 }
+        ];
+        midDeckSpecs.forEach((s, idx) => {
+            registerPersistentAircraft({
+                id: `mid-jet-${idx}`,
+                callsign: s.cs,
+                type: s.type,
+                label: s.type === 'F-35C' ? 'F-35C Lightning II' : 'F/A-18E Super Hornet',
+                homeX: s.x,
+                homeZ: s.z,
+                homeRot: s.rot,
+                homeFolded: s.folded,
+                canCycleJet: true,
+                catPref: s.cat
+            });
+        });
+
+        const aftStarboardSpecs = [
+            { cs: 'VFA-147 #303', type: 'F-35C',   x: -27.5, z: -82,  rot: 0.95 - Math.PI, cat: 1 },
+            { cs: 'VFA-147 #304', type: 'F-35C',   x: -27.0, z: -99,  rot: 0.95 - Math.PI, cat: 2 },
+            { cs: 'VFA-87 #401',  type: 'F/A-18E', x: -25.0, z: -116, rot: 1.02 - Math.PI, cat: 1 },
+            { cs: 'VFA-87 #402',  type: 'F/A-18E', x: -21.5, z: -133, rot: 1.10 - Math.PI, cat: 2 }
+        ];
+        aftStarboardSpecs.forEach((s, idx) => {
+            registerPersistentAircraft({
+                id: `aft-stbd-${idx}`,
+                callsign: s.cs,
+                type: s.type,
+                label: s.type === 'F-35C' ? 'F-35C Lightning II' : 'F/A-18E Super Hornet',
+                homeX: s.x,
+                homeZ: s.z,
+                homeRot: s.rot,
+                homeFolded: true,
+                canCycleJet: true,
+                catPref: s.cat
+            });
+        });
+
+        registerPersistentAircraft({
+            id: 'awacs-1',
+            callsign: 'VAW-124 #601',
+            type: 'E-2D',
+            label: 'E-2D Adv. Hawkeye',
+            homeX: 13.5,
+            homeZ: -96,
+            homeRot: -0.48,
+            homeFolded: false,
+            canCycleJet: false
+        });
+        registerPersistentAircraft({
+            id: 'awacs-2',
+            callsign: 'VAW-124 #602',
+            type: 'E-2D',
+            label: 'E-2D Adv. Hawkeye',
+            homeX: 19.5,
+            homeZ: -116,
+            homeRot: -0.58,
+            homeFolded: true,
+            canCycleJet: false
+        });
+
+        const portAftHornets = [
+            { cs: 'VFA-213 #501', x: 25.5, z: -72, rot: -0.78, cat: 2 },
+            { cs: 'VFA-213 #502', x: 30.5, z: -50, rot: -0.82, cat: 2 }
+        ];
+        portAftHornets.forEach((s, idx) => {
+            registerPersistentAircraft({
+                id: `port-hornet-${idx}`,
+                callsign: s.cs,
+                type: 'F/A-18E',
+                label: 'F/A-18E Super Hornet',
+                homeX: s.x,
+                homeZ: s.z,
+                homeRot: s.rot,
+                homeFolded: true,
+                canCycleJet: true,
+                catPref: s.cat
+            });
+        });
+
+        const seahawkSpecs = [
+            { cs: 'HSC-9 #610', x: 12.5, z:  22, rot: -0.25 },
+            { cs: 'HSC-9 #611', x: 18.5, z:  -4, rot: -0.25 },
+            { cs: 'HSC-9 #612', x: 25.5, z:  24, rot: -0.25 }
+        ];
+        seahawkSpecs.forEach((s, idx) => {
+            registerPersistentAircraft({
+                id: `seahawk-${idx}`,
+                callsign: s.cs,
+                type: 'MH-60S',
+                label: 'MH-60S Seahawk',
+                homeX: s.x,
+                homeZ: s.z,
+                homeRot: s.rot,
+                homeFolded: false,
+                canCycleJet: false
+            });
+        });
+
+        const deckObstacleList = [{ x: -29.0, z: -56.0, radius: 13.5 }];
+
+        for (let z = -68; z <= -38; z += 4.2) {
+            const isWhite = (Math.abs(Math.round(z)) % 8 === 0);
+            const vehicle = createDeckTractor(isWhite ? 0xf8fafc : 0xeab308);
+            vehicle.position.set(-24.2, 0, z);
+            vehicle.rotation.y = Math.PI / 2;
+            deckAssetsGroup.add(vehicle);
+            deckObstacleList.push({ x: -24.2, z, radius: 3.2 });
+        }
+
+        const deckTugSpots = [
+            { color: 0xeab308, x: -1.5,  z: -24, rot: 0.2 },
+            { color: 0xeab308, x:  9.5,  z: -52, rot: -0.3 },
+            { color: 0xf8fafc, x: -14.5, z:  82, rot: 0.8 },
+            { color: 0xf8fafc, x: -16.5, z:  64, rot: 0.4 },
+            { color: 0xeab308, x:  36.5, z:  12, rot: -0.2 }
+        ];
+        deckTugSpots.forEach(t => {
+            const tug = createDeckTractor(t.color);
+            tug.position.set(t.x, 0, t.z);
+            tug.rotation.y = t.rot;
+            deckAssetsGroup.add(tug);
+            deckObstacleList.push({ x: t.x, z: t.z, radius: 3.5 });
+        });
+
+        // Navy Personnel ("Skittles")
+        const crewRoleSpecs = [
+            { role: 'DIRECTOR', jersey: 0xeab308, vest: 0xfacc15, helmet: 0xeab308, pose: 'MARSHAL' },
+            { role: 'CAT_CREW', jersey: 0x16a34a, vest: 0x15803d, helmet: 0x16a34a, pose: 'INSPECT' },
+            { role: 'SAFETY',   jersey: 0xf8fafc, vest: 0xe2e8f0, helmet: 0xf8fafc, pose: 'CLIPBOARD' },
+            { role: 'CHOCKS',   jersey: 0x2563eb, vest: 0x1d4ed8, helmet: 0x2563eb, pose: 'CARRY' },
+            { role: 'ORDNANCE', jersey: 0xdc2626, vest: 0xb91c1c, helmet: 0xdc2626, pose: 'WALK' },
+            { role: 'FUELS',    jersey: 0x9333ea, vest: 0x7e22ce, helmet: 0x9333ea, pose: 'WALK' }
+        ];
+
+        const crewPantsMat = new THREE.MeshStandardMaterial({ color: 0x172554, roughness: 0.78 });
+        const crewBootMat  = new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.85 });
+        const crewSkinMat  = new THREE.MeshStandardMaterial({ color: 0xd6a786, roughness: 0.65 });
+        const crewVisorMat = new THREE.MeshStandardMaterial({ color: 0x090d16, roughness: 0.15, metalness: 0.85 });
+        const wandGlowMat  = new THREE.MeshBasicMaterial({ color: 0xfde047 });
+
+        function createNavyPersonnel(spec) {
+            const person = new THREE.Group();
+            const jerseyMat = new THREE.MeshStandardMaterial({ color: spec.jersey, roughness: 0.62 });
+            const vestMat   = new THREE.MeshStandardMaterial({ color: spec.vest,   roughness: 0.52 });
+            const helmetMat = new THREE.MeshStandardMaterial({ color: spec.helmet, roughness: 0.38 });
+
+            const leftLeg = new THREE.Group();
+            leftLeg.position.set(-0.11, 0.72, 0);
+            const lThigh = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.075, 0.62, 8), crewPantsMat);
+            lThigh.position.y = -0.31;
+            lThigh.castShadow = true;
+            leftLeg.add(lThigh);
+            const lBoot = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.12, 0.24), crewBootMat);
+            lBoot.position.set(0, -0.66, 0.04);
+            leftLeg.add(lBoot);
+            person.add(leftLeg);
+
+            const rightLeg = new THREE.Group();
+            rightLeg.position.set(0.11, 0.72, 0);
+            const rThigh = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.075, 0.62, 8), crewPantsMat);
+            rThigh.position.y = -0.31;
+            rThigh.castShadow = true;
+            rightLeg.add(rThigh);
+            const rBoot = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.12, 0.24), crewBootMat);
+            rBoot.position.set(0, -0.66, 0.04);
+            rightLeg.add(rBoot);
+            person.add(rightLeg);
+
+            const torso = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.56, 0.22), jerseyMat);
+            torso.position.set(0, 1.00, 0);
+            torso.castShadow = true;
+            person.add(torso);
+
+            const floatVest = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.44, 0.27), vestMat);
+            floatVest.position.set(0, 1.03, 0);
+            person.add(floatVest);
+
+            const reflectTape = new THREE.Mesh(new THREE.BoxGeometry(0.43, 0.05, 0.28), radarWhiteMat);
+            reflectTape.position.set(0, 1.14, 0);
+            person.add(reflectTape);
+
+            const headGroup = new THREE.Group();
+            headGroup.position.set(0, 1.42, 0);
+
+            const head = new THREE.Mesh(new THREE.SphereGeometry(0.13, 10, 10), crewSkinMat);
+            headGroup.add(head);
+
+            const cranial = new THREE.Mesh(new THREE.SphereGeometry(0.155, 10, 10), helmetMat);
+            cranial.position.set(0, 0.02, -0.01);
+            cranial.scale.set(1.0, 1.05, 1.08);
+            cranial.castShadow = true;
+            headGroup.add(cranial);
+
+            const goggles = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.08, 0.14), crewVisorMat);
+            goggles.position.set(0, 0.02, 0.10);
+            headGroup.add(goggles);
+
+            [-0.16, 0.16].forEach(ex => {
+                const earCup = new THREE.Mesh(new THREE.SphereGeometry(0.065, 8, 8), crewBootMat);
+                earCup.scale.set(0.65, 1.15, 0.9);
+                earCup.position.set(ex, 0.0, 0.0);
+                headGroup.add(earCup);
+            });
+            person.add(headGroup);
+
+            const leftArm = new THREE.Group();
+            leftArm.position.set(-0.25, 1.22, 0);
+            const lSleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.055, 0.48, 8), jerseyMat);
+            lSleeve.position.y = -0.22;
+            leftArm.add(lSleeve);
+
+            const rightArm = new THREE.Group();
+            rightArm.position.set(0.25, 1.22, 0);
+            const rSleeve = new THREE.Mesh(new THREE.CylinderGeometry(0.065, 0.055, 0.48, 8), jerseyMat);
+            rSleeve.position.y = -0.22;
+            rightArm.add(rSleeve);
+
+            if (spec.pose === 'MARSHAL') {
+                [leftArm, rightArm].forEach(arm => {
+                    const wand = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.36, 6), wandGlowMat);
+                    wand.position.set(0, -0.52, 0.06);
+                    wand.rotation.x = 0.35;
+                    arm.add(wand);
+                });
+            } else if (spec.pose === 'CARRY') {
+                const chock = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.14, 0.32), wandGlowMat);
+                chock.position.set(0, -0.46, 0.08);
+                rightArm.add(chock);
+            }
+
+            person.add(leftArm);
+            person.add(rightArm);
+            person.scale.setScalar(1.08);
+            person.userData.limbs = { leftLeg, rightLeg, leftArm, rightArm, headGroup, pose: spec.pose };
+            return person;
+        }
+
+        const deckCrewList = [];
+        const strategicCrewZones = [
+            { xMin: -12, xMax:  4, zMin:  15, zMax: 112, count: 34 },
+            { xMin: -15, xMax: 14, zMin: 112, zMax: 146, count: 12 },
+            { xMin:  -6, xMax: 22, zMin: -32, zMax:  32, count: 18 },
+            { xMin: -16, xMax: 18, zMin: -98, zMax: -35, count: 14 }
+        ];
+
+        let crewCounter = 0;
+        strategicCrewZones.forEach(zone => {
+            for (let i = 0; i < zone.count; i++) {
+                const spec = crewRoleSpecs[crewCounter % crewRoleSpecs.length];
+                crewCounter++;
+                const crew = createNavyPersonnel(spec);
+
+                const bx = zone.xMin + Math.random() * (zone.xMax - zone.xMin);
+                const bz = zone.zMin + Math.random() * (zone.zMax - zone.zMin);
+                const initRot = Math.random() * Math.PI * 2;
+                crew.position.set(bx, 0, bz);
+                crew.rotation.y = initRot;
+                deckAssetsGroup.add(crew);
+
+                const isStationary = (spec.pose === 'MARSHAL' || spec.pose === 'CLIPBOARD') && Math.random() < 0.65;
+                deckCrewList.push({
+                    mesh: crew,
+                    baseX: bx,
+                    baseZ: bz,
+                    baseRot: initRot,
+                    stationary: isStationary,
+                    radius: isStationary ? 0.12 : (0.9 + Math.random() * 2.2),
+                    speed: 0.75 + Math.random() * 1.15,
+                    phase: Math.random() * Math.PI * 2
+                });
+            }
+        });
+
+        // ============================================================================
+        // 8. JBD & ARRESTING GEAR
+        // ============================================================================
+        function createJBD(x, z, rotY) {
+            const group = new THREE.Group();
+            group.position.set(x, DECK_Y + 0.06, z);
+            group.rotation.y = rotY;
+
+            const panelPivot = new THREE.Group();
+            panelPivot.position.set(0, 0.05, 2.2);
+            const panel = new THREE.Mesh(
+                new THREE.BoxGeometry(9.6, 0.32, 4.4),
+                new THREE.MeshStandardMaterial({ color: 0x3b424d, roughness: 0.6, metalness: 0.35 })
+            );
+            panel.position.set(0, 0, -2.2);
+            panel.castShadow = true;
+            panelPivot.add(panel);
+
+            const hazardEdge = new THREE.Mesh(
+                new THREE.BoxGeometry(9.7, 0.34, 0.4),
+                new THREE.MeshStandardMaterial({ color: 0xfacc15 })
+            );
+            hazardEdge.position.set(0, 0, -4.2);
+            panelPivot.add(hazardEdge);
+
+            group.add(panelPivot);
+            carrierGroup.add(group);
+            return { panelPivot, targetAngle: 0, currentAngle: 0 };
+        }
+
+        const jbdCat1 = createJBD(-7.5, 44, 0.01);
+        const jbdCat2 = createJBD( 8.5, 38, -0.01);
+
+        const wireMat = new THREE.LineBasicMaterial({ color: 0x1e293b, linewidth: 2 });
+        const wirePts = [
+            new THREE.Vector3(-8.5, 0.14, -95),
+            new THREE.Vector3( 3.5, 0.14, -98),
+            new THREE.Vector3(15.5, 0.14, -101)
+        ];
+        const wireGeo = new THREE.BufferGeometry().setFromPoints(wirePts);
+        const arrestingWireLine = new THREE.Line(wireGeo, wireMat);
+        deckAssetsGroup.add(arrestingWireLine);
+
+        // ============================================================================
+        // 9. PARTICLES
+        // ============================================================================
+        const particles = [];
+        const puffGeo = new THREE.SphereGeometry(0.65, 7, 7);
+
+        function spawnParticle(pos, vel, s0, s1, maxLife, colorHex = 0xf8fafc, alpha0 = 0.45) {
+            const mat = new THREE.MeshBasicMaterial({
+                color: colorHex,
+                transparent: true,
+                opacity: alpha0,
+                depthWrite: false
+            });
+            const m = new THREE.Mesh(puffGeo, mat);
+            m.position.copy(pos);
+            m.scale.setScalar(s0);
+            carrierGroup.add(m);
+            particles.push({ mesh: m, vel: vel.clone(), s0, s1, life: 0, maxLife, alpha0 });
+        }
+
+        function updateParticles(dt) {
+            for (let i = particles.length - 1; i >= 0; i--) {
+                const p = particles[i];
+                p.life += dt;
+                if (p.life >= p.maxLife) {
+                    carrierGroup.remove(p.mesh);
+                    p.mesh.material.dispose();
+                    particles.splice(i, 1);
+                    continue;
+                }
+                const t = p.life / p.maxLife;
+                p.mesh.position.addScaledVector(p.vel, dt);
+                p.mesh.scale.setScalar(THREE.MathUtils.lerp(p.s0, p.s1, t));
+                p.mesh.material.opacity = p.alpha0 * (1.0 - t);
+            }
+        }
+
+        // ============================================================================
+        // 10. FLIGHT OPS & TAXI ROUTE PLANNER
+        // ============================================================================
+        const RUNWAY_DIR = new THREE.Vector2(36.5 - (-4.5), 42.0 - (-152.0)).normalize();
+        const RUNWAY_YAW = Math.atan2(RUNWAY_DIR.x, RUNWAY_DIR.y);
+
+        function isCatapultBusy(catIdx) {
+            return airWingUnits.some(u =>
+                u.catIndex === catIdx &&
+                (u.state === 'TAXI_TO_CAT' || u.state === 'PRE_LAUNCH' || u.state === 'LAUNCHING')
+            );
+        }
+
+        function isLandingStripBusy() {
+            return airWingUnits.some(u =>
+                u.state === 'APPROACH' || u.state === 'TOUCHDOWN_ROLLOUT' || u.state === 'TAXI_TO_PARK'
+            );
+        }
+
+        function gatherDynamicDeckObstacles(excludeUnit) {
+            const obs = deckObstacleList.map(o => ({ x: o.x, z: o.z, r: o.radius }));
+            airWingUnits.forEach(other => {
+                if (other === excludeUnit) return;
+                if (
+                    other.state === 'PARKED' ||
+                    other.state === 'TAXI_TO_CAT' ||
+                    other.state === 'PRE_LAUNCH' ||
+                    other.state === 'TAXI_TO_PARK' ||
+                    other.state === 'TOUCHDOWN_ROLLOUT'
+                ) {
+                    const rad = other.type === 'E-2D' ? 8.5 : 6.4;
+                    obs.push({ x: other.mesh.position.x, z: other.mesh.position.z, r: rad });
+                }
+            });
+            if (jbdCat1.targetAngle > 0.1) obs.push({ x: -7.5, z: 44.0, r: 5.8 });
+            if (jbdCat2.targetAngle > 0.1) obs.push({ x:  8.5, z: 38.0, r: 5.8 });
+            return obs;
+        }
+
+        function relaxControlPointsAgainstObstacles(pts, obstacles, iterations = 6) {
+            for (let iter = 0; iter < iterations; iter++) {
+                for (let i = 2; i < pts.length - 2; i++) {
+                    const p = pts[i];
+                    obstacles.forEach(ob => {
+                        const dx = p.x - ob.x;
+                        const dz = p.z - ob.z;
+                        const dist = Math.hypot(dx, dz);
+                        const minClearance = ob.r + 3.6;
+                        if (dist < minClearance && dist > 0.001) {
+                            const push = (minClearance - dist) * 0.65;
+                            p.x += (dx / dist) * push;
+                            p.z += (dz / dist) * push;
+                        }
+                    });
+                    const prev = pts[i - 1];
+                    const next = pts[i + 1];
+                    p.x = THREE.MathUtils.lerp(p.x, (prev.x + next.x) * 0.5, 0.25);
+                    p.z = THREE.MathUtils.lerp(p.z, (prev.z + next.z) * 0.5, 0.25);
+
+                    p.x = THREE.MathUtils.clamp(p.x, -20.5, 22.0);
+                    p.z = THREE.MathUtils.clamp(p.z, -125.0, 130.0);
+                }
+            }
+        }
+
+        function planTaxiRouteToCatapult(unit, chosenCat) {
+            const startPos = unit.mesh.position.clone();
+            const startYaw = unit.mesh.rotation.y;
+            const fwdDir = new THREE.Vector3(Math.sin(startYaw), 0, Math.cos(startYaw));
+
+            const catX = chosenCat === 1 ? -7.5 : 8.5;
+            const catZ = chosenCat === 1 ? 52.0 : 46.0;
+
+            const pullOutDist = 8.5;
+            const p1 = startPos.clone().addScaledVector(fwdDir, pullOutDist);
+            p1.x = THREE.MathUtils.clamp(p1.x, -21.0, 22.0);
+
+            const controlPts = [startPos.clone(), p1];
+            const corridorX = chosenCat === 1 ? -4.2 : 2.8;
+
+            if (p1.z < catZ - 14.0) {
+                const zStep1 = THREE.MathUtils.lerp(p1.z, catZ - 16.0, 0.35);
+                const zStep2 = THREE.MathUtils.lerp(p1.z, catZ - 16.0, 0.72);
+                controlPts.push(new THREE.Vector3(corridorX, 0, zStep1));
+                controlPts.push(new THREE.Vector3(corridorX, 0, zStep2));
+            } else if (p1.z > catZ - 4.0) {
+                const turnX = chosenCat === 1 ? -1.5 : 1.5;
+                controlPts.push(new THREE.Vector3(turnX, 0, Math.max(p1.z - 14.0, catZ - 12.0)));
+                controlPts.push(new THREE.Vector3(catX,  0, catZ - 15.0));
+            }
+
+            const leadIn = new THREE.Vector3(catX, 0, catZ - 9.5);
+            const endPos = new THREE.Vector3(catX, 0, catZ);
+            controlPts.push(leadIn, endPos);
+
+            const obstacles = gatherDynamicDeckObstacles(unit);
+            relaxControlPointsAgainstObstacles(controlPts, obstacles, 6);
+
+            const curve = new THREE.CatmullRomCurve3(controlPts, false, 'centripetal', 0.5);
+            const totalLen = curve.getLength();
+            const taxiSpeed = 13.5;
+            unit.taxiCurve = curve;
+            unit.taxiDuration = Math.max(4.8, totalLen / taxiSpeed);
+            unit.taxiTargetRot = 0.0;
+            unit.currentYaw = startYaw;
+        }
+
+        function planTaxiRouteToPark(unit) {
+            const startPos = unit.mesh.position.clone();
+            const startYaw = unit.mesh.rotation.y;
+            const fwdDir = new THREE.Vector3(Math.sin(startYaw), 0, Math.cos(startYaw));
+
+            const homePos = unit.homePos.clone();
+            const homeYaw = unit.homeRot;
+            const homeDir = new THREE.Vector3(Math.sin(homeYaw), 0, Math.cos(homeYaw));
+
+            const p1 = startPos.clone().addScaledVector(fwdDir, 10.0);
+            const controlPts = [startPos.clone(), p1];
+
+            const streetX = homePos.x < 0 ? -5.0 : 4.5;
+            const approachPos = homePos.clone().addScaledVector(homeDir, -9.5);
+            approachPos.x = THREE.MathUtils.clamp(approachPos.x, -21.0, 21.0);
+
+            const midZ1 = THREE.MathUtils.lerp(p1.z, approachPos.z, 0.35);
+            const midZ2 = THREE.MathUtils.lerp(p1.z, approachPos.z, 0.72);
+            controlPts.push(new THREE.Vector3(streetX, 0, midZ1));
+            controlPts.push(new THREE.Vector3(streetX, 0, midZ2));
+            controlPts.push(approachPos, homePos);
+
+            const obstacles = gatherDynamicDeckObstacles(unit);
+            relaxControlPointsAgainstObstacles(controlPts, obstacles, 6);
+
+            const curve = new THREE.CatmullRomCurve3(controlPts, false, 'centripetal', 0.5);
+            const totalLen = curve.getLength();
+            const taxiSpeed = 13.5;
+            unit.taxiCurve = curve;
+            unit.taxiDuration = Math.max(5.0, totalLen / taxiSpeed);
+            unit.taxiTargetRot = homeYaw;
+            unit.currentYaw = startYaw;
+        }
+
+        function stepAircraftAlongTaxiSpline(unit, dt) {
+            const m = unit.mesh;
+            const dur = unit.taxiDuration || 6.0;
+            const rawT = Math.min(unit.stateTimer / dur, 1.0);
+            const s = rawT * rawT * (3.0 - 2.0 * rawT);
+
+            if (unit.taxiCurve) {
+                const pos = unit.taxiCurve.getPointAt(s);
+                const tan = unit.taxiCurve.getTangentAt(s);
+                m.position.copy(pos);
+
+                let desiredYaw = Math.atan2(tan.x, tan.z);
+                if (rawT > 0.88) {
+                    const blend = (rawT - 0.88) / 0.12;
+                    desiredYaw = lerpYaw(desiredYaw, unit.taxiTargetRot, blend);
+                }
+
+                const prevYaw = unit.currentYaw;
+                unit.currentYaw = lerpYaw(unit.currentYaw, desiredYaw, Math.min(1.0, dt * 8.5));
+                const yawRate = angleDiff(prevYaw, unit.currentYaw) / Math.max(dt, 0.001);
+
+                const turnRoll = THREE.MathUtils.clamp(-yawRate * 0.018, -0.04, 0.04);
+                const brakePitch = rawT > 0.85 ? Math.sin(((rawT - 0.85) / 0.15) * Math.PI) * 0.018 : 0.0;
+                m.rotation.set(brakePitch, unit.currentYaw, turnRoll);
+            }
+            return rawT;
+        }
+
+        const rosterListEl = document.getElementById('roster-list');
+        const selCallsignEl = document.getElementById('sel-callsign');
+        const selTypeEl = document.getElementById('sel-type');
+        const selStateEl = document.getElementById('sel-state');
+        const btnUnitAction = document.getElementById('btn-unit-action');
+        const btnUnitFollow = document.getElementById('btn-unit-follow');
+
+        function commandJetLaunch(unit) {
+            if (!unit || !unit.canCycleJet || unit.state !== 'PARKED') return false;
+            let chosenCat = unit.catIndex;
+            if (isCatapultBusy(chosenCat)) {
+                chosenCat = chosenCat === 1 ? 2 : 1;
+                if (isCatapultBusy(chosenCat)) {
+                    setStatusLog(`PRI-FLY: BOTH CATAPULTS OCCUPIED — STAND BY FOR ${unit.callsign}`);
+                    return false;
+                }
+            }
+            unit.catIndex = chosenCat;
+            unit.state = 'TAXI_TO_CAT';
+            unit.stateTimer = 0;
+            planTaxiRouteToCatapult(unit, chosenCat);
+            setStatusLog(`${unit.callsign} (${unit.type}): TAXIING TO CAT ${chosenCat}`);
+            renderRosterUI();
+            return true;
+        }
+
+        function commandJetRecovery(unit) {
+            if (!unit || !unit.canCycleJet || unit.state !== 'AIRBORNE_PATROL') return false;
+            if (isLandingStripBusy()) {
+                setStatusLog(`LSO: FOUL DECK — ${unit.callsign} WAVE OFF`);
+                return false;
+            }
+            unit.state = 'APPROACH';
+            unit.stateTimer = 0;
+            setStatusLog(`LSO: "${unit.callsign} ON FINAL GLIDE SLOPE — CALLING THE BALL"`);
+            renderRosterUI();
+            return true;
+        }
+
+        function commandHeliSortie(unit) {
+            if (!unit || unit.type !== 'MH-60S') return false;
+            if (unit.state === 'PARKED') {
+                unit.state = 'LIFTOFF';
+                unit.stateTimer = 0;
+                setStatusLog(`${unit.callsign}: LIFTING OFF FOR PATROL ORBIT`);
+                renderRosterUI();
+                return true;
+            } else if (unit.state === 'PATROL_ORBIT') {
+                unit.state = 'RETURN_APPROACH';
+                unit.stateTimer = 0;
+                setStatusLog(`${unit.callsign}: RETURNING TO FLIGHT DECK`);
+                renderRosterUI();
+                return true;
+            }
+            return false;
+        }
+
+        function setWingFoldRatio(mesh, ratio) {
+            mesh.userData.wingFoldRatio = ratio;
+            if (!mesh.userData.wingFoldPivots) return;
+            mesh.userData.wingFoldPivots.forEach(w => {
+                w.pivot.rotation.z = w.side * w.maxAngle * ratio;
+            });
+        }
+
+        function lerpYaw(a, b, t) {
+            let diff = ((b - a + Math.PI) % (Math.PI * 2)) - Math.PI;
+            if (diff < -Math.PI) diff += Math.PI * 2;
+            return a + diff * t;
+        }
+
+        function angleDiff(a, b) {
+            let diff = ((b - a + Math.PI) % (Math.PI * 2)) - Math.PI;
+            if (diff < -Math.PI) diff += Math.PI * 2;
+            return diff;
+        }
+
+        function renderRosterUI() {
+            if (!rosterListEl) return;
+            rosterListEl.innerHTML = '';
+            let countParked = 0;
+            let countAirborne = 0;
+
+            airWingUnits.forEach(u => {
+                if (u.state === 'PARKED') countParked++;
+                else countAirborne++;
+
+                const item = document.createElement('div');
+                const isSelected = u === selectedUnit;
+                item.className = `flex items-center justify-between p-1.5 rounded cursor-pointer transition-colors ${
+                    isSelected ? 'bg-sky-500/30 border border-sky-400/50' : 'bg-slate-900/50 hover:bg-slate-800/80'
+                }`;
+
+                let badgeColor = 'text-slate-400';
+                if (u.state === 'PARKED') badgeColor = 'text-emerald-400';
+                else if (u.state === 'AIRBORNE_PATROL') badgeColor = 'text-amber-400';
+                else badgeColor = 'text-sky-300';
+
+                item.innerHTML = `
+                    <div class="flex items-center gap-2">
+                        <span class="font-bold text-white">${u.callsign}</span>
+                        <span class="text-[9px] px-1 py-0.2 rounded bg-slate-800 text-slate-300">${u.type}</span>
+                    </div>
+                    <span class="text-[10px] font-semibold ${badgeColor}">${u.state}</span>
+                `;
+
+                item.addEventListener('click', () => {
+                    selectedUnit = u;
+                    renderRosterUI();
+                });
+                rosterListEl.appendChild(item);
+            });
+
+            const summaryEl = document.getElementById('roster-summary');
+            if (summaryEl) summaryEl.textContent = `${airWingUnits.length} UNITS • ${countParked} PARKED • ${countAirborne} AIRBORNE`;
+
+            if (selectedUnit) {
+                selCallsignEl.textContent = selectedUnit.callsign;
+                selTypeEl.textContent = selectedUnit.label;
+                selStateEl.textContent = selectedUnit.state;
+
+                if (selectedUnit.type === 'MH-60S') {
+                    btnUnitAction.textContent = selectedUnit.state === 'PARKED' ? 'LIFT OFF' : 'LAND & PARK';
+                } else if (selectedUnit.canCycleJet) {
+                    if (selectedUnit.state === 'PARKED') btnUnitAction.textContent = 'TAXI & LAUNCH';
+                    else if (selectedUnit.state === 'AIRBORNE_PATROL') btnUnitAction.textContent = 'RECOVER / LAND';
+                    else btnUnitAction.textContent = 'OPS IN PROGRESS';
+                } else {
+                    btnUnitAction.textContent = 'AWACS STATION';
+                }
+            }
+        }
+
+        btnUnitAction.addEventListener('click', () => {
+            if (!selectedUnit) return;
+            if (selectedUnit.type === 'MH-60S') commandHeliSortie(selectedUnit);
+            else if (selectedUnit.state === 'PARKED') commandJetLaunch(selectedUnit);
+            else if (selectedUnit.state === 'AIRBORNE_PATROL') commandJetRecovery(selectedUnit);
+        });
+
+        const initialCat2Jet = airWingUnits.find(u => u.callsign === 'VFA-147 #301');
+        const initialCat1Jet = airWingUnits.find(u => u.callsign === 'VFA-147 #302');
+        const initialCapJet  = airWingUnits.find(u => u.callsign === 'VFA-87 #401');
+        const initialHeli    = airWingUnits.find(u => u.callsign === 'HSC-9 #611');
+
+        if (initialCat2Jet) commandJetLaunch(initialCat2Jet);
+        if (initialCapJet) {
+            initialCapJet.state = 'PARKED'; // Keep deck parked initially matching reference photo
+            initialCapJet.patrolAngle = Math.PI * 1.15;
+            setWingFoldRatio(initialCapJet.mesh, 0.0);
+            if (initialCapJet.mesh.userData.gearGroup) initialCapJet.mesh.userData.gearGroup.visible = false;
+        }
+        if (initialHeli) commandHeliSortie(initialHeli);
+        selectedUnit = initialCat2Jet || airWingUnits[0];
+        renderRosterUI();
+
+        let autoOpsTimer = 0;
+
+        function updatePersistentAirWing(dt) {
+            autoOpsTimer += dt;
+            if (autoOpsTimer > 3.2) {
+                autoOpsTimer = 0;
+                if (!isCatapultBusy(1) && !isCatapultBusy(2)) {
+                    const parkedJets = airWingUnits.filter(u => u.canCycleJet && u.state === 'PARKED');
+                    if (parkedJets.length > 0) {
+                        const pick = parkedJets[Math.floor(Math.random() * parkedJets.length)];
+                        commandJetLaunch(pick);
+                    }
+                }
+                if (!isLandingStripBusy()) {
+                    const readyToLand = airWingUnits.find(u => u.state === 'AIRBORNE_PATROL' && u.patrolLaps >= 1);
+                    if (readyToLand) commandJetRecovery(readyToLand);
+                }
+            }
+
+            jbdCat1.targetAngle = 0;
+            jbdCat2.targetAngle = 0;
+
+            const wPos = arrestingWireLine.geometry.attributes.position;
+            let wireStretched = false;
+
+            airWingUnits.forEach(u => {
+                u.stateTimer += dt;
+                const m = u.mesh;
+
+                if (u.canCycleJet) {
+                    const isCat1 = u.catIndex === 1;
+                    const catStartX = isCat1 ? -7.5 : 8.5;
+                    const catEndX   = isCat1 ? -6.5 : 7.5;
+                    const catStartZ = isCat1 ? 52.0 : 46.0;
+                    const catEndZ   = 148.0;
+
+                    if (u.state === 'PARKED') {
+                        m.position.copy(u.homePos);
+                        m.rotation.set(0, u.homeRot, 0);
+                        u.currentYaw = u.homeRot;
+                        if (m.userData.gearGroup) m.userData.gearGroup.visible = true;
+                        if (m.userData.afterburners) m.userData.afterburners.forEach(ab => ab.visible = false);
+                        setWingFoldRatio(m, u.homeFolded ? 1.0 : 0.0);
+
+                    } else if (u.state === 'TAXI_TO_CAT') {
+                        const t = stepAircraftAlongTaxiSpline(u, dt);
+                        if (u.homeFolded) {
+                            setWingFoldRatio(m, Math.max(0.0, 1.0 - t * 2.0));
+                        } else {
+                            setWingFoldRatio(m, 0.0);
+                        }
+
+                        if (t >= 1.0) {
+                            u.state = 'PRE_LAUNCH';
+                            u.stateTimer = 0;
+                            m.position.set(catStartX, 0, catStartZ);
+                            m.rotation.set(0, 0, 0);
+                            setStatusLog(`CAT ${u.catIndex}: ${u.callsign} LOCKED IN SHUTTLE`);
+                            renderRosterUI();
+                        }
+
+                    } else if (u.state === 'PRE_LAUNCH') {
+                        if (isCat1) jbdCat1.targetAngle = 0.82;
+                        else jbdCat2.targetAngle = 0.82;
+
+                        m.position.set(catStartX, 0, catStartZ);
+                        m.rotation.set(0.025, 0, 0);
+                        setWingFoldRatio(m, 0.0);
+
+                        if (u.stateTimer > 0.45 && m.userData.afterburners) {
+                            m.userData.afterburners.forEach(ab => {
+                                ab.visible = true;
+                                ab.scale.z = 0.85 + Math.sin(u.stateTimer * 45) * 0.22;
+                            });
+                            if (Math.random() < 0.55) {
+                                spawnParticle(
+                                    new THREE.Vector3(catStartX + (Math.random() - 0.5), DECK_Y + 0.8, catStartZ - 5.5),
+                                    new THREE.Vector3((Math.random() - 0.5) * 4, 2.5 + Math.random() * 3, -10),
+                                    0.4, 2.1, 0.6, 0xe2e8f0, 0.35
+                                );
+                            }
+                        }
+
+                        if (u.stateTimer >= 2.2) {
+                            u.state = 'LAUNCHING';
+                            u.stateTimer = 0;
+                            setStatusLog(`CAT ${u.catIndex} LAUNCH! ${u.callsign} AIRBORNE`);
+                            renderRosterUI();
+                        }
+
+                    } else if (u.state === 'LAUNCHING') {
+                        const strokeDur = 1.45;
+                        if (u.stateTimer <= strokeDur) {
+                            if (isCat1) jbdCat1.targetAngle = 0.82;
+                            else jbdCat2.targetAngle = 0.82;
+
+                            const t = u.stateTimer / strokeDur;
+                            const accel = t * t;
+                            const cx = THREE.MathUtils.lerp(catStartX, catEndX, accel);
+                            const cz = THREE.MathUtils.lerp(catStartZ, catEndZ, accel);
+                            m.position.set(cx, 0, cz);
+                            m.rotation.set(t > 0.82 ? -0.14 : 0, 0, 0);
+
+                            spawnParticle(
+                                new THREE.Vector3(cx, DECK_Y + 0.25, cz - 3.0),
+                                new THREE.Vector3((Math.random() - 0.5) * 1.5, 0.8 + Math.random(), -6),
+                                0.35, 1.8, 0.75, 0xf8fafc, 0.38
+                            );
+                        } else {
+                            const climbT = (u.stateTimer - strokeDur) / 3.0;
+                            if (climbT > 0.25 && m.userData.gearGroup) m.userData.gearGroup.visible = false;
+
+                            const cz = catEndZ + climbT * 135;
+                            const cy = Math.pow(climbT, 1.35) * 38;
+                            const turnDir = isCat1 ? -1 : 1;
+                            const cx = catEndX + turnDir * Math.pow(climbT, 1.8) * 55;
+
+                            m.position.set(cx, cy, cz);
+                            m.rotation.set(-0.22 * (1 - climbT * 0.5), turnDir * climbT * 0.85, -turnDir * 0.42);
+
+                            if (climbT >= 1.0) {
+                                u.state = 'AIRBORNE_PATROL';
+                                u.stateTimer = 0;
+                                u.patrolLaps = 0;
+                                u.patrolAngle = Math.atan2(m.position.x, m.position.z);
+                                if (m.userData.afterburners) m.userData.afterburners.forEach(ab => ab.visible = false);
+                                renderRosterUI();
+                            }
+                        }
+
+                    } else if (u.state === 'AIRBORNE_PATROL') {
+                        const angularSpeed = 0.42;
+                        const prevAngle = u.patrolAngle;
+                        u.patrolAngle += angularSpeed * dt;
+                        if (Math.floor(u.patrolAngle / (Math.PI * 2)) > Math.floor(prevAngle / (Math.PI * 2))) {
+                            u.patrolLaps++;
+                        }
+
+                        const rx = 145;
+                        const rz = 245;
+                        const px = Math.sin(u.patrolAngle) * rx;
+                        const pz = Math.cos(u.patrolAngle) * rz;
+                        const py = 42 + Math.sin(u.patrolAngle * 2) * 4.0;
+
+                        const dx = Math.cos(u.patrolAngle) * rx;
+                        const dz = -Math.sin(u.patrolAngle) * rz;
+                        const heading = Math.atan2(dx, dz);
+
+                        m.position.set(px, py, pz);
+                        m.rotation.set(0.03, heading, -0.38);
+
+                    } else if (u.state === 'APPROACH') {
+                        const dur = 3.8;
+                        const t = Math.min(u.stateTimer / dur, 1.0);
+                        if (m.userData.gearGroup) m.userData.gearGroup.visible = true;
+                        setWingFoldRatio(m, 0.0);
+
+                        const touchX = 3.5;
+                        const touchZ = -98.0;
+                        const distOut = (1.0 - t) * 215.0;
+
+                        m.position.set(
+                            touchX - RUNWAY_DIR.x * distOut,
+                            (1.0 - t) * 32.0,
+                            touchZ - RUNWAY_DIR.y * distOut
+                        );
+                        m.rotation.set(-0.08, RUNWAY_YAW, Math.sin(t * 10) * 0.02);
+
+                        if (t >= 1.0) {
+                            u.state = 'TOUCHDOWN_ROLLOUT';
+                            u.stateTimer = 0;
+                            setStatusLog(`TRAP! ${u.callsign} SNAGGED #3 WIRE`);
+                            renderRosterUI();
+
+                            for (let i = 0; i < 10; i++) {
+                                spawnParticle(
+                                    new THREE.Vector3(touchX + (Math.random() - 0.5) * 2.5, DECK_Y + 0.35, touchZ + (Math.random() - 0.5) * 2.5),
+                                    new THREE.Vector3((Math.random() - 0.5) * 6, 1.2 + Math.random() * 2, -5 - Math.random() * 5),
+                                    0.6, 2.8, 1.0, 0xf8fafc, 0.55
+                                );
+                            }
+                        }
+
+                    } else if (u.state === 'TOUCHDOWN_ROLLOUT') {
+                        const dur = 1.75;
+                        const t = Math.min(u.stateTimer / dur, 1.0);
+                        const decel = 1.0 - Math.pow(1.0 - t, 2.6);
+                        const runDist = decel * 74.0;
+
+                        const touchX = 3.5;
+                        const touchZ = -98.0;
+                        const jx = touchX + RUNWAY_DIR.x * runDist;
+                        const jz = touchZ + RUNWAY_DIR.y * runDist;
+
+                        m.position.set(jx, 0, jz);
+                        m.rotation.set(Math.sin(t * Math.PI) * 0.055, RUNWAY_YAW, 0);
+
+                        wireStretched = true;
+                        wPos.setXYZ(1, jx - RUNWAY_DIR.x * 4.2, 0.2, jz - RUNWAY_DIR.y * 4.2);
+                        wPos.needsUpdate = true;
+
+                        if (t >= 1.0) {
+                            u.state = 'TAXI_TO_PARK';
+                            u.stateTimer = 0;
+                            planTaxiRouteToPark(u);
+                            setStatusLog(`${u.callsign}: TAXIING BACK TO HOME SPOT & FOLDING WINGS`);
+                            renderRosterUI();
+                        }
+
+                    } else if (u.state === 'TAXI_TO_PARK') {
+                        const t = stepAircraftAlongTaxiSpline(u, dt);
+                        if (u.homeFolded) {
+                            setWingFoldRatio(m, Math.max(0.0, (t - 0.35) / 0.65));
+                        }
+
+                        if (t >= 1.0) {
+                            u.state = 'PARKED';
+                            u.stateTimer = 0;
+                            m.position.copy(u.homePos);
+                            m.rotation.set(0, u.homeRot, 0);
+                            setWingFoldRatio(m, u.homeFolded ? 1.0 : 0.0);
+                            setStatusLog(`${u.callsign}: SECURED AT HOME POSITION`);
+                            renderRosterUI();
+                        }
+                    }
+
+                } else if (u.type === 'MH-60S') {
+                    if (u.state === 'LIFTOFF') {
+                        const dur = 2.5;
+                        const t = Math.min(u.stateTimer / dur, 1.0);
+                        m.position.y = THREE.MathUtils.lerp(0, 22, t);
+                        m.rotation.y += dt * 0.5;
+                        if (t >= 1.0) {
+                            u.state = 'PATROL_ORBIT';
+                            u.stateTimer = 0;
+                        }
+                    } else if (u.state === 'PATROL_ORBIT') {
+                        const a = u.stateTimer * 0.5;
+                        m.position.x = u.homePos.x + Math.sin(a) * 35;
+                        m.position.z = u.homePos.z + Math.cos(a) * 35;
+                        m.position.y = 22 + Math.sin(a * 2) * 3.0;
+                        m.rotation.y = a + Math.PI / 2;
+                    } else if (u.state === 'RETURN_APPROACH') {
+                        const dur = 3.0;
+                        const t = Math.min(u.stateTimer / dur, 1.0);
+                        m.position.x = THREE.MathUtils.lerp(m.position.x, u.homePos.x, dt * 2.0);
+                        m.position.z = THREE.MathUtils.lerp(m.position.z, u.homePos.z, dt * 2.0);
+                        m.position.y = THREE.MathUtils.lerp(22, 0, t);
+                        if (t >= 1.0) {
+                            u.state = 'PARKED';
+                            u.stateTimer = 0;
+                            m.position.copy(u.homePos);
+                            m.rotation.set(0, u.homeRot, 0);
+                            renderRosterUI();
+                        }
+                    }
+                }
+            });
+
+            if (!wireStretched) {
+                wPos.setXYZ(1, 3.5, 0.14, -98.0);
+                wPos.needsUpdate = true;
+            }
+
+            const jbd1P = jbdCat1.panelPivot.rotation;
+            jbdCat1.currentAngle = THREE.MathUtils.lerp(jbdCat1.currentAngle, jbdCat1.targetAngle, dt * 4.0);
+            jbd1P.x = jbdCat1.currentAngle;
+
+            const jbd2P = jbdCat2.panelPivot.rotation;
+            jbdCat2.currentAngle = THREE.MathUtils.lerp(jbdCat2.currentAngle, jbdCat2.targetAngle, dt * 4.0);
+            jbd2P.x = jbdCat2.currentAngle;
+        }
+
+        // ============================================================================
+        // 11. ANIMATION LOOP
+        // ============================================================================
+        const clock = new THREE.Clock();
+
+        function animate() {
+            requestAnimationFrame(animate);
+
+            const dt = clock.getDelta();
+            const elapsed = clock.getElapsedTime();
+
+            oceanUniforms.uTime.value = elapsed;
+
+            const pitch = Math.sin(elapsed * 0.48) * 0.014;
+            const roll  = Math.cos(elapsed * 0.36) * 0.012;
+            const heave = Math.sin(elapsed * 0.62) * 0.28;
+            carrierGroup.rotation.x = pitch;
+            carrierGroup.rotation.z = roll;
+            carrierGroup.position.y = heave;
+
+            spinningRadars.forEach(sr => {
+                sr.mesh.rotation.y += sr.speed * dt;
+            });
+
+            spinningPropsAndDomes.forEach(sp => {
+                if (sp.axis === 'z') sp.mesh.rotation.z += sp.speed * dt;
+                else sp.mesh.rotation.y += sp.speed * dt;
+            });
+
+            allHeliRotors.forEach(hr => {
+                hr.mainRotor.rotation.y += hr.speed * dt;
+                hr.tailRotor.rotation.x += hr.speed * dt * 1.5;
+            });
+
+            if (selectedUnit) {
+                const wp = new THREE.Vector3();
+                selectedUnit.mesh.getWorldPosition(wp);
+                selectionBracket.position.copy(wp);
+                selectionBracket.rotation.y = selectedUnit.mesh.rotation.y;
+                selectionBracket.visible = true;
+            } else {
+                selectionBracket.visible = false;
+            }
+
+            deckCrewList.forEach(c => {
+                const a = elapsed * c.speed + c.phase;
+                const limbs = c.mesh.userData.limbs;
+
+                if (c.stationary) {
+                    c.mesh.position.x = c.baseX;
+                    c.mesh.position.z = c.baseZ;
+                    c.mesh.rotation.y = c.baseRot + Math.sin(a * 0.7) * 0.25;
+                    if (limbs) {
+                        limbs.leftLeg.rotation.x = 0;
+                        limbs.rightLeg.rotation.x = 0;
+                        if (limbs.pose === 'MARSHAL') {
+                            limbs.leftArm.rotation.x = -2.35 + Math.sin(elapsed * 4.5 + c.phase) * 0.45;
+                            limbs.rightArm.rotation.x = -2.35 + Math.cos(elapsed * 4.5 + c.phase) * 0.45;
+                            limbs.leftArm.rotation.z = -0.35 + Math.sin(elapsed * 4.5) * 0.25;
+                            limbs.rightArm.rotation.z = 0.35 - Math.sin(elapsed * 4.5) * 0.25;
+                        } else {
+                            limbs.leftArm.rotation.x = -0.45;
+                            limbs.rightArm.rotation.x = -0.65 + Math.sin(elapsed * 2.5 + c.phase) * 0.15;
+                        }
+                    }
+                } else {
+                    const nx = c.baseX + Math.cos(a) * c.radius;
+                    const nz = c.baseZ + Math.sin(a) * c.radius;
+                    const dx = -Math.sin(a) * c.radius;
+                    const dz =  Math.cos(a) * c.radius;
+                    c.mesh.position.set(nx, 0, nz);
+                    c.mesh.rotation.y = Math.atan2(dx, dz);
+
+                    if (limbs) {
+                        const stride = Math.sin(elapsed * c.speed * 5.2 + c.phase) * 0.52;
+                        limbs.leftLeg.rotation.x = stride;
+                        limbs.rightLeg.rotation.x = -stride;
+                        limbs.leftArm.rotation.x = -stride * 0.75;
+                        limbs.rightArm.rotation.x = limbs.pose === 'CARRY' ? -0.45 : stride * 0.75;
+                    }
+                }
+            });
+
+            updatePersistentAirWing(dt);
+            updateParticles(dt);
+
+            if (followUnit) {
+                const worldTarget = new THREE.Vector3();
+                followUnit.mesh.getWorldPosition(worldTarget);
+                controls.target.lerp(worldTarget, dt * 6.0);
+            } else if (desiredCamPos && desiredCamTarget) {
+                camera.position.lerp(desiredCamPos, dt * 3.5);
+                controls.target.lerp(desiredCamTarget, dt * 3.5);
+                if (desiredCamZoom !== null) {
+                    camera.zoom = THREE.MathUtils.lerp(camera.zoom, desiredCamZoom, dt * 3.5);
+                    camera.updateProjectionMatrix();
+                }
+                if (camera.position.distanceTo(desiredCamPos) < 0.4) {
+                    desiredCamPos = null;
+                    desiredCamTarget = null;
+                    desiredCamZoom = null;
+                }
+            }
+
+            controls.update();
+            composer.render();
+        }
+
+        window.addEventListener('resize', () => {
+            const newAspect = window.innerWidth / window.innerHeight;
+            camera.left   = (-ORTHO_FRUSTUM_HEIGHT * newAspect) / 2;
+            camera.right  = ( ORTHO_FRUSTUM_HEIGHT * newAspect) / 2;
+            camera.top    =  ORTHO_FRUSTUM_HEIGHT / 2;
+            camera.bottom = -ORTHO_FRUSTUM_HEIGHT / 2;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        const camBtns = document.querySelectorAll('.cam-btn');
+        camBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                followUnit = null;
+                btnUnitFollow.textContent = 'FOLLOW: OFF';
+                btnUnitFollow.classList.remove('hud-btn-active');
+
+                camBtns.forEach(b => b.classList.remove('hud-btn-active'));
+                btn.classList.add('hud-btn-active');
+                const key = btn.getAttribute('data-cam');
+                if (CAMERA_PRESETS[key]) {
+                    desiredCamPos = CAMERA_PRESETS[key].pos.clone();
+                    desiredCamTarget = CAMERA_PRESETS[key].target.clone();
+                    desiredCamZoom = CAMERA_PRESETS[key].zoom;
+                }
+            });
+        });
+
+        const timeBtns = document.querySelectorAll('.time-btn');
+        timeBtns.forEach(btn => {
+            btn.addEventListener('click', () => {
+                timeBtns.forEach(b => b.classList.remove('hud-btn-active'));
+                btn.classList.add('hud-btn-active');
+                const mode = btn.getAttribute('data-time');
+                if (mode === 'day') {
+                    scene.background.setHex(0x091c33);
+                    scene.fog.color.setHex(0x0e2848);
+                    hemiLight.color.setHex(0xe0f2fe);
+                    hemiLight.intensity = 1.32;
+                    sunLight.color.setHex(0xfffbf2);
+                    sunLight.intensity = 3.2;
+                    sunLight.position.set(-170, 270, 120);
+                    oceanUniforms.uDeepColor.value.setHex(0x081f38);
+                    oceanUniforms.uMidColor.value.setHex(0x113b63);
+                    oceanUniforms.uSkyColor.value.setHex(0x528cb8);
+                    oceanUniforms.uWakeTurquoise.value.setHex(0x1abcb6);
+                    oceanUniforms.uFoamWhite.value.setHex(0xf6fafc);
+                    oceanUniforms.uSunColor.value.setHex(0xfffef2);
+                } else {
+                    scene.background.setHex(0x1a1426);
+                    scene.fog.color.setHex(0x281932);
+                    hemiLight.color.setHex(0xfdba74);
+                    hemiLight.intensity = 0.98;
+                    sunLight.color.setHex(0xfb923c);
+                    sunLight.intensity = 3.3;
+                    sunLight.position.set(-240, 85, -90);
+                    oceanUniforms.uDeepColor.value.setHex(0x061426);
+                    oceanUniforms.uMidColor.value.setHex(0x142844);
+                    oceanUniforms.uSkyColor.value.setHex(0x422a48);
+                    oceanUniforms.uWakeTurquoise.value.setHex(0x0e7674);
+                    oceanUniforms.uFoamWhite.value.setHex(0xdbeafe);
+                    oceanUniforms.uSunColor.value.setHex(0xfdba74);
+                }
+            });
+        });
+
+        let rosterVisible = true;
+        const btnToggleRoster = document.getElementById('btn-toggle-roster');
+        btnToggleRoster.addEventListener('click', () => {
+            rosterVisible = !rosterVisible;
+            document.getElementById('hud-roster').style.display = rosterVisible ? 'flex' : 'none';
+            btnToggleRoster.classList.toggle('hud-btn-active', rosterVisible);
+        });
+
+        let hudVisible = true;
+        document.getElementById('btn-toggle-hud').addEventListener('click', () => {
+            hudVisible = !hudVisible;
+            document.getElementById('hud-bottom').style.display = hudVisible ? 'block' : 'none';
+            document.getElementById('hud-log-pill').style.display = hudVisible ? 'flex' : 'none';
+            document.getElementById('hud-roster').style.display = (hudVisible && rosterVisible) ? 'flex' : 'none';
+        });
+
+        const raycaster = new THREE.Raycaster();
+        const pointer = new THREE.Vector2();
+        let downPos = { x: 0, y: 0 };
+
+        renderer.domElement.addEventListener('pointerdown', (e) => {
+            downPos = { x: e.clientX, y: e.clientY };
+        });
+
+        renderer.domElement.addEventListener('pointerup', (e) => {
+            if (Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y) > 6) return;
+            pointer.x = (e.clientX / window.innerWidth) * 2 - 1;
+            pointer.y = -(e.clientY / window.innerHeight) * 2 + 1;
+            raycaster.setFromCamera(pointer, camera);
+
+            const meshes = airWingUnits.map(u => u.mesh);
+            const hits = raycaster.intersectObjects(meshes, true);
+            if (hits.length > 0) {
+                let obj = hits[0].object;
+                while (obj && !obj.userData.unit) obj = obj.parent;
+                if (obj && obj.userData.unit) {
+                    selectedUnit = obj.userData.unit;
+                    setStatusLog(`TRACKING ${selectedUnit.callsign} (${selectedUnit.label})`);
+                    renderRosterUI();
+                }
+            }
+        });
+
+        document.getElementById('btn-launch').addEventListener('click', () => {
+            const candidate = (selectedUnit && selectedUnit.canCycleJet && selectedUnit.state === 'PARKED')
+                ? selectedUnit
+                : airWingUnits.find(u => u.canCycleJet && u.state === 'PARKED');
+            if (candidate) {
+                selectedUnit = candidate;
+                commandJetLaunch(candidate);
+            }
+        });
+
+        document.getElementById('btn-recover').addEventListener('click', () => {
+            const candidate = (selectedUnit && selectedUnit.state === 'AIRBORNE_PATROL')
+                ? selectedUnit
+                : airWingUnits.find(u => u.state === 'AIRBORNE_PATROL');
+            if (candidate) {
+                selectedUnit = candidate;
+                commandJetRecovery(candidate);
+            } else {
+                setStatusLog('LSO: NO AIRCRAFT IN CAP ORBIT YET');
+            }
+        });
+
+        document.getElementById('btn-heli').addEventListener('click', () => {
+            const helis = airWingUnits.filter(u => u.type === 'MH-60S');
+            const activeOrParked = helis.find(h => h.state === 'PATROL_ORBIT') || helis.find(h => h.state === 'PARKED');
+            if (activeOrParked) {
+                selectedUnit = activeOrParked;
+                commandHeliSortie(activeOrParked);
+            }
+        });
+
+        window.onload = animate;
+    </script>
+</body>
+</html>

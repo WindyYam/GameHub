@@ -17,46 +17,54 @@
   },
   {
     "id": 4,
-    "path": "games/Maldive/index.html"
+    "path": "games/LocalPlayground/index.html"
   },
   {
     "id": 5,
-    "path": "games/NeonAscent/index.html"
+    "path": "games/Maldive/index.html"
   },
   {
     "id": 6,
-    "path": "games/NiteMartReserve/index.html"
+    "path": "games/NeonAscent/index.html"
   },
   {
     "id": 7,
-    "path": "games/Qingxi/index.html"
+    "path": "games/NiteMartReserve/index.html"
   },
   {
     "id": 8,
-    "path": "games/SolarSys/index.html"
+    "path": "games/Qingxi/index.html"
   },
   {
     "id": 9,
-    "path": "games/StarBattle/index.html"
+    "path": "games/SolarSys/index.html"
   },
   {
     "id": 10,
-    "path": "games/StarOutpost/index.html"
+    "path": "games/StarBattle/index.html"
   },
   {
     "id": 11,
-    "path": "games/Tetris/index.html"
+    "path": "games/StarOutpost/index.html"
   },
   {
     "id": 12,
-    "path": "games/TowerDefense/index.html"
+    "path": "games/Tetris/index.html"
   },
   {
     "id": 13,
-    "path": "games/UmibeStation/index.html"
+    "path": "games/TowerDefense/index.html"
   },
   {
     "id": 14,
+    "path": "games/USSFord/index.html"
+  },
+  {
+    "id": 15,
+    "path": "games/UmibeStation/index.html"
+  },
+  {
+    "id": 16,
     "path": "games/WCFinal2026/index.html"
   }
 ]
