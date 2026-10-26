@@ -1845,6 +1845,9 @@ function addLushTree(x, z, scale = 1.0, isForeground = false) {
                     shieldArmTimer: 0,
                     blockArmTimer: 0,
                     isGuardingBall: false,
+                    wanderTimer: Math.random() * 2.5,
+                    wanderOffset: new THREE.Vector3(),
+                    defReactionDelay: 0,
                     phase: idx * 1.35,
                     jumpY: 0
                 });
@@ -1869,6 +1872,9 @@ function addLushTree(x, z, scale = 1.0, isForeground = false) {
                     shieldArmTimer: 0,
                     blockArmTimer: 0,
                     isGuardingBall: false,
+                    wanderTimer: Math.random() * 2.5,
+                    wanderOffset: new THREE.Vector3(),
+                    defReactionDelay: 0,
                     phase: (idx + 5) * 1.35,
                     jumpY: 0
                 });
@@ -2157,38 +2163,71 @@ function addLushTree(x, z, scale = 1.0, isForeground = false) {
             }
 
             // ============================================================================
-            // BASIC 5-OUT BASKETBALL FORMATION & HALF-COURT GEOMETRY
+            // AUTHENTIC 5v5 BASKETBALL MATCH SIMULATION: PERIMETER MOTION & DEFENSIVE SHELL
             // ============================================================================
-            // Wide, balanced formation spots across half-court:
-            // Slot 0: Top of Key (central distributor) -> x: 5.5, z: 0.0
-            // Slot 1: Right Wing (perimeter shooter)   -> x: 8.8, z: -6.5
-            // Slot 2: Left Wing (perimeter slasher)    -> x: 8.8, z: 6.5
-            // Slot 3: Trailer / Backcourt Spacer       -> x: 2.2, z: -3.5
-            // Slot 4: Low Post / Rim Anchor            -> x: 13.8, z: 2.8
-            function getFormationSpot(hoop, slotIndex) {
+            // 5 Offensive perimeter anchor spots (motion 5-out):
+            // 0: Top of Key (point) -> rimX - dir * 14.2, z: 0.0
+            // 1: Right Wing        -> rimX - dir * 10.2, z: -7.2
+            // 2: Left Wing         -> rimX - dir * 10.2, z: 7.2
+            // 3: Right Corner      -> rimX - dir * 3.6,  z: -8.0
+            // 4: Left Corner       -> rimX - dir * 3.6,  z: 8.0
+            function getOffensePerimeterSpot(hoop, slotIndex) {
                 const rimX = hoop.rimPos.x;
                 const dir = (hoop === rightHoop) ? 1 : -1;
                 let x = 0, z = 0;
                 switch (slotIndex % 5) {
                     case 0: // Top of Key
-                        x = rimX - dir * 13.5;
+                        x = rimX - dir * 14.2;
                         z = 0.0;
                         break;
                     case 1: // Right Wing
-                        x = rimX - dir * 9.8;
-                        z = -6.6;
+                        x = rimX - dir * 10.2;
+                        z = -7.2;
                         break;
                     case 2: // Left Wing
-                        x = rimX - dir * 9.8;
-                        z = 6.6;
+                        x = rimX - dir * 10.2;
+                        z = 7.2;
                         break;
-                    case 3: // Trailer / Backcourt Spacer
-                        x = rimX - dir * 16.5;
-                        z = -3.5;
+                    case 3: // Right Corner
+                        x = rimX - dir * 3.6;
+                        z = -8.0;
                         break;
-                    case 4: // Post / Rim Spacer
-                        x = rimX - dir * 5.2;
-                        z = 3.2;
+                    case 4: // Left Corner
+                        x = rimX - dir * 3.6;
+                        z = 8.0;
+                        break;
+                }
+                return new THREE.Vector3(
+                    THREE.MathUtils.clamp(x, -19.0, 19.0),
+                    0.18,
+                    THREE.MathUtils.clamp(z, -9.8, 9.8)
+                );
+            }
+
+            // 4 Off-Ball Defensive zone spots in the INTERIOR KEY/PAINT SHELL
+            // (Completely separated from perimeter attackers by 5-8 units — NO STICKY PAIRS!)
+            function getDefenseShellSpot(hoop, zoneIndex, carrierPos) {
+                const rimX = hoop.rimPos.x;
+                const dir = (hoop === rightHoop) ? 1 : -1;
+                let x = 0, z = 0;
+                // Defensive shell adapts slightly to ball side (strong-side shade)
+                const ballSide = Math.sign(carrierPos ? carrierPos.z : 0) || 1;
+                switch (zoneIndex % 4) {
+                    case 0: // The Nail (Free Throw Circle / High Key)
+                        x = rimX - dir * 9.5;
+                        z = ballSide * 1.2;
+                        break;
+                    case 1: // Strong-Side Low Paint / Help
+                        x = rimX - dir * 5.8;
+                        z = ballSide * 2.8;
+                        break;
+                    case 2: // Weak-Side Low Paint / Drop Help
+                        x = rimX - dir * 5.8;
+                        z = -ballSide * 2.2;
+                        break;
+                    case 3: // Rim Protector / Center
+                        x = rimX - dir * 3.6;
+                        z = 0.0;
                         break;
                 }
                 return new THREE.Vector3(
@@ -2238,11 +2277,10 @@ function addLushTree(x, z, scale = 1.0, isForeground = false) {
                 const carrierPos = game.carrier ? game.carrier.char.root.position : ballGroup.position;
 
                 // ====================================================================
-                // 1. ALWAYS IDENTIFY THE DEDICATED ON-BALL DEFENDER
+                // 1. ONLY THE ONE WITH THE BALL HAS A DEFENDER!
                 // ====================================================================
                 let onBallDefender = null;
                 if (game.carrier) {
-                    // Matchup defender based on slot
                     onBallDefender = players.find(p => p.team !== game.offenseTeam && p.slot === game.carrier.slot);
                     if (!onBallDefender) {
                         let minDist = Infinity;
@@ -2261,14 +2299,13 @@ function addLushTree(x, z, scale = 1.0, isForeground = false) {
                 game.stealCooldown = Math.max(0, (game.stealCooldown || 0) - dt);
                 if (onBallDefender && (game.state === 'DRIBBLE' || game.state === 'DRIVE') && game.carrier && game.stealCooldown <= 0) {
                     const distToCarrier = onBallDefender.char.root.position.distanceTo(carrierPos);
-                    // In close range (< 1.45 units)
+                    // Close range (< 1.45 units)
                     if (distToCarrier < 1.45) {
                         game.stealCooldown = 1.8 + Math.random() * 0.6;
-                        onBallDefender.stealSwipeTimer = 0.40; // Arm swipe movement!
+                        onBallDefender.stealSwipeTimer = 0.40; // Arm swipe animation!
 
                         const rand = Math.random();
                         if (rand < 0.35) {
-                            // Clean takeaway with the swipe!
                             claimBall(onBallDefender);
                             game.offenseTeam = onBallDefender.team;
                             game.state = 'DRIBBLE';
@@ -2278,12 +2315,10 @@ function addLushTree(x, z, scale = 1.0, isForeground = false) {
                                 ? '⚡ STEAL! Red defender swipes and strips the rock!' 
                                 : '⚡ PICKPOCKET! Park defender takeaway on the perimeter!');
                         } else if (rand < 0.65) {
-                            // Poke ball loose
                             releaseBall(game.carrier, 'LOOSE', 0.45);
                             ballVel.set((Math.random() - 0.5) * 5.2, 3.2, (Math.random() - 0.5) * 5.2);
                             setPlayStatus('💥 Poke steal! Arm swipe knocks the ball loose into scramble!');
                         } else {
-                            // Carrier shields off swipe
                             game.carrier.shieldArmTimer = 0.45;
                             setPlayStatus('🛡️ Carrier shields off the steal swipe and protects the ball!');
                         }
@@ -2301,30 +2336,40 @@ function addLushTree(x, z, scale = 1.0, isForeground = false) {
                     if (game.stateTimer > decisionDelay && !game.plan) {
                         const teammates = players.filter(p => p.team === game.offenseTeam && p !== game.carrier);
                         const distToRim = game.carrier.char.root.position.distanceTo(hoop.rimPos);
-                        const rand = Math.random();
 
-                        const distToDef = onBallDefender ? onBallDefender.char.root.position.distanceTo(carrierPos) : 3.0;
-
-                        if (distToRim < cArch.shootRange && distToDef > 1.9 && (rand < (1.0 - cArch.passTendency) || game.passesDone >= 3)) {
-                            // Open jumper
-                            game.state = 'SHOOT';
-                            game.stateTimer = 0;
-                            lastHandPt.copy(getHandPoint(game.carrier, true));
-                            setPlayStatus(distToRim > 13.0 ? '🎯 Open look from downtown! Three pointer up!' : '🔥 Clean pull-up jumper from mid-range!');
-                        } else if (rand < cArch.passTendency && teammates.length > 0 && game.passesDone < 4) {
-                            // Swing pass to open teammate in formation
+                        // Priority A: Check if a teammate is executing a sharp backdoor cut to the hoop!
+                        const cutter = teammates.find(t => t.tactic === 'CUT' && t.char.root.position.distanceTo(hoop.rimPos) < 9.5);
+                        if (cutter) {
                             game.plan = 'pass';
-                            let bestRec = teammates[0], bestScore = -Infinity;
-                            teammates.forEach(tm => {
-                                const dCarrier = tm.char.root.position.distanceTo(carrierPos);
-                                const dRim = tm.char.root.position.distanceTo(hoop.rimPos);
-                                const score = (20 - dRim) + (dCarrier > 4 && dCarrier < 16 ? 10 : 0);
-                                if (score > bestScore) { bestScore = score; bestRec = tm; }
-                            });
-                            game.receiver = bestRec;
+                            game.receiver = cutter;
+                            setPlayStatus(game.offenseTeam === 0 
+                                ? '⚡ DIME! Crisp backdoor bounce pass to the cutting slasher!' 
+                                : '⚡ Pinpoint feed inside for the easy bucket!');
                         } else {
-                            // Drive to the basket!
-                            game.plan = 'drive';
+                            const distToDef = onBallDefender ? onBallDefender.char.root.position.distanceTo(carrierPos) : 3.0;
+                            const rand = Math.random();
+
+                            if (distToRim < cArch.shootRange && distToDef > 1.9 && (rand < (1.0 - cArch.passTendency) || game.passesDone >= 3)) {
+                                // Open jumper
+                                game.state = 'SHOOT';
+                                game.stateTimer = 0;
+                                lastHandPt.copy(getHandPoint(game.carrier, true));
+                                setPlayStatus(distToRim > 13.0 ? '🎯 Open look from downtown! Three pointer up!' : '🔥 Clean pull-up jumper from mid-range!');
+                            } else if (rand < cArch.passTendency && teammates.length > 0 && game.passesDone < 4) {
+                                // Swing pass to open teammate in formation
+                                game.plan = 'pass';
+                                let bestRec = teammates[0], bestScore = -Infinity;
+                                teammates.forEach(tm => {
+                                    const dCarrier = tm.char.root.position.distanceTo(carrierPos);
+                                    const dRim = tm.char.root.position.distanceTo(hoop.rimPos);
+                                    const score = (20 - dRim) + (dCarrier > 4 && dCarrier < 16 ? 10 : 0);
+                                    if (score > bestScore) { bestScore = score; bestRec = tm; }
+                                });
+                                game.receiver = bestRec;
+                            } else {
+                                // Drive to the basket!
+                                game.plan = 'drive';
+                            }
                         }
                     }
 
@@ -2332,9 +2377,11 @@ function addLushTree(x, z, scale = 1.0, isForeground = false) {
                         game.plan = null;
                         game.state = 'DRIVE';
                         game.stateTimer = 0;
+                        // On-ball defender has reaction delay catching up to the drive!
+                        if (onBallDefender) onBallDefender.defReactionDelay = 0.35;
                         setPlayStatus(game.offenseTeam === 0 
-                            ? '🏀 Crossover attack! Driving hard toward the rim!' 
-                            : '🏀 Slashing drive into the paint!');
+                            ? '🏀 Crossover attack! Slashing toward the rim!' 
+                            : '🏀 Driving hard into the lane!');
                     } else if (game.plan === 'pass' && ballGroup.position.y > 0.85) {
                         launchPass(game.carrier, game.receiver);
                         game.passesDone++;
@@ -2350,25 +2397,23 @@ function addLushTree(x, z, scale = 1.0, isForeground = false) {
                     game.carrier.targetSpot.copy(attackSpot);
 
                     // ================================================================
-                    // THE DEFENDER BLOCKS THE CARRIER'S DRIVE
+                    // THE DEFENDER BLOCKS THE CARRIER'S DRIVE WHEN THEY CATCH UP
                     // ================================================================
                     if (onBallDefender) {
                         const distToDef = carrierPos.distanceTo(onBallDefender.char.root.position);
                         if (distToDef < 1.35) {
-                            // Defender blocks the drive!
+                            // Defender walls off and blocks the drive!
                             onBallDefender.char.leftArm.rotation.x = -1.45;
                             onBallDefender.char.rightArm.rotation.x = -1.45;
                             onBallDefender.char.leftArm.rotation.z = -0.55;
                             onBallDefender.char.rightArm.rotation.z = 0.55;
 
                             if (Math.random() < 0.5) {
-                                // Forced contested pull-up
                                 game.state = 'SHOOT';
                                 game.stateTimer = 0;
                                 lastHandPt.copy(getHandPoint(game.carrier, true));
                                 setPlayStatus('🛑 Drive BLOCKED by defender! Carrier forced into contested shot!');
                             } else {
-                                // Forced kick-out pass to open wing
                                 const teammates = players.filter(t => t.team === game.offenseTeam && t !== game.carrier);
                                 game.plan = 'pass';
                                 game.receiver = teammates[Math.floor(Math.random() * teammates.length)];
@@ -2388,7 +2433,7 @@ function addLushTree(x, z, scale = 1.0, isForeground = false) {
                     game.carrier.jumpY = Math.sin(Math.min(1, game.stateTimer / 0.55) * Math.PI) * 1.25;
 
                     // ================================================================
-                    // THE DEFENDER LEAPS TO CONTEST / BLOCK THE SHOT IN MID-AIR
+                    // DEFENDER LEAPS TO CONTEST / BLOCK THE SHOT IN MID-AIR
                     // ================================================================
                     if (onBallDefender) {
                         const distToCarrier = onBallDefender.char.root.position.distanceTo(carrierPos);
@@ -2397,7 +2442,6 @@ function addLushTree(x, z, scale = 1.0, isForeground = false) {
                             onBallDefender.char.leftArm.rotation.x = -2.75;
                             onBallDefender.char.rightArm.rotation.x = -2.75;
 
-                            // 35% chance to swat and reject the shot
                             if (distToCarrier < 1.45 && game.stateTimer >= 0.28 && game.stateTimer <= 0.36 && !game.shotBlocked) {
                                 if (Math.random() < 0.35) {
                                     game.shotBlocked = true;
@@ -2430,7 +2474,7 @@ function addLushTree(x, z, scale = 1.0, isForeground = false) {
                     rightHoop.netMesh.scale.set(1, 1, 1);
                 }
 
-                // Loose ball scramble: ONLY ONE CHASER PER TEAM (no 10-man crowd!)
+                // Loose ball scramble: only 1 chaser per team (no 10-man crowd!)
                 const chasers = new Set();
                 if (game.ballFree) {
                     [0, 1].forEach(team => {
@@ -2445,8 +2489,73 @@ function addLushTree(x, z, scale = 1.0, isForeground = false) {
                 }
 
                 // ====================================================================
-                // 4. BALANCED FORMATION & STRICT 1-ON-1 MAN DEFENSE (NO CROWDING!)
+                // 4. DYNAMIC OFF-BALL TACTICAL STATE MACHINE (ATHLETIC CUTS, SCREENS & SPACING)
                 // ====================================================================
+                players.forEach(p => {
+                    const isCarrier = (p === game.carrier) && (game.state === 'DRIBBLE' || game.state === 'DRIVE');
+                    const isOnBallDef = (p === onBallDefender);
+
+                    if (!isCarrier && !isOnBallDef) {
+                        p.actionTimer = (p.actionTimer || 0) - dt;
+                        if (p.actionTimer <= 0) {
+                            p.actionTimer = 1.6 + Math.random() * 2.2; // Tactical decision interval (1.6s - 3.8s)
+
+                            if (game.shotInFlight) {
+                                // Shot is airborne: bigs crash glass for rebound, guards sprint back
+                                if (p.slot === 4 || p.slot === 3) {
+                                    p.tactic = 'REBOUND';
+                                    p.targetSpot.set(rimX - attackDir * (2.0 + Math.random() * 2.5), 0.18, (Math.random() - 0.5) * 4.0);
+                                } else {
+                                    p.tactic = 'SAFETY';
+                                    p.targetSpot.set(rimX - attackDir * 15.5, 0.18, (p.slot === 1 ? -4.0 : 4.0));
+                                }
+                            } else if (p.team === game.offenseTeam) {
+                                // OFF-BALL ATTACKERS: Authentic basketball motion actions
+                                const r = Math.random();
+                                const baseSpot = getOffensePerimeterSpot(hoop, p.slot);
+
+                                if (r < 0.28 && (p.slot === 1 || p.slot === 2)) {
+                                    // SHARP EXPLOSIVE BACKDOOR CUT TO THE RIM!
+                                    p.tactic = 'CUT';
+                                    p.actionTimer = 1.1; // Burst cut duration
+                                    p.targetSpot.set(rimX - attackDir * (2.2 + Math.random() * 1.8), 0.18, (Math.random() - 0.5) * 2.2);
+                                } else if (r < 0.48 && (p.slot === 3 || p.slot === 4)) {
+                                    // SET ON-BALL SCREEN OR FLASH TO HIGH POST
+                                    p.tactic = 'SCREEN';
+                                    p.actionTimer = 1.8;
+                                    p.targetSpot.set(
+                                        carrierPos.x - attackDir * 1.3,
+                                        0.18,
+                                        carrierPos.z + (carrierPos.z > 0 ? -1.1 : 1.1)
+                                    );
+                                } else {
+                                    // SPACE PERIMETER: Soft wandering relocation around formation spot
+                                    p.tactic = 'SPACE';
+                                    p.wanderOffset.set(
+                                        (Math.random() - 0.5) * 2.2,
+                                        0,
+                                        (Math.random() - 0.5) * 1.8
+                                    );
+                                    p.targetSpot.copy(baseSpot).add(p.wanderOffset);
+                                }
+                            } else {
+                                // OFF-BALL DEFENDERS: Help shell and zone rotation inside key/paint
+                                p.tactic = 'SHELL';
+                                p.wanderOffset.set(
+                                    (Math.random() - 0.5) * 2.0,
+                                    0,
+                                    (Math.random() - 0.5) * 1.8
+                                );
+                            }
+                        }
+                    }
+                });
+
+                // ====================================================================
+                // 5. SPACING: ONLY ON-BALL DEFENDER DEFENDS; OTHERS SOFTLY STICK TO FORMATION
+                // ====================================================================
+                const offBallDefenders = players.filter(p => p.team !== game.offenseTeam && p !== onBallDefender);
+
                 players.forEach(p => {
                     const isOffense = (p.team === game.offenseTeam);
                     const isCarrier = (p === game.carrier) && (game.state === 'DRIBBLE' || game.state === 'DRIVE');
@@ -2458,37 +2567,42 @@ function addLushTree(x, z, scale = 1.0, isForeground = false) {
                             THREE.MathUtils.clamp(ballGroup.position.z, -10.2, 10.2)
                         );
                     } else if (isOffense) {
-                        // OFFENSE: Each player holds their unique formation spot
                         if (isCarrier) {
                             if (game.state === 'DRIBBLE') {
-                                const formSpot = getFormationSpot(hoop, p.slot);
+                                const formSpot = getOffensePerimeterSpot(hoop, p.slot);
                                 p.targetSpot.set(
-                                    formSpot.x + Math.sin(elapsed * 2.0 + p.phase) * 0.5,
+                                    formSpot.x + Math.sin(elapsed * 2.2 + p.phase) * 0.6,
                                     0.18,
-                                    formSpot.z + Math.cos(elapsed * 2.0 + p.phase) * 0.5
+                                    formSpot.z + Math.cos(elapsed * 2.2 + p.phase) * 0.6
                                 );
                             }
-                        } else {
-                            // Off-ball players hold their assigned formation spot
-                            const formSpot = getFormationSpot(hoop, p.slot);
-                            p.targetSpot.copy(formSpot);
+                        } else if (p.tactic === 'SPACE') {
+                            const baseSpot = getOffensePerimeterSpot(hoop, p.slot);
+                            p.targetSpot.copy(baseSpot).add(p.wanderOffset);
                         }
                     } else {
-                        // DEFENSE: Strictly 1-on-1 man defense matching offensive slots
+                        // DEFENSE
                         if (p === onBallDefender && game.carrier) {
-                            // ALWAYS DEFEND THE BALL CARRIER! (1.38 units away)
+                            // ONLY THE ONE WHO HAS THE BALL HAS A DEFENDER!
                             const toHoop = hoop.rimPos.clone().sub(carrierPos).normalize();
-                            p.targetSpot.copy(carrierPos).addScaledVector(toHoop, 1.38);
+                            const idealGuardPos = carrierPos.clone().addScaledVector(toHoop, 1.35);
+
+                            // The defender has a realistic delay catching up with the attacker!
+                            if (p.defReactionDelay > 0) {
+                                p.defReactionDelay -= dt;
+                                // During reaction delay on a drive/move, defender lags behind
+                                p.targetSpot.lerp(idealGuardPos, dt * 1.5);
+                            } else {
+                                // Natural human tracking delay
+                                p.targetSpot.lerp(idealGuardPos, dt * 2.8);
+                            }
                             p.isGuardingBall = true;
                         } else {
-                            // Each off-ball defender guards their assigned offensive slot
-                            const man = players.find(t => t.team === game.offenseTeam && t.slot === p.slot);
-                            if (man) {
-                                const manPos = man.char.root.position;
-                                const toHoopMan = hoop.rimPos.clone().sub(manPos).normalize();
-                                // Positioned 1.8 units in front of their man toward the basket
-                                p.targetSpot.copy(manPos).addScaledVector(toHoopMan, 1.8);
-                            }
+                            // FOR THE OTHERS: NOT PAIRED WITH ATTACKERS!
+                            // They hold the interior defensive shell in the paint/key, softly adjusting
+                            const zoneIdx = offBallDefenders.indexOf(p);
+                            const zoneSpot = getDefenseShellSpot(hoop, zoneIdx >= 0 ? zoneIdx : p.slot, carrierPos);
+                            p.targetSpot.copy(zoneSpot).add(p.wanderOffset);
                             p.isGuardingBall = false;
                         }
                     }
@@ -2499,20 +2613,32 @@ function addLushTree(x, z, scale = 1.0, isForeground = false) {
                     p.target.copy(p.targetSpot);
 
                     // ================================================================
-                    // MOVEMENT & SMOOTH STANCE TRANSITIONS
+                    // ATHLETIC BASKETBALL SPEEDS (NO SLOW CRAWL!)
                     // ================================================================
                     const pos = p.char.root.position;
                     const dx = p.targetSpot.x - pos.x;
                     const dz = p.targetSpot.z - pos.z;
                     const dist = Math.hypot(dx, dz);
 
-                    let moveSpeed = p.archetype.baseSpeed;
-                    if (chasers.has(p)) moveSpeed = p.archetype.sprintSpeed + 0.5;
-                    else if (isCarrier && game.state === 'DRIVE') moveSpeed = p.archetype.sprintSpeed + 0.4;
-                    else if (p === onBallDefender) moveSpeed = p.archetype.baseSpeed * 1.1;
+                    // Dynamic basketball movement speed based on action and role
+                    let moveSpeed = p.archetype.baseSpeed; // 5.3 - 6.5
+                    if (chasers.has(p)) {
+                        moveSpeed = p.archetype.sprintSpeed + 0.6; // Scramble sprint (7.8 - 8.5)
+                    } else if (isCarrier) {
+                        moveSpeed = (game.state === 'DRIVE') ? p.archetype.sprintSpeed + 0.5 : p.archetype.baseSpeed * 1.05;
+                    } else if (p === onBallDefender) {
+                        moveSpeed = p.archetype.sprintSpeed + 0.2; // Hustling on-ball defense (7.4 - 7.9)
+                    } else if (p.tactic === 'CUT' || p.tactic === 'REBOUND') {
+                        moveSpeed = p.archetype.sprintSpeed; // Explosive cut/crash sprint (6.8 - 7.8)
+                    } else if (p.tactic === 'SCREEN') {
+                        moveSpeed = p.archetype.baseSpeed * 1.1; // Purposeful screen run (6.0 - 6.8)
+                    } else {
+                        // Off-ball perimeter spacing and defensive shell slides (Athletic basketball jog/slide!)
+                        moveSpeed = 4.8 + (p.id % 3) * 0.45; // 4.8 - 5.7 units/s (energetic basketball pace!)
+                    }
 
-                    // When arrived at formation spot (dist <= 0.25), hold stationary stance (no ice-skating!)
-                    const isMoving = dist > 0.25;
+                    // Athletic arrival check: in basketball, when you reach your spot, you plant your feet and get into stance!
+                    const isMoving = dist > 0.28;
                     if (isMoving) {
                         pos.x += (dx / dist) * Math.min(dist, moveSpeed * dt);
                         pos.z += (dz / dist) * Math.min(dist, moveSpeed * dt);
@@ -2527,20 +2653,20 @@ function addLushTree(x, z, scale = 1.0, isForeground = false) {
                         p.contactAO.material.opacity = Math.max(0.2, 0.82 - (p.jumpY || 0) * 0.45);
                     }
 
-                    // Facing: Carrier faces rim; defense faces carrier/man; offense faces ball
+                    // Facing: Carrier faces rim; on-ball defender faces carrier; off-ball players watch the ball!
                     const lookTarget = isCarrier ? hoop.rimPos : (p === onBallDefender ? carrierPos : ballGroup.position);
                     const targetYaw = Math.atan2(lookTarget.x - pos.x, lookTarget.z - pos.z);
                     p.char.root.rotation.y = targetYaw;
 
-                    // Leg strides
-                    const stridePhase = elapsed * (moveSpeed * 1.6) + p.phase;
-                    const stride = isMoving ? Math.sin(stridePhase) * 0.62 : Math.sin(elapsed * 2.5 + p.phase) * 0.05;
+                    // Leg strides scale dynamically with athletic speed
+                    const stridePhase = elapsed * (moveSpeed * 1.55) + p.phase;
+                    const stride = isMoving ? Math.sin(stridePhase) * 0.62 : Math.sin(elapsed * 2.2 + p.phase) * 0.05;
                     p.char.leftLeg.rotation.x = stride;
                     p.char.rightLeg.rotation.x = -stride;
 
                     if (p.char.leftLeg.userData.knee) {
-                        p.char.leftLeg.userData.knee.rotation.x = isMoving ? Math.max(0.1, -Math.cos(stridePhase) * 0.65) : 0.16;
-                        p.char.rightLeg.userData.knee.rotation.x = isMoving ? Math.max(0.1, Math.cos(stridePhase) * 0.65) : 0.16;
+                        p.char.leftLeg.userData.knee.rotation.x = isMoving ? Math.max(0.12, -Math.cos(stridePhase) * 0.64) : 0.15;
+                        p.char.rightLeg.userData.knee.rotation.x = isMoving ? Math.max(0.12, Math.cos(stridePhase) * 0.64) : 0.15;
                     }
 
                     // Arm and body postures
@@ -2553,7 +2679,6 @@ function addLushTree(x, z, scale = 1.0, isForeground = false) {
                         if (p.char.rightArm.userData.elbow) p.char.rightArm.userData.elbow.rotation.x = -0.3;
                         p.char.leftArm.rotation.x = -1.1;
                     } else if (isCarrier && p.shieldArmTimer > 0) {
-                        // Off-arm shielding the ball from the swipe
                         p.shieldArmTimer -= dt;
                         p.char.leftArm.rotation.x = -0.95;
                         p.char.leftArm.rotation.z = -0.65;
@@ -2578,31 +2703,47 @@ function addLushTree(x, z, scale = 1.0, isForeground = false) {
                         p.char.leftArm.rotation.z = 0;
                         if (p.char.leftArm.userData.elbow) p.char.leftArm.userData.elbow.rotation.x = -0.35;
                     } else if (p === onBallDefender) {
-                        // Dedicated low on-ball defensive stance: arms wide contesting
+                        // On-ball defender active stance with arms wide
                         p.char.leftArm.rotation.x = -1.15 + Math.sin(elapsed * 6 + p.phase) * 0.15;
                         p.char.rightArm.rotation.x = -1.15 - Math.sin(elapsed * 6 + p.phase) * 0.15;
                         p.char.leftArm.rotation.y = 0;
                         p.char.rightArm.rotation.y = 0;
                         p.char.leftArm.rotation.z = -0.45;
                         p.char.rightArm.rotation.z = 0.45;
+                    } else if (p.tactic === 'SCREEN') {
+                        // Wide screening stance: arms crossed over chest
+                        p.char.leftArm.rotation.x = -1.35;
+                        p.char.rightArm.rotation.x = -1.35;
+                        p.char.leftArm.rotation.z = 0.3;
+                        p.char.rightArm.rotation.z = -0.3;
+                        if (p.char.leftArm.userData.elbow) p.char.leftArm.userData.elbow.rotation.x = -1.1;
+                        if (p.char.rightArm.userData.elbow) p.char.rightArm.userData.elbow.rotation.x = -1.1;
                     } else if (isOffense && !isMoving) {
-                        // Triple-threat ready stance: hands ready to receive pass
-                        p.char.leftArm.rotation.x = -0.95;
-                        p.char.rightArm.rotation.x = -0.95;
+                        // Triple-threat catch-and-shoot stance: hands raised ready to receive pass!
+                        p.char.leftArm.rotation.x = -1.05;
+                        p.char.rightArm.rotation.x = -1.05;
                         p.char.leftArm.rotation.y = 0;
                         p.char.rightArm.rotation.y = 0;
                         p.char.leftArm.rotation.z = 0;
                         p.char.rightArm.rotation.z = 0;
+                        if (p.char.leftArm.userData.elbow) p.char.leftArm.userData.elbow.rotation.x = -0.6;
+                        if (p.char.rightArm.userData.elbow) p.char.rightArm.userData.elbow.rotation.x = -0.6;
+                    } else if (!isOffense && !isMoving) {
+                        // Interior defensive shell ready stance: active low stance watching the paint
+                        p.char.leftArm.rotation.x = -0.85;
+                        p.char.rightArm.rotation.x = -0.85;
+                        p.char.leftArm.rotation.z = -0.35;
+                        p.char.rightArm.rotation.z = 0.35;
                     } else {
-                        // Natural jogging / running swing
+                        // Dynamic running / sliding arm swing
                         p.char.leftArm.rotation.x = -stride * 0.65;
                         p.char.rightArm.rotation.x = stride * 0.65;
                         p.char.leftArm.rotation.y = 0;
                         p.char.rightArm.rotation.y = 0;
                         p.char.leftArm.rotation.z = 0;
                         p.char.rightArm.rotation.z = 0;
-                        if (p.char.leftArm.userData.elbow) p.char.leftArm.userData.elbow.rotation.x = -0.45;
-                        if (p.char.rightArm.userData.elbow) p.char.rightArm.userData.elbow.rotation.x = -0.45;
+                        if (p.char.leftArm.userData.elbow) p.char.leftArm.userData.elbow.rotation.x = -0.4;
+                        if (p.char.rightArm.userData.elbow) p.char.rightArm.userData.elbow.rotation.x = -0.4;
                     }
                 });
 

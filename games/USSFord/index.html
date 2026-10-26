@@ -17,7 +17,7 @@
             width: 100%;
             height: 100%;
             overflow: hidden;
-            background-color: #0b2239;
+            background-color: #081e38;
             font-family: 'Inter', sans-serif;
         }
         #canvas-container {
@@ -32,7 +32,7 @@
             font-family: 'JetBrains Mono', monospace;
         }
         .hud-glass {
-            background: rgba(8, 19, 34, 0.72);
+            background: rgba(8, 19, 34, 0.74);
             backdrop-filter: blur(10px);
             -webkit-backdrop-filter: blur(10px);
             border: 1px solid rgba(125, 211, 252, 0.22);
@@ -52,6 +52,17 @@
             background: linear-gradient(180deg, rgba(14, 116, 144, 0.9) 0%, rgba(15, 76, 117, 0.96) 100%);
             border-color: #38bdf8;
             box-shadow: 0 0 12px rgba(56, 189, 248, 0.4);
+        }
+        ::-webkit-scrollbar {
+            width: 5px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.4);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(56, 189, 248, 0.4);
+            border-radius: 4px;
         }
     </style>
 
@@ -97,23 +108,23 @@
 
         <div id="hud-log-pill" class="hud-glass rounded-lg px-3 py-1.5 flex items-center gap-2 text-[11px] mono">
             <span class="text-sky-400 font-bold">PRI-FLY:</span>
-            <span id="ops-status-log" class="text-slate-200">PERSISTENT AIR WING • ZERO POP-IN • CLICK ANY AIRCRAFT</span>
+            <span id="ops-status-log" class="text-slate-200">CVW-8 HIGH-FIDELITY SPOTTING • CLICK ANY AIRCRAFT</span>
         </div>
     </div>
 
-    <!-- Collapsible Right-Side Persistent Air Wing Roster & Unit Command Panel -->
+        <!-- Collapsible Right-Side Persistent Air Wing Roster & Unit Command Panel -->
     <div id="hud-roster" class="fixed top-28 right-3 z-20 w-72 pointer-events-auto flex flex-col gap-2">
         <div class="hud-glass rounded-xl p-3 flex flex-col gap-2">
             <div class="flex items-center justify-between border-b border-sky-400/20 pb-1.5">
                 <div class="mono text-[11px] font-bold text-sky-300 tracking-wide">CVW-8 PERSISTENT ROSTER</div>
-                <span id="roster-summary" class="mono text-[10px] text-emerald-400 font-semibold">22 UNITS TRACKED</span>
+                <span id="roster-summary" class="mono text-[10px] text-emerald-400 font-semibold">36 UNITS TRACKED</span>
             </div>
 
             <!-- Selected Aircraft Detail & Direct Action Bar -->
             <div id="selected-unit-panel" class="bg-slate-950/75 border border-sky-400/30 rounded-lg p-2 flex flex-col gap-1.5">
                 <div class="flex items-center justify-between">
-                    <span id="sel-callsign" class="mono text-xs font-bold text-amber-300">VMFA-211 #201</span>
-                    <span id="sel-type" class="mono text-[10px] px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300">F-35C</span>
+                    <span id="sel-callsign" class="mono text-xs font-bold text-amber-300">VFA-31 #101</span>
+                    <span id="sel-type" class="mono text-[10px] px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300">F/A-18E</span>
                 </div>
                 <div class="flex items-center justify-between text-[11px]">
                     <span class="text-slate-400">STATE:</span>
@@ -161,14 +172,14 @@
         import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
         // ============================================================================
-        // 1. SCENE & TRUE ORTHOGRAPHIC ISOMETRIC CAMERA PIPELINE
+        // 1. SCENE, TRUE ORTHOGRAPHIC CAMERA & PMREM ENVIRONMENT PIPELINE
         // ============================================================================
         const container = document.getElementById('canvas-container');
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x091c33);
-        scene.fog = new THREE.FogExp2(0x0e2848, 0.00015);
+        scene.background = new THREE.Color(0x0c2846);
+        scene.fog = new THREE.FogExp2(0x123458, 0.00012);
 
-        const ORTHO_FRUSTUM_HEIGHT = 186;
+        const ORTHO_FRUSTUM_HEIGHT = 182;
         const aspect = window.innerWidth / window.innerHeight;
         const camera = new THREE.OrthographicCamera(
             (-ORTHO_FRUSTUM_HEIGHT * aspect) / 2,
@@ -179,13 +190,11 @@
             4000
         );
 
-        // Reference framing matching desktop reference photo:
-        // Elevated aerial perspective looking from starboard bow quarter aft
         const CAMERA_PRESETS = {
-            iso:    { pos: new THREE.Vector3(-248, 198, 238), target: new THREE.Vector3(-3, 10, -5), zoom: 1.15 },
-            bow:    { pos: new THREE.Vector3(-190, 145, 260), target: new THREE.Vector3(0, 12, 82),  zoom: 2.15 },
-            island: { pos: new THREE.Vector3(-230, 155, 45),  target: new THREE.Vector3(-22, 22, -52), zoom: 2.35 },
-            stern:  { pos: new THREE.Vector3(-210, 155, -165), target: new THREE.Vector3(6, 12, -55), zoom: 1.85 }
+            iso:    { pos: new THREE.Vector3(-248, 198, 238), target: new THREE.Vector3(-3, 10, -5),  zoom: 1.15 },
+            bow:    { pos: new THREE.Vector3(-185, 138, 225), target: new THREE.Vector3(0, 12, 82),   zoom: 2.15 },
+            island: { pos: new THREE.Vector3(-220, 148, 35),  target: new THREE.Vector3(-22, 22, -52), zoom: 2.35 },
+            stern:  { pos: new THREE.Vector3(-210, 152, -165), target: new THREE.Vector3(6, 12, -60), zoom: 1.85 }
         };
         camera.position.copy(CAMERA_PRESETS.iso.pos);
         camera.zoom = CAMERA_PRESETS.iso.zoom;
@@ -197,81 +206,168 @@
         renderer.shadowMap.enabled = true;
         renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         renderer.toneMapping = THREE.ACESFilmicToneMapping;
-        renderer.toneMappingExposure = 1.02;
+        renderer.toneMappingExposure = 1.08;
         container.appendChild(renderer.domElement);
 
-        const controls = new OrbitControls(camera, renderer.domElement);
-        controls.target.copy(CAMERA_PRESETS.iso.target);
-        controls.enableDamping = true;
-        controls.dampingFactor = 0.06;
-        controls.maxPolarAngle = Math.PI * 0.47;
-        controls.minZoom = 0.55;
-        controls.maxZoom = 4.5;
-
-        const composer = new EffectComposer(renderer);
-        const renderPass = new RenderPass(scene, camera);
-        composer.addPass(renderPass);
-        const bloomPass = new UnrealBloomPass(
-            new THREE.Vector2(window.innerWidth, window.innerHeight),
-            0.15,
-            0.35,
-            0.88
-        );
-        composer.addPass(bloomPass);
-        composer.addPass(new OutputPass());
-
-        let desiredCamPos = null;
-        let desiredCamTarget = null;
-        let desiredCamZoom = null;
-        let followUnit = null;
-
-        controls.addEventListener('start', () => {
-            desiredCamPos = null;
-            desiredCamTarget = null;
-            desiredCamZoom = null;
-        });
-
-        function setStatusLog(text) {
-            const el = document.getElementById('ops-status-log');
-            if (el) el.textContent = text;
-        }
-
         // ============================================================================
-        // 2. CRISP MARITIME DAYLIGHT LIGHTING
+        // 2. CRISP MARITIME DAYLIGHT LIGHTING & SHADOW CALIBRATION
         // ============================================================================
-        // Calibrated daylight illumination matching reference photo
-        const hemiLight = new THREE.HemisphereLight(0xb4d8fc, 0x142234, 0.52);
+        const hemiLight = new THREE.HemisphereLight(0xc2dff8, 0x162b44, 0.78);
         scene.add(hemiLight);
 
-        // Crisp sunlight casting sharp, clean shadows from island and aircraft
-        const sunLight = new THREE.DirectionalLight(0xfffaed, 3.25);
-        sunLight.position.set(150, 280, -85);
+        const sunLight = new THREE.DirectionalLight(0xfff9ed, 3.35);
+        sunLight.position.set(-55, 250, -145);
         sunLight.castShadow = true;
         sunLight.shadow.mapSize.width = 4096;
         sunLight.shadow.mapSize.height = 4096;
         sunLight.shadow.camera.near = 50;
-        sunLight.shadow.camera.far = 700;
-        const shadowD = 210;
+        sunLight.shadow.camera.far = 680;
+        const shadowD = 195;
         sunLight.shadow.camera.left = -shadowD;
         sunLight.shadow.camera.right = shadowD;
         sunLight.shadow.camera.top = shadowD;
         sunLight.shadow.camera.bottom = -shadowD;
-        sunLight.shadow.bias = -0.00018;
-        sunLight.shadow.normalBias = 0.02;
+        sunLight.shadow.bias = -0.00015;
+        sunLight.shadow.normalBias = 0.018;
         scene.add(sunLight);
 
-        // Subtle sky fill on the shadow side
-        const fillLight = new THREE.DirectionalLight(0x6aa2d8, 0.22);
-        fillLight.position.set(-180, 80, 140);
+        const fillLight = new THREE.DirectionalLight(0x6ca2d6, 0.38);
+        fillLight.position.set(-190, 65, 160);
         scene.add(fillLight);
 
         // ============================================================================
-        // 3. FLIGHT DECK TEXTURE & MAPS (HIGH-FIDELITY NON-SKID & MARKINGS)
+        // 3. FLIGHT DECK TEXTURE & MAPS (LIGHTER SUN-BLEACHED NON-SKID)
         // ============================================================================
         const DECK_MIN_X = -40;
         const DECK_MAX_X = 44;
         const DECK_MIN_Z = -155;
         const DECK_MAX_Z = 155;
+
+        // Utility: Convert a greyscale height canvas into a Tangent-Space RGB Normal Map Texture
+        function heightCanvasToNormalTex(heightCanvas, strength = 2.6, repeatS = 1, repeatT = 1) {
+            const w = heightCanvas.width;
+            const h = heightCanvas.height;
+            const srcCtx = heightCanvas.getContext('2d');
+            const srcData = srcCtx.getImageData(0, 0, w, h).data;
+
+            const normCanvas = document.createElement('canvas');
+            normCanvas.width = w;
+            normCanvas.height = h;
+            const nCtx = normCanvas.getContext('2d');
+            const nImg = nCtx.createImageData(w, h);
+            const dst = nImg.data;
+
+            const sampleH = (x, y) => {
+                const cx = (x + w) % w;
+                const cy = Math.max(0, Math.min(h - 1, y));
+                return srcData[(cy * w + cx) * 4] / 255.0;
+            };
+
+            for (let y = 0; y < h; y++) {
+                for (let x = 0; x < w; x++) {
+                    const hL = sampleH(x - 1, y);
+                    const hR = sampleH(x + 1, y);
+                    const hU = sampleH(x, y - 1);
+                    const hD = sampleH(x, y + 1);
+
+                    let dx = (hL - hR) * strength;
+                    let dy = (hU - hD) * strength;
+                    let dz = 1.0;
+                    const invLen = 1.0 / Math.sqrt(dx * dx + dy * dy + dz * dz);
+                    dx *= invLen;
+                    dy *= invLen;
+                    dz *= invLen;
+
+                    const idx = (y * w + x) * 4;
+                    dst[idx]     = Math.round((dx * 0.5 + 0.5) * 255);
+                    dst[idx + 1] = Math.round((dy * 0.5 + 0.5) * 255);
+                    dst[idx + 2] = Math.round((dz * 0.5 + 0.5) * 255);
+                    dst[idx + 3] = 255;
+                }
+            }
+            nCtx.putImageData(nImg, 0, 0);
+
+            const maxAniso = renderer.capabilities.getMaxAnisotropy();
+            const normalTex = new THREE.CanvasTexture(normCanvas);
+            normalTex.anisotropy = maxAniso;
+            if (repeatS > 1 || repeatT > 1) {
+                normalTex.wrapS = THREE.RepeatWrapping;
+                normalTex.wrapT = THREE.RepeatWrapping;
+                normalTex.repeat.set(repeatS, repeatT);
+            }
+            normalTex.needsUpdate = true;
+            return normalTex;
+        }
+
+        // Procedural Aircraft Fuselage & Wing Panel-Line Diffuse + Tangent Normal Map
+        function createAircraftSurfaceMaps(baseHex = '#b8c2ce', seamAlpha = 0.28) {
+            const size = 512;
+            const cCanvas = document.createElement('canvas');
+            cCanvas.width = size;
+            cCanvas.height = size;
+            const cCtx = cCanvas.getContext('2d');
+
+            const hCanvas = document.createElement('canvas');
+            hCanvas.width = size;
+            hCanvas.height = size;
+            const hCtx = hCanvas.getContext('2d');
+
+            cCtx.fillStyle = baseHex;
+            cCtx.fillRect(0, 0, size, size);
+
+            hCtx.fillStyle = '#808080';
+            hCtx.fillRect(0, 0, size, size);
+
+            // Subtle tonal airframe panel variations & access hatches
+            for (let y = 0; y < size; y += 64) {
+                for (let x = 0; x < size; x += 64) {
+                    const shade = ((x + y) % 128 === 0) ? 'rgba(255,255,255,0.045)' : 'rgba(15,23,42,0.035)';
+                    cCtx.fillStyle = shade;
+                    cCtx.fillRect(x + 2, y + 2, 60, 60);
+
+                    hCtx.fillStyle = ((x + y) % 128 === 0) ? '#868686' : '#7a7a7a';
+                    hCtx.fillRect(x + 2, y + 2, 60, 60);
+
+                    // Recessed panel seam lines
+                    cCtx.strokeStyle = `rgba(30, 41, 59, ${seamAlpha})`;
+                    cCtx.lineWidth = 1.5;
+                    cCtx.strokeRect(x, y, 64, 64);
+
+                    hCtx.strokeStyle = '#525252';
+                    hCtx.lineWidth = 2.0;
+                    hCtx.strokeRect(x, y, 64, 64);
+
+                    // Rivet dots along panel perimeter
+                    cCtx.fillStyle = `rgba(30, 41, 59, ${seamAlpha * 0.75})`;
+                    hCtx.fillStyle = '#606060';
+                    for (let r = 8; r < 60; r += 12) {
+                        cCtx.fillRect(x + r, y + 4, 1.5, 1.5);
+                        cCtx.fillRect(x + 4, y + r, 1.5, 1.5);
+                        hCtx.fillRect(x + r, y + 4, 2, 2);
+                        hCtx.fillRect(x + 4, y + r, 2, 2);
+                    }
+                }
+            }
+
+            // Subtle aerodynamic airflow streaks
+            for (let i = 0; i < 65; i++) {
+                const sx = Math.random() * size;
+                const sy = Math.random() * size;
+                cCtx.fillStyle = (i % 2 === 0) ? 'rgba(255,255,255,0.03)' : 'rgba(30,41,59,0.035)';
+                cCtx.fillRect(sx, sy, 3 + Math.random() * 6, 40 + Math.random() * 85);
+            }
+
+            const maxAniso = renderer.capabilities.getMaxAnisotropy();
+            const colorTex = new THREE.CanvasTexture(cCanvas);
+            colorTex.wrapS = THREE.RepeatWrapping;
+            colorTex.wrapT = THREE.RepeatWrapping;
+            colorTex.repeat.set(2, 2);
+            colorTex.anisotropy = maxAniso;
+            colorTex.colorSpace = THREE.SRGBColorSpace;
+
+            const normalTex = heightCanvasToNormalTex(hCanvas, 1.9, 2, 2);
+            return { colorTex, normalTex };
+        }
 
         // Shared aircraft national insignia generator
         function createUSNavyInsigniaTexture() {
@@ -282,28 +378,24 @@
 
             ctx.clearRect(0, 0, 256, 128);
 
-            // Navy blue background disc
-            ctx.fillStyle = '#1e3a8a';
+            // Low-visibility tactical grey-blue insignia disc
+            ctx.fillStyle = '#334155';
             ctx.beginPath();
             ctx.arc(128, 64, 46, 0, Math.PI * 2);
             ctx.fill();
 
-            // Flanking white bars
-            ctx.fillStyle = '#f8fafc';
+            ctx.fillStyle = '#cbd5e1';
             ctx.fillRect(20, 48, 216, 32);
 
-            // Red center horizontal stripe
-            ctx.fillStyle = '#dc2626';
+            ctx.fillStyle = '#475569';
             ctx.fillRect(20, 58, 216, 12);
 
-            // Re-draw circle outline and central star
-            ctx.fillStyle = '#1e3a8a';
+            ctx.fillStyle = '#334155';
             ctx.beginPath();
             ctx.arc(128, 64, 44, 0, Math.PI * 2);
             ctx.fill();
 
-            // Five point white star
-            ctx.fillStyle = '#f8fafc';
+            ctx.fillStyle = '#e2e8f0';
             ctx.beginPath();
             for (let i = 0; i < 5; i++) {
                 const aOuter = -Math.PI / 2 + (i * Math.PI * 2) / 5;
@@ -341,278 +433,177 @@
             bumpCanvas.height = height;
             const bCtx = bumpCanvas.getContext('2d');
 
+            const roughCanvas = document.createElement('canvas');
+            roughCanvas.width = width;
+            roughCanvas.height = height;
+            const rCtx = roughCanvas.getContext('2d');
+
             const toPx = (x) => ((x - DECK_MIN_X) / (DECK_MAX_X - DECK_MIN_X)) * width;
             const toPy = (z) => (1.0 - (z - DECK_MIN_Z) / (DECK_MAX_Z - DECK_MIN_Z)) * height;
 
-            // 1. Sun-bleached light slate/concrete naval grey non-skid coat (#848e9a to #9aa4b0)
-            ctx.fillStyle = '#86909c';
+            // 1. Sun-Bleached Medium-Light Slate / Warm Concrete Grey Non-Skid Base Coat (#818993)
+            ctx.fillStyle = '#818993';
             ctx.fillRect(0, 0, width, height);
 
             bCtx.fillStyle = '#808080';
             bCtx.fillRect(0, 0, width, height);
 
-            // Bright sun-faded chalking radial highlights across the flight deck
-            const sunFade1 = ctx.createRadialGradient(toPx(0), toPy(55), 50, toPx(0), toPy(40), 1250);
-            sunFade1.addColorStop(0.0, 'rgba(235, 241, 248, 0.34)');
-            sunFade1.addColorStop(0.5, 'rgba(218, 226, 236, 0.18)');
-            sunFade1.addColorStop(1.0, 'rgba(180, 190, 202, 0.0)');
-            ctx.fillStyle = sunFade1;
-            ctx.fillRect(0, 0, width, height);
+            rCtx.fillStyle = '#d2d2d2'; // High base roughness for gritty non-skid
+            rCtx.fillRect(0, 0, width, height);
 
-            const sunFade2 = ctx.createRadialGradient(toPx(6), toPy(-65), 60, toPx(4), toPy(-50), 1100);
-            sunFade2.addColorStop(0.0, 'rgba(232, 238, 245, 0.28)');
-            sunFade2.addColorStop(0.6, 'rgba(210, 218, 228, 0.14)');
-            sunFade2.addColorStop(1.0, 'rgba(180, 190, 202, 0.0)');
-            ctx.fillStyle = sunFade2;
-            ctx.fillRect(0, 0, width, height);
+            // Bright sun-lit radial highlights & tonal operational zones across the deck
+            const wearZones = [
+                { x: -1, z: 75,   r: 1150, c1: 'rgba(235, 240, 246, 0.28)', c2: 'rgba(141, 149, 158, 0.0)' },
+                { x:  8, z: -25,  r: 1050, c1: 'rgba(235, 240, 246, 0.26)', c2: 'rgba(141, 149, 158, 0.0)' },
+                { x: -18, z: 25,  r: 760,  c1: 'rgba(123, 130, 138, 0.22)', c2: 'rgba(130, 138, 148, 0.0)' },
+                { x:  2, z: -115, r: 880,  c1: 'rgba(230, 236, 244, 0.24)', c2: 'rgba(141, 149, 158, 0.0)' }
+            ];
+            wearZones.forEach(wz => {
+                const g = ctx.createRadialGradient(toPx(wz.x), toPy(wz.z), 40, toPx(wz.x), toPy(wz.z), wz.r);
+                g.addColorStop(0.0, wz.c1);
+                g.addColorStop(1.0, wz.c2);
+                ctx.fillStyle = g;
+                ctx.fillRect(0, 0, width, height);
+            });
 
-            // Longitudinal non-skid roller strips & bright aggregate streaks
-            for (let x = 0; x < width; x += 14) {
-                ctx.fillStyle = (x % 28 === 0) ? 'rgba(255,255,255,0.045)' : 'rgba(40,48,58,0.032)';
-                ctx.fillRect(x, 0, 7, height);
-                bCtx.fillStyle = (x % 28 === 0) ? '#8d8d8d' : '#747474';
+            // Longitudinal non-skid application strips (authentic narrow deck plating passes)
+            for (let x = 0; x < width; x += 12) {
+                const stripTone = (x % 24 === 0) ? 'rgba(240, 245, 250, 0.055)' : 'rgba(55, 62, 70, 0.038)';
+                ctx.fillStyle = stripTone;
+                ctx.fillRect(x, 0, 6, height);
+                bCtx.fillStyle = (x % 24 === 0) ? '#888888' : '#747474';
                 bCtx.fillRect(x, 0, 4, height);
             }
 
-            // Welded steel deck plating seam grid & expansion joints
-            ctx.lineWidth = 1.4;
-            for (let gx = -38; gx <= 42; gx += 3.5) {
+            // Longitudinal wear streaks along the bow catapult tracks & central taxi corridor
+            for (let s = 0; s < 160; s++) {
+                const sx = toPx(-28 + Math.random() * 60);
+                const sy = Math.random() * height;
+                const sLen = 140 + Math.random() * 520;
+                const sW = 3 + Math.random() * 14;
+                const isLight = Math.random() > 0.42;
+                ctx.fillStyle = isLight ? 'rgba(235, 240, 246, 0.075)' : 'rgba(65, 72, 80, 0.048)';
+                ctx.fillRect(sx, sy, sW, sLen);
+            }
+
+            // Welded steel deck plating seam grid & transverse expansion joints
+            for (let gx = -38; gx <= 42; gx += 3.2) {
                 const px = toPx(gx);
-                ctx.strokeStyle = 'rgba(62, 70, 82, 0.24)';
+                ctx.strokeStyle = 'rgba(58, 65, 74, 0.20)';
+                ctx.lineWidth = 1.2;
                 ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, height); ctx.stroke();
-                bCtx.strokeStyle = '#686868';
+                bCtx.strokeStyle = '#626262';
                 bCtx.beginPath(); bCtx.moveTo(px, 0); bCtx.lineTo(px, height); bCtx.stroke();
             }
-            for (let gz = -150; gz <= 150; gz += 7.5) {
+            for (let gz = -150; gz <= 150; gz += 8.0) {
                 const py = toPy(gz);
-                const isExpansionJoint = Math.abs(gz % 30) < 1.0;
-                ctx.strokeStyle = isExpansionJoint ? 'rgba(40, 46, 56, 0.48)' : 'rgba(65, 74, 86, 0.20)';
-                ctx.lineWidth = isExpansionJoint ? 3.2 : 1.2;
+                const isExpJoint = Math.abs(gz % 32) < 1.0;
+                ctx.strokeStyle = isExpJoint ? 'rgba(48, 54, 62, 0.36)' : 'rgba(62, 68, 78, 0.16)';
+                ctx.lineWidth = isExpJoint ? 2.6 : 1.1;
                 ctx.beginPath(); ctx.moveTo(0, py); ctx.lineTo(width, py); ctx.stroke();
 
-                if (isExpansionJoint) {
-                    ctx.strokeStyle = 'rgba(230, 236, 244, 0.35)';
-                    ctx.lineWidth = 1.5;
-                    ctx.beginPath(); ctx.moveTo(0, py + 2.5); ctx.lineTo(width, py + 2.5); ctx.stroke();
-                }
-
-                bCtx.strokeStyle = isExpansionJoint ? '#424242' : '#6c6c6c';
-                bCtx.lineWidth = isExpansionJoint ? 3.0 : 1.2;
+                bCtx.strokeStyle = isExpJoint ? '#424242' : '#686868';
+                bCtx.lineWidth = isExpJoint ? 2.8 : 1.1;
                 bCtx.beginPath(); bCtx.moveTo(0, py); bCtx.lineTo(width, py); bCtx.stroke();
             }
 
-            // Fine aggregate non-skid grain stipple (bright chalky micro-particles)
-            for (let i = 0; i < 95000; i++) {
+            // Fine aggregate non-skid grit stipple
+            for (let i = 0; i < 115000; i++) {
                 const rx = Math.random() * width;
                 const ry = Math.random() * height;
-                const isBright = Math.random() > 0.42;
-                ctx.fillStyle = isBright ? 'rgba(248,250,252,0.065)' : 'rgba(45,52,64,0.045)';
-                ctx.fillRect(rx, ry, 2 + Math.random() * 2.5, 2 + Math.random() * 5);
-                bCtx.fillStyle = isBright ? '#989898' : '#686868';
+                const isLight = Math.random() > 0.45;
+                ctx.fillStyle = isLight ? 'rgba(241, 245, 249, 0.068)' : 'rgba(50, 56, 64, 0.048)';
+                ctx.fillRect(rx, ry, 2 + Math.random() * 2, 2 + Math.random() * 4);
+                bCtx.fillStyle = isLight ? '#989898' : '#646464';
                 bCtx.fillRect(rx, ry, 2, 2);
             }
 
-            // 2. Cruciform Tie-Down Pad-Eyes (~20-ft grid across flight deck)
-            function drawPadEye(px, py) {
+            // 2. Authentic Rusty-Tan / Burnt-Umber JBD & Blast-Resistant Deck Patches
+            // Matching the reference photo's prominent rectangular brown/tan blast zones in the mid-forward deck
+            function drawWeatheredBlastPatch(xM, zM, wM, lM, rotRad = 0) {
+                const px = toPx(xM);
+                const py = toPy(zM);
+                const pw = (wM / (DECK_MAX_X - DECK_MIN_X)) * width;
+                const pl = (lM / (DECK_MAX_Z - DECK_MIN_Z)) * height;
+
                 ctx.save();
-                ctx.beginPath();
-                ctx.arc(px, py, 5.8, 0, Math.PI * 2);
-                ctx.fillStyle = '#5c6672';
-                ctx.fill();
+                ctx.translate(px, py);
+                ctx.rotate(-rotRad);
 
-                ctx.beginPath();
-                ctx.arc(px, py, 4.6, 0, Math.PI * 2);
-                ctx.strokeStyle = '#d8e0ea';
-                ctx.lineWidth = 1.2;
-                ctx.stroke();
+                // Warm oxidized rusty-brown primer & blast coat matching reference photo
+                ctx.fillStyle = 'rgba(132, 96, 64, 0.72)';
+                ctx.fillRect(-pw * 0.5, -pl * 0.5, pw, pl);
 
-                ctx.beginPath();
-                ctx.arc(px, py, 3.4, 0, Math.PI * 2);
-                ctx.fillStyle = '#333a44';
-                ctx.fill();
+                // Inner mottled heat/blast weathering core
+                ctx.fillStyle = 'rgba(104, 72, 46, 0.58)';
+                ctx.fillRect(-pw * 0.42, -pl * 0.42, pw * 0.84, pl * 0.84);
 
-                ctx.fillStyle = '#cbd5e1';
-                ctx.fillRect(px - 0.9, py - 3.4, 1.8, 6.8);
-                ctx.fillRect(px - 3.4, py - 0.9, 6.8, 1.8);
+                // Crisp yellow/tan safety perimeter outline visible in photo
+                ctx.strokeStyle = 'rgba(228, 190, 118, 0.78)';
+                ctx.lineWidth = 3.2;
+                ctx.strokeRect(-pw * 0.5, -pl * 0.5, pw, pl);
+
+                // Internal mechanical JBD panel ribs
+                ctx.strokeStyle = 'rgba(52, 38, 26, 0.48)';
+                ctx.lineWidth = 1.8;
+                for (let r = -pw * 0.35; r <= pw * 0.35; r += pw * 0.23) {
+                    ctx.beginPath();
+                    ctx.moveTo(r, -pl * 0.5);
+                    ctx.lineTo(r,  pl * 0.5);
+                    ctx.stroke();
+                }
                 ctx.restore();
 
-                bCtx.save();
-                bCtx.beginPath();
-                bCtx.arc(px, py, 5.8, 0, Math.PI * 2);
-                bCtx.fillStyle = '#525252';
-                bCtx.fill();
-                bCtx.fillStyle = '#a4a4a4';
-                bCtx.fillRect(px - 1.0, py - 3.0, 2.0, 6.0);
-                bCtx.fillRect(px - 3.0, py - 1.0, 6.0, 2.0);
-                bCtx.restore();
+                rCtx.save();
+                rCtx.translate(px, py);
+                rCtx.rotate(-rotRad);
+                rCtx.fillStyle = '#909090'; // Smoother metallic blast plate roughness
+                rCtx.fillRect(-pw * 0.5, -pl * 0.5, pw, pl);
+                rCtx.restore();
             }
 
-            for (let gz = -148; gz <= 148; gz += 4.2) {
-                const rowOffset = (Math.abs(Math.round(gz / 4.2)) % 2) * 2.1;
-                for (let gx = -35 + rowOffset; gx <= 39; gx += 4.2) {
+            // Reference photo tan/brown blast & non-skid patches in mid-forward & waist catapult areas
+            drawWeatheredBlastPatch(-12.5,  32.0, 7.6, 10.5, 0.02);
+            drawWeatheredBlastPatch( -3.5,  26.0, 7.2,  9.8, 0.02);
+            drawWeatheredBlastPatch(-11.8,  14.0, 7.4,  9.5, 0.02);
+            drawWeatheredBlastPatch( 22.0, -48.0, 6.8,  9.2, -0.16);
+            drawWeatheredBlastPatch( 31.5, -56.0, 6.5,  8.8, -0.16);
+
+            // Subtle dark oil/exhaust stains under parked aircraft positions along starboard edge & bow
+            function drawOilStain(xM, zM, radPx = 38) {
+                const px = toPx(xM);
+                const py = toPy(zM);
+                const g = ctx.createRadialGradient(px, py, 4, px, py, radPx);
+                g.addColorStop(0.0, 'rgba(38, 42, 48, 0.28)');
+                g.addColorStop(0.6, 'rgba(52, 58, 66, 0.13)');
+                g.addColorStop(1.0, 'rgba(70, 76, 84, 0.0)');
+                ctx.fillStyle = g;
+                ctx.beginPath();
+                ctx.arc(px, py, radPx, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            for (let z = -135; z <= 135; z += 11) {
+                drawOilStain(-26 + (Math.random() - 0.5) * 6, z, 30 + Math.random() * 18);
+            }
+
+            // 3. Cruciform Tie-Down Pad-Eyes (Subtle metallic grid across the flight deck)
+            for (let gz = -148; gz <= 148; gz += 4.5) {
+                const rowOffset = (Math.abs(Math.round(gz / 4.5)) % 2) * 2.25;
+                for (let gx = -35 + rowOffset; gx <= 39; gx += 4.5) {
                     const px = toPx(gx);
                     const py = toPy(gz);
                     if (px > 70 && px < width - 70 && py > 65 && py < height - 65) {
-                        drawPadEye(px, py);
+                        ctx.fillStyle = 'rgba(54, 60, 68, 0.45)';
+                        ctx.fillRect(px - 2.2, py - 2.2, 4.4, 4.4);
+                        ctx.fillStyle = 'rgba(220, 228, 236, 0.52)';
+                        ctx.fillRect(px - 1.2, py - 1.2, 2.4, 2.4);
+                        bCtx.fillStyle = '#484848';
+                        bCtx.fillRect(px - 2.0, py - 2.0, 4.0, 4.0);
                     }
                 }
             }
 
-            // 2B. Dedicated Perimeter Aircraft Parking Stall Boxes, Wheel Chock T-Bars & Spot Stencils
-            function drawParkingStall(x, z, rotY, spotLabel, wM = 9.6, lM = 13.5) {
-                const px = toPx(x);
-                const py = toPy(z);
-                const pw = (wM / (DECK_MAX_X - DECK_MIN_X)) * width;
-                const pl = (lM / (DECK_MAX_Z - DECK_MIN_Z)) * height;
-
-                ctx.save();
-                ctx.translate(px, py);
-                ctx.rotate(-rotY);
-
-                // Slightly brighter concrete pad tint inside parking stall
-                ctx.fillStyle = 'rgba(241, 245, 249, 0.10)';
-                ctx.fillRect(-pw * 0.5, -pl * 0.5, pw, pl);
-
-                // Crisp yellow/white dashed stall boundary box
-                ctx.strokeStyle = '#facc15';
-                ctx.lineWidth = 4.0;
-                ctx.setLineDash([18, 12]);
-                ctx.strokeRect(-pw * 0.5, -pl * 0.5, pw, pl);
-                ctx.setLineDash([]);
-
-                // Corner L-brackets in bright white
-                ctx.strokeStyle = '#ffffff';
-                ctx.lineWidth = 5.0;
-                const cL = 22;
-                [[-1, -1], [1, -1], [1, 1], [-1, 1]].forEach(([sx, sy]) => {
-                    const cx = sx * pw * 0.5;
-                    const cy = sy * pl * 0.5;
-                    ctx.beginPath();
-                    ctx.moveTo(cx - sx * cL, cy);
-                    ctx.lineTo(cx, cy);
-                    ctx.lineTo(cx, cy - sy * cL);
-                    ctx.stroke();
-                });
-
-                // Nose wheel alignment T-bar & main gear chock boxes
-                ctx.strokeStyle = '#facc15';
-                ctx.lineWidth = 4.5;
-                ctx.beginPath();
-                ctx.moveTo(0, -pl * 0.36);
-                ctx.lineTo(0,  pl * 0.25);
-                ctx.moveTo(-24, -pl * 0.28);
-                ctx.lineTo( 24, -pl * 0.28);
-                ctx.stroke();
-
-                // Stenciled Spot Label
-                ctx.save();
-                ctx.translate(0, pl * 0.36);
-                ctx.font = '800 22px "JetBrains Mono", monospace';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillStyle = 'rgba(15, 23, 42, 0.65)';
-                ctx.fillRect(-52, -13, 104, 26);
-                ctx.fillStyle = '#f8fafc';
-                ctx.fillText(spotLabel, 0, 1);
-                ctx.restore();
-
-                ctx.restore();
-            }
-
-            // Starboard Forward Finger Parking Line (Spots 01–07)
-            const stbdFwdParking = [
-                { x: -15.2, z: 108, rot: 0.92 - Math.PI, lbl: 'SPOT 01' },
-                { x: -19.2, z:  91, rot: 0.95 - Math.PI, lbl: 'SPOT 02' },
-                { x: -23.2, z:  74, rot: 0.96 - Math.PI, lbl: 'SPOT 03' },
-                { x: -27.2, z:  56, rot: 0.98 - Math.PI, lbl: 'SPOT 04' },
-                { x: -30.5, z:  38, rot: 1.00 - Math.PI, lbl: 'SPOT 05' },
-                { x: -31.8, z:  19, rot: 1.02 - Math.PI, lbl: 'SPOT 06' },
-                { x: -31.8, z:   1, rot: 1.00 - Math.PI, lbl: 'SPOT 07' }
-            ];
-            stbdFwdParking.forEach(s => drawParkingStall(s.x, s.z, s.rot, s.lbl));
-
-            // Starboard Mid-Deck / Island Apron Parking Line (Spots 08–11 — clear of central taxi street)
-            const stbdMidParking = [
-                { x: -31.2, z: -15, rot: 0.98 - Math.PI, lbl: 'SPOT 08' },
-                { x: -31.2, z: -31, rot: 0.98 - Math.PI, lbl: 'SPOT 09' },
-                { x: -20.5, z: -44, rot: 0.85 - Math.PI, lbl: 'SPOT 10' },
-                { x: -20.5, z: -66, rot: 0.85 - Math.PI, lbl: 'SPOT 11' }
-            ];
-            stbdMidParking.forEach(s => drawParkingStall(s.x, s.z, s.rot, s.lbl));
-
-            // Starboard Aft Fantail Parking Line (Spots 12–15)
-            const stbdAftParking = [
-                { x: -28.5, z: -83,  rot: 0.95 - Math.PI, lbl: 'SPOT 12' },
-                { x: -28.0, z: -100, rot: 0.95 - Math.PI, lbl: 'SPOT 13' },
-                { x: -26.0, z: -117, rot: 1.02 - Math.PI, lbl: 'SPOT 14' },
-                { x: -22.5, z: -134, rot: 1.10 - Math.PI, lbl: 'SPOT 15' }
-            ];
-            stbdAftParking.forEach(s => drawParkingStall(s.x, s.z, s.rot, s.lbl));
-
-            // Port Aft & Hawkeye / Helicopter Perimeter Parking Apron (Spots 16–22)
-            const portAftParking = [
-                { x: 16.5, z: -104, rot: -0.52, lbl: 'AWACS 1', w: 12.5, l: 15.0 },
-                { x: 21.5, z: -124, rot: -0.58, lbl: 'AWACS 2', w: 12.5, l: 15.0 },
-                { x: 26.8, z: -76,  rot: -0.78, lbl: 'SPOT 16', w: 9.6,  l: 13.5 },
-                { x: 31.8, z: -56,  rot: -0.82, lbl: 'SPOT 17', w: 9.6,  l: 13.5 },
-                { x: -20.5, z: -82, rot:  0.15, lbl: 'HELO 01', w: 8.5,  l: 12.0 },
-                { x: -19.5, z: -98, rot:  0.15, lbl: 'HELO 02', w: 8.5,  l: 12.0 },
-                { x: -18.5, z: -114,rot:  0.15, lbl: 'HELO 03', w: 8.5,  l: 12.0 }
-            ];
-            portAftParking.forEach(s => drawParkingStall(s.x, s.z, s.rot, s.lbl, s.w, s.l));
-
-            // Deck-Edge Elevator Caution Hatching & Weapons Staging Checkered Boxes
-            function drawElevatorBoundary(x, z, wM, lM) {
-                const px = toPx(x);
-                const py = toPy(z);
-                const pw = (wM / (DECK_MAX_X - DECK_MIN_X)) * width;
-                const pl = (lM / (DECK_MAX_Z - DECK_MIN_Z)) * height;
-                ctx.save();
-                ctx.translate(px, py);
-                ctx.strokeStyle = '#eab308';
-                ctx.lineWidth = 8;
-                ctx.strokeRect(-pw * 0.5, -pl * 0.5, pw, pl);
-                ctx.strokeStyle = '#1e293b';
-                ctx.setLineDash([16, 16]);
-                ctx.strokeRect(-pw * 0.5, -pl * 0.5, pw, pl);
-                ctx.setLineDash([]);
-                ctx.strokeStyle = '#ffffff';
-                ctx.lineWidth = 3;
-                ctx.strokeRect(-pw * 0.5 - 8, -pl * 0.5 - 8, pw + 16, pl + 16);
-                ctx.restore();
-            }
-            drawElevatorBoundary(-36.2, 22, 5.2, 15.5);
-            drawElevatorBoundary(-36.2, -18, 5.2, 15.5);
-            drawElevatorBoundary(-33.2, -92, 5.2, 15.5);
-            drawElevatorBoundary(33.2, -65, 5.2, 15.5);
-
-            // Red/White Checkered Weapons Staging Area Forward of Island
-            ctx.save();
-            const wsX = toPx(-26.5), wsY = toPy(-39.5);
-            ctx.translate(wsX, wsY);
-            ctx.strokeStyle = '#dc2626';
-            ctx.lineWidth = 5;
-            ctx.strokeRect(-45, -35, 90, 70);
-            ctx.strokeStyle = '#ffffff';
-            ctx.setLineDash([12, 12]);
-            ctx.strokeRect(-45, -35, 90, 70);
-            ctx.restore();
-
-            // Central Taxiway Marshaling Line (Unobstructed Spine from Fantail to Bow Catapults)
-            ctx.save();
-            ctx.beginPath();
-            ctx.moveTo(toPx(-5.5), toPy(-78));
-            ctx.lineTo(toPx(-4.5), toPy(48));
-            ctx.lineTo(toPx(-7.5), toPy(56));
-            ctx.moveTo(toPx(-4.5), toPy(36));
-            ctx.lineTo(toPx( 8.5), toPy(48));
-            ctx.lineWidth = 6.5;
-            ctx.strokeStyle = '#facc15';
-            ctx.setLineDash([28, 18]);
-            ctx.stroke();
-            ctx.restore();
-
-            // 3. Angled Landing Runway with Localized Touchdown Skid Marks
+            // 4. Angled Landing Runway with Authentic Dark Tire Rubber Accumulation & Crisp White Markings
             const rStartX = toPx(-4.5), rStartY = toPy(-152);
             const rEndX   = toPx(36.5),  rEndY   = toPy(42);
             const rAngle  = Math.atan2(rEndY - rStartY, rEndX - rStartX);
@@ -622,185 +613,207 @@
             ctx.translate(rStartX, rStartY);
             ctx.rotate(rAngle);
 
-            // Subtle runway surface contrast so deck stays bright and white/grey
+            // Authentic dark rubber trap zone in the aft-mid landing area matching reference photo
             const trapGrad = ctx.createLinearGradient(0, 0, rLen, 0);
-            trapGrad.addColorStop(0.0, 'rgba(70, 78, 90, 0.16)');
-            trapGrad.addColorStop(0.24, 'rgba(45, 52, 62, 0.34)'); // localized trap zone
-            trapGrad.addColorStop(0.55, 'rgba(65, 74, 86, 0.18)');
-            trapGrad.addColorStop(0.95, 'rgba(220, 228, 238, 0.08)');
+            trapGrad.addColorStop(0.0,  'rgba(225, 232, 240, 0.16)');
+            trapGrad.addColorStop(0.14, 'rgba(38, 42, 48, 0.46)');   // Heavy dark tire rubber touchdown zone
+            trapGrad.addColorStop(0.36, 'rgba(46, 51, 58, 0.36)');
+            trapGrad.addColorStop(0.68, 'rgba(72, 78, 86, 0.16)');
+            trapGrad.addColorStop(1.0,  'rgba(230, 236, 244, 0.14)');
             ctx.fillStyle = trapGrad;
-            ctx.fillRect(0, -215, rLen, 430);
+            ctx.fillRect(0, -210, rLen, 420);
 
-            // Localized Tire Skid Marks at Arresting Wire Touchdown Area
-            for (let s = 0; s < 260; s++) {
-                const sProgress = 0.12 + Math.random() * 0.55;
+            // Crisp white outer runway edge tramlines (matching reference photo)
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, -216, rLen * 0.97, 16);
+            ctx.fillRect(0,  200, rLen * 0.97, 16);
+
+            // Inner parallel white/yellow tramline on port side & starboard side
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+            ctx.fillRect(40, -190, rLen * 0.92, 8);
+            ctx.fillRect(40,  182, rLen * 0.92, 8);
+
+            // High-visibility dashed white & yellow runway centerline
+            for (let d = 70; d < rLen - 45; d += 125) {
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(d, -9, 72, 18);
+                ctx.fillStyle = '#facc15';
+                ctx.fillRect(d + 72, -5, 24, 10);
+            }
+
+            // Realistic dark black/charcoal tire skid streaks over the runway markings
+            for (let s = 0; s < 420; s++) {
+                const sProgress = 0.06 + Math.random() * 0.76;
                 const sx = sProgress * rLen;
-                const sy = (Math.random() - 0.5) * 280 * (1.0 - Math.abs(sProgress - 0.30) * 0.9);
-                const sLen = 65 + Math.random() * 240;
-                const sThick = 2.0 + Math.random() * 4.5;
+                const spread = (sProgress < 0.45) ? 235 : 170;
+                const sy = (Math.random() - 0.5) * spread;
+                const sLen = 65 + Math.random() * 260;
+                const sThick = 1.6 + Math.random() * 4.2;
 
-                ctx.fillStyle = (s % 4 === 0) ? 'rgba(248,250,252,0.12)' : 'rgba(22,27,36,0.16)';
+                ctx.fillStyle = (s % 5 === 0) ? 'rgba(235, 240, 246, 0.10)' : 'rgba(24, 28, 34, 0.22)';
                 ctx.fillRect(sx, sy, sLen, sThick);
 
                 bCtx.save();
                 bCtx.translate(rStartX, rStartY);
                 bCtx.rotate(rAngle);
-                bCtx.fillStyle = '#626262';
+                bCtx.fillStyle = '#5e5e5e';
                 bCtx.fillRect(sx, sy, sLen, sThick);
                 bCtx.restore();
             }
-
-            // Crisp bright white & yellow boundary tramlines
-            ctx.fillStyle = '#ffffff';
-            ctx.fillRect(0, -224, rLen, 20);
-            ctx.fillRect(0, -196, rLen, 13);
-            ctx.fillStyle = '#facc15';
-            ctx.fillRect(0, -176, rLen, 8);
-
-            ctx.fillStyle = '#ffffff';
-            ctx.fillRect(0, 204, rLen, 20);
-            ctx.fillRect(0, 180, rLen, 12);
-
-            // Runway threshold piano-key chevrons
-            for (let t = -180; t <= 165; t += 32) {
-                ctx.fillStyle = '#ffffff';
-                ctx.fillRect(14, t, 64, 16);
-            }
-
-            // High-visibility dashed centerline (pure white & yellow alternating)
-            for (let d = 85; d < rLen - 40; d += 110) {
-                ctx.fillStyle = '#ffffff';
-                ctx.fillRect(d, -10, 68, 20);
-                ctx.fillStyle = '#facc15';
-                ctx.fillRect(d + 68, -6, 26, 12);
-            }
-
-            // 4 Arresting Gear wire cross-deck markings
-            for (let w = 0; w < 4; w++) {
-                const wx = 240 + w * 125;
-                ctx.fillStyle = '#facc15';
-                ctx.fillRect(wx - 3, -188, 14, 376);
-                ctx.fillStyle = '#1e242c';
-                ctx.fillRect(wx + 2, -184, 4, 368);
-            }
             ctx.restore();
 
-            // Safety foul line (alternating red and white dash)
+            // Authentic Starboard Foul Line with Dog-Leg Kink (Red-and-White safety foul line)
             ctx.save();
             ctx.beginPath();
-            ctx.moveTo(toPx(-14.0), toPy(-150));
-            ctx.lineTo(toPx(16.0),  toPy(48));
-            ctx.lineWidth = 18;
+            ctx.moveTo(toPx(-15.5), toPy(-150));
+            ctx.lineTo(toPx(-1.0),  toPy(-32));
+            ctx.lineTo(toPx(15.5),  toPy(46));
+            ctx.lineWidth = 14;
             ctx.strokeStyle = '#dc2626';
             ctx.stroke();
-            ctx.setLineDash([36, 36]);
+            ctx.setLineDash([32, 32]);
+            ctx.strokeStyle = '#ffffff';
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.restore();
+
+            // White inner foul-line border strip
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(toPx(-14.2), toPy(-150));
+            ctx.lineTo(toPx( 0.2),  toPy(-32));
+            ctx.lineTo(toPx(16.7),  toPy(46));
+            ctx.lineWidth = 6;
             ctx.strokeStyle = '#ffffff';
             ctx.stroke();
             ctx.restore();
 
-            // 4. Catapult Tracks with EMALS Center Slot Runners
+            // 5. Four EMALS Catapult Tracks (Recessed steel trough & lightened wear strip)
             function drawCatapultTrack(x1, z1, x2, z2) {
                 const p1x = toPx(x1), p1y = toPy(z1);
                 const p2x = toPx(x2), p2y = toPy(z2);
                 ctx.save();
 
-                // Bright concrete trough border
+                // Lightened concrete/non-skid wear strip along catapult path
                 ctx.beginPath();
                 ctx.moveTo(p1x, p1y); ctx.lineTo(p2x, p2y);
-                ctx.lineWidth = 60;
-                ctx.strokeStyle = 'rgba(241, 245, 249, 0.24)';
+                ctx.lineWidth = 44;
+                ctx.strokeStyle = 'rgba(175, 182, 192, 0.22)';
                 ctx.stroke();
 
-                // Outer boundary stripes
-                ctx.beginPath();
-                ctx.moveTo(p1x - 22, p1y); ctx.lineTo(p2x - 22, p2y);
-                ctx.moveTo(p1x + 22, p1y); ctx.lineTo(p2x + 22, p2y);
-                ctx.lineWidth = 7;
-                ctx.strokeStyle = '#ffffff';
-                ctx.stroke();
-
-                // Inner yellow hazard dashes
+                // Crisp white/yellow narrow alignment stripes along catapult track
                 ctx.beginPath();
                 ctx.moveTo(p1x - 14, p1y); ctx.lineTo(p2x - 14, p2y);
                 ctx.moveTo(p1x + 14, p1y); ctx.lineTo(p2x + 14, p2y);
-                ctx.lineWidth = 5.5;
-                ctx.setLineDash([26, 18]);
-                ctx.strokeStyle = '#facc15';
+                ctx.lineWidth = 4.2;
+                ctx.strokeStyle = 'rgba(248, 250, 252, 0.78)';
                 ctx.stroke();
-                ctx.setLineDash([]);
 
-                // EMALS steel slot runner
+                // EMALS dark steel center slot
                 ctx.beginPath();
                 ctx.moveTo(p1x, p1y); ctx.lineTo(p2x, p2y);
-                ctx.lineWidth = 14;
-                ctx.strokeStyle = '#2d3540';
+                ctx.lineWidth = 10;
+                ctx.strokeStyle = '#1e2228';
                 ctx.stroke();
 
                 ctx.beginPath();
                 ctx.moveTo(p1x, p1y); ctx.lineTo(p2x, p2y);
-                ctx.lineWidth = 4.5;
+                ctx.lineWidth = 3.2;
                 ctx.strokeStyle = '#cbd5e1';
                 ctx.stroke();
-
-                // Shuttle stop chevrons
-                const ang = Math.atan2(p2y - p1y, p2x - p1x);
-                ctx.translate(p2x, p2y);
-                ctx.rotate(ang);
-                ctx.fillStyle = '#ffffff';
-                for (let h = -180; h <= -10; h += 24) {
-                    ctx.fillRect(h, -28, 11, 8);
-                    ctx.fillRect(h,  20, 11, 8);
-                }
                 ctx.restore();
 
-                // Bump map for catapult slot
+                // Height map for catapult slot
                 bCtx.save();
                 bCtx.beginPath();
                 bCtx.moveTo(p1x, p1y); bCtx.lineTo(p2x, p2y);
-                bCtx.lineWidth = 14;
-                bCtx.strokeStyle = '#484848';
-                bCtx.stroke();
-                bCtx.beginPath();
-                bCtx.moveTo(p1x, p1y); bCtx.lineTo(p2x, p2y);
-                bCtx.lineWidth = 4;
-                bCtx.strokeStyle = '#b8b8b8';
+                bCtx.lineWidth = 12;
+                bCtx.strokeStyle = '#303030';
                 bCtx.stroke();
                 bCtx.restore();
+
+                // Metallic low roughness along EMALS trough
+                rCtx.save();
+                rCtx.beginPath();
+                rCtx.moveTo(p1x, p1y); rCtx.lineTo(p2x, p2y);
+                rCtx.lineWidth = 14;
+                rCtx.strokeStyle = '#555555';
+                rCtx.stroke();
+                rCtx.restore();
             }
 
-            drawCatapultTrack(-7.5, 48, -6.5, 147); // Cat 1
-            drawCatapultTrack( 8.5, 42,  7.5, 147); // Cat 2
-            drawCatapultTrack(16.0, -55, 25.5, 42); // Cat 3
-            drawCatapultTrack(26.5, -65, 36.5, 28); // Cat 4
+            drawCatapultTrack(-7.5, 48, -6.5, 148); // Cat 1 (Starboard Bow)
+            drawCatapultTrack( 8.5, 42,  7.5, 148); // Cat 2 (Port Bow)
+            drawCatapultTrack(16.0, -55, 25.5, 42); // Cat 3 (Waist)
+            drawCatapultTrack(26.5, -65, 36.5, 28); // Cat 4 (Port Edge Waist)
 
-            // 5. Bow "78" Hull Number
+            // 6. Bow "78" Hull Number Stencil (Crisp White Outlined "78" at Bow Threshold matching photo)
             function drawBowHullNumber(x, z) {
+                const px = toPx(x);
+                const py = toPy(z);
                 ctx.save();
-                ctx.translate(toPx(x), toPy(z));
-                ctx.scale(0.85, -1.65);
+                ctx.translate(px, py);
+                ctx.scale(0.92, -1.65);
                 ctx.font = '800 220px "JetBrains Mono", "Inter", sans-serif';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
 
                 ctx.lineWidth = 7;
-                ctx.strokeStyle = '#334155';
+                ctx.strokeStyle = 'rgba(30, 35, 42, 0.78)';
                 ctx.strokeText('78', 0, 0);
 
-                ctx.fillStyle = '#ffffff';
+                ctx.fillStyle = 'rgba(248, 250, 252, 0.92)';
                 ctx.fillText('78', 0, 0);
                 ctx.restore();
-            }
-            drawBowHullNumber(0.5, 134.5);
 
-            // Bow & Stern rim yellow/white safety perimeter lines
+                // Longitudinal catapult scuff streaks across the bow "78"
+                for (let i = 0; i < 32; i++) {
+                    const sx = px + (Math.random() - 0.5) * 240;
+                    const sy = py - 140 + Math.random() * 280;
+                    ctx.fillStyle = 'rgba(72, 78, 86, 0.32)';
+                    ctx.fillRect(sx, sy, 3 + Math.random() * 6, 40 + Math.random() * 90);
+                }
+            }
+            drawBowHullNumber(0.5, 136.5);
+
+            // Deck-Edge Elevator yellow/red safety perimeter lines
+            function drawElevatorOutline(x, z, wM, lM) {
+                const px = toPx(x);
+                const py = toPy(z);
+                const pw = (wM / (DECK_MAX_X - DECK_MIN_X)) * width;
+                const pl = (lM / (DECK_MAX_Z - DECK_MIN_Z)) * height;
+                ctx.save();
+                ctx.translate(px, py);
+                ctx.strokeStyle = 'rgba(234, 179, 8, 0.82)';
+                ctx.lineWidth = 5;
+                ctx.setLineDash([14, 14]);
+                ctx.strokeRect(-pw * 0.5, -pl * 0.5, pw, pl);
+                ctx.restore();
+            }
+            drawElevatorOutline(-36.2, 22, 5.2, 15.5);
+            drawElevatorOutline(-36.2, -18, 5.2, 15.5);
+            drawElevatorOutline(-33.2, -92, 5.2, 15.5);
+            drawElevatorOutline(33.2, -65, 5.2, 15.5);
+
+            // Yellow marshaling line down the central bow/waist spine
             ctx.save();
-            ctx.strokeStyle = '#facc15';
-            ctx.lineWidth = 11;
             ctx.beginPath();
-            ctx.moveTo(toPx(-17.5), toPy(152.5));
-            ctx.lineTo(toPx( 17.5), toPy(152.5));
-            ctx.moveTo(toPx(-22.5), toPy(-151.0));
-            ctx.lineTo(toPx( 26.5), toPy(-151.0));
+            ctx.moveTo(toPx(-5.5), toPy(-78));
+            ctx.lineTo(toPx(-4.5), toPy(48));
+            ctx.lineWidth = 5.0;
+            ctx.strokeStyle = 'rgba(234, 179, 8, 0.72)';
+            ctx.stroke();
+            ctx.restore();
+
+            // Bow & Stern rim yellow/white safety lines
+            ctx.save();
+            ctx.strokeStyle = 'rgba(248, 250, 252, 0.90)';
+            ctx.lineWidth = 10;
+            ctx.beginPath();
+            ctx.moveTo(toPx(-17.5), toPy(152.8));
+            ctx.lineTo(toPx( 17.5), toPy(152.8));
+            ctx.moveTo(toPx(-22.5), toPy(-151.2));
+            ctx.lineTo(toPx( 26.5), toPy(-151.2));
             ctx.stroke();
             ctx.restore();
 
@@ -814,7 +827,13 @@
             bumpTex.anisotropy = maxAniso;
             bumpTex.needsUpdate = true;
 
-            return { colorTex, bumpTex };
+            const roughTex = new THREE.CanvasTexture(roughCanvas);
+            roughTex.anisotropy = maxAniso;
+            roughTex.needsUpdate = true;
+
+            const normalTex = heightCanvasToNormalTex(bumpCanvas, 2.8);
+
+            return { colorTex, bumpTex, roughTex, normalTex };
         }
 
         function createNavalSteelHullTexture() {
@@ -828,59 +847,56 @@
             bCanvas.height = 512;
             const bCtx = bCanvas.getContext('2d');
 
-            // Light Haze Grey base coat (USN Federal Standard 595B #26270 / lightened maritime finish)
-            ctx.fillStyle = '#9aa6b6';
+            // Bright, crisp USN Light Haze Grey base coat (#b8c2ce)
+            ctx.fillStyle = '#b8c2ce';
             ctx.fillRect(0, 0, 1024, 512);
 
             bCtx.fillStyle = '#808080';
             bCtx.fillRect(0, 0, 1024, 512);
 
-            // Horizontal welded hull strake plating seams
+            // Horizontal welded hull strake plating seams & light oil-canning plate relief
             for (let y = 0; y < 512; y += 32) {
-                ctx.fillStyle = (y % 64 === 0) ? 'rgba(255,255,255,0.06)' : 'rgba(15,23,42,0.05)';
+                ctx.fillStyle = (y % 64 === 0) ? 'rgba(255,255,255,0.08)' : 'rgba(30,41,59,0.038)';
                 ctx.fillRect(0, y, 1024, 16);
 
-                ctx.strokeStyle = 'rgba(30, 41, 59, 0.35)';
+                ctx.strokeStyle = 'rgba(45, 55, 72, 0.26)';
                 ctx.lineWidth = 1.5;
                 ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(1024, y); ctx.stroke();
 
-                bCtx.strokeStyle = '#5c5c5c';
-                bCtx.lineWidth = 2.0;
+                bCtx.strokeStyle = '#525252';
+                bCtx.lineWidth = 2.2;
                 bCtx.beginPath(); bCtx.moveTo(0, y); bCtx.lineTo(1024, y); bCtx.stroke();
 
-                // Staggered vertical weld seams & subtle oil-canning relief
                 const offset = (y / 32) % 2 === 0 ? 0 : 32;
                 for (let x = offset; x < 1024; x += 64) {
-                    ctx.strokeStyle = 'rgba(30, 41, 59, 0.26)';
+                    ctx.strokeStyle = 'rgba(45, 55, 72, 0.22)';
                     ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y + 32); ctx.stroke();
 
-                    bCtx.strokeStyle = '#626262';
+                    bCtx.strokeStyle = '#5a5a5a';
                     bCtx.beginPath(); bCtx.moveTo(x, y); bCtx.lineTo(x, y + 32); bCtx.stroke();
 
-                    // Subtle plate center pillow highlight
-                    ctx.fillStyle = 'rgba(248, 250, 252, 0.04)';
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.065)';
                     ctx.fillRect(x + 6, y + 4, 52, 24);
-                    bCtx.fillStyle = '#8c8c8c';
+                    bCtx.fillStyle = '#8e8e8e';
                     bCtx.fillRect(x + 6, y + 4, 52, 24);
                 }
             }
 
-            // Vertical salt-spray and scupper weathering streaks
+            // Subtle vertical salt-spray and scupper weathering streaks
             for (let i = 0; i < 180; i++) {
                 const sx = Math.random() * 1024;
                 const sy = Math.random() * 380;
                 const sh = 40 + Math.random() * 130;
                 const grad = ctx.createLinearGradient(sx, sy, sx, sy + sh);
-                const isSalt = Math.random() > 0.45;
-                grad.addColorStop(0, isSalt ? 'rgba(241,245,249,0.12)' : 'rgba(51,65,85,0.14)');
-                grad.addColorStop(1, 'rgba(148,163,184,0.0)');
+                const isSalt = Math.random() > 0.42;
+                grad.addColorStop(0, isSalt ? 'rgba(248,250,252,0.16)' : 'rgba(51,65,85,0.12)');
+                grad.addColorStop(1, 'rgba(184,194,206,0.0)');
                 ctx.fillStyle = grad;
                 ctx.fillRect(sx, sy, 2 + Math.random() * 4, sh);
             }
 
-            // Drainage scuppers & maintenance hatches along upper gallery strake
             for (let x = 24; x < 1024; x += 48) {
-                ctx.fillStyle = '#334155';
+                ctx.fillStyle = '#475569';
                 ctx.fillRect(x, 82, 8, 5);
                 ctx.fillRect(x + 20, 146, 6, 6);
                 bCtx.fillStyle = '#383838';
@@ -901,7 +917,9 @@
             bumpTex.repeat.set(4, 2);
             bumpTex.anisotropy = maxAniso;
 
-            return { colorTex, bumpTex };
+            const normalTex = heightCanvasToNormalTex(bCanvas, 2.4, 4, 2);
+
+            return { colorTex, bumpTex, normalTex };
         }
 
         function createIslandNumberTexture() {
@@ -910,12 +928,11 @@
             canvas.height = 512;
             const ctx = canvas.getContext('2d');
 
-            ctx.fillStyle = '#9aa6b6';
+            ctx.fillStyle = '#bcc6d2';
             ctx.fillRect(0, 0, 512, 512);
 
-            // Plated steel seams on island wall
-            ctx.strokeStyle = 'rgba(30, 41, 59, 0.28)';
-            ctx.lineWidth = 2.5;
+            ctx.strokeStyle = 'rgba(45, 55, 72, 0.22)';
+            ctx.lineWidth = 2.0;
             for (let y = 24; y < 512; y += 36) {
                 ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(512, y); ctx.stroke();
             }
@@ -923,17 +940,15 @@
                 ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 512); ctx.stroke();
             }
 
-            ctx.font = '900 280px "Inter", sans-serif';
+            ctx.font = '900 245px "Inter", sans-serif';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
 
-            // Crisp dark drop shadow
-            ctx.fillStyle = '#0f172a';
-            ctx.fillText('78', 266, 278);
+            ctx.fillStyle = '#1e293b';
+            ctx.fillText('78', 266, 292);
 
-            // Pure white stencil
             ctx.fillStyle = '#ffffff';
-            ctx.fillText('78', 256, 268);
+            ctx.fillText('78', 256, 282);
 
             const tex = new THREE.CanvasTexture(canvas);
             tex.anisotropy = 8;
@@ -964,23 +979,101 @@
             return tex;
         }
 
+        // Procedural PMREM Maritime Sky & Ocean Environment Map for authentic PBR metallic reflections
+        function buildMaritimeEnvironment(isDay = true) {
+            const pmremGenerator = new THREE.PMREMGenerator(renderer);
+            pmremGenerator.compileEquirectangularShader();
+            const envScene = new THREE.Scene();
+
+            const skyGeo = new THREE.SphereGeometry(500, 32, 24);
+            const skyCanvas = document.createElement('canvas');
+            skyCanvas.width = 512;
+            skyCanvas.height = 256;
+            const sCtx = skyCanvas.getContext('2d');
+            const grad = sCtx.createLinearGradient(0, 0, 0, 256);
+            if (isDay) {
+                grad.addColorStop(0.0,  '#1e4f8a'); // Deep zenith maritime sky
+                grad.addColorStop(0.42, '#5c95ce'); // Mid-sky daylight
+                grad.addColorStop(0.49, '#c7def4'); // Crisp horizon haze
+                grad.addColorStop(0.51, '#123966'); // Horizon ocean reflection
+                grad.addColorStop(1.0,  '#06172e'); // Deep abyssal bounce
+            } else {
+                grad.addColorStop(0.0,  '#1c1635');
+                grad.addColorStop(0.42, '#7c3f58');
+                grad.addColorStop(0.49, '#f59e0b');
+                grad.addColorStop(0.51, '#27203d');
+                grad.addColorStop(1.0,  '#090d1a');
+            }
+            sCtx.fillStyle = grad;
+            sCtx.fillRect(0, 0, 512, 256);
+
+            sCtx.fillStyle = isDay ? '#ffffff' : '#fde047';
+            sCtx.beginPath();
+            sCtx.arc(160, 75, 16, 0, Math.PI * 2);
+            sCtx.fill();
+
+            const skyTex = new THREE.CanvasTexture(skyCanvas);
+            skyTex.colorSpace = THREE.SRGBColorSpace;
+            const skyMat = new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide });
+            envScene.add(new THREE.Mesh(skyGeo, skyMat));
+
+            const envRT = pmremGenerator.fromScene(envScene, 0.02);
+            scene.environment = envRT.texture;
+            pmremGenerator.dispose();
+            skyTex.dispose();
+            skyGeo.dispose();
+            skyMat.dispose();
+        }
+        buildMaritimeEnvironment(true);
+
+        const controls = new OrbitControls(camera, renderer.domElement);
+        controls.target.copy(CAMERA_PRESETS.iso.target);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.06;
+        controls.maxPolarAngle = Math.PI * 0.47;
+        controls.minZoom = 0.55;
+        controls.maxZoom = 4.5;
+
+        const composer = new EffectComposer(renderer);
+        const renderPass = new RenderPass(scene, camera);
+        composer.addPass(renderPass);
+        const bloomPass = new UnrealBloomPass(
+            new THREE.Vector2(window.innerWidth, window.innerHeight),
+            0.09,
+            0.28,
+            0.92
+        );
+        composer.addPass(bloomPass);
+        composer.addPass(new OutputPass());
+
+        let desiredCamPos = null;
+        let desiredCamTarget = null;
+        let desiredCamZoom = null;
+        let followUnit = null;
+
+        controls.addEventListener('start', () => {
+            desiredCamPos = null;
+            desiredCamTarget = null;
+            desiredCamZoom = null;
+        });
+
+        function setStatusLog(text) {
+            const el = document.getElementById('ops-status-log');
+            if (el) el.textContent = text;
+        }
+
         // ============================================================================
-        // 4. OCEAN & HYDRODYNAMIC WAKE (TRACE) SHADER
+        // 4. PHOTOREALISTIC OCEAN & CHURNING KELVIN WAKE SHADER
         // ============================================================================
-        // Physically-based maritime water synthesis:
-        // - Non-periodic 10-octave directional Gerstner spectrum with organic curved wavefronts
-        // - Analytical vertex normal & Jacobian crest-pinch calculation
-        // - Rotated-octave Simplex/Value FBM + Cellular Voronoise micro-facet slope perturbation
-        // - Schlick Fresnel, anisotropic turquoise subsurface scattering, whitecaps, and Kelvin wake
         const oceanUniforms = {
             uTime: { value: 0 },
-            uSunDir: { value: new THREE.Vector3(150, 280, -85).normalize() },
+            uSunDir: { value: new THREE.Vector3(-55, 250, -145).normalize() },
             uSunColor: { value: new THREE.Color(0xfffef2) },
-            uDeepColor: { value: new THREE.Color(0x041325) },      // Deep abyssal Atlantic indigo-navy
-            uMidColor: { value: new THREE.Color(0x0b2d4d) },       // Pelagic open-ocean blue-teal slope
-            uSkyColor: { value: new THREE.Color(0x4679a3) },       // Maritime sky dome reflection
-            uWakeTurquoise: { value: new THREE.Color(0x138e88) },  // Subsurface scattering & aerated turquoise
-            uFoamWhite: { value: new THREE.Color(0xdcebf5) }       // Natural sunlit sea froth
+            uDeepColor: { value: new THREE.Color(0x0b2c5c) },      // Rich royal Atlantic blue matching reference photo
+            uMidColor: { value: new THREE.Color(0x164984) },       // Sunlit wave slope cobalt-marine blue
+            uSkyColor: { value: new THREE.Color(0x5288ba) },       // Sky dome reflection
+            uWakeTurquoise: { value: new THREE.Color(0x28a2ad) },  // Vibrant aerated turquoise wake boil
+            uFoamWhite: { value: new THREE.Color(0xf4f9fd) }       // Crisp sunlit sea froth
         };
 
         const oceanMaterial = new THREE.ShaderMaterial({
@@ -992,7 +1085,6 @@
                 varying float vWaveHeight;
                 varying float vCrestFactor;
 
-                // Non-periodic 2D hash & smooth noise for spatial phase/domain warping
                 float vHash(vec2 p) {
                     p = fract(p * vec2(123.34, 456.21));
                     p += dot(p, p + 45.32);
@@ -1010,7 +1102,6 @@
                     );
                 }
 
-                // Directional Gerstner wave with curved wavefront modulation & analytical Jacobian
                 void addCurvedGerstnerWave(
                     vec2 dir, float steepness, float wavelength, float speedScale,
                     vec2 warpedXZ, float phaseJitter, float time,
@@ -1028,8 +1119,7 @@
                     disp.y += a * s;
                     disp.z += dir.y * (a * cs);
 
-                    // Partial derivatives for exact geometric normal and crest compression
-                    float wa = k * a; // equals steepness
+                    float wa = k * a;
                     tangent.x  -= dir.x * dir.x * wa * s;
                     tangent.y  += dir.x * wa * cs;
                     tangent.z  -= dir.x * dir.y * wa * s;
@@ -1038,7 +1128,6 @@
                     binormal.y += dir.y * wa * cs;
                     binormal.z -= dir.y * dir.y * wa * s;
 
-                    // Track horizontal crest convergence (pinch)
                     jacobian -= wa * s;
                 }
 
@@ -1047,45 +1136,38 @@
                     vec2 posXZ = wp.xz;
                     float t = uTime;
 
-                    // Low-frequency spatial domain warp bends wavefronts organically so they never form
-                    // straight parallel lines or repetitive diagonal grids across the orthographic camera
                     vec2 warp1 = vec2(
-                        vNoise(posXZ * 0.0042 + vec2(t * 0.015, -t * 0.012)),
-                        vNoise(posXZ * 0.0042 + vec2(19.3, 47.1) - t * 0.014)
+                        vNoise(posXZ * 0.0045 + vec2(t * 0.015, -t * 0.012)),
+                        vNoise(posXZ * 0.0045 + vec2(19.3, 47.1) - t * 0.014)
                     ) - 0.5;
                     vec2 warp2 = vec2(
-                        vNoise(posXZ * 0.0135 - vec2(t * 0.03, t * 0.02)),
-                        vNoise(posXZ * 0.0135 + vec2(73.7, 11.9) + t * 0.025)
+                        vNoise(posXZ * 0.014 - vec2(t * 0.03, t * 0.02)),
+                        vNoise(posXZ * 0.014 + vec2(73.7, 11.9) + t * 0.025)
                     ) - 0.5;
 
-                    vec2 swellXZ = posXZ + warp1 * 34.0 + warp2 * 9.5;
-                    vec2 chopXZ  = posXZ + warp1 * 16.0 + warp2 * 11.0;
-                    float phaseMod = (warp1.x + warp2.y) * 2.4;
+                    vec2 swellXZ = posXZ + warp1 * 30.0 + warp2 * 8.5;
+                    vec2 chopXZ  = posXZ + warp1 * 14.0 + warp2 * 9.5;
+                    float phaseMod = (warp1.x + warp2.y) * 2.2;
 
                     vec3 disp = vec3(0.0);
                     vec3 tangent = vec3(1.0, 0.0, 0.0);
                     vec3 binormal = vec3(0.0, 0.0, 1.0);
                     float jacobian = 1.0;
 
-                    // 10-Octave Non-Periodic Directional Wave Spectrum:
-                    // Irrational wavelength ratios & golden-angle directional spreading prevent periodicity
-                    // 1-3: Primary & secondary open-ocean swells
-                    addCurvedGerstnerWave(normalize(vec2( 0.48,  0.87)), 0.145, 193.0, 1.15, swellXZ, phaseMod * 0.6,  t, disp, tangent, binormal, jacobian);
-                    addCurvedGerstnerWave(normalize(vec2(-0.57,  0.82)), 0.125, 131.0, 1.25, swellXZ, phaseMod * 0.8 + 1.7, t, disp, tangent, binormal, jacobian);
-                    addCurvedGerstnerWave(normalize(vec2( 0.79,  0.61)), 0.105,  89.0, 1.38, swellXZ, phaseMod * 1.1 + 3.1, t, disp, tangent, binormal, jacobian);
+                    // Directional wind-wave spectrum aligned with the reference photo's diagonal sea state
+                    addCurvedGerstnerWave(normalize(vec2( 0.62,  0.78)), 0.135, 165.0, 1.15, swellXZ, phaseMod * 0.6,  t, disp, tangent, binormal, jacobian);
+                    addCurvedGerstnerWave(normalize(vec2(-0.48,  0.88)), 0.115, 112.0, 1.25, swellXZ, phaseMod * 0.8 + 1.7, t, disp, tangent, binormal, jacobian);
+                    addCurvedGerstnerWave(normalize(vec2( 0.82,  0.57)), 0.105,  76.0, 1.38, swellXZ, phaseMod * 1.1 + 3.1, t, disp, tangent, binormal, jacobian);
 
-                    // 4-7: Intermediate wind-driven gravity waves (broad directional spread)
-                    addCurvedGerstnerWave(normalize(vec2(-0.26,  0.96)), 0.095,  61.0, 1.52, chopXZ,  phaseMod * 1.3 + 0.9, t, disp, tangent, binormal, jacobian);
-                    addCurvedGerstnerWave(normalize(vec2( 0.91, -0.41)), 0.082,  43.0, 1.68, chopXZ,  phaseMod * 1.5 + 4.2, t, disp, tangent, binormal, jacobian);
-                    addCurvedGerstnerWave(normalize(vec2(-0.76,  0.65)), 0.074,  29.3, 1.85, chopXZ,  phaseMod * 1.7 + 2.3, t, disp, tangent, binormal, jacobian);
-                    addCurvedGerstnerWave(normalize(vec2( 0.19,  0.98)), 0.065,  19.7, 2.05, chopXZ,  phaseMod * 1.9 + 5.4, t, disp, tangent, binormal, jacobian);
+                    addCurvedGerstnerWave(normalize(vec2(-0.22,  0.97)), 0.095,  52.0, 1.52, chopXZ,  phaseMod * 1.3 + 0.9, t, disp, tangent, binormal, jacobian);
+                    addCurvedGerstnerWave(normalize(vec2( 0.88, -0.47)), 0.085,  37.0, 1.68, chopXZ,  phaseMod * 1.5 + 4.2, t, disp, tangent, binormal, jacobian);
+                    addCurvedGerstnerWave(normalize(vec2(-0.72,  0.69)), 0.078,  26.3, 1.85, chopXZ,  phaseMod * 1.7 + 2.3, t, disp, tangent, binormal, jacobian);
+                    addCurvedGerstnerWave(normalize(vec2( 0.35,  0.94)), 0.068,  18.1, 2.05, chopXZ,  phaseMod * 1.9 + 5.4, t, disp, tangent, binormal, jacobian);
 
-                    // 8-10: Short cross-wind chop & steep wavelets
-                    addCurvedGerstnerWave(normalize(vec2(-0.88, -0.47)), 0.055,  13.4, 2.30, chopXZ,  phaseMod * 2.1 + 1.2, t, disp, tangent, binormal, jacobian);
-                    addCurvedGerstnerWave(normalize(vec2( 0.63, -0.77)), 0.046,   9.1, 2.60, chopXZ,  phaseMod * 2.4 + 3.8, t, disp, tangent, binormal, jacobian);
-                    addCurvedGerstnerWave(normalize(vec2(-0.41,  0.91)), 0.038,   6.3, 2.95, chopXZ,  phaseMod * 2.7 + 0.4, t, disp, tangent, binormal, jacobian);
+                    addCurvedGerstnerWave(normalize(vec2(-0.85, -0.52)), 0.058,  12.4, 2.30, chopXZ,  phaseMod * 2.1 + 1.2, t, disp, tangent, binormal, jacobian);
+                    addCurvedGerstnerWave(normalize(vec2( 0.66, -0.75)), 0.048,   8.3, 2.60, chopXZ,  phaseMod * 2.4 + 3.8, t, disp, tangent, binormal, jacobian);
+                    addCurvedGerstnerWave(normalize(vec2(-0.38,  0.92)), 0.042,   5.7, 2.95, chopXZ,  phaseMod * 2.7 + 0.4, t, disp, tangent, binormal, jacobian);
 
-                    // Smoothly damp vertical displacement immediately under the carrier hull to prevent clipping
                     float hullDistX = abs(wp.x);
                     float hullDistZ = abs(wp.z);
                     float hullMask = smoothstep(18.0, 38.0, hullDistX) + smoothstep(145.0, 178.0, hullDistZ);
@@ -1094,13 +1176,11 @@
                     wp.xyz += disp * hullMask;
                     vWorldPos = wp.xyz;
 
-                    // Compute exact analytical surface normal from displaced tangent & binormal
                     vec3 geoNormal = normalize(cross(binormal, tangent));
                     vNormal = normalize(mix(vec3(0.0, 1.0, 0.0), geoNormal, hullMask));
 
                     vWaveHeight = disp.y * hullMask;
-                    // Crest factor combines wave elevation and Jacobian horizontal pinch (1.0 - jacobian)
-                    vCrestFactor = clamp((1.0 - jacobian) * 0.85 + disp.y * 0.22, 0.0, 1.5) * hullMask;
+                    vCrestFactor = clamp((1.0 - jacobian) * 0.88 + disp.y * 0.25, 0.0, 1.6) * hullMask;
 
                     gl_Position = projectionMatrix * viewMatrix * wp;
                 }
@@ -1120,20 +1200,18 @@
                 varying float vWaveHeight;
                 varying float vCrestFactor;
 
-                // Irrational octave rotation matrix to eliminate grid alignment across FBM layers
                 const mat2 mRot = mat2(0.80, -0.60, 0.60, 0.80);
 
-                // 2D Simplex Noise (ashima/iq style) - completely free of boxy axis-aligned grid artifacts
                 vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
                 vec2 mod289(vec2 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
                 vec3 permute(vec3 x) { return mod289(((x * 34.0) + 1.0) * x); }
 
                 float snoise(vec2 v) {
                     const vec4 C = vec4(
-                        0.211324865405187,  // (3.0-sqrt(3.0))/6.0
-                        0.366025403784439,  // 0.5*(sqrt(3.0)-1.0)
-                       -0.577350269189626,  // -1.0 + 2.0 * C.x
-                        0.024390243902439   // 1.0 / 41.0
+                        0.211324865405187,
+                        0.366025403784439,
+                       -0.577350269189626,
+                        0.024390243902439
                     );
                     vec2 i  = floor(v + dot(v, C.yy));
                     vec2 x0 = v - i + dot(i, C.xx);
@@ -1156,37 +1234,35 @@
                     return 130.0 * dot(m, g);
                 }
 
-                // Ridged / billowy multi-scale capillary wave elevation for crisp wind-chop facets
+                // High-detail directional wind-chop capillary ripples matching photo texture
                 float capillaryHeight(vec2 p, float t) {
                     float h = 0.0;
-                    float amp = 0.50;
-                    vec2 q = p * 0.14;
+                    float amp = 0.54;
+                    // Stretch along the wind-wave axis for authentic sea ripple striations
+                    vec2 q = vec2(p.x * 0.24 + p.y * 0.09, p.y * 0.17 - p.x * 0.06);
 
-                    // Dual counter-scrolling wind-ripple layers rotated at irrational angles
                     vec2 windA = vec2(t * 0.45, -t * 0.82);
                     vec2 windB = vec2(-t * 0.38, -t * 0.64);
 
                     for (int i = 0; i < 5; i++) {
                         float n1 = snoise(q + windA);
-                        float n2 = snoise(q * 1.37 - windB + vec2(17.3, 9.1));
-                        // Sharpen troughs and crests slightly (trochoidal micro-facet profile)
+                        float n2 = snoise(q * 1.42 - windB + vec2(17.3, 9.1));
                         float waveFacet = (n1 * 0.62 + n2 * 0.38);
-                        waveFacet = waveFacet - 0.25 * abs(waveFacet);
+                        waveFacet = waveFacet - 0.28 * abs(waveFacet);
                         h += waveFacet * amp;
-                        q = (mRot * q) * 2.07 + vec2(13.7, 29.3);
+                        q = (mRot * q) * 2.12 + vec2(13.7, 29.3);
                         windA *= 1.32;
                         windB *= 1.28;
-                        amp *= 0.47;
+                        amp *= 0.48;
                     }
                     return h;
                 }
 
-                // Organic domain-warped turbulence for wake boil & cellular sea foam lace
                 float wakeTurbulence(vec2 p, float speed) {
                     vec2 q = p * 0.18 + vec2(0.0, uTime * speed * 0.08);
                     float w1 = snoise(q * 0.55);
                     float w2 = snoise(mRot * q * 0.58 + vec2(4.2, -3.1));
-                    vec2 warped = q + vec2(w1, w2) * 0.85;
+                    vec2 warped = q + vec2(w1, w2) * 0.90;
 
                     float f = 0.0;
                     float a = 0.52;
@@ -1198,16 +1274,14 @@
                     return f;
                 }
 
-                // Cellular bubble lace pattern for realistic aerated sea froth
                 float foamCellularLace(vec2 p) {
-                    float n1 = abs(snoise(p * 0.42));
-                    float n2 = abs(snoise((mRot * p) * 0.95 + vec2(11.3, 5.7)));
-                    float n3 = abs(snoise(p * 2.15 - vec2(3.4, 14.8)));
-                    // Invert ridges to create interconnected lacy bubble webs
-                    float web1 = 1.0 - smoothstep(0.0, 0.55, n1);
-                    float web2 = 1.0 - smoothstep(0.0, 0.48, n2);
-                    float web3 = 1.0 - smoothstep(0.0, 0.42, n3);
-                    return clamp(web1 * 0.52 + web2 * 0.33 + web3 * 0.25, 0.0, 1.0);
+                    float n1 = abs(snoise(p * 0.45));
+                    float n2 = abs(snoise((mRot * p) * 1.05 + vec2(11.3, 5.7)));
+                    float n3 = abs(snoise(p * 2.35 - vec2(3.4, 14.8)));
+                    float web1 = 1.0 - smoothstep(0.0, 0.52, n1);
+                    float web2 = 1.0 - smoothstep(0.0, 0.46, n2);
+                    float web3 = 1.0 - smoothstep(0.0, 0.40, n3);
+                    return clamp(web1 * 0.54 + web2 * 0.32 + web3 * 0.26, 0.0, 1.0);
                 }
 
                 void main() {
@@ -1215,185 +1289,191 @@
                     float z = vWorldPos.z;
                     float absX = abs(x);
 
-                    // Relative advection of water past the moving carrier (+Z ship heading)
                     vec2 advectedXZ = vec2(x, z - uTime * 19.0);
 
-                    // Low-frequency spatial distortion breaks up any large-scale uniformity
                     vec2 macroWarp = vec2(
                         snoise(advectedXZ * 0.008 + vec2(uTime * 0.04, 0.0)),
                         snoise(advectedXZ * 0.008 + vec2(31.4, 15.9))
                     ) * 8.5;
                     vec2 sampleXZ = advectedXZ + macroWarp;
 
-                    // Multi-scale finite-difference micro-surface slope normal
-                    float eps = 0.38;
+                    float eps = 0.30;
                     float hC = capillaryHeight(sampleXZ, uTime);
                     float hX = capillaryHeight(sampleXZ + vec2(eps, 0.0), uTime);
                     float hZ = capillaryHeight(sampleXZ + vec2(0.0, eps), uTime);
 
-                    vec3 microNormal = normalize(vec3((hC - hX) / eps * 0.34, 1.0, (hC - hZ) / eps * 0.34));
+                    vec3 microNormal = normalize(vec3((hC - hX) / eps * 0.44, 1.0, (hC - hZ) / eps * 0.44));
                     vec3 normal = normalize(vec3(
-                        vNormal.x + microNormal.x * 0.82,
+                        vNormal.x + microNormal.x * 0.90,
                         vNormal.y * microNormal.y,
-                        vNormal.z + microNormal.z * 0.82
+                        vNormal.z + microNormal.z * 0.90
                     ));
 
-                    // View & lighting vectors
                     vec3 viewDir = normalize(cameraPosition - vWorldPos);
                     vec3 lightDir = normalize(uSunDir);
                     float NdotV = max(dot(normal, viewDir), 0.001);
                     float NdotL = max(dot(normal, lightDir), 0.0);
 
-                    // 1. Physically-Based Schlick Fresnel (water IOR = 1.333 -> F0 = 0.02)
                     float F0 = 0.0204;
-                    float fresnel = F0 + (1.0 - F0) * pow(clamp(1.0 - NdotV, 0.0, 1.0), 4.5);
+                    float fresnel = F0 + (1.0 - F0) * pow(clamp(1.0 - NdotV, 0.0, 1.0), 4.2);
 
-                    // 2. Deep Water Volumetric Absorption & Slope Tonal Gradient
-                    // Troughs absorb more light (deep abyssal indigo), while wave slopes & crests scatter pelagic blue
-                    float heightFactor = clamp((vWaveHeight + 2.4) / 5.2, 0.0, 1.0);
+                    float heightFactor = clamp((vWaveHeight + 2.2) / 4.8, 0.0, 1.0);
                     float slopeFactor = clamp(1.0 - normal.y, 0.0, 1.0);
-                    float colorMix = clamp(heightFactor * 0.62 + slopeFactor * 0.55 + hC * 0.18, 0.0, 1.0);
+                    float colorMix = clamp(heightFactor * 0.58 + slopeFactor * 0.58 + hC * 0.22, 0.0, 1.0);
                     vec3 waterBodyCol = mix(uDeepColor, uMidColor, colorMix);
+                    waterBodyCol *= (0.82 + 0.28 * NdotL);
 
-                    // Subtle diffuse sky irradiance on sunlit wave faces
-                    waterBodyCol *= (0.78 + 0.32 * NdotL);
-
-                    // 3. Anisotropic Subsurface Scattering (SSS) in Steep Wave Crests
-                    // Light passing through thin wave peaks creates a rich emerald-turquoise glow
-                    float crestThinness = smoothstep(0.18, 0.92, vCrestFactor + hC * 0.35);
-                    float backLight = pow(clamp(dot(viewDir, -lightDir) * 0.5 + 0.5, 0.0, 1.0), 2.2);
+                    // Subsurface turquoise scattering in wave crests
+                    float crestThinness = smoothstep(0.18, 0.90, vCrestFactor + hC * 0.35);
+                    float backLight = pow(clamp(dot(viewDir, -lightDir) * 0.5 + 0.5, 0.0, 1.0), 2.0);
                     float upwardScatter = clamp(normal.y * 0.6 + 0.4, 0.0, 1.0);
-                    float sssIntensity = crestThinness * (0.42 + 0.58 * backLight) * upwardScatter;
-                    waterBodyCol = mix(waterBodyCol, uWakeTurquoise * 1.05, clamp(sssIntensity * 0.58, 0.0, 0.65));
+                    float sssIntensity = crestThinness * (0.45 + 0.55 * backLight) * upwardScatter;
+                    waterBodyCol = mix(waterBodyCol, uWakeTurquoise * 0.95, clamp(sssIntensity * 0.48, 0.0, 0.52));
 
-                    // 4. Sky Dome Reflection (modulated by wave orientation)
                     vec3 reflDir = reflect(-viewDir, normal);
                     float skyGrad = clamp(reflDir.y * 0.65 + 0.35, 0.0, 1.0);
-                    vec3 skyReflCol = mix(uSkyColor * 1.12, uMidColor * 0.75, skyGrad * 0.55);
-                    vec3 oceanCol = mix(waterBodyCol, skyReflCol, clamp(fresnel * 0.85, 0.0, 0.78));
+                    vec3 skyReflCol = mix(uSkyColor * 1.15, uMidColor * 0.80, skyGrad * 0.55);
+                    vec3 oceanCol = mix(waterBodyCol, skyReflCol, clamp(fresnel * 0.80, 0.0, 0.72));
 
-                    // 5. Dual-Lobe GGX / Blinn-Phong Sun Specular Glint & Micro-Sparkles
+                    // Crisp sun glint sparkles on wind wavelets
                     vec3 halfVec = normalize(lightDir + viewDir);
                     float NdotH = max(dot(normal, halfVec), 0.0);
-                    // Tight mirror sun glint on capillary facets + broader atmospheric sun shimmer
-                    float specCore = pow(NdotH, 320.0) * 2.4;
-                    float specBroad = pow(NdotH, 38.0) * 0.24;
+                    float specCore = pow(NdotH, 380.0) * 2.2;
+                    float specBroad = pow(NdotH, 44.0) * 0.20;
                     oceanCol += uSunColor * (specCore + specBroad) * (0.4 + 0.6 * fresnel);
 
-                    // 6. Open-Ocean Wind Whitecaps & Langmuir Foam Streaks
-                    float laceOpen = foamCellularLace(sampleXZ * 0.55);
-                    float whitecapMask = smoothstep(0.62, 1.12, vCrestFactor + hC * 0.32);
-                    float openWhitecaps = whitecapMask * smoothstep(0.28, 0.75, laceOpen) * 0.55;
+                    // Scattered wind-driven breaking whitecaps across open sea (matching reference photo)
+                    float laceOpen = foamCellularLace(sampleXZ * 0.58);
+                    float patchNoise = snoise(sampleXZ * 0.032 + vec2(5.2, -8.1));
+                    float whitecapMask = smoothstep(0.56, 1.06, vCrestFactor + hC * 0.38 + patchNoise * 0.22);
+                    float openWhitecaps = whitecapMask * smoothstep(0.26, 0.74, laceOpen) * 0.72;
 
                     // -------------------------------------------------------------------------
-                    // 7. HYDRODYNAMIC CARRIER WAKE & KELVIN TRACE SYSTEM
+                    // REFINED CARRIER TRACE, BULBOUS BOW GLOW, HULL WAVE CLUSTERS & STERN WAKE
                     // -------------------------------------------------------------------------
                     float totalWhiteFoam = openWhitecaps;
-                    float totalTurquoise = crestThinness * 0.25;
+                    float totalTurquoise = crestThinness * 0.18;
 
-                    // Carrier hull profile half-width as function of Z
-                    float hullHalfW = 20.5;
+                    float hullHalfW = 20.2;
                     if (z > 70.0) {
                         float tb = clamp((z - 70.0) / 78.0, 0.0, 1.0);
-                        hullHalfW = mix(20.5, 0.8, pow(tb, 1.35));
+                        hullHalfW = mix(20.2, 0.8, pow(tb, 1.35));
                     } else if (z < -95.0) {
                         float ts = clamp((-95.0 - z) / 55.0, 0.0, 1.0);
-                        hullHalfW = mix(20.5, 16.5, ts);
+                        hullHalfW = mix(20.2, 16.0, ts);
                     }
+
+                    // A. Submerged Greenish-Turquoise Bulbous Bow Glow at Forward Stem (visible at bottom-right in photo)
+                    float bulbDist = length(vec2(x * 1.35, z - 153.5));
+                    float bulbGlow = exp(-pow(bulbDist / 7.2, 2.0));
+                    oceanCol = mix(oceanCol, vec3(0.18, 0.58, 0.46), bulbGlow * 0.72);
 
                     float distFromBow = 148.0 - z;
 
-                    // A. Bow stem wave & outward breaking V-wave (crisp peeling foam with turquoise aeration)
-                    if (z <= 153.0 && z >= 20.0) {
-                        float bowWaveAngle = 0.42;
-                        // Organic wave-induced undulation along the bow V-arms
-                        float armWobble = snoise(vec2(z * 0.09 - uTime * 1.4, absX * 0.08)) * (1.2 + distFromBow * 0.015);
-                        float bowWaveDist = abs(absX - (distFromBow * bowWaveAngle + 0.8 + armWobble));
-                        float bowWaveRibbon = exp(-pow(bowWaveDist / (2.1 + distFromBow * 0.024), 2.0));
-                        bowWaveRibbon *= smoothstep(153.0, 144.0, z);
-                        bowWaveRibbon *= smoothstep(20.0, 102.0, z);
+                    // B. Tight Bow Stem Splash & Subtle Kelvin Bow Wave Ribbons
+                    if (z <= 154.0 && z >= -35.0) {
+                        float bowWaveAngle = 0.25;
+                        float armWobble = snoise(vec2(z * 0.075 - uTime * 1.4, absX * 0.08)) * (1.2 + distFromBow * 0.015);
+                        float bowWaveDist = abs(absX - (distFromBow * bowWaveAngle + 1.0 + armWobble));
+                        float bowWaveRibbon = exp(-pow(bowWaveDist / (2.0 + distFromBow * 0.025), 2.0));
+                        bowWaveRibbon *= smoothstep(154.0, 144.0, z);
+                        bowWaveRibbon *= smoothstep(-35.0, 75.0, z);
 
-                        float bowFroth = wakeTurbulence(vec2(absX * 1.8, z * 1.1), 28.0);
-                        float bowFoam = bowWaveRibbon * smoothstep(0.24, 0.66, bowFroth);
+                        float bowFroth = wakeTurbulence(vec2(absX * 1.6, z * 1.0), 25.0);
+                        float bowFoam = bowWaveRibbon * smoothstep(0.24, 0.68, bowFroth);
 
-                        totalWhiteFoam = max(totalWhiteFoam, bowFoam * 1.38);
-                        totalTurquoise = max(totalTurquoise, bowWaveRibbon * 1.02);
+                        totalWhiteFoam = max(totalWhiteFoam, bowFoam * 1.28);
+                        totalTurquoise = max(totalTurquoise, bowWaveRibbon * 0.92);
                     }
 
-                    // B. Hull boundary layer waterline contact wash
-                    if (z <= 147.0 && z >= -150.0) {
-                        float edgeWobble = snoise(vec2(z * 0.14 - uTime * 2.2, x * 0.15)) * 0.85;
-                        float dHull = abs(absX - (hullHalfW + edgeWobble));
-                        float contactWash = exp(-pow(dHull / 2.9, 2.0));
-                        float contactTurb = wakeTurbulence(vec2(absX * 2.0, z * 1.15), 24.0);
-                        float contactFoam = contactWash * smoothstep(0.28, 0.68, contactTurb);
+                    // C. Intermittent Billowing Hull-Side Breaking Wave Clusters (Starboard & Port)
+                    // Matching the reference photo where white surf breaks in distinct energetic clusters along the hull side
+                    if (z <= 148.0 && z >= -150.0) {
+                        float edgeWobble = snoise(vec2(z * 0.12 - uTime * 1.9, x * 0.15)) * 1.4;
+                        float dHull = absX - (hullHalfW + edgeWobble);
 
-                        totalWhiteFoam = max(totalWhiteFoam, contactFoam * 1.08);
-                        totalTurquoise = max(totalTurquoise, contactWash * 0.85);
+                        // Distinct longitudinal wave-breaking packets along the starboard & port hull sides
+                        float clusterEnv = 0.35 + 0.65 * pow(0.5 + 0.5 * sin(z * 0.085 - uTime * 1.1 + snoise(vec2(z * 0.04, uTime * 0.3)) * 1.8), 1.6);
+                        float sideBand = exp(-pow((dHull - 2.6) / (5.8 * clusterEnv + 2.2), 2.0)) * step(-2.0, dHull);
+
+                        float rollerBillow = snoise(vec2(absX * 0.20, z * 0.10 - uTime * 1.3));
+                        float contactTurb = wakeTurbulence(vec2(absX * 1.55, z * 0.95), 22.0);
+
+                        float contactFoam = sideBand * clusterEnv * smoothstep(0.22, 0.64, contactTurb + rollerBillow * 0.30);
+                        float tightContact = exp(-pow(abs(dHull) / 2.1, 2.0));
+
+                        // Trail wisps peeling diagonally aft-outward from the starboard hull side (visible in photo)
+                        float wispCoord = absX - hullHalfW - (110.0 - z) * 0.08;
+                        float wispBand = exp(-pow((dHull - 9.5) / 7.5, 2.0)) * step(0.0, dHull);
+                        float wispPattern = snoise(vec2(wispCoord * 0.28, z * 0.14 - uTime * 1.2));
+                        float sideWisps = wispBand * smoothstep(0.32, 0.72, wispPattern) * 0.68;
+
+                        totalWhiteFoam = max(totalWhiteFoam, contactFoam * 1.35 + tightContact * 0.88 + sideWisps);
+                        totalTurquoise = max(totalTurquoise, sideBand * 0.95 + tightContact * 0.85 + sideWisps * 0.55);
                     }
 
-                    // C. Massive stern propeller churning wash (4 screws at z < -148.0)
-                    if (z <= -140.0 && z >= -980.0) {
-                        float distBehindStern = -148.0 - z;
+                    // D. Refined Stern Propeller Churning Wake Trace (z < -138.0 streaming cleanly to top-left)
+                    // Calibrated to match the reference photo's compact, high-energy white & turquoise wake plume
+                    if (z <= -136.0 && z >= -1050.0) {
+                        float distBehindStern = -146.0 - z;
 
-                        // Domain-warped vortex meandering along the stern wake trail
-                        float wakeMeander = snoise(vec2(0.0, z * 0.018 - uTime * 0.45)) * (2.5 + distBehindStern * 0.025);
+                        float wakeMeander = snoise(vec2(0.0, z * 0.018 - uTime * 0.45)) * (1.6 + max(0.0, distBehindStern) * 0.016);
                         float wx = x + wakeMeander;
                         float absWX = abs(wx);
 
-                        float wakeWidth = mix(20.0, 74.0, clamp(distBehindStern / 360.0, 0.0, 1.0));
-                        float centerWash = exp(-pow(absWX / wakeWidth, 2.0));
+                        // Realistic narrower spreading envelope matching the aerial photograph
+                        float wakeWidth = mix(15.5, 48.0, clamp(distBehindStern / 360.0, 0.0, 1.0));
+                        float centerWash = exp(-pow(absWX / wakeWidth, 1.95));
 
-                        // Twin/quad screw high-velocity turbulent slipstreams
-                        float screwL = exp(-pow((wx - 10.5) / (5.2 + distBehindStern * 0.036), 2.0));
-                        float screwR = exp(-pow((wx + 10.5) / (5.2 + distBehindStern * 0.036), 2.0));
-                        float screwWash = (screwL + screwR) * 0.92;
+                        // Four-screw high-velocity turbulent slipstream streaks
+                        float screwOuter = exp(-pow((absWX - 7.8) / (4.5 + max(0.0, distBehindStern) * 0.028), 2.0));
+                        float screwInner = exp(-pow((absWX - 2.6) / (4.2 + max(0.0, distBehindStern) * 0.024), 2.0));
+                        float screwWash = (screwOuter * 0.85 + screwInner * 1.05);
 
-                        // Multi-octave domain-warped vortex turbulence
-                        float turbSpeed = 34.0;
+                        float turbSpeed = 32.0;
                         float sternFroth1 = wakeTurbulence(vec2(wx * 0.42, z * 0.24), turbSpeed);
                         float sternFroth2 = wakeTurbulence(vec2(wx * 1.25, z * 0.62), turbSpeed * 1.25);
                         float combinedFroth = sternFroth1 * 0.56 + sternFroth2 * 0.44;
 
-                        float sternFade = smoothstep(-140.0, -150.0, z) * smoothstep(-980.0, -680.0, z);
+                        float sternFade = smoothstep(-136.0, -148.0, z) * smoothstep(-1050.0, -680.0, z);
 
-                        float washFoam = (centerWash * 0.78 + screwWash * 0.65) * sternFade;
-                        float foamIntensity = washFoam * smoothstep(0.22, 0.64, combinedFroth * 1.32);
+                        float washEnvelope = (centerWash * 0.82 + screwWash * 0.76) * sternFade;
+                        float foamIntensity = washEnvelope * smoothstep(0.18, 0.56, combinedFroth * 1.38);
 
-                        totalWhiteFoam = max(totalWhiteFoam, foamIntensity * 1.42);
-                        totalTurquoise = max(totalTurquoise, washFoam * sternFade * 1.15);
+                        // Bright white churning boil immediately astern of the transom
+                        float transomBoil = exp(-pow(max(0.0, distBehindStern) / 115.0, 1.5)) * exp(-pow(absWX / 14.5, 2.2)) * sternFade;
 
-                        // Kelvin outer wake diverging & transverse wave arms (19.47 deg half-angle)
-                        float kelvinArm = abs(absWX - (distBehindStern * 0.353 + 18.0));
-                        float kelvinShock = exp(-pow(kelvinArm / (4.4 + distBehindStern * 0.022), 2.0)) * sternFade;
-                        totalWhiteFoam = max(totalWhiteFoam, kelvinShock * smoothstep(0.32, 0.72, combinedFroth) * 0.85);
+                        totalWhiteFoam = max(totalWhiteFoam, foamIntensity * 1.62 + transomBoil * 0.92);
+                        totalTurquoise = max(totalTurquoise, washEnvelope * 1.42);
+
+                        // Subtle feathered Kelvin wake edge rollers
+                        float kelvinArm = abs(absWX - (max(0.0, distBehindStern) * 0.22 + 14.0));
+                        float kelvinShock = exp(-pow(kelvinArm / (3.8 + max(0.0, distBehindStern) * 0.020), 2.0)) * sternFade;
+                        totalWhiteFoam = max(totalWhiteFoam, kelvinShock * smoothstep(0.28, 0.68, combinedFroth) * 0.85);
                     }
 
-                    // Multi-scale cellular bubble lace modulation across all foam regions
-                    float wakeLace = foamCellularLace(advectedXZ * 0.78);
-                    float foamFactor = smoothstep(0.14, 0.78, totalWhiteFoam) * (0.52 + 0.48 * wakeLace);
-                    foamFactor = clamp(foamFactor, 0.0, 0.82);
+                    float wakeLace = foamCellularLace(advectedXZ * 0.76);
+                    float foamFactor = smoothstep(0.11, 0.72, totalWhiteFoam) * (0.60 + 0.40 * wakeLace);
+                    foamFactor = clamp(foamFactor, 0.0, 0.95);
 
-                    float aquaFactor = clamp(totalTurquoise, 0.0, 0.92) * (0.65 + 0.35 * wakeLace);
+                    float aquaFactor = clamp(totalTurquoise, 0.0, 0.96) * (0.68 + 0.32 * wakeLace);
 
-                    // Blend subsurface aerated turquoise Plume
-                    oceanCol = mix(oceanCol, uWakeTurquoise * 0.92, aquaFactor * 0.62);
+                    // Blend subsurface aerated turquoise plume
+                    oceanCol = mix(oceanCol, uWakeTurquoise * 1.08, aquaFactor * 0.74);
 
-                    // Blend 3D shaded sea froth (lit by sun & wave slope)
-                    vec3 shadedFoam = uFoamWhite * (0.78 + 0.22 * NdotL);
+                    // Blend 3D shaded sea froth
+                    vec3 shadedFoam = uFoamWhite * (0.84 + 0.16 * NdotL);
                     oceanCol = mix(oceanCol, shadedFoam, foamFactor);
 
-                    // Distance aerial perspective fog
                     float dist = length(cameraPosition - vWorldPos);
-                    float fogF = 1.0 - exp(-pow(dist * 0.00024, 2.0));
-                    oceanCol = mix(oceanCol, vec3(0.08, 0.22, 0.38), clamp(fogF, 0.0, 1.0));
+                    float fogF = 1.0 - exp(-pow(dist * 0.00018, 2.0));
+                    oceanCol = mix(oceanCol, vec3(0.07, 0.21, 0.40), clamp(fogF, 0.0, 1.0));
 
                     gl_FragColor = vec4(oceanCol, 1.0);
                 }
             `
         });
 
-        // High-density 380x380 ocean mesh so medium & short choppy waves resolve smoothly without aliasing
         const oceanGeo = new THREE.PlaneGeometry(2800, 2800, 380, 380);
         oceanGeo.rotateX(-Math.PI / 2);
         const oceanMesh = new THREE.Mesh(oceanGeo, oceanMaterial);
@@ -1407,57 +1487,98 @@
 
         const DECK_Y = 12.2;
 
-        // Shared PBR Materials with Procedural Welded Steel Hull Plating
+        // Shared PBR Materials with Tangent-Space Normal Maps & Authentic USN Haze Grey Finishes
         const hullSteelMaps = createNavalSteelHullTexture();
         const hullGreyMat = new THREE.MeshStandardMaterial({
-            color: 0xa4b0be,
+            color: 0xc2ccd8,
             map: hullSteelMaps.colorTex,
+            normalMap: hullSteelMaps.normalTex,
+            normalScale: new THREE.Vector2(0.45, 0.45),
             bumpMap: hullSteelMaps.bumpTex,
-            bumpScale: 0.14,
-            roughness: 0.46,
-            metalness: 0.24,
+            bumpScale: 0.10,
+            roughness: 0.42,
+            metalness: 0.22,
             side: THREE.DoubleSide
         });
         const hullDarkGreyMat = new THREE.MeshStandardMaterial({
-            color: 0x5c6674,
-            bumpMap: hullSteelMaps.bumpTex,
-            bumpScale: 0.08,
-            roughness: 0.58,
-            metalness: 0.28
+            color: 0x788392,
+            normalMap: hullSteelMaps.normalTex,
+            normalScale: new THREE.Vector2(0.35, 0.35),
+            roughness: 0.50,
+            metalness: 0.26
         });
         const catwalkMat = new THREE.MeshStandardMaterial({
-            color: 0x727d8c,
+            color: 0x9aa6b4,
             map: hullSteelMaps.colorTex,
-            bumpMap: hullSteelMaps.bumpTex,
-            bumpScale: 0.10,
-            roughness: 0.60,
-            metalness: 0.25
+            normalMap: hullSteelMaps.normalTex,
+            normalScale: new THREE.Vector2(0.38, 0.38),
+            roughness: 0.50,
+            metalness: 0.22
         });
         const islandMat = new THREE.MeshStandardMaterial({
-            color: 0xa2aebc,
+            color: 0xc4ceda,
             map: hullSteelMaps.colorTex,
-            bumpMap: hullSteelMaps.bumpTex,
-            bumpScale: 0.12,
-            roughness: 0.42,
+            normalMap: hullSteelMaps.normalTex,
+            normalScale: new THREE.Vector2(0.42, 0.42),
+            roughness: 0.38,
             metalness: 0.20
         });
-        const bootToppingMat = new THREE.MeshStandardMaterial({ color: 0x161b22, roughness: 0.72, metalness: 0.15, side: THREE.DoubleSide });
-        const radarWhiteMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.30, metalness: 0.10 });
-        const bridgeGlassMat = new THREE.MeshStandardMaterial({ color: 0x0a1422, roughness: 0.10, metalness: 0.90 });
+        const bootToppingMat = new THREE.MeshStandardMaterial({ color: 0x14181f, roughness: 0.72, metalness: 0.15, side: THREE.DoubleSide });
+        const antiFoulingRedMat = new THREE.MeshStandardMaterial({ color: 0x6e2620, roughness: 0.65, metalness: 0.12 });
+        const radarWhiteMat = new THREE.MeshStandardMaterial({ color: 0xf4f7fb, roughness: 0.28, metalness: 0.12 });
+        const dbrPanelMat = new THREE.MeshStandardMaterial({ color: 0x8d99a8, roughness: 0.34, metalness: 0.28 });
+        const bridgeGlassMat = new THREE.MeshStandardMaterial({ color: 0x09111c, roughness: 0.08, metalness: 0.92 });
         const nozzleDarkMat = new THREE.MeshStandardMaterial({ color: 0x22272e, roughness: 0.35, metalness: 0.85 });
         const foldHingeRedMat = new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.50, metalness: 0.20 });
-        const yellowGearMat = new THREE.MeshStandardMaterial({ color: 0xfacc15, roughness: 0.42, metalness: 0.22 });
-        const f35DarkMat = new THREE.MeshStandardMaterial({ color: 0x6c7888, roughness: 0.44, metalness: 0.22 });
-        const f35LightRamMat = new THREE.MeshStandardMaterial({ color: 0x98a4b4, roughness: 0.40, metalness: 0.20 });
-        const f35NoseMat = new THREE.MeshStandardMaterial({ color: 0x525c6c, roughness: 0.48, metalness: 0.18 });
-        
-        const fa18GreyMat = new THREE.MeshStandardMaterial({ color: 0x8290a2, roughness: 0.44, metalness: 0.20 });
-        const fa18NoseMat = new THREE.MeshStandardMaterial({ color: 0x58626f, roughness: 0.48, metalness: 0.22 });
-        const e2BodyMat = new THREE.MeshStandardMaterial({ color: 0xdce3ec, roughness: 0.38, metalness: 0.20 });
-        const heloDarkMat = new THREE.MeshStandardMaterial({ color: 0x3b4452, roughness: 0.48, metalness: 0.30 });
-        const canopyGoldMat = new THREE.MeshStandardMaterial({ color: 0x1f242d, roughness: 0.08, metalness: 0.88 });
-        const canopyBlueMat = new THREE.MeshStandardMaterial({ color: 0x0f1826, roughness: 0.10, metalness: 0.85 });
+        const yellowGearMat = new THREE.MeshStandardMaterial({ color: 0xeab308, roughness: 0.40, metalness: 0.22 });
+
+        // Aircraft Authentic USN Liveries with Tangent-Space Panel-Line Normal Maps
+        const fa18SurfMaps = createAircraftSurfaceMaps('#c0c9d4', 0.26);
+        const f35SurfMaps  = createAircraftSurfaceMaps('#545b66', 0.22);
+        const e2SurfMaps   = createAircraftSurfaceMaps('#dce3ec', 0.22);
+        const heloSurfMaps = createAircraftSurfaceMaps('#525c6a', 0.25);
+
+        const f35DarkMat = new THREE.MeshStandardMaterial({
+            color: 0x565d68,
+            map: f35SurfMaps.colorTex,
+            normalMap: f35SurfMaps.normalTex,
+            normalScale: new THREE.Vector2(0.35, 0.35),
+            roughness: 0.44,
+            metalness: 0.26
+        });
+        const f35LightRamMat = new THREE.MeshStandardMaterial({ color: 0x828b96, roughness: 0.40, metalness: 0.22 });
+        const f35NoseMat = new THREE.MeshStandardMaterial({ color: 0x3b414a, roughness: 0.48, metalness: 0.20 });
+
+        // F/A-18E/F Super Hornet in bright USN Light Gull Grey (#c0c9d4) matching starboard & bow rows in photo
+        const fa18GreyMat = new THREE.MeshStandardMaterial({
+            color: 0xc2cbd6,
+            map: fa18SurfMaps.colorTex,
+            normalMap: fa18SurfMaps.normalTex,
+            normalScale: new THREE.Vector2(0.38, 0.38),
+            roughness: 0.36,
+            metalness: 0.24
+        });
+        const fa18NoseMat = new THREE.MeshStandardMaterial({ color: 0x828c9a, roughness: 0.42, metalness: 0.22 });
+        const e2BodyMat = new THREE.MeshStandardMaterial({
+            color: 0xdce3ec,
+            map: e2SurfMaps.colorTex,
+            normalMap: e2SurfMaps.normalTex,
+            normalScale: new THREE.Vector2(0.32, 0.32),
+            roughness: 0.34,
+            metalness: 0.20
+        });
+        const heloDarkMat = new THREE.MeshStandardMaterial({
+            color: 0x525c6a,
+            map: heloSurfMaps.colorTex,
+            normalMap: heloSurfMaps.normalTex,
+            normalScale: new THREE.Vector2(0.34, 0.34),
+            roughness: 0.44,
+            metalness: 0.28
+        });
+        const canopyGoldMat = new THREE.MeshStandardMaterial({ color: 0x1b222c, roughness: 0.06, metalness: 0.92 });
+        const canopyBlueMat = new THREE.MeshStandardMaterial({ color: 0x0e1724, roughness: 0.08, metalness: 0.90 });
         const tireBlackMat = new THREE.MeshStandardMaterial({ color: 0x141820, roughness: 0.86, metalness: 0.08 });
+        const insigniaDecalMat = new THREE.MeshBasicMaterial({ map: usNavyInsigniaTex, transparent: true, depthWrite: false });
 
         const deckContour = [
             [-18.0, 154.0],
@@ -1499,13 +1620,15 @@
 
         const deckMaps = createFlightDeckMaps();
         const deckTopMat = new THREE.MeshStandardMaterial({
-            color: 0xe6ecf4,
+            color: 0xf4f7fb,
             map: deckMaps.colorTex,
+            normalMap: deckMaps.normalTex,
+            normalScale: new THREE.Vector2(0.55, 0.55),
             bumpMap: deckMaps.bumpTex,
-            bumpScale: 0.18,
-            roughnessMap: deckMaps.bumpTex,
+            bumpScale: 0.12,
+            roughnessMap: deckMaps.roughTex,
             roughness: 0.82,
-            metalness: 0.04
+            metalness: 0.08
         });
 
         const flightDeckMesh = new THREE.Mesh(deckTopGeo, deckTopMat);
@@ -1513,10 +1636,11 @@
         flightDeckMesh.receiveShadow = true;
         carrierGroup.add(flightDeckMesh);
 
-        const galleryExtrudeGeo = new THREE.ExtrudeGeometry(deckShape, { depth: 2.1, bevelEnabled: false });
+        // Deep dark recessed gallery deck under the flight deck edge for strong shadow contrast
+        const galleryExtrudeGeo = new THREE.ExtrudeGeometry(deckShape, { depth: 2.3, bevelEnabled: false });
         galleryExtrudeGeo.rotateX(-Math.PI / 2);
-        const galleryMesh = new THREE.Mesh(galleryExtrudeGeo, hullGreyMat);
-        galleryMesh.position.y = DECK_Y - 2.12;
+        const galleryMesh = new THREE.Mesh(galleryExtrudeGeo, hullDarkGreyMat);
+        galleryMesh.position.y = DECK_Y - 2.32;
         galleryMesh.castShadow = true;
         galleryMesh.receiveShadow = true;
         carrierGroup.add(galleryMesh);
@@ -1568,11 +1692,15 @@
             });
 
             const verts = [];
+            const uvs = [];
             const indices = [];
             const ptsPerRing = ringVerts[0].length;
 
-            ringVerts.forEach(ring => {
-                ring.forEach(v => { verts.push(v.x, v.y, v.z); });
+            ringVerts.forEach((ring, rIdx) => {
+                ring.forEach((v, iIdx) => {
+                    verts.push(v.x, v.y, v.z);
+                    uvs.push((iIdx / ptsPerRing) * 8.0, (rIdx / (ringVerts.length - 1)) * 2.0);
+                });
             });
 
             for (let r = 0; r < ringVerts.length - 1; r++) {
@@ -1581,7 +1709,6 @@
                     const b = r * ptsPerRing + i + 1;
                     const c = (r + 1) * ptsPerRing + i + 1;
                     const d = (r + 1) * ptsPerRing + i;
-                    // Outward-facing normals (counter-clockwise from outside)
                     indices.push(a, c, b);
                     indices.push(a, d, c);
                 }
@@ -1595,6 +1722,7 @@
 
             const geo = new THREE.BufferGeometry();
             geo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+            geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
             geo.setIndex(indices);
             geo.computeVertexNormals();
             return new THREE.Mesh(geo, hullGreyMat);
@@ -1604,6 +1732,12 @@
         loftedHull.castShadow = true;
         loftedHull.receiveShadow = true;
         carrierGroup.add(loftedHull);
+
+        // Submerged Bulbous Bow Stem (visible beneath the clear Atlantic water at the bow tip in the reference photo)
+        const bulbousBow = new THREE.Mesh(new THREE.SphereGeometry(2.6, 16, 12), antiFoulingRedMat);
+        bulbousBow.scale.set(0.85, 0.72, 3.2);
+        bulbousBow.position.set(0, -1.2, 150.5);
+        carrierGroup.add(bulbousBow);
 
         // Catwalks, Life Rafts & Defensive Sponsons
         const hullDetailsGroup = new THREE.Group();
@@ -1625,21 +1759,23 @@
             return THREE.MathUtils.lerp(27.5, 33.5, (z - (-152)) / 77);
         }
 
-        // Starboard catwalks & life raft drums
+        // Starboard catwalks, gallery piping & life raft drums
         for (let z = -148; z <= 148; z += 4.5) {
             const edgeX = getStarboardEdgeX(z);
             const cw = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.9, 4.3), catwalkMat);
             cw.position.set(edgeX - 0.9, DECK_Y - 0.75, z);
             cw.castShadow = true;
+            cw.receiveShadow = true;
             hullDetailsGroup.add(cw);
 
-            const railing = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.85, 4.4), hullDarkGreyMat);
+            const railing = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.85, 4.4), hullGreyMat);
             railing.position.set(edgeX - 1.95, DECK_Y - 0.25, z);
             hullDetailsGroup.add(railing);
 
-            const rib = new THREE.Mesh(new THREE.BoxGeometry(4.2, 3.2, 0.65), hullDarkGreyMat);
+            const rib = new THREE.Mesh(new THREE.BoxGeometry(4.6, 3.6, 0.75), hullDarkGreyMat);
             rib.position.set(edgeX + 0.8, DECK_Y - 2.6, z);
             rib.castShadow = true;
+            rib.receiveShadow = true;
             hullDetailsGroup.add(rib);
 
             if (Math.abs(z) % 9 < 4.5) {
@@ -1659,9 +1795,10 @@
             const cw = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.85, 5.2), catwalkMat);
             cw.position.set(edgeX + 0.9, DECK_Y - 0.75, z);
             cw.castShadow = true;
+            cw.receiveShadow = true;
             hullDetailsGroup.add(cw);
 
-            const railing = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.85, 5.3), hullDarkGreyMat);
+            const railing = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.85, 5.3), hullGreyMat);
             railing.position.set(edgeX + 1.85, DECK_Y - 0.25, z);
             hullDetailsGroup.add(railing);
 
@@ -1669,15 +1806,30 @@
                 const canister = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 1.15, 10), radarWhiteMat);
                 canister.rotation.x = Math.PI / 2;
                 canister.position.set(edgeX + 1.95, DECK_Y - 0.45, z);
+                canister.castShadow = true;
                 hullDetailsGroup.add(canister);
             }
         }
 
-        const bowCatwalk = new THREE.Mesh(new THREE.BoxGeometry(35.5, 0.75, 2.2), catwalkMat);
+        const bowCatwalk = new THREE.Mesh(new THREE.BoxGeometry(35.5, 0.85, 2.4), catwalkMat);
         bowCatwalk.position.set(0, DECK_Y - 0.65, 154.8);
         hullDetailsGroup.add(bowCatwalk);
 
-        // Deck Edge Elevators with Structural Trusses
+        // Starboard Hull Recessed Hangar Bays, Replenishment Sponsons & Machinery Boxes (matching reference photo's rich side detail)
+        [-98, -42, 4, 48, 86].forEach(hz => {
+            const sx = getStarboardEdgeX(hz);
+            const sponsonBox = new THREE.Mesh(new THREE.BoxGeometry(5.8, 4.4, 15.5), hullGreyMat);
+            sponsonBox.position.set(sx + 2.2, DECK_Y - 4.4, hz);
+            sponsonBox.castShadow = true;
+            sponsonBox.receiveShadow = true;
+            hullDetailsGroup.add(sponsonBox);
+
+            const recessCavity = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.9, 11.2), bootToppingMat);
+            recessCavity.position.set(sx - 0.2, DECK_Y - 4.4, hz);
+            hullDetailsGroup.add(recessCavity);
+        });
+
+        // Deck Edge Elevators with Structural Trusses & Non-Skid Platforms
         function addCarrierElevator(x, z, width, length, isStarboard = true) {
             const elevGroup = new THREE.Group();
             elevGroup.position.set(x, DECK_Y - 0.35, z);
@@ -1686,6 +1838,10 @@
             plat.castShadow = true;
             plat.receiveShadow = true;
             elevGroup.add(plat);
+
+            const rail = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.9, length - 0.6), hullGreyMat);
+            rail.position.set(isStarboard ? -width * 0.46 : width * 0.46, 0.65, 0);
+            elevGroup.add(rail);
 
             const truss = new THREE.Mesh(new THREE.BoxGeometry(width - 1.0, 2.8, length - 2.0), hullGreyMat);
             truss.position.set(isStarboard ? 0.8 : -0.8, -1.7, 0);
@@ -1698,29 +1854,24 @@
             hullDetailsGroup.add(elevGroup);
         }
 
-        // Elevator 1 (Starboard Fwd), Elevator 2 (Starboard Aft of island)
         [-92, -18, 22].forEach(elevZ => {
             const ex = getStarboardEdgeX(elevZ);
-            addCarrierElevator(ex - 2.2, elevZ, 6.5, 15.5, true);
+            addCarrierElevator(ex - 2.4, elevZ, 6.8, 16.0, true);
         });
-        // Elevator 3 (Port Aft)
-        addCarrierElevator(getPortEdgeX(-65) + 2.2, -65, 6.5, 15.5, false);
+        addCarrierElevator(getPortEdgeX(-65) + 2.4, -65, 6.8, 16.0, false);
 
         // Detailed Defensive Sponsons: Phalanx CIWS, RAM Missiles & Sea Sparrow
         function addPhalanxCIWS(x, y, z) {
             const ciws = new THREE.Group();
             ciws.position.set(x, y, z);
 
-            // Base platform & barbette
             const base = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.8, 1.4, 12), hullGreyMat);
             ciws.add(base);
 
-            // Rotating turret
             const turret = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.6, 2.0), hullDarkGreyMat);
             turret.position.y = 1.4;
             ciws.add(turret);
 
-            // Iconic "R2-D2" white radome dome
             const dome = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.85, 1.8, 14), radarWhiteMat);
             dome.position.set(0, 2.8, -0.2);
             dome.castShadow = true;
@@ -1730,7 +1881,6 @@
             domeCap.position.set(0, 3.7, -0.2);
             ciws.add(domeCap);
 
-            // 20mm 6-barrel Vulcan rotary cannon
             const gun = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 2.2, 8), nozzleDarkMat);
             gun.rotation.x = Math.PI / 2;
             gun.position.set(0, 1.35, 1.6);
@@ -1748,7 +1898,6 @@
             const pedestal = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 1.6, 1.2, 10), hullGreyMat);
             ram.add(pedestal);
 
-            // 21-round box launcher tilted up 32 degrees
             const box = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.8, 3.2), radarWhiteMat);
             box.position.set(0, 1.8, 0);
             box.rotation.x = -0.55;
@@ -1758,14 +1907,24 @@
             hullDetailsGroup.add(ram);
         }
 
-        // Sponsons around the hull
-        addPhalanxCIWS(getStarboardEdgeX(52) - 3.2, DECK_Y - 2.8, 52);
-        addRAMLauncher(getStarboardEdgeX(-6) - 3.2, DECK_Y - 2.8, -6, -Math.PI / 2);
+        addPhalanxCIWS(getStarboardEdgeX(36) - 3.2, DECK_Y - 2.6, 36);
+        addRAMLauncher(getStarboardEdgeX(-6) - 3.4, DECK_Y - 2.8, -6, -Math.PI / 2);
         addPhalanxCIWS(getStarboardEdgeX(-124) - 3.2, DECK_Y - 2.8, -124);
         addRAMLauncher(getPortEdgeX(62) + 3.2, DECK_Y - 2.8, 62, Math.PI / 2);
 
-        // Additional Ship Structural Details:
-        // 1. Waterline Black Boot-Topping Stripe & Bow Anchor Hawsepipes / Chains
+        // Aft Fantail Circular White Radar / Equipment Enclosure (visible on port-aft fantail in photo)
+        const aftFantailDome = new THREE.Group();
+        aftFantailDome.position.set(16.5, DECK_Y, -142.5);
+        const aftCylinder = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.2, 2.4, 20), radarWhiteMat);
+        aftCylinder.position.y = 1.2;
+        aftCylinder.castShadow = true;
+        aftFantailDome.add(aftCylinder);
+        const aftCap = new THREE.Mesh(new THREE.CylinderGeometry(2.9, 2.9, 0.2, 20), hullDarkGreyMat);
+        aftCap.position.y = 2.42;
+        aftFantailDome.add(aftCap);
+        hullDetailsGroup.add(aftFantailDome);
+
+        // Waterline Black Boot-Topping Stripe & Bow Anchor Hawsepipes
         const bootBand = new THREE.Mesh(new THREE.BoxGeometry(40.5, 1.8, 286.0), bootToppingMat);
         bootBand.position.set(0, 0.85, -2.0);
         hullDetailsGroup.add(bootBand);
@@ -1782,25 +1941,25 @@
             hullDetailsGroup.add(fluke);
         });
 
-        // 2. Hull Structural Sponson Braces (Under-Deck Diagonal Girders)
-        for (let z = -140; z <= 135; z += 12) {
+        // Under-Deck Diagonal Structural Sponson Braces
+        for (let z = -140; z <= 135; z += 9.5) {
             const sx = getStarboardEdgeX(z);
             const px = getPortEdgeX(z);
 
-            const stbdStrut = new THREE.Mesh(new THREE.BoxGeometry(0.55, 6.5, 0.75), hullDarkGreyMat);
-            stbdStrut.position.set(sx + 3.8, DECK_Y - 4.2, z);
+            const stbdStrut = new THREE.Mesh(new THREE.BoxGeometry(0.65, 6.8, 0.85), hullDarkGreyMat);
+            stbdStrut.position.set(sx + 3.6, DECK_Y - 4.2, z);
             stbdStrut.rotation.z = -0.52;
             stbdStrut.castShadow = true;
             hullDetailsGroup.add(stbdStrut);
 
-            const portStrut = new THREE.Mesh(new THREE.BoxGeometry(0.55, 6.5, 0.75), hullDarkGreyMat);
-            portStrut.position.set(px - 3.8, DECK_Y - 4.2, z);
+            const portStrut = new THREE.Mesh(new THREE.BoxGeometry(0.65, 6.8, 0.85), hullDarkGreyMat);
+            portStrut.position.set(px - 3.6, DECK_Y - 4.2, z);
             portStrut.rotation.z = 0.52;
             portStrut.castShadow = true;
             hullDetailsGroup.add(portStrut);
         }
 
-        // 3. Deck-Edge Tilted Whip Communications Antennas & Safety Nets
+        // Deck-Edge Whip Communications Antennas
         [-115, -45, 5, 68, 118].forEach(az => {
             const sx = getStarboardEdgeX(az) - 2.1;
             const whipS = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.12, 9.5, 6), hullDarkGreyMat);
@@ -1815,7 +1974,7 @@
             hullDetailsGroup.add(whipP);
         });
 
-        // 4. IFLOLS ("Meatball" Improved Fresnel Lens Optical Landing System) & LSO Platform on Port Side
+        // IFLOLS ("Meatball" Optical Landing System) on Port Side
         const iflolsGroup = new THREE.Group();
         iflolsGroup.position.set(getPortEdgeX(-48) + 1.8, DECK_Y - 0.3, -48);
         const iflolsBox = new THREE.Mesh(new THREE.BoxGeometry(2.6, 3.2, 1.8), hullDarkGreyMat);
@@ -1823,7 +1982,6 @@
         iflolsBox.castShadow = true;
         iflolsGroup.add(iflolsBox);
 
-        // Glowing green datum bars & amber meatball lens
         [-0.85, 0.85].forEach(dx => {
             const datum = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.16, 0.12), new THREE.MeshBasicMaterial({ color: 0x22c55e }));
             datum.position.set(dx, 1.8, -0.92);
@@ -1834,80 +1992,86 @@
         iflolsGroup.add(meatball);
         hullDetailsGroup.add(iflolsGroup);
 
-        // LSO Platform at Port Quarter
-        const lsoGroup = new THREE.Group();
-        lsoGroup.position.set(getPortEdgeX(-118) + 1.6, DECK_Y - 0.5, -118);
-        const lsoDeck = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.4, 7.5), catwalkMat);
-        lsoGroup.add(lsoDeck);
-        const lsoShield = new THREE.Mesh(new THREE.BoxGeometry(2.8, 1.4, 0.25), bridgeGlassMat);
-        lsoShield.position.set(0, 0.9, 3.5);
-        lsoShield.rotation.x = -0.25;
-        lsoGroup.add(lsoShield);
-        hullDetailsGroup.add(lsoGroup);
-
-        // 5. Salvage & Crash Crane ("Tilly") Parked Forward of Island Sponson
+        // Salvage & Crash Crane ("Tilly") Parked Forward of Island Sponson
         const craneGroup = new THREE.Group();
-        craneGroup.position.set(-31.8, DECK_Y, -36.5);
-        const craneBase = new THREE.Mesh(new THREE.BoxGeometry(3.6, 1.6, 5.2), yellowGearMat);
-        craneBase.position.y = 0.8;
+        craneGroup.position.set(-29.5, DECK_Y, -39.5);
+        craneGroup.rotation.y = 0.25;
+        const craneBase = new THREE.Mesh(new THREE.BoxGeometry(3.8, 1.7, 6.2), yellowGearMat);
+        craneBase.position.y = 0.95;
         craneBase.castShadow = true;
         craneGroup.add(craneBase);
-        const craneCab = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.4, 2.2), nozzleDarkMat);
-        craneCab.position.set(0.6, 2.1, 0.8);
+        const craneCab = new THREE.Mesh(new THREE.BoxGeometry(1.7, 1.5, 2.4), nozzleDarkMat);
+        craneCab.position.set(0.7, 2.2, 0.9);
         craneGroup.add(craneCab);
-        const craneBoom = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.95, 11.5), yellowGearMat);
-        craneBoom.position.set(0, 3.2, 3.8);
-        craneBoom.rotation.x = -0.22;
+        const craneBoom = new THREE.Mesh(new THREE.BoxGeometry(1.05, 1.05, 13.5), yellowGearMat);
+        craneBoom.position.set(-0.2, 3.3, 4.2);
+        craneBoom.rotation.x = -0.18;
         craneBoom.castShadow = true;
         craneGroup.add(craneBoom);
+        [-1.8, 1.8].forEach(wx => {
+            [-2.1, 0, 2.1].forEach(wz => {
+                const w = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.62, 0.42, 14), tireBlackMat);
+                w.rotation.z = Math.PI / 2;
+                w.position.set(wx, 0.62, wz);
+                craneGroup.add(w);
+            });
+        });
         hullDetailsGroup.add(craneGroup);
 
-        // Island Superstructure (Faceted Stealth Architecture of Gerald R. Ford)
+        // Island Superstructure (Compact Aft-Set Stealth Architecture of Gerald R. Ford)
         const islandGroup = new THREE.Group();
-        islandGroup.position.set(-30.5, DECK_Y, -56.0);
+        islandGroup.position.set(-30.2, DECK_Y, -56.0);
         carrierGroup.add(islandGroup);
 
         const islandNumTex = createIslandNumberTexture();
-        const islandNumMat = new THREE.MeshStandardMaterial({ map: islandNumTex, roughness: 0.48, metalness: 0.20 });
+        const islandNumMat = new THREE.MeshStandardMaterial({
+            map: islandNumTex,
+            normalMap: hullSteelMaps.normalTex,
+            normalScale: new THREE.Vector2(0.32, 0.32),
+            roughness: 0.42,
+            metalness: 0.20
+        });
 
         const baseMaterials = [islandNumMat, islandNumMat, islandMat, islandMat, islandNumMat, islandMat];
-        const lowerIsland = new THREE.Mesh(new THREE.BoxGeometry(9.2, 15.5, 25.0), baseMaterials);
-        lowerIsland.position.set(0, 7.75, 0);
+        const lowerIsland = new THREE.Mesh(new THREE.BoxGeometry(9.6, 16.0, 23.5), baseMaterials);
+        lowerIsland.position.set(0, 8.0, 0);
         lowerIsland.castShadow = true;
         lowerIsland.receiveShadow = true;
         islandGroup.add(lowerIsland);
 
-        const fwdSponson = new THREE.Mesh(new THREE.BoxGeometry(8.4, 9.5, 6.5), islandMat);
-        fwdSponson.position.set(-0.4, 4.75, 14.5);
+        // Large Flat Octagonal Dual-Band Radar (DBR) Array Panel on Starboard-Forward Island Face (prominent in photo)
+        const lowerSpyPanel = new THREE.Mesh(new THREE.BoxGeometry(0.45, 5.2, 6.2), dbrPanelMat);
+        lowerSpyPanel.position.set(-4.85, 10.5, 4.5);
+        lowerSpyPanel.castShadow = true;
+        islandGroup.add(lowerSpyPanel);
+
+        const fwdSponson = new THREE.Mesh(new THREE.BoxGeometry(8.6, 9.8, 6.2), islandMat);
+        fwdSponson.position.set(-0.4, 4.9, 13.8);
         fwdSponson.castShadow = true;
         islandGroup.add(fwdSponson);
 
-        const aftSponson = new THREE.Mesh(new THREE.BoxGeometry(8.4, 10.5, 6.0), islandMat);
-        aftSponson.position.set(-0.4, 5.25, -14.0);
+        const aftSponson = new THREE.Mesh(new THREE.BoxGeometry(8.6, 10.8, 5.8), islandMat);
+        aftSponson.position.set(-0.4, 5.4, -13.5);
         aftSponson.castShadow = true;
         islandGroup.add(aftSponson);
 
-        // Central Structural Core House connecting Lower Island -> Nav Bridge -> Pri-Fly -> DBR Tower
-        const bridgeCoreTrunk = new THREE.Mesh(new THREE.BoxGeometry(8.8, 12.0, 16.5), islandMat);
-        bridgeCoreTrunk.position.set(0.1, 20.5, 0.2);
+        const bridgeCoreTrunk = new THREE.Mesh(new THREE.BoxGeometry(9.0, 12.2, 16.0), islandMat);
+        bridgeCoreTrunk.position.set(0.1, 20.8, 0.2);
         bridgeCoreTrunk.castShadow = true;
         bridgeCoreTrunk.receiveShadow = true;
         islandGroup.add(bridgeCoreTrunk);
 
-        // Stepped Radar Tower Base Pedestal bridging Pri-Fly roof (y=21.2) to DBR Tower (y=25.0)
-        const dbrPedestal = new THREE.Mesh(new THREE.CylinderGeometry(5.1, 5.8, 5.2, 8), islandMat);
-        dbrPedestal.position.set(0, 23.2, -0.5);
+        const dbrPedestal = new THREE.Mesh(new THREE.CylinderGeometry(5.2, 6.0, 5.4, 8), islandMat);
+        dbrPedestal.position.set(0, 23.5, -0.5);
         dbrPedestal.castShadow = true;
         dbrPedestal.receiveShadow = true;
         islandGroup.add(dbrPedestal);
 
-        // Navigation Bridge (Tier 1) & Pri-Fly Flight Control (Tier 2)
-        // Authentic slender wraparound tinted glass viewing ribbons with Haze Grey catwalk galleries
+        // Navigation Bridge & Pri-Fly Flight Control with prominent dark recessed window bands & gallery walkways
         [
-            { y: 15.2, w: 9.8,  z: 21.0, glassH: 0.72 }, // Navigation Bridge
-            { y: 19.5, w: 10.5, z: 17.5, glassH: 0.68 }  // Primary Flight Control (Pri-Fly)
+            { y: 15.4, w: 10.2, z: 20.5, glassH: 0.85 },
+            { y: 19.8, w: 10.8, z: 17.2, glassH: 0.82 }
         ].forEach(tier => {
-            // Under-bridge angled structural support bulkhead
             const underSupport = new THREE.Mesh(new THREE.BoxGeometry(tier.w - 0.8, 2.2, tier.z - 1.2), islandMat);
             underSupport.position.set(0.2, tier.y - 1.5, 0.5);
             underSupport.castShadow = true;
@@ -1919,45 +2083,45 @@
             levelBox.castShadow = true;
             islandGroup.add(levelBox);
 
-            const glassBox = new THREE.Mesh(new THREE.BoxGeometry(tier.w + 0.15, tier.glassH, tier.z + 0.15), bridgeGlassMat);
-            glassBox.position.set(0.2, tier.y + 0.95, 0.5);
+            const glassBox = new THREE.Mesh(new THREE.BoxGeometry(tier.w + 0.22, tier.glassH, tier.z + 0.22), bridgeGlassMat);
+            glassBox.position.set(0.2, tier.y + 0.98, 0.5);
             glassBox.castShadow = true;
             islandGroup.add(glassBox);
 
-            const roofOverhang = new THREE.Mesh(new THREE.BoxGeometry(tier.w + 0.6, 0.35, tier.z + 0.6), islandMat);
-            roofOverhang.position.set(0.2, tier.y + 0.95 + tier.glassH * 0.5 + 0.18, 0.5);
+            const roofOverhang = new THREE.Mesh(new THREE.BoxGeometry(tier.w + 0.8, 0.42, tier.z + 0.8), islandMat);
+            roofOverhang.position.set(0.2, tier.y + 0.98 + tier.glassH * 0.5 + 0.20, 0.5);
             roofOverhang.castShadow = true;
             islandGroup.add(roofOverhang);
 
-            const galleryWalkway = new THREE.Mesh(new THREE.BoxGeometry(tier.w + 1.2, 0.35, tier.z + 1.2), catwalkMat);
-            galleryWalkway.position.set(0.2, tier.y - 0.7, 0.5);
+            const galleryWalkway = new THREE.Mesh(new THREE.BoxGeometry(tier.w + 1.5, 0.45, tier.z + 1.5), catwalkMat);
+            galleryWalkway.position.set(0.2, tier.y - 0.65, 0.5);
             galleryWalkway.castShadow = true;
             islandGroup.add(galleryWalkway);
         });
 
         // Dual Band Radar (DBR / SPY-3 & SPY-4) Phased Array Tower
-        const dbrTower = new THREE.Mesh(new THREE.CylinderGeometry(4.2, 5.0, 9.5, 8), islandMat);
-        dbrTower.position.set(0, 29.5, -0.5);
+        const dbrTower = new THREE.Mesh(new THREE.CylinderGeometry(4.4, 5.2, 9.8, 8), islandMat);
+        dbrTower.position.set(0, 29.8, -0.5);
         dbrTower.castShadow = true;
         islandGroup.add(dbrTower);
 
         for (let a = 0; a < 4; a++) {
-            const panel = new THREE.Mesh(new THREE.BoxGeometry(3.2, 4.2, 0.4), bridgeGlassMat);
+            const panel = new THREE.Mesh(new THREE.BoxGeometry(3.6, 4.6, 0.45), dbrPanelMat);
             const ang = (a * Math.PI) / 2 + Math.PI / 4;
-            panel.position.set(Math.sin(ang) * 4.5, 29.5, -0.5 + Math.cos(ang) * 4.5);
+            panel.position.set(Math.sin(ang) * 4.6, 29.8, -0.5 + Math.cos(ang) * 4.6);
             panel.rotation.y = ang;
             islandGroup.add(panel);
         }
 
-        // Communication Radomes & TACAN Antennas with solid structural sponson mounts
+        // White Spherical SATCOM Radomes & Sponson Mounts matching reference photo
         const radomeSpecs = [
-            { x: -1.8, y: 10.6, z: 14.8, rad: 1.85, baseH: 2.4, sponson: false }, // Seated directly on fwdSponson roof (y=9.5)
-            { x: -3.2, y: 17.8, z:  9.2, rad: 1.65, baseH: 2.2, sponson: false }, // Seated on Nav Bridge roof (y=16.8)
-            { x: -3.2, y: 17.8, z: -8.2, rad: 1.65, baseH: 2.2, sponson: false }, // Seated on Nav Bridge aft roof (y=16.8)
-            { x: -1.8, y: 11.6, z: -14.0, rad: 1.95, baseH: 2.4, sponson: false },// Seated directly on aftSponson roof (y=10.5)
-            { x:  2.4, y: 22.4, z:  6.8, rad: 1.55, baseH: 2.6, sponson: false }, // Seated on Pri-Fly forward roof (y=21.2)
-            { x: -2.2, y: 35.2, z:  2.2, rad: 1.75, baseH: 2.6, sponson: true  }, // Seated on DBR Tower top deck (y=34.25)
-            { x:  2.2, y: 35.2, z: -3.2, rad: 1.65, baseH: 2.6, sponson: true  }  // Seated on DBR Tower top deck (y=34.25)
+            { x: -1.6, y: 10.9, z: 14.2, rad: 2.05, baseH: 2.4, sponson: true  },
+            { x: -3.2, y: 18.0, z:  9.0, rad: 1.75, baseH: 2.2, sponson: false },
+            { x: -3.2, y: 18.0, z: -8.0, rad: 1.75, baseH: 2.2, sponson: false },
+            { x: -1.6, y: 11.8, z: -13.6, rad: 2.05, baseH: 2.4, sponson: true  },
+            { x:  2.4, y: 22.8, z:  6.6, rad: 1.65, baseH: 2.6, sponson: false },
+            { x: -1.8, y: 35.8, z:  2.0, rad: 2.15, baseH: 2.8, sponson: true  },
+            { x:  1.8, y: 35.8, z: -3.0, rad: 1.98, baseH: 2.8, sponson: true  }
         ];
         radomeSpecs.forEach(({ x: rx, y: ry, z: rz, rad, baseH, sponson }) => {
             const base = new THREE.Mesh(new THREE.CylinderGeometry(rad * 0.65, rad * 0.85, baseH, 12), islandMat);
@@ -1966,7 +2130,7 @@
             islandGroup.add(base);
 
             if (sponson) {
-                const collar = new THREE.Mesh(new THREE.CylinderGeometry(rad * 0.95, rad * 0.75, 1.2, 12), hullDarkGreyMat);
+                const collar = new THREE.Mesh(new THREE.CylinderGeometry(rad * 1.05, rad * 0.80, 1.2, 12), hullDarkGreyMat);
                 collar.position.set(rx, ry - rad * 0.9, rz);
                 islandGroup.add(collar);
             }
@@ -1977,83 +2141,61 @@
             islandGroup.add(sphere);
         });
 
-        const upperMast = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 2.3, 21, 8), islandMat);
-        upperMast.position.set(0, 43.5, -1.0);
+        const upperMast = new THREE.Mesh(new THREE.CylinderGeometry(0.75, 2.4, 21, 8), islandMat);
+        upperMast.position.set(0, 43.8, -1.0);
         upperMast.castShadow = true;
         islandGroup.add(upperMast);
 
-        const spinningRadars = []; // CVN-78 uses fixed Dual Band Phased Array radars (SPY-3 & SPY-4)
-        // Authentic Naval Lattice Mast Yardarms, Anemometers & TACAN Antenna Spire
+        const spinningRadars = [];
         [-38, -43, -49].forEach((y, idx) => {
-            const yard = new THREE.Mesh(new THREE.BoxGeometry(16 - idx * 3.5, 0.45, 0.85), islandMat);
+            const yard = new THREE.Mesh(new THREE.BoxGeometry(16.5 - idx * 3.5, 0.50, 0.90), islandMat);
             yard.position.set(0, -y, -1.0);
             yard.castShadow = true;
             islandGroup.add(yard);
 
-            // Outboard halyards & sensor pods
             [-1, 1].forEach(side => {
-                const sensorPod = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, 1.2, 8), radarWhiteMat);
+                const sensorPod = new THREE.Mesh(new THREE.CylinderGeometry(0.20, 0.20, 1.3, 8), radarWhiteMat);
                 sensorPod.position.set(side * (7.5 - idx * 1.6), -y + 0.6, -1.0);
                 sensorPod.castShadow = true;
                 islandGroup.add(sensorPod);
             });
         });
 
-        // TACAN URN-25 TACAN Antenna dome atop mast spire
-        const tacanDome = new THREE.Mesh(new THREE.CylinderGeometry(0.85, 0.95, 2.2, 12), radarWhiteMat);
-        tacanDome.position.set(0, 54.5, -1.0);
+        const tacanDome = new THREE.Mesh(new THREE.CylinderGeometry(0.90, 1.0, 2.2, 12), radarWhiteMat);
+        tacanDome.position.set(0, 54.8, -1.0);
         tacanDome.castShadow = true;
         islandGroup.add(tacanDome);
 
-        // Extra Island Architectural Details: External Stairways, Watertight Doors, Waveguide Conduits & Mullions
         [3.5, 8.2, 12.8].forEach((stairY, idx) => {
             const stairFlight = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.25, 4.8), hullDarkGreyMat);
-            stairFlight.position.set(4.85, stairY, -6.0 + idx * 3.5);
+            stairFlight.position.set(4.95, stairY, -6.0 + idx * 3.5);
             stairFlight.rotation.x = 0.62;
             stairFlight.castShadow = true;
             islandGroup.add(stairFlight);
-
-            const landingPad = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.25, 1.8), catwalkMat);
-            landingPad.position.set(4.85, stairY + 1.4, -3.8 + idx * 3.5);
-            islandGroup.add(landingPad);
         });
 
-        // Vertical radar waveguide trunks & ventilation louvers on island faces
-        [-6.5, -1.5, 4.5, 9.5].forEach(wz => {
-            const conduit = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 15.0, 8), hullDarkGreyMat);
-            conduit.position.set(4.68, 7.5, wz);
-            islandGroup.add(conduit);
-        });
-        [-8.0, 0.0, 8.0].forEach(dz => {
-            const door = new THREE.Mesh(new THREE.BoxGeometry(0.18, 2.1, 1.15), hullDarkGreyMat);
-            door.position.set(4.65, 1.1, dz);
-            islandGroup.add(door);
-        });
-        
-        // Angled Naval Gaff Flagstaff connecting Upper Mast to the US Ensign
-        const gaffPole = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.16, 7.2, 8), hullDarkGreyMat);
-        gaffPole.position.set(0, 39.2, -3.6);
+        // Prominent US Naval Ensign Flag Flying from the Mast Gaff
+        const gaffPole = new THREE.Mesh(new THREE.CylinderGeometry(0.10, 0.18, 8.5, 8), hullDarkGreyMat);
+        gaffPole.position.set(0, 38.5, -4.2);
         gaffPole.rotation.x = -0.68;
         gaffPole.castShadow = true;
         islandGroup.add(gaffPole);
 
-        const flagGeo = new THREE.PlaneGeometry(7.2, 4.0, 14, 8);
+        const flagGeo = new THREE.PlaneGeometry(9.6, 5.4, 16, 10);
         const flagMesh = new THREE.Mesh(
             flagGeo,
-            new THREE.MeshStandardMaterial({ map: createUSFlagTexture(), side: THREE.DoubleSide, roughness: 0.55 })
+            new THREE.MeshStandardMaterial({ map: createUSFlagTexture(), side: THREE.DoubleSide, roughness: 0.48 })
         );
-        flagMesh.position.set(0, 39.5, -8.2);
-        flagMesh.rotation.y = Math.PI / 2;
+        flagMesh.position.set(0.5, 38.2, -9.8);
+        flagMesh.rotation.y = Math.PI / 2 - 0.28;
         islandGroup.add(flagMesh);
 
         // ============================================================================
-        // 6. HIGH-FIDELITY AIRCRAFT & EQUIPMENT MODELS
+        // 6. HIGH-FIDELITY AIRCRAFT & SUPPORT EQUIPMENT MODELS
         // ============================================================================
-        // Heavy Carrier Landing Gear (Dual Nose Wheel & Trailing Link Main Gear)
         function addLandingGear(parent, noseZ, mainX, mainZ) {
             const gearGroup = new THREE.Group();
 
-            // Nose gear dual wheels and catapult launch bar
             const nStrut = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.95), radarWhiteMat);
             nStrut.position.set(0, 0.48, noseZ);
             gearGroup.add(nStrut);
@@ -2080,14 +2222,12 @@
                 gearGroup.add(nHub);
             });
 
-            // Gear bay doors
             [-0.26, 0.26].forEach(side => {
                 const door = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.36, 0.95), radarWhiteMat);
                 door.position.set(side, 0.70, noseZ);
                 gearGroup.add(door);
             });
 
-            // Heavy main landing gear with trailing link oleo struts
             [-mainX, mainX].forEach(mx => {
                 const mStrut = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.11, 0.98), radarWhiteMat);
                 mStrut.position.set(mx, 0.49, mainZ);
@@ -2117,11 +2257,9 @@
         }
 
         // F-35C Lightning II Carrier Strike Fighter
-        // Continuous 35° swept planform, seamless stealth chines, and vertical wing folding
         function createF35C({ foldedWings = false } = {}) {
             const jet = new THREE.Group();
 
-            // 1. Sleek Faceted Stealth Lifting Body & Integrated Radome
             const stations = [
                 { z:  5.80, w: 0.05, yTop: 1.02, yBot: 0.98 },
                 { z:  4.60, w: 0.62, yTop: 1.20, yBot: 0.82 },
@@ -2139,14 +2277,14 @@
             stations.forEach((s) => {
                 const yMid = (s.yTop + s.yBot) * 0.5;
                 const h = (s.yTop - s.yBot) * 0.5;
-                bodyVerts.push(0, s.yTop, s.z);                      // 0: top spine
-                bodyVerts.push(-s.w * 0.72, yMid + h * 0.5, s.z);    // 1: stbd upper shoulder
-                bodyVerts.push(-s.w, yMid, s.z);                     // 2: stbd chine
-                bodyVerts.push(-s.w * 0.72, yMid - h * 0.5, s.z);    // 3: stbd lower shoulder
-                bodyVerts.push(0, s.yBot, s.z);                      // 4: bottom keel
-                bodyVerts.push(s.w * 0.72, yMid - h * 0.5, s.z);     // 5: port lower shoulder
-                bodyVerts.push(s.w, yMid, s.z);                      // 6: port chine
-                bodyVerts.push(s.w * 0.72, yMid + h * 0.5, s.z);     // 7: port upper shoulder
+                bodyVerts.push(0, s.yTop, s.z);
+                bodyVerts.push(-s.w * 0.72, yMid + h * 0.5, s.z);
+                bodyVerts.push(-s.w, yMid, s.z);
+                bodyVerts.push(-s.w * 0.72, yMid - h * 0.5, s.z);
+                bodyVerts.push(0, s.yBot, s.z);
+                bodyVerts.push(s.w * 0.72, yMid - h * 0.5, s.z);
+                bodyVerts.push(s.w, yMid, s.z);
+                bodyVerts.push(s.w * 0.72, yMid + h * 0.5, s.z);
             });
 
             for (let r = 0; r < stations.length - 1; r++) {
@@ -2169,20 +2307,17 @@
             bodyMesh.castShadow = true;
             jet.add(bodyMesh);
 
-            // Forward Radome Cap (stealth dielectric nose)
             const radomeCap = new THREE.Mesh(new THREE.ConeGeometry(0.38, 1.35, 8), f35NoseMat);
             radomeCap.rotation.x = Math.PI / 2;
             radomeCap.scale.set(1.4, 0.7, 1.0);
             radomeCap.position.set(0, 1.02, 5.15);
             jet.add(radomeCap);
 
-            // Under-nose Sapphire EOTS Window
             const eots = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.55, 4), canopyGoldMat);
             eots.rotation.x = Math.PI / 2;
             eots.position.set(0, 0.76, 4.8);
             jet.add(eots);
 
-            // 2. Cockpit Bubble Canopy & Ejection Seat
             const canopy = new THREE.Mesh(new THREE.SphereGeometry(0.56, 16, 12), canopyGoldMat);
             canopy.scale.set(0.72, 0.75, 2.30);
             canopy.position.set(0, 1.42, 3.10);
@@ -2192,60 +2327,33 @@
             canopyArch.position.set(0, 1.40, 3.25);
             jet.add(canopyArch);
 
-            const seat = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.35, 0.25), tireBlackMat);
-            seat.position.set(0, 1.45, 2.85);
-            jet.add(seat);
-
-            // 3. Diverterless Supersonic Intakes (DSI)
             [-1, 1].forEach(side => {
                 const intake = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.58, 2.8), f35DarkMat);
                 intake.position.set(side * 1.32, 1.00, 1.10);
                 intake.castShadow = true;
                 jet.add(intake);
 
-                // Intake forward cowl bevel
                 const cowlLip = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.12, 0.8), f35LightRamMat);
                 cowlLip.position.set(side * 1.32, 1.26, 2.40);
                 cowlLip.rotation.y = side > 0 ? -0.28 : 0.28;
                 jet.add(cowlLip);
             });
 
-            // 4. Continuous 35° Swept Inner Wing Panels
             [-1, 1].forEach(side => {
                 const innerWingGeo = new THREE.BufferGeometry();
-                const v0 = [side * 1.40, 1.08,  2.20]; // Root LE
-                const v1 = [side * 3.80, 1.08,  0.52]; // Hinge LE (35° sweep)
-                const v2 = [side * 3.80, 1.08, -1.12]; // Hinge TE
-                const v3 = [side * 1.40, 1.08, -1.76]; // Root TE (15° forward sweep)
+                const v0 = [side * 1.40, 1.08,  2.20];
+                const v1 = [side * 3.80, 1.08,  0.52];
+                const v2 = [side * 3.80, 1.08, -1.12];
+                const v3 = [side * 1.40, 1.08, -1.76];
                 const b0 = [side * 1.40, 0.96,  2.20];
                 const b1 = [side * 3.80, 0.96,  0.52];
                 const b2 = [side * 3.80, 0.96, -1.12];
                 const b3 = [side * 1.40, 0.96, -1.76];
 
-                const verts = [
-                    ...v0, ...v1, ...v2, ...v3,
-                    ...b0, ...b1, ...b2, ...b3
-                ];
-                let indices;
-                if (side === 1) {
-                    indices = [
-                        0, 1, 2, 0, 2, 3,
-                        4, 6, 5, 4, 7, 6,
-                        0, 4, 5, 0, 5, 1,
-                        1, 5, 6, 1, 6, 2,
-                        2, 6, 7, 2, 7, 3,
-                        3, 7, 4, 3, 4, 0
-                    ];
-                } else {
-                    indices = [
-                        0, 2, 1, 0, 3, 2,
-                        4, 5, 6, 4, 6, 7,
-                        0, 5, 4, 0, 1, 5,
-                        1, 6, 5, 1, 2, 6,
-                        2, 7, 6, 2, 3, 7,
-                        3, 4, 7, 3, 0, 4
-                    ];
-                }
+                const verts = [...v0, ...v1, ...v2, ...v3, ...b0, ...b1, ...b2, ...b3];
+                const indices = side === 1
+                    ? [0,1,2, 0,2,3, 4,6,5, 4,7,6, 0,4,5, 0,5,1, 1,5,6, 1,6,2, 2,6,7, 2,7,3, 3,7,4, 3,4,0]
+                    : [0,2,1, 0,3,2, 4,5,6, 4,6,7, 0,5,4, 0,1,5, 1,6,5, 1,2,6, 2,7,6, 2,3,7, 3,4,7, 3,0,4];
                 innerWingGeo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
                 innerWingGeo.setIndex(indices);
                 innerWingGeo.computeVertexNormals();
@@ -2253,61 +2361,30 @@
                 innerMesh.castShadow = true;
                 jet.add(innerMesh);
 
-                // Titanium Hinge Rib & Red Hydraulic Lock Pin
                 const hingeStrip = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.16, 1.8), foldHingeRedMat);
                 hingeStrip.position.set(side * 3.80, 1.02, -0.30);
                 jet.add(hingeStrip);
             });
 
-            // Port wing national insignia
-            const insigniaDecal = new THREE.Mesh(
-                new THREE.PlaneGeometry(1.4, 0.7),
-                new THREE.MeshStandardMaterial({ map: usNavyInsigniaTex, transparent: true, roughness: 0.5 })
-            );
-            insigniaDecal.rotation.x = -Math.PI / 2;
-            insigniaDecal.position.set(2.55, 1.10, -0.35);
-            jet.add(insigniaDecal);
-
-            // 5. Precision Folding Outer Wing Panels (Continuous 35° Sweep to Cropped Tip)
             const wingFoldPivots = [];
             [-1, 1].forEach(side => {
                 const foldPivot = new THREE.Group();
                 foldPivot.position.set(side * 3.80, 1.02, 0);
 
                 const outerWingGeo = new THREE.BufferGeometry();
-                const w0 = [0,             0.06,  0.52]; // Hinge LE
-                const w1 = [side * 1.60,   0.06, -0.60]; // Tip LE (continues exact 35° sweep)
-                const w2 = [side * 1.60,   0.06, -1.55]; // Tip TE
-                const w3 = [0,             0.06, -1.12]; // Hinge TE
+                const w0 = [0,             0.06,  0.52];
+                const w1 = [side * 1.60,   0.06, -0.60];
+                const w2 = [side * 1.60,   0.06, -1.55];
+                const w3 = [0,             0.06, -1.12];
                 const ub0 = [0,           -0.06,  0.52];
                 const ub1 = [side * 1.60, -0.06, -0.60];
                 const ub2 = [side * 1.60, -0.06, -1.55];
                 const ub3 = [0,           -0.06, -1.12];
 
-                const verts = [
-                    ...w0, ...w1, ...w2, ...w3,
-                    ...ub0, ...ub1, ...ub2, ...ub3
-                ];
-                let indices;
-                if (side === 1) {
-                    indices = [
-                        0, 1, 2, 0, 2, 3,
-                        4, 6, 5, 4, 7, 6,
-                        0, 4, 5, 0, 5, 1,
-                        1, 5, 6, 1, 6, 2,
-                        2, 6, 7, 2, 7, 3,
-                        3, 7, 4, 3, 4, 0
-                    ];
-                } else {
-                    indices = [
-                        0, 2, 1, 0, 3, 2,
-                        4, 5, 6, 4, 6, 7,
-                        0, 5, 4, 0, 1, 5,
-                        1, 6, 5, 1, 2, 6,
-                        2, 7, 6, 2, 3, 7,
-                        3, 4, 7, 3, 0, 4
-                    ];
-                }
+                const verts = [...w0, ...w1, ...w2, ...w3, ...ub0, ...ub1, ...ub2, ...ub3];
+                const indices = side === 1
+                    ? [0,1,2, 0,2,3, 4,6,5, 4,7,6, 0,4,5, 0,5,1, 1,5,6, 1,6,2, 2,6,7, 2,7,3, 3,7,4, 3,4,0]
+                    : [0,2,1, 0,3,2, 4,5,6, 4,6,7, 0,5,4, 0,1,5, 1,6,5, 1,2,6, 2,7,6, 2,3,7, 3,4,7, 3,0,4];
                 outerWingGeo.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
                 outerWingGeo.setIndex(indices);
                 outerWingGeo.computeVertexNormals();
@@ -2315,7 +2392,6 @@
                 outerMesh.castShadow = true;
                 foldPivot.add(outerMesh);
 
-                // Wingtip missile launch rail / radar sensor pod
                 const rail = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.12, 1.15), f35LightRamMat);
                 rail.position.set(side * 1.60, 0, -1.07);
                 foldPivot.add(rail);
@@ -2327,7 +2403,6 @@
             jet.userData.wingFoldPivots = wingFoldPivots;
             jet.userData.wingFoldRatio = foldedWings ? 1.0 : 0.0;
 
-            // 6. Canted All-Moving Horizontal Stabilators (35° Sweep)
             [-1.95, 1.95].forEach(side => {
                 const stabShape = new THREE.Shape();
                 stabShape.moveTo(0, 0.85);
@@ -2344,7 +2419,6 @@
                 jet.add(hTail);
             });
 
-            // 7. Twin Canted Vertical Stabilizers (20° Outward Cant)
             [-1.22, 1.22].forEach(side => {
                 const finShape = new THREE.Shape();
                 finShape.moveTo(0, 0);
@@ -2360,22 +2434,18 @@
                 vTail.position.set(side * 1.15, 1.05, -1.85);
                 vTail.castShadow = true;
                 jet.add(vTail);
-
-                const finInsignia = new THREE.Mesh(
-                    new THREE.PlaneGeometry(0.85, 0.42),
-                    new THREE.MeshStandardMaterial({ map: usNavyInsigniaTex, transparent: true, roughness: 0.5 })
-                );
-                finInsignia.position.set(side * 1.48 + (side > 0 ? 0.08 : -0.08), 1.95, -3.05);
-                finInsignia.rotation.y = side > 0 ? Math.PI / 2 : -Math.PI / 2;
-                finInsignia.rotation.z = side > 0 ? 0.35 : -0.35;
-                jet.add(finInsignia);
             });
 
-            // 8. Pratt & Whitney F135 Low-Observable Serrated Stealth Nozzle
             const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.58, 0.68, 1.45, 16), nozzleDarkMat);
             nozzle.rotation.x = Math.PI / 2;
             nozzle.position.set(0, 0.98, -4.25);
             jet.add(nozzle);
+
+            // USN National Insignia on port inner wing
+            const wingDecal = new THREE.Mesh(new THREE.PlaneGeometry(1.15, 0.58), insigniaDecalMat);
+            wingDecal.rotation.x = -Math.PI / 2;
+            wingDecal.position.set(2.55, 1.09, -0.35);
+            jet.add(wingDecal);
 
             const burner = new THREE.Mesh(
                 new THREE.ConeGeometry(0.55, 4.0, 14),
@@ -2392,10 +2462,9 @@
         }
 
         // F/A-18E Super Hornet Strike Fighter
-        function createFA18({ foldedWings = false } = {}) {
+        function createFA18({ foldedWings = false, tailColor = 0x1e293b } = {}) {
             const jet = new THREE.Group();
 
-            // Fuselage & spine
             const body = new THREE.Mesh(new THREE.BoxGeometry(2.05, 0.88, 8.8), fa18GreyMat);
             body.position.set(0, 0.98, 0);
             body.castShadow = true;
@@ -2407,7 +2476,6 @@
             spine.position.set(0, 1.30, -0.4);
             jet.add(spine);
 
-            // Rectangular Caret Intakes
             [-1.16, 1.16].forEach(side => {
                 const caretIntake = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.65, 4.5), fa18NoseMat);
                 caretIntake.position.set(side, 0.74, 0.2);
@@ -2415,12 +2483,10 @@
                 jet.add(caretIntake);
             });
 
-            // Sweeping Leading Edge Extensions (LEX)
             const lex = new THREE.Mesh(new THREE.BoxGeometry(3.45, 0.15, 5.2), fa18GreyMat);
             lex.position.set(0, 1.08, 2.20);
             jet.add(lex);
 
-            // Radome Nose Cone
             const nose = new THREE.Mesh(new THREE.ConeGeometry(0.90, 4.4, 14), fa18NoseMat);
             nose.rotation.x = Math.PI / 2;
             nose.scale.set(1.0, 0.76, 1.0);
@@ -2433,7 +2499,6 @@
             canopy.position.set(0, 1.48, 2.40);
             jet.add(canopy);
 
-            // Main Wings with Wingtip Missile Rails
             const wingShape = new THREE.Shape();
             wingShape.moveTo(0, 1.85);
             wingShape.lineTo(4.75, -0.45);
@@ -2450,6 +2515,12 @@
             mainWings.castShadow = true;
             jet.add(mainWings);
 
+            // USN National Insignia on port inner wing
+            const wingDecal = new THREE.Mesh(new THREE.PlaneGeometry(1.25, 0.62), insigniaDecalMat);
+            wingDecal.rotation.x = -Math.PI / 2;
+            wingDecal.position.set(2.85, 1.06, -0.85);
+            jet.add(wingDecal);
+
             const wingFoldPivots = [];
             [-1, 1].forEach(side => {
                 const hinge = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.16, 1.6), foldHingeRedMat);
@@ -2463,7 +2534,6 @@
                 tip.castShadow = true;
                 foldPivot.add(tip);
 
-                // AIM-9X Sidewinder silhouette on wingtip rail
                 const missile = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 2.4, 8), radarWhiteMat);
                 missile.rotation.x = Math.PI / 2;
                 missile.position.set(side * 1.65, 0, 0.2);
@@ -2473,17 +2543,20 @@
                 jet.add(foldPivot);
                 wingFoldPivots.push({ pivot: foldPivot, side, maxAngle: 1.52 });
 
-                // Underwing fuel tanks
-                const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.24, 3.4, 12), fa18NoseMat);
+                const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.24, 3.4, 12), fa18GreyMat);
                 tank.rotation.x = Math.PI / 2;
                 tank.position.set(side * 2.20, 0.60, -0.25);
                 tank.castShadow = true;
                 jet.add(tank);
+
+                // Under-wing weapon pylons
+                const pylon = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.32, 1.5), fa18NoseMat);
+                pylon.position.set(side * 3.35, 0.82, -0.65);
+                jet.add(pylon);
             });
             jet.userData.wingFoldPivots = wingFoldPivots;
             jet.userData.wingFoldRatio = foldedWings ? 1.0 : 0.0;
 
-            // Stabilators
             [-1.75, 1.75].forEach(side => {
                 const stab = new THREE.Mesh(new THREE.BoxGeometry(1.95, 0.13, 1.90), fa18GreyMat);
                 stab.rotation.y = side > 0 ? -0.32 : 0.32;
@@ -2491,7 +2564,7 @@
                 jet.add(stab);
             });
 
-            // Twin Canted Vertical Fins
+            const tailFlashMat = new THREE.MeshStandardMaterial({ color: tailColor, roughness: 0.42 });
             [-1.08, 1.08].forEach(side => {
                 const vTail = new THREE.Mesh(new THREE.BoxGeometry(0.15, 2.15, 2.35), fa18GreyMat);
                 vTail.position.set(side, 1.90, -3.0);
@@ -2499,13 +2572,12 @@
                 vTail.castShadow = true;
                 jet.add(vTail);
 
-                const tailCap = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.34, 2.0), tireBlackMat);
+                const tailCap = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.38, 2.05), tailFlashMat);
                 tailCap.position.set(side * 1.18, 2.82, -3.05);
                 tailCap.rotation.z = side > 0 ? -0.24 : 0.24;
                 jet.add(tailCap);
             });
 
-            // Twin GE F414 Exhaust Nozzles
             const burners = [];
             [-0.52, 0.52].forEach(side => {
                 const noz = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.44, 1.1, 12), nozzleDarkMat);
@@ -2539,26 +2611,17 @@
             ctx.fillStyle = '#f8fafc';
             ctx.fillRect(0, 0, 512, 512);
 
-            // High-contrast dark navy black quadrants
-            ctx.fillStyle = '#0f172a';
+            ctx.strokeStyle = '#94a3b8';
+            ctx.lineWidth = 6;
             ctx.beginPath();
-            ctx.moveTo(256, 256);
-            ctx.lineTo(175, 16);
-            ctx.lineTo(337, 16);
-            ctx.closePath();
-            ctx.fill();
+            ctx.arc(256, 256, 240, 0, Math.PI * 2);
+            ctx.stroke();
 
+            ctx.strokeStyle = '#cbd5e1';
+            ctx.lineWidth = 4;
             ctx.beginPath();
-            ctx.moveTo(256, 256);
-            ctx.lineTo(175, 496);
-            ctx.lineTo(337, 496);
-            ctx.closePath();
-            ctx.fill();
-
-            ctx.strokeStyle = '#64748b';
-            ctx.lineWidth = 10;
-            ctx.beginPath();
-            ctx.arc(256, 256, 248, 0, Math.PI * 2);
+            ctx.moveTo(256, 16); ctx.lineTo(256, 496);
+            ctx.moveTo(16, 256); ctx.lineTo(496, 256);
             ctx.stroke();
 
             const tex = new THREE.CanvasTexture(canvas);
@@ -2595,7 +2658,6 @@
             cockpit.position.set(0, 1.88, 4.55);
             awacs.add(cockpit);
 
-            // High Wing Assembly
             const centerWing = new THREE.Mesh(new THREE.BoxGeometry(8.4, 0.28, 2.4), e2BodyMat);
             centerWing.position.set(0, 2.32, 0.9);
             centerWing.castShadow = true;
@@ -2614,17 +2676,12 @@
                 awacs.add(outerWing);
             });
 
-            // Twin Turboprop Engines with 8-Blade NP2000 Scimitar Propellers
             [-3.40, 3.40].forEach(side => {
                 const nacelle = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.50, 4.0, 14), e2BodyMat);
                 nacelle.rotation.x = Math.PI / 2;
                 nacelle.position.set(side, 2.06, 2.10);
                 nacelle.castShadow = true;
                 awacs.add(nacelle);
-
-                const scoop = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.38, 1.9), fa18NoseMat);
-                scoop.position.set(side, 1.66, 2.25);
-                awacs.add(scoop);
 
                 const propGroup = new THREE.Group();
                 propGroup.position.set(side, 2.06, 4.15);
@@ -2633,7 +2690,6 @@
                 spinner.position.z = 0.30;
                 propGroup.add(spinner);
 
-                // 8 curved scimitar blades
                 for (let b = 0; b < 8; b++) {
                     const blade = new THREE.Mesh(new THREE.BoxGeometry(2.95, 0.18, 0.05), tireBlackMat);
                     blade.rotation.z = (b * Math.PI) / 4;
@@ -2646,7 +2702,6 @@
                 spinningPropsAndDomes.push({ mesh: propGroup, axis: 'z', speed: 22.0 });
             });
 
-            // Rotodome Pylon Struts
             [[-0.48, 0.68], [0.48, 0.68], [-0.48, -0.48], [0.48, -0.48]].forEach(([sx, sz]) => {
                 const strut = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.11, 1.60, 8), e2BodyMat);
                 strut.position.set(sx, 3.10, sz);
@@ -2654,7 +2709,6 @@
                 awacs.add(strut);
             });
 
-            // 24-Foot Diameter Rotating Rotodome Dish
             const rotodome = new THREE.Group();
             rotodome.position.set(0, 3.92, 0.1);
             const dishMat = new THREE.MeshStandardMaterial({ map: rotodomeTex, roughness: 0.32 });
@@ -2663,7 +2717,6 @@
             dish.castShadow = true;
             rotodome.add(dish);
 
-            // High-contrast quadrant pattern disc on top of rotodome dish
             const topCap = new THREE.Mesh(new THREE.CircleGeometry(4.02, 36), dishMat);
             topCap.rotation.x = -Math.PI / 2;
             topCap.position.y = 0.35;
@@ -2672,7 +2725,6 @@
             awacs.add(rotodome);
             spinningPropsAndDomes.push({ mesh: rotodome, axis: 'y', speed: 1.25 });
 
-            // 4-Fin Empennage Assembly
             const hTail = new THREE.Mesh(new THREE.BoxGeometry(6.0, 0.18, 1.70), e2BodyMat);
             hTail.position.set(0, 2.05, -5.05);
             awacs.add(hTail);
@@ -2702,7 +2754,6 @@
             cabin.castShadow = true;
             heli.add(cabin);
 
-            // Tinted Windows & Cockpit Greenhouse
             [-1.11, 1.11].forEach(side => {
                 const sideWin = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.60, 2.9), canopyBlueMat);
                 sideWin.position.set(side, 1.54, 0.9);
@@ -2713,7 +2764,6 @@
             doghouse.position.set(0, 2.42, 0.35);
             heli.add(doghouse);
 
-            // Infrared Suppressor Exhaust Cowlings
             [-0.58, 0.58].forEach(ex => {
                 const exhaust = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.30, 0.95, 10), nozzleDarkMat);
                 exhaust.rotation.x = Math.PI / 2;
@@ -2726,7 +2776,6 @@
             nose.position.set(0, 1.24, 3.80);
             heli.add(nose);
 
-            // Nose FLIR Electro-Optical Turret Ball
             const flirBall = new THREE.Mesh(new THREE.SphereGeometry(0.30, 12, 10), nozzleDarkMat);
             flirBall.position.set(0, 0.96, 5.05);
             heli.add(flirBall);
@@ -2750,7 +2799,6 @@
             stabilator.position.set(0, 1.38, -7.35);
             heli.add(stabilator);
 
-            // Landing Wheels & Sponsons
             [-1.28, 1.28].forEach(side => {
                 const sponson = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.38, 1.45), heloDarkMat);
                 sponson.position.set(side * 0.95, 0.84, 1.15);
@@ -2767,7 +2815,6 @@
             tailWheel.position.set(0, 0.25, -4.9);
             heli.add(tailWheel);
 
-            // 4-Blade Main Rotor with Swashplate
             const mainRotor = new THREE.Group();
             mainRotor.position.set(0, 2.92, 0.85);
             const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 0.46, 14), nozzleDarkMat);
@@ -2786,7 +2833,6 @@
             mainRotor.add(rotorBlur);
             heli.add(mainRotor);
 
-            // Canted 4-Blade Tail Rotor
             const tailRotor = new THREE.Group();
             tailRotor.position.set(0.36, 3.02, -7.42);
             for (let i = 0; i < 4; i++) {
@@ -2823,13 +2869,6 @@
             cab.position.set(0, 1.04, -0.45);
             tug.add(cab);
 
-            // Steering wheel & driver console
-            const wheelRim = new THREE.Mesh(new THREE.TorusGeometry(0.18, 0.03, 6, 12), nozzleDarkMat);
-            wheelRim.position.set(0.35, 1.30, 0.1);
-            wheelRim.rotation.x = -0.55;
-            tug.add(wheelRim);
-
-            // Chunky black rubber tires with white hubcaps
             [[-0.94, 1.05], [0.94, 1.05], [-0.94, -1.05], [0.94, -1.05]].forEach(([wx, wz]) => {
                 const tire = new THREE.Mesh(new THREE.CylinderGeometry(0.39, 0.39, 0.29, 14), tireBlackMat);
                 tire.rotation.z = Math.PI / 2;
@@ -2846,7 +2885,8 @@
             return tug;
         }
 
-        // 7. PERSISTENT AIR WING & FLIGHT DECK CREW
+        // ============================================================================
+        // 7. PERSISTENT AIR WING & REFERENCE PHOTO DECK SPOTTING (32 UNITS)
         // ============================================================================
         const deckAssetsGroup = new THREE.Group();
         deckAssetsGroup.position.y = DECK_Y;
@@ -2869,7 +2909,6 @@
         const airWingUnits = [];
         let selectedUnit = null;
 
-        // Wheel Chocks & Tie-Down Chains for Parked Aircraft Stalls
         function createParkingChocksGroup(x, z, rotY) {
             const g = new THREE.Group();
             g.position.set(x, 0.08, z);
@@ -2886,11 +2925,11 @@
         }
 
         function registerPersistentAircraft({
-            id, callsign, type, label, homeX, homeZ, homeRot, homeFolded = true, canCycleJet = true, catPref = 1
+            id, callsign, type, label, homeX, homeZ, homeRot, homeFolded = true, canCycleJet = true, catPref = 1, tailColor = 0x1e293b
         }) {
             let mesh;
             if (type === 'F-35C') mesh = createF35C({ foldedWings: homeFolded });
-            else if (type === 'F/A-18E') mesh = createFA18({ foldedWings: homeFolded });
+            else if (type === 'F/A-18E') mesh = createFA18({ foldedWings: homeFolded, tailColor });
             else if (type === 'E-2D') mesh = createE2DHawkeye({ foldedWings: homeFolded });
             else mesh = createSeahawk();
 
@@ -2898,7 +2937,6 @@
             mesh.rotation.set(0, homeRot, 0);
             deckAssetsGroup.add(mesh);
 
-            // Place physical wheel chocks at the unit's home parking spot
             const chocks = createParkingChocksGroup(homeX, homeZ, homeRot);
             deckAssetsGroup.add(chocks);
 
@@ -2923,27 +2961,34 @@
                 taxiTargetRot: homeRot,
                 currentYaw: homeRot
             };
-            mesh.userData.unit = unit;
+            unit.mesh.userData.unit = unit;
             airWingUnits.push(unit);
             return unit;
         }
 
-        // 1. Starboard Bow Edge Finger Parking Line (Spots 01–07) — Completely clear of Cat 1 & 2
-        const starboardEdgeF35Specs = [
-            { cs: 'VMFA-211 #201', x: -15.2, z: 108, rot: 0.92 - Math.PI, cat: 1 },
-            { cs: 'VMFA-211 #202', x: -19.2, z:  91, rot: 0.95 - Math.PI, cat: 1 },
-            { cs: 'VMFA-211 #203', x: -23.2, z:  74, rot: 0.96 - Math.PI, cat: 1 },
-            { cs: 'VMFA-211 #204', x: -27.2, z:  56, rot: 0.98 - Math.PI, cat: 1 },
-            { cs: 'VMFA-211 #205', x: -30.5, z:  38, rot: 1.00 - Math.PI, cat: 2 },
-            { cs: 'VMFA-211 #206', x: -31.8, z:  19, rot: 1.02 - Math.PI, cat: 2 },
-            { cs: 'VMFA-211 #207', x: -31.8, z:   1, rot: 1.00 - Math.PI, cat: 2 }
+        // 1. Starboard Edge Echelon Row (Spots 01–12):
+        // Matching the reference photo's dense unbroken line of parked F/A-18E/F Super Hornets
+        // with folded wings stretching from the bow all the way aft to the island superstructure.
+        const starboardEdgeLineSpecs = [
+            { cs: 'VFA-31 #101',  type: 'F/A-18E', x: -16.8, z: 108, rot: 1.05, cat: 1 },
+            { cs: 'VFA-31 #102',  type: 'F/A-18E', x: -19.8, z:  94, rot: 1.08, cat: 1 },
+            { cs: 'VFA-31 #103',  type: 'F/A-18E', x: -23.0, z:  80, rot: 1.10, cat: 1 },
+            { cs: 'VFA-31 #104',  type: 'F/A-18E', x: -26.2, z:  66, rot: 1.12, cat: 1 },
+            { cs: 'VFA-87 #201',  type: 'F/A-18E', x: -29.2, z:  52, rot: 1.14, cat: 1 },
+            { cs: 'VFA-87 #202',  type: 'F/A-18E', x: -31.8, z:  38, rot: 1.15, cat: 2 },
+            { cs: 'VFA-87 #203',  type: 'F/A-18E', x: -35.2, z:  24, rot: 1.48, cat: 2 }, // On Starboard Elevator #1
+            { cs: 'VFA-87 #204',  type: 'F/A-18E', x: -34.8, z:  12, rot: 1.48, cat: 2 },
+            { cs: 'VFA-213 #205', type: 'F/A-18E', x: -31.8, z:  -2, rot: 1.15, cat: 2 },
+            { cs: 'VFA-213 #206', type: 'F/A-18E', x: -34.8, z: -15, rot: 1.16, cat: 2 }, // On Starboard Elevator #2
+            { cs: 'VFA-213 #207', type: 'F/A-18E', x: -31.6, z: -27, rot: 1.12, cat: 1 },
+            { cs: 'VMFA-211 #301',type: 'F-35C',   x: -28.5, z: -38, rot: 1.08, cat: 1 }
         ];
-        starboardEdgeF35Specs.forEach((s, idx) => {
+        starboardEdgeLineSpecs.forEach((s, idx) => {
             registerPersistentAircraft({
-                id: `f35-stbd-${idx}`,
+                id: `stbd-line-${idx}`,
                 callsign: s.cs,
-                type: 'F-35C',
-                label: 'F-35C Lightning II',
+                type: s.type,
+                label: s.type === 'F-35C' ? 'F-35C Lightning II' : 'F/A-18E Super Hornet',
                 homeX: s.x,
                 homeZ: s.z,
                 homeRot: s.rot,
@@ -2953,13 +2998,35 @@
             });
         });
 
-        // 2. Starboard Mid-Deck / Island Apron Parking Stalls (Spots 08–11)
-        // Relocated out of the central bow/waist taxiways into dedicated starboard perimeter stalls
+        // 2. Port Bow & Forward Catapult Row (6 Jets angled along Port Bow + 1 Jet on Bow "78" threshold)
+        // Directly matching the reference photo's forward port-bow line of Super Hornets!
+        const portBowLineSpecs = [
+            { cs: 'VFA-147 #105', type: 'F/A-18E', x: -3.2, z: 122, rot: -1.18, cat: 1 }, // Spotted near Bow "78"
+            { cs: 'VFA-147 #106', type: 'F/A-18E', x: 11.2, z: 128, rot: -1.42, cat: 2 },
+            { cs: 'VFA-147 #107', type: 'F/A-18E', x: 14.2, z: 112, rot: -1.35, cat: 2 },
+            { cs: 'VFA-147 #108', type: 'F/A-18E', x: 17.5, z:  96, rot: -1.28, cat: 2 },
+            { cs: 'VFA-31 #109',  type: 'F/A-18E', x: 21.0, z:  81, rot: -1.22, cat: 2 },
+            { cs: 'VFA-31 #110',  type: 'F/A-18E', x: 24.5, z:  66, rot: -1.18, cat: 2 }
+        ];
+        portBowLineSpecs.forEach((s, idx) => {
+            registerPersistentAircraft({
+                id: `port-bow-${idx}`,
+                callsign: s.cs,
+                type: s.type,
+                label: 'F/A-18E Super Hornet',
+                homeX: s.x,
+                homeZ: s.z,
+                homeRot: s.rot,
+                homeFolded: true,
+                canCycleJet: true,
+                catPref: s.cat
+            });
+        });
+
+        // 3. Mid-Deck Pair & Central E-2D Hawkeye (matching reference photo's two side-by-side jets & central Hawkeye)
         const midDeckSpecs = [
-            { cs: 'VFA-147 #301', type: 'F-35C',   folded: true, x: -31.2, z: -15, rot: 0.98 - Math.PI, cat: 2 },
-            { cs: 'VFA-147 #302', type: 'F-35C',   folded: true, x: -31.2, z: -31, rot: 0.98 - Math.PI, cat: 1 },
-            { cs: 'VFA-31 #101',  type: 'F/A-18E', folded: true, x: -20.5, z: -44, rot: 0.85 - Math.PI, cat: 1 },
-            { cs: 'VFA-31 #102',  type: 'F/A-18E', folded: true, x: -20.5, z: -66, rot: 0.85 - Math.PI, cat: 2 }
+            { cs: 'VMFA-211 #302', type: 'F-35C',   folded: false, x: -11.5, z:  4.0, rot: -0.22, cat: 1 },
+            { cs: 'VFA-213 #401',  type: 'F/A-18E', folded: false, x: -12.0, z: -9.5, rot: -0.25, cat: 2 }
         ];
         midDeckSpecs.forEach((s, idx) => {
             registerPersistentAircraft({
@@ -2976,12 +3043,25 @@
             });
         });
 
-        // 3. Starboard Aft Fantail Parking Line (Spots 12–15)
+        // Prominent Mid-Forward E-2D Advanced Hawkeye with White Rotodome (matching photo's central E-2D at z ≈ +38)
+        registerPersistentAircraft({
+            id: 'awacs-mid',
+            callsign: 'VAW-124 #600',
+            type: 'E-2D',
+            label: 'E-2D Adv. Hawkeye',
+            homeX: 4.8,
+            homeZ: 38.0,
+            homeRot: -1.35,
+            homeFolded: true,
+            canCycleJet: false
+        });
+
+        // 4. Starboard Aft of Island & Fantail Line (matching reference photo's tightly packed jets & Hawkeye behind island)
         const aftStarboardSpecs = [
-            { cs: 'VFA-147 #303', type: 'F-35C',   x: -28.5, z: -83,  rot: 0.95 - Math.PI, cat: 1 },
-            { cs: 'VFA-147 #304', type: 'F-35C',   x: -28.0, z: -100, rot: 0.95 - Math.PI, cat: 2 },
-            { cs: 'VFA-87 #401',  type: 'F/A-18E', x: -26.0, z: -117, rot: 1.02 - Math.PI, cat: 1 },
-            { cs: 'VFA-87 #402',  type: 'F/A-18E', x: -22.5, z: -134, rot: 1.10 - Math.PI, cat: 2 }
+            { cs: 'VFA-147 #304', type: 'F/A-18E', x: -30.5, z: -82,  rot: 0.92, cat: 1 },
+            { cs: 'VFA-147 #305', type: 'F/A-18E', x: -29.2, z: -96,  rot: 0.95, cat: 2 },
+            { cs: 'VMFA-211 #306',type: 'F-35C',   x: -25.8, z: -126, rot: 1.05, cat: 1 },
+            { cs: 'VFA-87 #403',  type: 'F/A-18E', x: -21.8, z: -140, rot: 1.15, cat: 2 }
         ];
         aftStarboardSpecs.forEach((s, idx) => {
             registerPersistentAircraft({
@@ -2998,15 +3078,15 @@
             });
         });
 
-        // 4. Port Aft Echelon Apron (E-2D Hawkeyes & Super Hornets — clear of angled landing strip)
+        // 5. Aft E-2D Advanced Hawkeyes (1 aft of island on starboard fantail, 1 on port aft fantail matching photo)
         registerPersistentAircraft({
             id: 'awacs-1',
             callsign: 'VAW-124 #601',
             type: 'E-2D',
             label: 'E-2D Adv. Hawkeye',
-            homeX: 16.5,
-            homeZ: -104,
-            homeRot: -0.52,
+            homeX: -27.5,
+            homeZ: -111,
+            homeRot: 0.85,
             homeFolded: true,
             canCycleJet: false
         });
@@ -3015,16 +3095,16 @@
             callsign: 'VAW-124 #602',
             type: 'E-2D',
             label: 'E-2D Adv. Hawkeye',
-            homeX: 21.5,
-            homeZ: -124,
-            homeRot: -0.58,
+            homeX: 25.5,
+            homeZ: -102,
+            homeRot: -0.68,
             homeFolded: true,
             canCycleJet: false
         });
 
         const portAftHornets = [
-            { cs: 'VFA-213 #501', x: 26.8, z: -76, rot: -0.78, cat: 2 },
-            { cs: 'VFA-213 #502', x: 31.8, z: -56, rot: -0.82, cat: 2 }
+            { cs: 'VFA-213 #501', x: 28.5, z: -84, rot: -0.78, cat: 2 },
+            { cs: 'VFA-213 #502', x: 31.8, z: -68, rot: -0.82, cat: 2 }
         ];
         portAftHornets.forEach((s, idx) => {
             registerPersistentAircraft({
@@ -3041,11 +3121,12 @@
             });
         });
 
-        // 5. Helicopter Parking Apron Aft of Island (Spots HELO 01–03 — clear of waist catapults & landing strip)
+        // 6. Port Aft Fantail Helicopter Row (matching the 4 neatly parked MH-60S Seahawks at top-left in reference photo)
         const seahawkSpecs = [
-            { cs: 'HSC-9 #610', x: -20.5, z: -82,  rot: 0.15 },
-            { cs: 'HSC-9 #611', x: -19.5, z: -98,  rot: 0.15 },
-            { cs: 'HSC-9 #612', x: -18.5, z: -114, rot: 0.15 }
+            { cs: 'HSC-9 #610', x: 19.5, z: -116, rot: -0.75 },
+            { cs: 'HSC-9 #611', x: 17.5, z: -125, rot: -0.75 },
+            { cs: 'HSC-9 #612', x: 15.5, z: -134, rot: -0.75 },
+            { cs: 'HSC-9 #613', x: 13.5, z: -143, rot: -0.75 }
         ];
         seahawkSpecs.forEach((s, idx) => {
             registerPersistentAircraft({
@@ -3061,31 +3142,31 @@
             });
         });
 
-        const deckObstacleList = [{ x: -29.0, z: -56.0, radius: 13.5 }];
-
-        for (let z = -68; z <= -40; z += 4.5) {
-            const isWhite = (Math.abs(Math.round(z)) % 9 === 0);
-            const vehicle = createDeckTractor(isWhite ? 0xf8fafc : 0xeab308);
-            vehicle.position.set(-25.2, 0, z);
-            vehicle.rotation.y = Math.PI / 2;
-            deckAssetsGroup.add(vehicle);
-            deckObstacleList.push({ x: -25.2, z, radius: 2.8 });
-        }
-
-        // Support tractors parked neatly along perimeter aprons out of the taxi street
-        const deckTugSpots = [
-            { color: 0xeab308, x: -25.0, z: -24, rot: 0.2 },
-            { color: 0xeab308, x:  24.5, z: -92, rot: -0.5 },
-            { color: 0xf8fafc, x: -22.5, z:  84, rot: 0.8 },
-            { color: 0xf8fafc, x: -25.5, z:  64, rot: 0.4 },
-            { color: 0xeab308, x:  38.5, z:  12, rot: -0.2 }
+        const deckObstacleList = [
+            { x: -29.0, z: -56.0, radius: 13.5 },
+            { x:   6.2, z:  36.0, radius:  7.8 }
         ];
-        deckTugSpots.forEach(t => {
+
+        // Dense Cluster of White & Yellow Support Vehicles Forward & Inboard of the Island (matching photo)
+        const islandSupportVehicles = [
+            { color: 0xf8fafc, x: -24.0, z: -48.0, rot: 1.57 },
+            { color: 0xf8fafc, x: -24.0, z: -44.2, rot: 1.57 },
+            { color: 0xf8fafc, x: -21.2, z: -41.5, rot: 0.45 },
+            { color: 0xf8fafc, x: -24.5, z: -36.5, rot: 1.25 },
+            { color: 0xf8fafc, x: -21.5, z: -33.8, rot: 0.85 },
+            { color: 0xeab308, x: -26.2, z: -38.0, rot: 0.35 },
+            { color: 0xeab308, x: -24.2, z: -54.0, rot: 1.57 },
+            { color: 0xeab308, x: -30.5, z: -70.0, rot: 0.10 },
+            { color: 0xeab308, x:  25.5, z:  20.0, rot: -0.15 },
+            { color: 0xeab308, x:   4.5, z: -78.0, rot:  0.40 },
+            { color: 0xf8fafc, x:  16.5, z: -64.0, rot: -0.60 }
+        ];
+        islandSupportVehicles.forEach(t => {
             const tug = createDeckTractor(t.color);
             tug.position.set(t.x, 0, t.z);
             tug.rotation.y = t.rot;
             deckAssetsGroup.add(tug);
-            deckObstacleList.push({ x: t.x, z: t.z, radius: 3.2 });
+            deckObstacleList.push({ x: t.x, z: t.z, radius: 2.8 });
         });
 
         // Navy Personnel ("Skittles")
@@ -3201,9 +3282,7 @@
             return person;
         }
 
-        // Helper to test if a deck position (x, z) is inside or too close to the angled landing strip or active catapults
         function isPointInRunwayOrCatapultZone(x, z, buffer = 2.0) {
-            // 1. Angled Landing Runway Foul Line Corridor: from (-4.5, -152) to (36.5, 42)
             const rAx = -4.5, rAz = -152.0;
             const rBx = 36.5, rBz = 42.0;
             const rDx = rBx - rAx, rDz = rBz - rAz;
@@ -3214,16 +3293,12 @@
             const distRunway = Math.hypot(x - closeRx, z - closeRz);
             if (distRunway < 11.8 + buffer) return true;
 
-            // 2. Bow Catapult 1 Track: (-7.5, 44) to (-6.5, 150)
             if (z >= 40 - buffer && z <= 152 + buffer && Math.abs(x - (-7.0)) < 4.5 + buffer) return true;
-
-            // 3. Bow Catapult 2 Track: (8.5, 38) to (7.5, 150)
             if (z >= 34 - buffer && z <= 152 + buffer && Math.abs(x - 8.0) < 4.5 + buffer) return true;
 
             return false;
         }
 
-        // Project any position out of the angled runway foul line so crew never enter the landing strip
         function clampOutOfRunwayZone(pos, minClearance = 12.2) {
             const rAx = -4.5, rAz = -152.0;
             const rBx = 36.5, rBz = 42.0;
@@ -3236,7 +3311,6 @@
             const dz = pos.z - closeRz;
             const dist = Math.hypot(dx, dz);
             if (dist < minClearance) {
-                // Push toward starboard side of the foul line (negative X) unless already far port
                 const pushDirX = dx < 2.0 ? -1.0 : 1.0;
                 const nx = dist > 0.001 ? dx / dist : pushDirX;
                 const nz = dist > 0.001 ? dz / dist : 0.0;
@@ -3248,16 +3322,11 @@
         }
 
         const deckCrewList = [];
-        // Safe Flight Deck Crew Zones:
-        // - Island Apron & Starboard Foul-Line Margin (strictly starboard of the red/white foul line)
-        // - Forward Starboard Parking Apron Margin
-        // - Center-Bow Catapult Crew Corridor (between Cat 1 & Cat 2)
-        // - Aft Starboard Helo / Fantail Apron
         const strategicCrewZones = [
-            { xMin: -25.5, xMax: -13.0, zMin:  -25, zMax:   95, count: 28 }, // Starboard parking & foul line apron
-            { xMin:  -2.2, xMax:   3.2, zMin:   42, zMax:  128, count: 18 }, // Between Bow Cat 1 & Cat 2
-            { xMin: -24.5, xMax: -14.5, zMin:  -78, zMax:  -28, count: 18 }, // Island front & starboard waist apron
-            { xMin: -23.5, xMax: -15.5, zMin: -128, zMax:  -80, count: 14 }  // Starboard aft fantail margin
+            { xMin: -25.5, xMax: -13.0, zMin:  -25, zMax:   95, count: 28 },
+            { xMin:  -2.2, xMax:   3.2, zMin:   42, zMax:  128, count: 18 },
+            { xMin: -24.5, xMax: -14.5, zMin:  -78, zMax:  -28, count: 18 },
+            { xMin: -23.5, xMax: -15.5, zMin: -128, zMax:  -80, count: 14 }
         ];
 
         let crewCounter = 0;
@@ -3267,7 +3336,6 @@
                 crewCounter++;
                 const crew = createNavyPersonnel(spec);
 
-                // Sample safe home coordinates strictly outside runway & catapult tracks
                 let bx = zone.xMin + Math.random() * (zone.xMax - zone.xMin);
                 let bz = zone.zMin + Math.random() * (zone.zMax - zone.zMin);
                 for (let attempt = 0; attempt < 15; attempt++) {
@@ -3316,16 +3384,16 @@
             const panelPivot = new THREE.Group();
             panelPivot.position.set(0, 0.05, 2.2);
             const panel = new THREE.Mesh(
-                new THREE.BoxGeometry(9.6, 0.32, 4.4),
-                new THREE.MeshStandardMaterial({ color: 0x3b424d, roughness: 0.6, metalness: 0.35 })
+                new THREE.BoxGeometry(9.2, 0.28, 4.4),
+                new THREE.MeshStandardMaterial({ color: 0x5c4938, roughness: 0.68, metalness: 0.28 })
             );
             panel.position.set(0, 0, -2.2);
             panel.castShadow = true;
             panelPivot.add(panel);
 
             const hazardEdge = new THREE.Mesh(
-                new THREE.BoxGeometry(9.7, 0.34, 0.4),
-                new THREE.MeshStandardMaterial({ color: 0xfacc15 })
+                new THREE.BoxGeometry(9.3, 0.30, 0.35),
+                new THREE.MeshStandardMaterial({ color: 0xd97706 })
             );
             hazardEdge.position.set(0, 0, -4.2);
             panelPivot.add(hazardEdge);
@@ -3338,7 +3406,6 @@
         const jbdCat1 = createJBD(-7.5, 44, 0.01);
         const jbdCat2 = createJBD( 8.5, 38, -0.01);
 
-        // 4 Arresting Gear Cross-Deck Pendants & Deck-Edge Hydraulic Sheave Dampers
         const wireMat = new THREE.LineBasicMaterial({ color: 0x1e293b, linewidth: 2 });
         const wirePts = [
             new THREE.Vector3(-8.5, 0.16, -95),
@@ -3349,7 +3416,6 @@
         const arrestingWireLine = new THREE.Line(wireGeo, wireMat);
         deckAssetsGroup.add(arrestingWireLine);
 
-        // Additional 3 static arresting gear pendants & sheave housings (#1, #2, #4 wires)
         [-119, -107, -83].forEach(wz => {
             const shiftX = (wz - (-98)) * 0.21;
             const pPts = [
@@ -3360,7 +3426,6 @@
             const pLine = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pPts), wireMat);
             deckAssetsGroup.add(pLine);
 
-            // Hydraulic sheave damper housings on either side of the landing strip
             [-9.2 + shiftX, 16.2 + shiftX].forEach((sx, sIdx) => {
                 const damper = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.48, 0.35, 10), yellowGearMat);
                 damper.position.set(sx, 0.18, sIdx === 0 ? wz + 3.2 : wz - 3.2);
@@ -3507,7 +3572,7 @@
             const totalLen = curve.getLength();
             const taxiSpeed = 13.5;
             unit.taxiCurve = curve;
-            unit.taxiDuration = Math.max(4.8, totalLen / taxiSpeed);
+            unit.taxiDuration = Math.max(2.4, totalLen / taxiSpeed);
             unit.taxiTargetRot = 0.0;
             unit.currentYaw = startYaw;
         }
@@ -3541,7 +3606,7 @@
             const totalLen = curve.getLength();
             const taxiSpeed = 13.5;
             unit.taxiCurve = curve;
-            unit.taxiDuration = Math.max(5.0, totalLen / taxiSpeed);
+            unit.taxiDuration = Math.max(4.5, totalLen / taxiSpeed);
             unit.taxiTargetRot = homeYaw;
             unit.currentYaw = startYaw;
         }
@@ -3714,30 +3779,30 @@
             else if (selectedUnit.state === 'AIRBORNE_PATROL') commandJetRecovery(selectedUnit);
         });
 
-        const initialCat2Jet = airWingUnits.find(u => u.callsign === 'VFA-147 #301');
-        const initialCat1Jet = airWingUnits.find(u => u.callsign === 'VFA-147 #302');
-        const initialCapJet  = airWingUnits.find(u => u.callsign === 'VFA-87 #401');
-        const initialHeli    = airWingUnits.find(u => u.callsign === 'HSC-9 #611');
+        btnUnitFollow.addEventListener('click', () => {
+            if (!selectedUnit) return;
+            if (followUnit === selectedUnit) {
+                followUnit = null;
+                btnUnitFollow.textContent = 'FOLLOW: OFF';
+                btnUnitFollow.classList.remove('hud-btn-active');
+            } else {
+                followUnit = selectedUnit;
+                btnUnitFollow.textContent = 'FOLLOW: ON';
+                btnUnitFollow.classList.add('hud-btn-active');
+            }
+        });
 
-        if (initialCat2Jet) commandJetLaunch(initialCat2Jet);
-        if (initialCapJet) {
-            initialCapJet.state = 'PARKED'; // Keep deck parked initially matching reference photo
-            initialCapJet.patrolAngle = Math.PI * 1.15;
-            setWingFoldRatio(initialCapJet.mesh, 0.0);
-            if (initialCapJet.mesh.userData.gearGroup) initialCapJet.mesh.userData.gearGroup.visible = false;
-        }
-        if (initialHeli) commandHeliSortie(initialHeli);
-        selectedUnit = initialCat2Jet || airWingUnits[0];
+        selectedUnit = airWingUnits[0];
         renderRosterUI();
 
         let autoOpsTimer = 0;
 
         function updatePersistentAirWing(dt) {
             autoOpsTimer += dt;
-            if (autoOpsTimer > 3.2) {
+            if (autoOpsTimer > 9.0) {
                 autoOpsTimer = 0;
                 if (!isCatapultBusy(1) && !isCatapultBusy(2)) {
-                    const parkedJets = airWingUnits.filter(u => u.canCycleJet && u.state === 'PARKED');
+                    const parkedJets = airWingUnits.filter(u => u.canCycleJet && u.state === 'PARKED' && u.id.startsWith('mid-jet'));
                     if (parkedJets.length > 0) {
                         const pick = parkedJets[Math.floor(Math.random() * parkedJets.length)];
                         commandJetLaunch(pick);
@@ -4018,12 +4083,22 @@
 
             oceanUniforms.uTime.value = elapsed;
 
-            const pitch = Math.sin(elapsed * 0.48) * 0.014;
-            const roll  = Math.cos(elapsed * 0.36) * 0.012;
-            const heave = Math.sin(elapsed * 0.62) * 0.28;
+            // Gentle realistic carrier pitch, roll & heave
+            const pitch = Math.sin(elapsed * 0.48) * 0.008;
+            const roll  = Math.cos(elapsed * 0.36) * 0.007;
+            const heave = Math.sin(elapsed * 0.62) * 0.20;
             carrierGroup.rotation.x = pitch;
             carrierGroup.rotation.z = roll;
             carrierGroup.position.y = heave;
+
+            // Animate waving US Flag on mast gaff
+            const fPos = flagGeo.attributes.position;
+            for (let i = 0; i < fPos.count; i++) {
+                const vx = fPos.getX(i);
+                const wave = Math.sin(vx * 0.8 - elapsed * 6.5) * ((vx + 4.8) * 0.06);
+                fPos.setZ(i, wave);
+            }
+            fPos.needsUpdate = true;
 
             spinningRadars.forEach(sr => {
                 sr.mesh.rotation.y += sr.speed * dt;
@@ -4040,16 +4115,13 @@
             });
 
             if (selectedUnit) {
-                const wp = new THREE.Vector3();
-                selectedUnit.mesh.getWorldPosition(wp);
-                selectionBracket.position.copy(wp);
+                selectionBracket.position.copy(selectedUnit.mesh.position);
                 selectionBracket.rotation.y = selectedUnit.mesh.rotation.y;
                 selectionBracket.visible = true;
             } else {
                 selectionBracket.visible = false;
             }
 
-            // Gather active aircraft hazards on or near the flight deck so crew can sprint out of their path
             const activeDeckHazards = [];
             airWingUnits.forEach(u => {
                 if (u.state === 'AIRBORNE_PATROL' || u.state === 'PATROL_ORBIT') return;
@@ -4072,7 +4144,6 @@
                     u.state === 'RETURN_APPROACH'
                 );
 
-                // Current aircraft footprint hazard
                 activeDeckHazards.push({
                     x: ax,
                     z: az,
@@ -4082,7 +4153,6 @@
                     urgent: isMoving
                 });
 
-                // Project forward path lookahead capsules so personnel clear the taxi/launch corridor early
                 if (isMoving) {
                     const lookDist1 = (u.state === 'LAUNCHING' || u.state === 'TOUCHDOWN_ROLLOUT') ? 16.0 : 9.5;
                     const lookDist2 = (u.state === 'LAUNCHING' || u.state === 'TOUCHDOWN_ROLLOUT') ? 32.0 : 18.0;
@@ -4109,14 +4179,12 @@
                 const a = elapsed * c.speed + c.phase;
                 const limbs = c.mesh.userData.limbs;
 
-                // Nominal patrol or station position
                 const patrolX = c.stationary ? c.baseX : (c.baseX + Math.cos(a) * c.radius);
                 const patrolZ = c.stationary ? c.baseZ : (c.baseZ + Math.sin(a) * c.radius);
 
                 let curX = patrolX + c.evadeOffsetX;
                 let curZ = patrolZ + c.evadeOffsetZ;
 
-                // Check proximity against all moving/active aircraft and their forward path corridors
                 let fleeDirX = 0;
                 let fleeDirZ = 0;
                 let maxUrgency = 0;
@@ -4131,7 +4199,6 @@
                         const urgency = (1.0 - dist / haz.radius) * (haz.urgent ? 1.8 : 0.7);
                         if (haz.urgent) maxUrgency = Math.max(maxUrgency, urgency);
 
-                        // Evade laterally perpendicular to the aircraft's nose vector so crew don't run straight down the taxiway
                         const latX = haz.fwdZ;
                         const latZ = -haz.fwdX;
                         const sideDot = dx * latX + dz * latZ;
@@ -4147,7 +4214,6 @@
 
                 const fleeMag = Math.hypot(fleeDirX, fleeDirZ);
                 if (fleeMag > 0.01 && maxUrgency > 0.02) {
-                    // Sprint away from the aircraft's path
                     const runSpeed = 9.5 + Math.min(maxUrgency * 6.0, 6.5);
                     const targetVx = (fleeDirX / fleeMag) * runSpeed;
                     const targetVz = (fleeDirZ / fleeMag) * runSpeed;
@@ -4157,7 +4223,6 @@
                     c.evadeOffsetZ += c.evadeVelZ * dt;
                     c.isEvading = true;
                 } else {
-                    // When aircraft has passed, jog smoothly back to assigned station
                     const offsetDist = Math.hypot(c.evadeOffsetX, c.evadeOffsetZ);
                     if (offsetDist > 0.15) {
                         const returnSpeed = 3.6;
@@ -4177,7 +4242,6 @@
                     }
                 }
 
-                // Final world position clamped out of the angled landing runway foul line
                 const finalPt = { x: patrolX + c.evadeOffsetX, z: patrolZ + c.evadeOffsetZ };
                 clampOutOfRunwayZone(finalPt, 12.2);
                 c.evadeOffsetX = finalPt.x - patrolX;
@@ -4192,7 +4256,6 @@
                 const moveSpeed = Math.hypot(moveDx, moveDz) / Math.max(dt, 0.001);
 
                 if (c.isEvading && moveSpeed > 0.8) {
-                    // Rapid sprinting gait & forward lean when running out of an aircraft's way
                     const runHeading = Math.atan2(moveDx, moveDz);
                     c.mesh.rotation.y = lerpYaw(c.mesh.rotation.y, runHeading, Math.min(1.0, dt * 14.0));
                     if (limbs) {
@@ -4295,28 +4358,32 @@
                 btn.classList.add('hud-btn-active');
                 const mode = btn.getAttribute('data-time');
                 if (mode === 'day') {
-                    scene.background.setHex(0x091c33);
-                    scene.fog.color.setHex(0x0e2848);
-                    hemiLight.color.setHex(0xe0f2fe);
-                    hemiLight.intensity = 1.32;
-                    sunLight.color.setHex(0xfffbf2);
-                    sunLight.intensity = 3.2;
-                    sunLight.position.set(150, 280, -85);
+                    buildMaritimeEnvironment(true);
+                    scene.background.setHex(0x0c2846);
+                    scene.fog.color.setHex(0x123458);
+                    hemiLight.color.setHex(0xc2dff8);
+                    hemiLight.intensity = 0.78;
+                    sunLight.color.setHex(0xfff9ed);
+                    sunLight.intensity = 3.35;
+                    sunLight.position.set(-55, 250, -145);
+                    fillLight.intensity = 0.38;
                     oceanUniforms.uSunDir.value.copy(sunLight.position).normalize();
-                    oceanUniforms.uDeepColor.value.setHex(0x041325);
-                    oceanUniforms.uMidColor.value.setHex(0x0b2d4d);
-                    oceanUniforms.uSkyColor.value.setHex(0x4679a3);
-                    oceanUniforms.uWakeTurquoise.value.setHex(0x138e88);
-                    oceanUniforms.uFoamWhite.value.setHex(0xdcebf5);
+                    oceanUniforms.uDeepColor.value.setHex(0x0b2c5c);
+                    oceanUniforms.uMidColor.value.setHex(0x164984);
+                    oceanUniforms.uSkyColor.value.setHex(0x5288ba);
+                    oceanUniforms.uWakeTurquoise.value.setHex(0x28a2ad);
+                    oceanUniforms.uFoamWhite.value.setHex(0xf4f9fd);
                     oceanUniforms.uSunColor.value.setHex(0xfffef2);
                 } else {
+                    buildMaritimeEnvironment(false);
                     scene.background.setHex(0x1a1426);
                     scene.fog.color.setHex(0x281932);
                     hemiLight.color.setHex(0xfdba74);
-                    hemiLight.intensity = 0.98;
+                    hemiLight.intensity = 0.75;
                     sunLight.color.setHex(0xfb923c);
-                    sunLight.intensity = 3.3;
-                    sunLight.position.set(-240, 85, -90);
+                    sunLight.intensity = 3.2;
+                    sunLight.position.set(-220, 85, -110);
+                    fillLight.intensity = 0.30;
                     oceanUniforms.uSunDir.value.copy(sunLight.position).normalize();
                     oceanUniforms.uDeepColor.value.setHex(0x051122);
                     oceanUniforms.uMidColor.value.setHex(0x132842);
