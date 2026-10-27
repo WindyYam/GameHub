@@ -108,7 +108,7 @@ function spawnParticle(pos, vel, colorHex, startSize, endSize, life, isAdditive 
     const currentScene = window.scene;
     if (!currentScene) return;
 
-    // Photorealistic Maldive-Grade Volumetric Cloud Smoke (Beer-Lambert Law, Henyey-Greenstein scattering, soft Fresnel)
+    // Low-Discrepancy 64x64 Halton Sequence Sampling Volumetric Smoke
     if (type === 'smoke') {
         let mesh, mat;
         if (smokePool.length > 0) {
@@ -120,12 +120,19 @@ function spawnParticle(pos, vel, colorHex, startSize, endSize, life, isAdditive 
             } else if (colorHex && colorHex.isColor) {
                 mat.uniforms.diffuse.value.copy(colorHex);
             }
-            mat.uniforms.opacity.value = 0.0;
+            if (mat.uniforms.uAgeProgress) mat.uniforms.uAgeProgress.value = 0.0;
+            if (mat.uniforms.ditherOffset) {
+                mat.uniforms.ditherOffset.value.set(
+                    Math.floor(Math.random() * 64),
+                    Math.floor(Math.random() * 64)
+                );
+            }
+            if (mat.uniforms.opacity) mat.uniforms.opacity.value = 0.88;
             mesh.visible = true;
         } else {
-            mat = (window.createMaldiveSmokeMaterial || window.createHaltonSmokeMaterial)
-                ? (window.createMaldiveSmokeMaterial || window.createHaltonSmokeMaterial)(colorHex)
-                : createMaldiveSmokeMaterial(colorHex);
+            mat = (window.createHaltonSmokeMaterial || window.createMaldiveSmokeMaterial)
+                ? (window.createHaltonSmokeMaterial || window.createMaldiveSmokeMaterial)(colorHex)
+                : createHaltonSmokeMaterial(colorHex);
             const smokeGeo = window.createVolumetricSmokeGeometry ? window.createVolumetricSmokeGeometry() : sphereParticleGeo;
             mesh = new THREE.Mesh(smokeGeo, mat);
             currentScene.add(mesh);
@@ -671,20 +678,35 @@ function updateParticles(dt) {
             p.mesh.rotation.z += p.rotVel.z * dt;
         }
 
-        // Scale & Opacity curve
-        const currentScale = THREE.MathUtils.lerp(p.startSize, p.endSize, Math.pow(progress, 0.7));
-        p.mesh.scale.setScalar(currentScale);
+        // Scale & lifecycle curve
+        if (p.type === 'smoke') {
+            // Billowing expansion and volumetric dissipation via Halton sampling
+            const currentScale = THREE.MathUtils.lerp(p.startSize, p.endSize, Math.pow(progress, 0.65));
+            p.mesh.scale.setScalar(currentScale);
 
-        // Realistic non-linear alpha decay
-        if (p.type === 'fire') {
-            p.mat.opacity = Math.max(0, (1.0 - progress) * 0.95);
-        } else if (p.type === 'spark') {
-            p.mat.opacity = Math.max(0, (1.0 - Math.pow(progress, 2.0)));
+            if (p.mat && p.mat.uniforms) {
+                if (p.mat.uniforms.uAgeProgress) {
+                    p.mat.uniforms.uAgeProgress.value = progress;
+                }
+                if (p.mat.uniforms.opacity) {
+                    // Rapid initial puff-in, followed by smooth volumetric dissipation
+                    const fadeIn = Math.min(1.0, progress * 6.0);
+                    const fadeOut = Math.max(0.0, (1.0 - progress) / 0.50);
+                    p.mat.uniforms.opacity.value = Math.min(1.0, fadeIn * fadeOut) * 0.92;
+                }
+            }
         } else {
-            // Smoke fades in slightly, then slowly dissolves
-            const fadeIn = Math.min(1.0, progress * 4.0);
-            const fadeOut = Math.max(0, 1.0 - progress);
-            p.mat.opacity = fadeIn * fadeOut * 0.85;
+            const currentScale = THREE.MathUtils.lerp(p.startSize, p.endSize, Math.pow(progress, 0.7));
+            p.mesh.scale.setScalar(currentScale);
+
+            // Realistic non-linear alpha decay
+            if (p.type === 'fire') {
+                p.mat.opacity = Math.max(0, (1.0 - progress) * 0.95);
+            } else if (p.type === 'spark') {
+                p.mat.opacity = Math.max(0, (1.0 - Math.pow(progress, 2.0)));
+            } else if (p.mat) {
+                p.mat.opacity = Math.max(0, 1.0 - progress);
+            }
         }
     }
 

@@ -326,9 +326,9 @@ function createSmokeParticleTexture() {
 }
 
 // ============================================================================
-// Low-Discrepancy 2D Halton Sequence (bases 2, 3) Dither Pattern & Shader
-// Replaces heavy alpha-blending with opaque screen-door transparency.
-// Drastically cuts GPU overdraw, memory bandwidth and transparent sorting.
+// Low-Discrepancy 2D Halton Sequence (bases 2, 3) 64x64 Sampling Texture & Shader
+// Replaces heavy alpha-blending with low-discrepancy Halton sampling.
+// Zero GPU alpha-overdraw, zero framebuffer read-modify-write, full Early-Z.
 // ============================================================================
 
 function haltonRadicalInverse(index, base) {
@@ -348,25 +348,27 @@ let _haltonPatternTexture = null;
 function createHaltonPatternTexture() {
     if (_haltonPatternTexture) return _haltonPatternTexture;
 
-    const size = 8;
+    // High-resolution 64x64 grid = 4,096 continuous Halton threshold levels
+    // Eliminates coarse 8x8 tiling artifacts while maintaining optimal cache locality
+    const size = 64;
     const canvas = document.createElement('canvas');
     canvas.width = size;
     canvas.height = size;
     const ctx = canvas.getContext('2d');
     const imgData = ctx.createImageData(size, size);
 
-    // Compute rank of arrival on 8x8 grid from 2D Halton sequence (bases 2 & 3)
-    const occupied = new Uint8Array(size * size);
+    const total = size * size;
+    const occupied = new Uint8Array(total);
     let count = 0;
     let i = 1;
-    while (count < 64 && i < 2000) {
+
+    while (count < total && i < 200000) {
         const x = Math.floor(haltonRadicalInverse(i, 2) * size);
         const y = Math.floor(haltonRadicalInverse(i, 3) * size);
         const idx = y * size + x;
         if (!occupied[idx]) {
             occupied[idx] = 1;
-            // Rank normalized to [0, 255]
-            const threshold = Math.floor(((count + 0.5) / 64.0) * 255);
+            const threshold = Math.floor(((count + 0.5) / total) * 255);
             const pIdx = idx * 4;
             imgData.data[pIdx]     = threshold;
             imgData.data[pIdx + 1] = threshold;
@@ -375,6 +377,20 @@ function createHaltonPatternTexture() {
             count++;
         }
         i++;
+    }
+
+    if (count < total) {
+        for (let idx = 0; idx < total; idx++) {
+            if (!occupied[idx]) {
+                const threshold = Math.floor((count / total) * 255);
+                const pIdx = idx * 4;
+                imgData.data[pIdx]     = threshold;
+                imgData.data[pIdx + 1] = threshold;
+                imgData.data[pIdx + 2] = threshold;
+                imgData.data[pIdx + 3] = 255;
+                count++;
+            }
+        }
     }
 
     ctx.putImageData(imgData, 0, 0);
@@ -454,17 +470,22 @@ function createVolumetricSmokeGeometry() {
 }
 
 // ============================================================================
-// Photorealistic Maldive-Grade Volumetric Cloud Smoke Material
-// Powered by Beer-Lambert Law, Henyey-Greenstein Phase Scattering & Soft Fresnel
+// Volumetric Cloud Smoke Material with 64x64 Halton Sampling
+// Combines true ray path thickness, 3D fractal billows, and Halton sampling
+// Zero GPU alpha-overdraw, zero framebuffer read-modify-write, full Early-Z.
 // ============================================================================
 
-function createMaldiveSmokeMaterial(colorHex = 0x94a3b8) {
+function createHaltonSmokeMaterial(colorHex = 0x94a3b8) {
+    const haltonTex = createHaltonPatternTexture();
     const color = (colorHex && colorHex.isColor) ? colorHex.clone() : new THREE.Color(colorHex);
 
     const mat = new THREE.ShaderMaterial({
         uniforms: {
             diffuse:      { value: color },
-            opacity:      { value: 0.85 },
+            opacity:      { value: 0.88 },
+            uAgeProgress: { value: 0.0 },
+            ditherOffset: { value: new THREE.Vector2(0, 0) },
+            haltonMap:    { value: haltonTex },
             uTime:        celestialLighting.time,
             sunDirection: celestialLighting.sunDirection,
             sunColor:     celestialLighting.sunColor,
@@ -472,23 +493,36 @@ function createMaldiveSmokeMaterial(colorHex = 0x94a3b8) {
             groundColor:  celestialLighting.groundColor
         },
         vertexShader: `
+            uniform float uAgeProgress;
+            uniform float uTime;
             varying vec3 vNormal;
             varying vec3 vViewDir;
             varying vec3 vLocalPos;
-            varying vec3 vWorldPos;
+            varying float vLobeDisplacement;
 
             void main() {
+                vec3 pos = position;
+
+                // Convective Expansion: hot smoke upper lobes billow outward dynamically
+                float verticalExpand = smoothstep(-0.4, 0.75, pos.y);
+                float swell = sin(clamp(uAgeProgress / 0.7, 0.0, 1.0) * 3.14159);
+                pos.xyz += normal * (verticalExpand * 0.16 * swell);
+
                 vNormal = normalize(normalMatrix * normal);
-                vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
+                vec4 mvPos = modelViewMatrix * vec4(pos, 1.0);
                 vViewDir = -normalize(mvPos.xyz);
-                vLocalPos = position;
-                vWorldPos = (modelMatrix * vec4(position, 1.0)).xyz;
+                vLocalPos = pos;
+                vLobeDisplacement = length(pos);
+
                 gl_Position = projectionMatrix * mvPos;
             }
         `,
         fragmentShader: `
             uniform vec3 diffuse;
             uniform float opacity;
+            uniform float uAgeProgress;
+            uniform vec2 ditherOffset;
+            uniform sampler2D haltonMap;
             uniform float uTime;
             uniform vec3 sunDirection;
             uniform vec3 sunColor;
@@ -498,9 +532,8 @@ function createMaldiveSmokeMaterial(colorHex = 0x94a3b8) {
             varying vec3 vNormal;
             varying vec3 vViewDir;
             varying vec3 vLocalPos;
-            varying vec3 vWorldPos;
+            varying float vLobeDisplacement;
 
-            // Fast pseudo-noise helpers for billowing cauliflower micro-structure
             float hash(vec3 p) {
                 p = fract(p * 0.1031);
                 p += dot(p, p.yzx + 33.33);
@@ -533,71 +566,71 @@ function createMaldiveSmokeMaterial(colorHex = 0x94a3b8) {
                 float a = 0.55;
                 for (int i = 0; i < 3; i++) {
                     v += a * noise(p);
-                    p = p * 2.08 + vec3(2.3, 1.7, 5.1);
+                    p = p * 2.12 + vec3(2.3, 1.7, 5.1);
                     a *= 0.48;
                 }
                 return v;
             }
 
             void main() {
-                // 1. Volumetric Optical Depth & Beer-Lambert Extinction (Maldive Cloud Model)
+                // 1. True Volumetric Ray Thickness (Eliminates the "solid object" look)
                 float r = length(vLocalPos);
-                // Thick dense interior core, fading smoothly out through billowing lobes
-                float coreDist = clamp(1.0 - pow(r / 1.75, 2.0), 0.0, 1.0);
-                
-                // Procedural billowing cloud noise for curling cauliflower puffs
-                float cloudNoise = fbmSmoke(vLocalPos * 2.1 + vec3(0.0, uTime * 0.12, 0.0));
-                float erodedCore = clamp(coreDist * 0.82 + (cloudNoise - 0.5) * 0.42, 0.0, 1.0);
-
-                // Smooth grazing edge falloff (Fresnel softness - zero polygon seams)
                 float NdotV = clamp(dot(vNormal, vViewDir), 0.0, 1.0);
-                float rimSoftness = smoothstep(0.015, 0.52, NdotV);
+                
+                // Path length through the cloud volume: thickest in center, fading smoothly to 0 at perimeter
+                float pathThickness = sqrt(clamp(1.0 - pow(r / 1.72, 2.0), 0.0, 1.0)) * pow(NdotV, 0.55);
 
-                // Physical Beer-Lambert extinction: Transmittance = exp(-extinction * density)
-                float opticalThickness = erodedCore * opacity * 3.4;
-                float transmittance = exp(-opticalThickness);
-                float alpha = clamp((1.0 - transmittance) * rimSoftness, 0.0, 1.0);
+                // Multi-scale 3D fractal noise (convective billowing turbulence)
+                float billowNoise = fbmSmoke(vLocalPos * 2.0 + vec3(0.0, uTime * 0.12, 0.0));
+                float turbulentDensity = pathThickness * (0.65 + billowNoise * 0.55);
 
-                if (alpha < 0.005) discard;
+                // Dissipation decay as smoke ages over its lifecycle
+                float lifeFactor = 1.0 - smoothstep(0.45, 1.0, uAgeProgress);
+                float finalDensity = clamp(turbulentDensity * opacity * lifeFactor * 1.5, 0.0, 1.0);
 
-                // 2. Henyey-Greenstein Dual-Lobe Phase Function (Maldive Cloud Scattering)
-                // Models brilliant forward scattering rim toward light + diffuse backscatter
+                // 2. High-Frequency 64x64 Halton Sequence Sampling Discard Test
+                vec2 haltonCoord = (gl_FragCoord.xy + ditherOffset) / 64.0;
+                float haltonThreshold = texture2D(haltonMap, haltonCoord).r;
+
+                if (finalDensity < haltonThreshold) {
+                    discard;
+                }
+
+                // 3. Maldive Henyey-Greenstein Dual-Lobe Scattering on Surviving Fragments
                 float cosTheta = dot(-vViewDir, sunDirection);
-                float g1 = 0.62;
+                float g1 = 0.65;
                 float hgForward = (1.0 - g1 * g1) / pow(1.0 + g1 * g1 - 2.0 * g1 * cosTheta, 1.5) / 12.56637;
                 float g2 = -0.22;
                 float hgBack = (1.0 - g2 * g2) / pow(1.0 + g2 * g2 - 2.0 * g2 * cosTheta, 1.5) / 12.56637;
-                float phase = mix(hgForward, hgBack, 0.28) * 3.14159;
+                float hgPhase = mix(hgForward, hgBack, 0.28) * 3.14159;
 
-                // 3. Volumetric Half-Lambert Diffuse & Multi-Bounce Scattering
+                // 4. Half-Lambert Wrap Lighting
                 float NdotL = dot(vNormal, sunDirection);
-                float wrapDiffuse = clamp((NdotL + 0.48) / 1.48, 0.0, 1.0);
-                
-                // Multi-bounce internal diffusion
-                float internalScattering = mix(0.55, 1.0, 1.0 - transmittance);
-                vec3 directLight = sunColor * (wrapDiffuse * 0.75 + phase * 0.65) * internalScattering;
+                float wrapL = clamp((NdotL + 0.52) / 1.52, 0.0, 1.0);
 
-                // Ambient light from atmospheric sky dome and warm terrain ground bounce
-                float upDot = clamp(vNormal.y * 0.5 + 0.5, 0.0, 1.0);
-                vec3 ambientLight = mix(groundColor * 0.5, skyColor * 0.6, upDot);
+                // Crevice self-shadowing
+                float creviceAO = clamp((vLobeDisplacement - 0.72) / 0.58, 0.0, 1.0);
+                float selfShadow = mix(0.45, 1.0, creviceAO);
 
-                // Deep volumetric self-shadowing in thick core crevices
-                float selfShadow = mix(0.48, 1.0, transmittance * 0.5 + (1.0 - coreDist) * 0.5);
+                vec3 directLight = sunColor * (wrapL * 0.82 + hgPhase * 0.45) * selfShadow;
 
-                vec3 finalColor = diffuse * (directLight * selfShadow + ambientLight);
+                // 5. Multi-Hemisphere Ambient Lighting (Sky above, Ground below)
+                float upFactor = clamp(vNormal.y * 0.5 + 0.5, 0.0, 1.0);
+                vec3 ambientLight = mix(groundColor * 0.65, skyColor * 0.75, upFactor);
 
-                // Silvery / golden edge halo
-                float edgeGlance = pow(1.0 - NdotV, 3.2);
-                vec3 edgeRimGlow = sunColor * edgeGlance * phase * 0.42 * (1.0 - coreDist);
-                finalColor += edgeRimGlow;
+                // 6. Backlight Forward Scattering Rim Glow
+                float rim = pow(1.0 - NdotV, 2.5);
+                vec3 rimGlow = sunColor * rim * (hgPhase * 0.65 + 0.25);
 
-                gl_FragColor = vec4(finalColor, alpha);
+                vec3 finalColor = diffuse * (directLight + ambientLight) + rimGlow;
+
+                gl_FragColor = vec4(finalColor, 1.0);
             }
         `,
-        transparent: true,
-        depthWrite: false,
+        transparent: false,
+        depthWrite: true,
         depthTest: true,
-        blending: THREE.NormalBlending
+        blending: THREE.NoBlending
     });
 
     Object.defineProperty(mat, 'opacity', {
@@ -616,7 +649,8 @@ function createMaldiveSmokeMaterial(colorHex = 0x94a3b8) {
     return mat;
 }
 
-const createHaltonSmokeMaterial = createMaldiveSmokeMaterial;
+const createMaldiveSmokeMaterial = createHaltonSmokeMaterial;
+const createOpaqueVolumetricSmokeMaterial = createHaltonSmokeMaterial;
 
 // ============================================================================
 // Realistic 3D Grass Blade Tuft Geometry & Botanical Shader
@@ -1367,6 +1401,7 @@ window.haltonRadicalInverse = haltonRadicalInverse;
 window.createHaltonPatternTexture = createHaltonPatternTexture;
 window.createHaltonSmokeMaterial = createHaltonSmokeMaterial;
 window.createMaldiveSmokeMaterial = createMaldiveSmokeMaterial;
+window.createOpaqueVolumetricSmokeMaterial = createOpaqueVolumetricSmokeMaterial;
 window.createVolumetricSmokeGeometry = createVolumetricSmokeGeometry;
 window.createGrassTuftGeometry = createGrassTuftGeometry;
 window.createGrassMaterial = createGrassMaterial;
