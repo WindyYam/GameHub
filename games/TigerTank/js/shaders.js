@@ -486,34 +486,85 @@ const celestialLighting = {
 };
 window.celestialLighting = celestialLighting;
 
-// Procedural Multi-Lobed Volumetric Smoke Puff Geometry
+// Procedural Multi-Lobed Volumetric Smoke Puff Geometry (Watertight Indexed Geodesic Manifold)
+// 100% Shared Vertices & Averaged Smooth Normals — Zero Seams / Cracks on Vertex Inflation
 let _volumetricSmokeGeo = null;
+
+function buildWeldedGeodesicSphere(subdivisions) {
+    const t = (1.0 + Math.sqrt(5.0)) / 2.0;
+    const initialVerts = [
+        [-1,  t,  0], [ 1,  t,  0], [-1, -t,  0], [ 1, -t,  0],
+        [ 0, -1,  t], [ 0,  1,  t], [ 0, -1, -t], [ 0,  1, -t],
+        [ t,  0, -1], [ t,  0,  1], [-t,  0, -1], [-t,  0,  1]
+    ];
+    let vertices = initialVerts.map(v => {
+        const len = Math.hypot(v[0], v[1], v[2]);
+        return [v[0] / len, v[1] / len, v[2] / len];
+    });
+
+    let faces = [
+        [0, 11, 5], [0, 5, 1], [0, 1, 7], [0, 7, 10], [0, 10, 11],
+        [1, 5, 9], [5, 11, 4], [11, 10, 2], [10, 7, 6], [7, 1, 8],
+        [3, 9, 4], [3, 4, 2], [3, 2, 6], [3, 6, 8], [3, 8, 9],
+        [4, 9, 5], [2, 4, 11], [6, 2, 10], [8, 6, 7], [9, 8, 1]
+    ];
+
+    const midpointCache = new Map();
+    function getMidpoint(p1, p2) {
+        const key = p1 < p2 ? p1 + '_' + p2 : p2 + '_' + p1;
+        if (midpointCache.has(key)) return midpointCache.get(key);
+        const v1 = vertices[p1];
+        const v2 = vertices[p2];
+        const mx = v1[0] + v2[0];
+        const my = v1[1] + v2[1];
+        const mz = v1[2] + v2[2];
+        const len = Math.hypot(mx, my, mz);
+        const idx = vertices.length;
+        vertices.push([mx / len, my / len, mz / len]);
+        midpointCache.set(key, idx);
+        return idx;
+    }
+
+    for (let s = 0; s < subdivisions; s++) {
+        const newFaces = [];
+        for (let i = 0; i < faces.length; i++) {
+            const f = faces[i];
+            const a = getMidpoint(f[0], f[1]);
+            const b = getMidpoint(f[1], f[2]);
+            const c = getMidpoint(f[2], f[0]);
+            newFaces.push([f[0], a, c]);
+            newFaces.push([f[1], b, a]);
+            newFaces.push([f[2], c, b]);
+            newFaces.push([a, b, c]);
+        }
+        faces = newFaces;
+    }
+    return { vertices, faces };
+}
 
 function createVolumetricSmokeGeometry() {
     if (_volumetricSmokeGeo) return _volumetricSmokeGeo;
 
-    // Use an icosahedron base (detail 2: 80 faces, 42 vertices) for crisp, low-overhead billows
-    const geo = new THREE.IcosahedronGeometry(1.0, 2);
-    const pos = geo.attributes.position;
+    // Subdivided welded geodesic sphere (162 shared vertices, 320 indexed faces)
+    const { vertices, faces } = buildWeldedGeodesicSphere(2);
 
     // 6 Primary billowing cloud lobe centers (asymmetric bulging puffs)
     const lobes = [
-        { x:  0.55, y:  0.42, z:  0.22, r: 0.58 },
-        { x: -0.52, y:  0.38, z:  0.32, r: 0.54 },
-        { x:  0.08, y:  0.68, z: -0.42, r: 0.52 },
-        { x: -0.32, y: -0.35, z:  0.48, r: 0.46 },
-        { x:  0.42, y: -0.28, z: -0.38, r: 0.48 },
-        { x:  0.02, y: -0.52, z:  0.15, r: 0.44 }
+        { x:  0.55, y:  0.42, z:  0.22, r: 0.55 },
+        { x: -0.52, y:  0.38, z:  0.32, r: 0.50 },
+        { x:  0.08, y:  0.68, z: -0.42, r: 0.48 },
+        { x: -0.32, y: -0.35, z:  0.48, r: 0.44 },
+        { x:  0.42, y: -0.28, z: -0.38, r: 0.45 },
+        { x:  0.02, y: -0.52, z:  0.15, r: 0.40 }
     ];
 
-    for (let i = 0; i < pos.count; i++) {
-        let vx = pos.getX(i);
-        let vy = pos.getY(i);
-        let vz = pos.getZ(i);
-        const len = Math.hypot(vx, vy, vz) || 1.0;
-        const nx = vx / len;
-        const ny = vy / len;
-        const nz = vz / len;
+    const positions = new Float32Array(vertices.length * 3);
+
+    for (let i = 0; i < vertices.length; i++) {
+        const v = vertices[i];
+        const nx = v[0];
+        const ny = v[1];
+        const nz = v[2];
 
         // Proximity displacement from billowing lobes
         let lobeDisp = 0.0;
@@ -525,16 +576,27 @@ function createVolumetricSmokeGeometry() {
 
         // Multi-frequency 3D sinusoidal turbulence for organic billowing ridges
         const turb = (
-            Math.sin(nx * 3.4 + ny * 1.2) * Math.cos(nz * 3.1) * 0.16 +
-            Math.cos(ny * 6.2 - nz * 2.5) * 0.10 +
-            Math.sin(nx * 9.5 + nz * 8.1) * 0.05
+            Math.sin(nx * 3.4 + ny * 1.2) * Math.cos(nz * 3.1) * 0.14 +
+            Math.cos(ny * 5.8 - nz * 2.5) * 0.08 +
+            Math.sin(nx * 8.5 + nz * 7.1) * 0.04
         );
 
-        const r = 1.0 + lobeDisp * 0.72 + turb;
-        pos.setXYZ(i, nx * r, ny * r, nz * r);
+        const r = 1.0 + lobeDisp * 0.65 + turb;
+        positions[i * 3]     = nx * r;
+        positions[i * 3 + 1] = ny * r;
+        positions[i * 3 + 2] = nz * r;
     }
 
+    const indices = [];
+    for (let i = 0; i < faces.length; i++) {
+        indices.push(faces[i][0], faces[i][1], faces[i][2]);
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setIndex(indices);
     geo.computeVertexNormals();
+
     _volumetricSmokeGeo = geo;
     return geo;
 }
