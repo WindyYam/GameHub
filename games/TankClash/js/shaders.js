@@ -105,38 +105,38 @@ function generateTankPBRMaps() {
         }
     });
 
-    // 3. Paint Albedo (Authentic RAL 7021 Dunkelgrau with tonal modulation & weathering)
+    // 3. Raw Homogeneous Armor Steel (RHA) Micro-Texture (Achromatic Gunmetal Steel, Zero Color Cast)
     const aImg = aCtx.createImageData(size, size);
     const rImg = rCtx.createImageData(size, size);
     const aoImg = aoCtx.createImageData(size, size);
 
     for (let y = 0; y < size; y++) {
-        const verticalGrime = Math.sin(y * 0.06) * 4.0 + (y / size) * 8.0; // slight grime toward lower hull
+        const verticalGrime = Math.sin(y * 0.06) * 2.5 + (y / size) * 5.0; // subtle steel mill scale / oxidation
         for (let x = 0; x < size; x++) {
             const i = y * size + x;
             const h = heightField[i];
             const pIndex = i * 4;
 
-            // Base Dunkelgrau color (Authentic German Panzer Dark Grey)
-            let r = 86 + (h - 0.5) * 28 - verticalGrime * 0.5;
-            let g = 96 + (h - 0.5) * 28 - verticalGrime * 0.4;
-            let b = 108 + (h - 0.5) * 32 - verticalGrime * 0.3;
+            // Pure neutral cold steel grey (r ≈ g ≈ b) - genuine Krupp rolled armor steel
+            let r = 122 + (h - 0.5) * 26 - verticalGrime * 0.4;
+            let g = 125 + (h - 0.5) * 26 - verticalGrime * 0.4;
+            let b = 130 + (h - 0.5) * 28 - verticalGrime * 0.3;
 
-            // Edge chipping & exposed dark oxidized steel where welds / edges protrude
+            // Edge chipping & exposed burnished steel where welds / edges protrude
             if (h > 0.68) {
-                // Weld bead bright edge / dark heat oxidation
-                r = 60 + Math.random() * 15;
-                g = 64 + Math.random() * 15;
-                b = 70 + Math.random() * 18;
+                // Burnished steel edge / micro heat-tint
+                r = 100 + Math.random() * 16;
+                g = 103 + Math.random() * 16;
+                b = 108 + Math.random() * 18;
             }
 
-            // Subtle vertical rain streaks (subtle moisture leaching down Dunkelgrau paint)
+            // Subtle vertical steel weathering / oil drainage
             const streak = Math.sin(x * 0.6) * Math.sin(x * 1.8 + y * 0.05);
             if (streak > 0.85) {
-                const darkening = (streak - 0.85) * 35;
-                r = Math.max(20, r - darkening);
-                g = Math.max(22, g - darkening);
-                b = Math.max(25, b - darkening);
+                const darkening = (streak - 0.85) * 25;
+                r = Math.max(40, r - darkening);
+                g = Math.max(42, g - darkening);
+                b = Math.max(48, b - darkening);
             }
 
             aImg.data[pIndex + 0] = Math.min(255, Math.max(0, Math.floor(r)));
@@ -144,9 +144,9 @@ function generateTankPBRMaps() {
             aImg.data[pIndex + 2] = Math.min(255, Math.max(0, Math.floor(b)));
             aImg.data[pIndex + 3] = 255;
 
-            // Roughness Map (Matte rolled paint with slightly glossier bare steel scratches)
-            let rough = 145 + Math.floor((1.0 - h) * 60);
-            if (h > 0.68) rough = 90; // exposed polished steel has lower roughness
+            // Roughness Map (Machined rolled steel: smooth specular plates with micro-pitting)
+            let rough = 110 + Math.floor((1.0 - h) * 45);
+            if (h > 0.68) rough = 80; // burnished steel edge is smoother/shinier
             rImg.data[pIndex + 0] = rough;
             rImg.data[pIndex + 1] = rough;
             rImg.data[pIndex + 2] = rough;
@@ -173,12 +173,12 @@ function generateTankPBRMaps() {
             const avg3 = (hN3 + hS3 + hE3 + hW3) * 0.25;
 
             // Broad-scale ambient occlusion factor
-            const broadCavity = Math.max(0, (avg2 - h) * 1.8 + (avg3 - h) * 1.2);
-            const fineCavity = Math.max(0, (avg1 - h) * 2.2);
+            const broadCavity = Math.max(0, (avg2 - h) * 1.6 + (avg3 - h) * 1.1);
+            const fineCavity = Math.max(0, (avg1 - h) * 1.9);
             const totalCavity = (broadCavity * 0.65 + fineCavity * 0.35);
 
             // Large-scale structural ambient occlusion map
-            const aoVal = Math.min(255, Math.max(70, Math.floor(235 - totalCavity * 140 + (h - 0.5) * 40)));
+            const aoVal = Math.min(255, Math.max(120, Math.floor(242 - totalCavity * 100 + (h - 0.5) * 35)));
             aoImg.data[pIndex + 0] = aoVal;
             aoImg.data[pIndex + 1] = aoVal;
             aoImg.data[pIndex + 2] = aoVal;
@@ -186,7 +186,7 @@ function generateTankPBRMaps() {
         }
     }
 
-    // Render bare steel scratches onto Tiger Albedo & Roughness
+    // Render bright bare steel scratches & ricochet gouges
     tigerScratches.forEach(sc => {
         const steps = Math.floor(sc.length * 1.5);
         let cx = sc.x0, cy = sc.y0, curAngle = sc.angle;
@@ -198,23 +198,24 @@ function generateTankPBRMaps() {
             const py = Math.floor((cy % size + size) % size);
             const p = (py * size + px) * 4;
 
-            const scratchBright = sc.isMajor ? (142 + Math.floor(tRand() * 24)) : (120 + Math.floor(tRand() * 18));
+            const scratchBright = sc.isMajor ? (175 + Math.floor(tRand() * 25)) : (155 + Math.floor(tRand() * 20));
             aImg.data[p + 0] = scratchBright;
             aImg.data[p + 1] = scratchBright + 2;
-            aImg.data[p + 2] = scratchBright + 6;
+            aImg.data[p + 2] = scratchBright + 5;
 
-            rImg.data[p + 0] = 72;
-            rImg.data[p + 1] = 72;
-            rImg.data[p + 2] = 72;
+            // Polished metallic scratch groove has low roughness (sharp specular glint)
+            rImg.data[p + 0] = 55;
+            rImg.data[p + 1] = 55;
+            rImg.data[p + 2] = 55;
 
             if (sc.isMajor) {
                 [-1, 1].forEach(offset => {
                     const nx = Math.floor((px - Math.sin(curAngle) * offset + size) % size);
                     const ny = Math.floor((py + Math.cos(curAngle) * offset + size) % size);
                     const np = (ny * size + nx) * 4;
-                    aImg.data[np + 0] = Math.max(28, aImg.data[np + 0] - 25);
-                    aImg.data[np + 1] = Math.max(32, aImg.data[np + 1] - 25);
-                    aImg.data[np + 2] = Math.max(36, aImg.data[np + 2] - 25);
+                    aImg.data[np + 0] = Math.max(45, aImg.data[np + 0] - 22);
+                    aImg.data[np + 1] = Math.max(48, aImg.data[np + 1] - 22);
+                    aImg.data[np + 2] = Math.max(54, aImg.data[np + 2] - 22);
                 });
             }
         }
@@ -1907,50 +1908,51 @@ function createMaterials(pbrMaps, decal3818Tex, grilleTex) {
 
     return {
         // --- German Pz.VI Tiger I PBR Materials ---
+        // Authentic Rolled Homogeneous Armor (RHA) Steel — Uncolored, Raw Gunmetal Metallic Finish
         armor: new THREE.MeshStandardMaterial({
-            color: 0x5a6572,
+            color: 0x767b84,
             map: pbrMaps.albedo,
             normalMap: pbrMaps.normal,
-            normalScale: new THREE.Vector2(0.55, 0.55),
+            normalScale: new THREE.Vector2(0.48, 0.48),
             roughnessMap: pbrMaps.roughness,
-            roughness: 0.50,
-            metalness: 0.42,
+            roughness: 0.42,
+            metalness: 0.58,
             aoMap: pbrMaps.ao,
-            aoMapIntensity: 0.75
+            aoMapIntensity: 0.35
         }),
         armorDark: new THREE.MeshStandardMaterial({
-            color: 0x3d454f,
+            color: 0x545860,
             map: pbrMaps.albedoFine,
             normalMap: pbrMaps.normalFine,
-            normalScale: new THREE.Vector2(0.65, 0.65),
-            roughness: 0.56,
-            metalness: 0.48,
+            normalScale: new THREE.Vector2(0.55, 0.55),
+            roughness: 0.46,
+            metalness: 0.65,
             aoMap: pbrMaps.ao,
-            aoMapIntensity: 0.8
+            aoMapIntensity: 0.38
         }),
         barrelSteel: new THREE.MeshStandardMaterial({
-            color: 0x47515c,
+            color: 0x646972,
             normalMap: pbrMaps.normalFine,
-            normalScale: new THREE.Vector2(0.4, 0.4),
-            roughness: 0.38,
-            metalness: 0.62
+            normalScale: new THREE.Vector2(0.35, 0.35),
+            roughness: 0.34,
+            metalness: 0.72
         }),
         muzzleBlack: new THREE.MeshStandardMaterial({
-            color: 0x181c20,
-            roughness: 0.65,
-            metalness: 0.50
+            color: 0x1e2024,
+            roughness: 0.55,
+            metalness: 0.45
         }),
         rubberTire: new THREE.MeshStandardMaterial({
-            color: 0x16181b,
-            roughness: 0.88,
-            metalness: 0.08
+            color: 0x1a1c1e,
+            roughness: 0.85,
+            metalness: 0.04
         }),
         trackSteel: new THREE.MeshStandardMaterial({
-            color: 0x22262b,
+            color: 0x3c4046,
             normalMap: pbrMaps.normalFine,
-            normalScale: new THREE.Vector2(0.7, 0.7),
-            roughness: 0.46,
-            metalness: 0.78
+            normalScale: new THREE.Vector2(0.65, 0.65),
+            roughness: 0.48,
+            metalness: 0.76
         }),
         woodHandle: new THREE.MeshStandardMaterial({
             map: woodTex,
@@ -1958,20 +1960,20 @@ function createMaterials(pbrMaps, decal3818Tex, grilleTex) {
             metalness: 0.04
         }),
         cableSteel: new THREE.MeshStandardMaterial({
-            color: 0x333940,
-            roughness: 0.42,
+            color: 0x6c727a,
+            roughness: 0.38,
             metalness: 0.82
         }),
         grille: new THREE.MeshStandardMaterial({
             map: grilleTex,
-            roughness: 0.55,
-            metalness: 0.65
+            roughness: 0.42,
+            metalness: 0.75
         }),
         decal3818: new THREE.MeshStandardMaterial({
             map: decal3818Tex,
             transparent: true,
             roughness: 0.52,
-            metalness: 0.15,
+            metalness: 0.10,
             depthWrite: false,
             polygonOffset: true,
             polygonOffsetFactor: -2
@@ -1979,78 +1981,78 @@ function createMaterials(pbrMaps, decal3818Tex, grilleTex) {
 
         // --- US M4 Sherman PBR Materials ---
         shermanOlive: new THREE.MeshStandardMaterial({
-            color: 0x3a423d,
+            color: 0x626c50,
             map: pbrMaps.albedo,
             normalMap: pbrMaps.normal,
             normalScale: new THREE.Vector2(0.35, 0.35),
             roughnessMap: pbrMaps.roughness,
-            roughness: 0.46,
-            metalness: 0.35,
+            roughness: 0.65,
+            metalness: 0.08,
             aoMap: pbrMaps.ao,
-            aoMapIntensity: 0.55
+            aoMapIntensity: 0.28
         }),
         shermanCast: new THREE.MeshStandardMaterial({
-            color: 0x323a35,
+            color: 0x525c42,
             map: pbrMaps.albedoFine,
             normalMap: pbrMaps.normalFine,
             normalScale: new THREE.Vector2(0.40, 0.40),
-            roughness: 0.43,
-            metalness: 0.38,
+            roughness: 0.68,
+            metalness: 0.08,
             aoMap: pbrMaps.ao,
-            aoMapIntensity: 0.60
+            aoMapIntensity: 0.30
         }),
         shermanSponson: new THREE.MeshStandardMaterial({
             map: shermanSponsonTex,
-            roughness: 0.45,
-            metalness: 0.34,
+            roughness: 0.62,
+            metalness: 0.08,
             normalMap: pbrMaps.normalFine,
             normalScale: new THREE.Vector2(0.30, 0.30),
             aoMap: pbrMaps.ao,
-            aoMapIntensity: 0.50
+            aoMapIntensity: 0.25
         }),
         shermanTurretDecal: new THREE.MeshStandardMaterial({
             map: shermanTurretDecalTex,
             transparent: true,
-            roughness: 0.28,
-            metalness: 0.30,
+            roughness: 0.45,
+            metalness: 0.10,
             depthWrite: false,
             polygonOffset: true,
             polygonOffsetFactor: -2
         }),
         shermanTrackPad: new THREE.MeshStandardMaterial({
-            color: 0x1a1c19,
-            roughness: 0.65,
-            metalness: 0.15
+            color: 0x2e302e,
+            roughness: 0.78,
+            metalness: 0.04
         }),
         shermanTrackSteel: new THREE.MeshStandardMaterial({
-            color: 0x545b60,
+            color: 0x60666c,
             normalMap: pbrMaps.normalFine,
             normalScale: new THREE.Vector2(0.30, 0.30),
-            roughness: 0.25,
-            metalness: 0.82
+            roughness: 0.45,
+            metalness: 0.55
         }),
 
         // --- Soviet T-34-85 PBR Materials ---
         t34Green: new THREE.MeshStandardMaterial({
-            color: 0x2c3724,
+            color: 0x546644,
             map: pbrMaps.albedo,
             normalMap: pbrMaps.normal,
             normalScale: new THREE.Vector2(0.55, 0.55),
             roughnessMap: pbrMaps.roughness,
-            roughness: 0.52,
-            metalness: 0.30,
+            roughness: 0.66,
+            metalness: 0.08,
             aoMap: pbrMaps.ao,
-            aoMapIntensity: 0.8
+            aoMapIntensity: 0.28
         }),
         t34Cast: new THREE.MeshStandardMaterial({
-            color: 0x26301e,
+            color: 0x465838,
             map: pbrMaps.albedoFine,
             normalMap: pbrMaps.normalFine,
             normalScale: new THREE.Vector2(0.8, 0.8),
-            roughness: 0.50,
-            metalness: 0.34,
+            roughness: 0.70,
+            metalness: 0.08,
             aoMap: pbrMaps.ao,
-            aoMapIntensity: 0.85
+            aoMapIntensity: 0.30
         }),
         t34DecalLeft: new THREE.MeshStandardMaterial({
             map: t34DecalLeftTex,

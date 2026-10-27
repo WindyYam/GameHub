@@ -44,6 +44,46 @@ renderer.outputEncoding = THREE.sRGBEncoding;
 container.appendChild(renderer.domElement);
 window.renderer = renderer;
 
+// High-Fidelity PBR IBL Environment Map for Rolled Armor Steel & Metallic Highlights
+const pmremGenerator = new THREE.PMREMGenerator(renderer);
+pmremGenerator.compileEquirectangularShader();
+
+function generateSteelEnvironmentMap() {
+    const envCanvas = document.createElement('canvas');
+    envCanvas.width = 512;
+    envCanvas.height = 256;
+    const ctx = envCanvas.getContext('2d');
+
+    // Realistic coastal atmospheric reflection gradient
+    // Cold zenith sky, soft hazy horizon, neutral ground plane
+    const grad = ctx.createLinearGradient(0, 0, 0, 256);
+    grad.addColorStop(0.00, '#3a5f8a'); // Cold sky reflection
+    grad.addColorStop(0.35, '#6a8ea8'); 
+    grad.addColorStop(0.48, '#a2bace'); // Specular horizon glint
+    grad.addColorStop(0.52, '#6d7870'); // Countryside ground transition
+    grad.addColorStop(0.75, '#485244'); // Grassy earth bounce
+    grad.addColorStop(1.00, '#2e352b'); // Undercarriage occlusion
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 512, 256);
+
+    // Add soft directional sun glade onto the equirectangular map
+    const sunGrad = ctx.createRadialGradient(256, 110, 2, 256, 110, 85);
+    sunGrad.addColorStop(0, 'rgba(255, 250, 240, 0.95)');
+    sunGrad.addColorStop(0.3, 'rgba(255, 235, 205, 0.45)');
+    sunGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    ctx.fillStyle = sunGrad;
+    ctx.fillRect(170, 25, 172, 170);
+
+    const envTex = new THREE.CanvasTexture(envCanvas);
+    const rt = pmremGenerator.fromEquirectangular(envTex);
+    envTex.dispose();
+    return rt.texture;
+}
+
+const steelEnvMap = generateSteelEnvironmentMap();
+scene.environment = steelEnvMap;
+window.steelEnvMap = steelEnvMap;
+
 const composer = new THREE.EffectComposer(renderer);
 composer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1));
 if (composer.renderTarget1) composer.renderTarget1.texture.encoding = THREE.sRGBEncoding;
@@ -125,16 +165,16 @@ const fxCompositePass = new FXCompositePass(scene);
 composer.addPass(fxCompositePass);
 
 // 4. Atmospheric Battlefield Lighting
-const hemiLight = new THREE.HemisphereLight(0xfff7ed, 0x3f4e3d, 0.62);
+const hemiLight = new THREE.HemisphereLight(0xfff7ed, 0x526b38, 0.85);
 scene.add(hemiLight);
 
 // Balanced Omnidirectional Ambient Fill (eliminates crushed black shadows on tank flanks)
-const ambientLight = new THREE.AmbientLight(0xdce7f2, 0.24);
+const ambientLight = new THREE.AmbientLight(0xdce7f2, 0.40);
 scene.add(ambientLight);
 window.ambientLight = ambientLight;
 
 // Soft directional fill light targeting the tank's shadowed flank
-const fillLight = new THREE.DirectionalLight(0xb8cde0, 0.22);
+const fillLight = new THREE.DirectionalLight(0xb8cde0, 0.38);
 fillLight.castShadow = false;
 scene.add(fillLight);
 window.fillLight = fillLight;
@@ -174,8 +214,8 @@ const DAY_NIGHT_COLORS = {
     sunHor:      new THREE.Color(0xe05a1e),
     nitTop:      new THREE.Color(0x03091e),
     nitHor:      new THREE.Color(0x0d1b35),
-    groundDay:   new THREE.Color(0x4a652e),
-    groundNight: new THREE.Color(0x111c14)
+    groundDay:   new THREE.Color(0x56733a),
+    groundNight: new THREE.Color(0x141f16)
 };
 
 const sunLight = new THREE.DirectionalLight(0xfff1db, 1.45);
@@ -921,29 +961,31 @@ function updateSimulation(dt) {
     // Hemisphere natural bounce lighting (Earth meadow up + Sky down)
     hemiLight.color.copy(skyHorizonColor);
     hemiLight.groundColor.copy(DAY_NIGHT_COLORS.groundNight).lerp(DAY_NIGHT_COLORS.groundDay, dayFactor);
-    hemiLight.intensity = 0.38 + dayFactor * 0.24 + twilightFactor * 0.18;
+    hemiLight.intensity = 0.50 + dayFactor * 0.35 + twilightFactor * 0.18;
 
-    // Omnidirectional sky ambient light to eliminate crushed dark sides
-    ambientLight.color.copy(skyHorizonColor).lerp(new THREE.Color(0xffffff), 0.45);
-    ambientLight.intensity = 0.12 + dayFactor * 0.14 + twilightFactor * 0.10;
+    // Omnidirectional sky ambient light to illuminate and unify tank flanks with the scene
+    ambientLight.color.copy(skyHorizonColor).lerp(new THREE.Color(0xfff8ee), 0.55);
+    ambientLight.intensity = 0.18 + dayFactor * 0.20 + twilightFactor * 0.12;
 
     // Dynamic directional fill light pointing from opposite sun azimuth to soften shaded tank flank
-    const fillDir = new THREE.Vector3(-sunDir.x, 0.42, -sunDir.z).normalize();
+    const fillDir = new THREE.Vector3(-sunDir.x, 0.38, -sunDir.z).normalize();
     fillLight.position.set(
         tankState.x + fillDir.x * 60,
         tankState.y + fillDir.y * 60,
         tankState.z + fillDir.z * 60
     );
-    fillLight.target.position.set(tankState.x, tankState.y, tankState.z);
+    fillLight.target.position.set(tankState.x, tankState.y + 0.5, tankState.z);
     fillLight.target.updateMatrixWorld();
-    fillLight.color.copy(skyHorizonColor).lerp(new THREE.Color(0xb2ccdf), 0.55);
-    fillLight.intensity = 0.08 + dayFactor * 0.16 + twilightFactor * 0.10;
+    fillLight.color.copy(skyHorizonColor).lerp(new THREE.Color(0xcde2f2), 0.55);
+    fillLight.intensity = 0.16 + dayFactor * 0.22 + twilightFactor * 0.14;
 
-    // Rim lighting following the tank
-    rimLight.position.set(tankState.x - 30, tankState.y + 24, tankState.z - 28);
-    rimLight.target.position.set(tankState.x, tankState.y, tankState.z);
+    // Upward grassy meadow bounce fill light following the tank
+    const meadowBounceColor = DAY_NIGHT_COLORS.groundDay.clone().lerp(new THREE.Color(0x6b8c48), 0.35);
+    rimLight.position.set(tankState.x - fillDir.x * 24, tankState.y - 12, tankState.z - fillDir.z * 24);
+    rimLight.target.position.set(tankState.x, tankState.y + 0.6, tankState.z);
     rimLight.target.updateMatrixWorld();
-    rimLight.intensity = 0.08 + dayFactor * 0.12;
+    rimLight.color.copy(meadowBounceColor);
+    rimLight.intensity = 0.08 + dayFactor * 0.18;
 
     // Fog & Background synced with horizon atmosphere
     if (scene.fog) {
