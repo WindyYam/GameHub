@@ -36,6 +36,13 @@ var tankState = {
     reloadTimer: 0,
     reloadStage: 0,         // 0: ready, 1: ejecting, 2: sliding, 3: ready to latch
     RELOAD_TIME: 4.2,       // 4.2s reload for 8.8cm KwK 36
+    SHELL_VELOCITY: 773,
+    MAX_SPEED: 10.6,
+    REVERSE_SPEED: 4.2,
+    TURN_SPEED: 1.15,
+    RECOIL_OFFSET: 0.56,
+    hasMuzzleBrake: true,
+    currentTankSpec: null,
     coaxMgCooldown: 0,
     bowMgCooldown: 0,
     mgHeat: 0,
@@ -122,10 +129,7 @@ function spawnParticle(pos, vel, colorHex, startSize, endSize, life, isAdditive 
             }
             if (mat.uniforms.uAgeProgress) mat.uniforms.uAgeProgress.value = 0.0;
             if (mat.uniforms.ditherOffset) {
-                mat.uniforms.ditherOffset.value.set(
-                    Math.floor(Math.random() * 64),
-                    Math.floor(Math.random() * 64)
-                );
+                mat.uniforms.ditherOffset.value.set(0, 0);
             }
             if (mat.uniforms.opacity) mat.uniforms.opacity.value = 0.88;
             mesh.visible = true;
@@ -207,13 +211,17 @@ function spawnParticle(pos, vel, colorHex, startSize, endSize, life, isAdditive 
     });
 }
 
-// Fire 8.8 cm KwK 36 L/56 Main Cannon with Authentic Dual-Baffle Lateral Blast
+// Fire Main Tank Cannon (KwK 36 / 75mm M3 / 85mm ZiS-S-53)
 function fireMainCannon(tankModel) {
     if (tankState.reloadTimer > 0) return;
     tankState.reloadTimer = tankState.RELOAD_TIME;
     tankState.reloadStage = 1;
 
-    soundFX.play88mmCannon();
+    if (window.soundFX && typeof window.soundFX.playMainCannon === 'function') {
+        window.soundFX.playMainCannon(tankState.currentTankSpec);
+    } else {
+        soundFX.play88mmCannon();
+    }
 
     const tm = window.tankModel || tankModel;
     if (!tm || !tm.mainGunMuzzleTip || !tm.gunElevationPivot) return;
@@ -228,14 +236,15 @@ function fireMainCannon(tankModel) {
     const upVec    = new THREE.Vector3(0, 1, 0).applyQuaternion(barrelQuat).normalize();
 
     // 1. Barrel Hydropneumatic Recoil Slide
-    tankState.barrelRecoilOffset = 0.56;
+    tankState.barrelRecoilOffset = tankState.RECOIL_OFFSET || 0.56;
 
     // 2. Realistic Hull Physics Recoil Impulse (Nose rises, rear squats down)
     const localTurretAngle = tankState.turretYaw;
-    tankState.pitchVel += Math.cos(localTurretAngle) * 0.40;
-    tankState.rollVel  += Math.sin(localTurretAngle) * 0.32;
-    tankState.heaveVel -= 0.65;
-    tankState.speed    -= Math.cos(localTurretAngle) * 0.55;
+    const impulseScale = (tankState.RECOIL_OFFSET || 0.56) / 0.56;
+    tankState.pitchVel += Math.cos(localTurretAngle) * 0.40 * impulseScale;
+    tankState.rollVel  += Math.sin(localTurretAngle) * 0.32 * impulseScale;
+    tankState.heaveVel -= 0.65 * impulseScale;
+    tankState.speed    -= Math.cos(localTurretAngle) * 0.55 * impulseScale;
 
     // 3. Dynamic Muzzle Flash Light that illuminates tank front & ground
     spawnDynamicFlash(muzzlePos, 0xfff3c4, 16.0, 38.0, 0.12);
@@ -244,19 +253,28 @@ function fireMainCannon(tankModel) {
     spawnParticle(muzzlePos, shootDir.clone().multiplyScalar(16), 0xfffbeb, 0.65, 2.2, 0.10, true, 'fire');
     spawnParticle(muzzlePos, shootDir.clone().multiplyScalar(10), 0xf59e0b, 0.55, 3.2, 0.16, true, 'fire');
 
-    // 5. Authentic Tiger I KwK 36 Dual-Baffle Lateral T-Shape Muzzle Blast
-    [-1, 1].forEach((side) => {
-        for (let i = 0; i < 9; i++) {
-            const sideVel = rightVec.clone().multiplyScalar(side * (12 + Math.random() * 8))
-                .add(upVec.clone().multiplyScalar((Math.random() - 0.3) * 3))
-                .add(shootDir.clone().multiplyScalar(1.5 + Math.random() * 2));
+    // 5. Muzzle Blast Pattern: Lateral T-Shape for Muzzle Brakes (Tiger I), Forward Cone for Open Muzzles (Sherman / T-34)
+    if (tankState.hasMuzzleBrake) {
+        [-1, 1].forEach((side) => {
+            for (let i = 0; i < 9; i++) {
+                const sideVel = rightVec.clone().multiplyScalar(side * (12 + Math.random() * 8))
+                    .add(upVec.clone().multiplyScalar((Math.random() - 0.3) * 3))
+                    .add(shootDir.clone().multiplyScalar(1.5 + Math.random() * 2));
 
-            // Brilliant lateral flame jet
-            spawnParticle(muzzlePos, sideVel, 0xfbbf24, 0.28, 1.25, 0.15 + Math.random() * 0.08, true, 'fire');
-            // High-speed gray gunsmoke billow
-            spawnParticle(muzzlePos, sideVel.clone().multiplyScalar(0.55), 0x94a3b8, 0.35, 2.6, 1.6 + Math.random() * 0.8, false, 'smoke');
+                spawnParticle(muzzlePos, sideVel, 0xfbbf24, 0.28, 1.25, 0.15 + Math.random() * 0.08, true, 'fire');
+                spawnParticle(muzzlePos, sideVel.clone().multiplyScalar(0.55), 0x94a3b8, 0.35, 2.6, 1.6 + Math.random() * 0.8, false, 'smoke');
+            }
+        });
+    } else {
+        // Forward high-velocity conical blast cloud
+        for (let i = 0; i < 14; i++) {
+            const coneVel = shootDir.clone().multiplyScalar(12 + Math.random() * 10)
+                .add(rightVec.clone().multiplyScalar((Math.random() - 0.5) * 6))
+                .add(upVec.clone().multiplyScalar((Math.random() - 0.2) * 5));
+            spawnParticle(muzzlePos, coneVel, 0xf59e0b, 0.32, 1.6, 0.18 + Math.random() * 0.08, true, 'fire');
+            spawnParticle(muzzlePos, coneVel.clone().multiplyScalar(0.45), 0x94a3b8, 0.40, 2.8, 1.8 + Math.random() * 0.8, false, 'smoke');
         }
-    });
+    }
 
     // 6. Lingering Heavy Barrel Gunsmoke
     for (let i = 0; i < 14; i++) {
@@ -278,7 +296,7 @@ function fireMainCannon(tankModel) {
         spawnParticle(groundUnderMuzzle, dustVel, 0x785e46, 0.35, 2.4, 1.4 + Math.random() * 0.8, false, 'smoke');
     }
 
-    // 8. Spawn High-Velocity 8.8cm PzGr. 39 Armor-Piercing Tracer Shell (773 m/s)
+    // 8. Spawn High-Velocity Armor-Piercing Tracer Shell
     const shellGroup = new THREE.Group();
     shellGroup.position.copy(muzzlePos);
     shellGroup.quaternion.copy(barrelQuat);
@@ -300,10 +318,11 @@ function fireMainCannon(tankModel) {
 
     window.scene.add(shellGroup);
 
+    const shellSpeed = tankState.SHELL_VELOCITY || 773;
     shells.push({
         mesh: shellGroup,
         pos: muzzlePos.clone(),
-        vel: shootDir.clone().multiplyScalar(773), // 773 m/s KwK 36 velocity
+        vel: shootDir.clone().multiplyScalar(shellSpeed),
         life: 5.0
     });
 }

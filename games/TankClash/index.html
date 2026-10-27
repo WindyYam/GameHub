@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Pz.Kpfw. VI Tiger Ausf. E ("3818") — Interactive 3D Physics & Ballistics Simulation</title>
+    <title>Tank Clash — WW2 Armor Physics & Ballistics Simulation (Tiger I, Sherman, T-34-85)</title>
     <link rel="icon" href="data:,">
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -109,7 +109,7 @@
             <line x1="288" y1="380" x2="312" y2="380" stroke="#fbbf24" stroke-width="1.3"/>
             <text x="315" y="383" fill="#fbbf24" font-size="9" font-family="monospace">1600m</text>
             <!-- Sight Telemetry -->
-            <text x="225" y="110" fill="#fbbf24" font-size="12" font-family="monospace" font-weight="bold">TZF 9b — 8.8cm KwK 36 L/56 (773 m/s)</text>
+            <text id="sniper-telemetry-text" x="225" y="110" fill="#fbbf24" font-size="12" font-family="monospace" font-weight="bold">TZF 9b — 8.8cm KwK 36 L/56 (773 m/s)</text>
         </svg>
     </div>
 
@@ -140,7 +140,7 @@
             <circle cx="300" cy="300" r="14" stroke="#34d399" stroke-width="1.5" stroke-opacity="0.9" fill="none"/>
             <circle cx="300" cy="300" r="2.5" fill="#34d399"/>
             <!-- Telemetry / Zoom Status -->
-            <text x="300" y="245" text-anchor="middle" fill="#6ee7b7" font-size="11" font-family="monospace" font-weight="bold">8.8cm KwK 36 L/56 • 773 M/S</text>
+            <text id="fpv-gun-telemetry" x="300" y="245" text-anchor="middle" fill="#6ee7b7" font-size="11" font-family="monospace" font-weight="bold">8.8cm KwK 36 L/56 • 773 M/S</text>
             <text id="fpv-svg-range" x="300" y="485" text-anchor="middle" fill="#38bdf8" font-size="11" font-family="monospace" font-weight="bold">RANGE: 120m</text>
             <text id="fpv-svg-zoom" x="300" y="505" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="monospace">OPTICAL 1.0× [HOLD RMB / SCROLL: 3.5× ZOOM]</text>
         </svg>
@@ -177,17 +177,30 @@
     <div class="fixed top-2 left-2 right-2 md:top-3 md:left-3 md:right-3 z-20 flex items-center justify-between gap-2 pointer-events-none">
         <!-- Title Badge (Hidden on mobile to maximize viewport) -->
         <div class="hud-panel px-3 py-2 rounded-xl pointer-events-auto hidden md:flex items-center gap-3">
-            <div class="w-9 h-9 rounded-lg bg-slate-800/80 border border-slate-600 flex flex-col items-center justify-center">
-                <span class="mono text-xs font-bold text-amber-400 leading-none">3818</span>
-                <span class="text-[8px] text-slate-400 tracking-wider mt-0.5">TIGER I</span>
+            <div class="w-9 h-9 rounded-lg bg-slate-800/80 border border-slate-600 flex flex-col items-center justify-center shrink-0">
+                <span id="tank-badge-num" class="mono text-xs font-bold text-amber-400 leading-none">3818</span>
+                <span id="tank-badge-sub" class="text-[8px] text-slate-400 tracking-wider mt-0.5">TIGER I</span>
             </div>
             <div>
                 <div class="flex items-center gap-2">
-                    <h1 class="font-extrabold text-sm tracking-tight text-white">Pz.Kpfw. VI Tiger Ausf. E</h1>
-                    <span class="text-[9px] mono uppercase px-1 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">Wilderness</span>
+                    <h1 id="tank-hud-name" class="font-extrabold text-sm tracking-tight text-white">Pz.Kpfw. VI Tiger Ausf. E</h1>
+                    <span id="tank-nation-tag" class="text-[9px] mono uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">🇩🇪 Germany</span>
                 </div>
-                <p class="text-[10px] text-slate-300">8.8 cm KwK 36 L/56 • Dual-Reticle Ballistics</p>
+                <p id="tank-hud-desc" class="text-[10px] text-slate-300">8.8 cm KwK 36 L/56 • 57 t • Dual-Reticle Ballistics</p>
             </div>
+        </div>
+
+        <!-- Tank Selection Switcher (Center) -->
+        <div id="panel-tank-selector" class="hud-panel px-1.5 py-1 rounded-full md:rounded-xl pointer-events-auto flex items-center gap-1 shadow-lg ml-auto">
+            <button data-tank="tiger" class="hud-btn tank-select-btn active px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 text-amber-300 hover:text-white" title="Pz.VI Tiger I [Key: 1]">
+                <span>🇩🇪</span><span>Tiger I</span>
+            </button>
+            <button data-tank="sherman" class="hud-btn tank-select-btn px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 text-lime-300 hover:text-white opacity-70" title="M4 Sherman [Key: 2]">
+                <span>🇺🇸</span><span>Sherman</span>
+            </button>
+            <button data-tank="t34" class="hud-btn tank-select-btn px-2.5 py-1 rounded-lg text-[11px] font-bold flex items-center gap-1 text-red-300 hover:text-white opacity-70" title="T-34-85 [Key: 3]">
+                <span>🇵🇱</span><span>T-34-85</span>
+            </button>
         </div>
 
         <!-- Mode & Camera Switchers -->
@@ -196,6 +209,8 @@
                 <button id="cam-orbit" class="hud-btn active px-2.5 py-1 rounded-lg text-[11px] font-semibold" title="Follow Aim Camera">📷 Follow</button>
                 <button id="cam-fpv" class="hud-btn px-2.5 py-1 rounded-lg text-[11px] font-semibold text-emerald-300" title="First-Person Gunner Mode">🎯 FPV</button>
                 <button id="btn-time-cycle" class="hud-btn px-2.5 py-1 rounded-lg text-[11px] font-semibold text-amber-300" title="Cycle Day / Night (T)">☀️ <span id="hud-time-label">10:30</span></button>
+                <button id="btn-restart" class="hud-btn px-2.5 py-1 rounded-lg text-[11px] font-bold text-amber-300 hover:text-white" title="Restart with New Seed [Key: R]">🔄 Reset [R]</button>
+                <span id="hud-seed-display" class="mono text-[10px] text-amber-300/90 font-semibold px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 hidden lg:inline-block">Seed: ...</span>
                 <button id="audio-toggle" class="hud-btn px-2 py-1 rounded-lg text-[11px] font-semibold text-emerald-400" title="Toggle Sound">🔊</button>
                 <button id="btn-fullscreen-landscape" class="hud-btn px-2 py-1 rounded-lg text-[11px] font-semibold text-amber-300" title="Toggle Fullscreen Landscape">⛶</button>
             </div>
@@ -225,6 +240,7 @@
             <!-- Top auxiliary row: Zoom, Smoke, Bow MG -->
             <div class="flex items-center gap-1.5">
                 <button id="mob-btn-time" class="h-8 px-2 bg-slate-900/40 border border-yellow-400/40 active:bg-yellow-600/50 text-yellow-300 font-semibold text-[10px] rounded-lg flex items-center gap-1 backdrop-blur-sm touch-none active:scale-95"><span>☀️</span><span id="mob-time-label">Day</span></button>
+                <button id="mob-btn-restart" class="h-8 px-2 bg-slate-900/40 border border-amber-400/40 active:bg-amber-600/50 text-amber-300 font-semibold text-[10px] rounded-lg flex items-center gap-1 backdrop-blur-sm touch-none active:scale-95"><span>🔄</span><span>Reset</span></button>
                 <button id="mob-btn-zoom" class="h-8 px-2 bg-slate-900/40 border border-sky-400/40 active:bg-sky-600/50 text-sky-300 font-semibold text-[10px] rounded-lg flex items-center gap-1 backdrop-blur-sm touch-none active:scale-95">
                     <span>🔍</span>
                     <span>Zoom</span>
@@ -246,7 +262,7 @@
                 </button>
                 <button id="mob-fire-88" class="h-13 px-4 py-2 bg-red-950/45 border-2 border-amber-400/90 active:bg-amber-500/60 active:scale-95 text-amber-300 font-extrabold rounded-2xl flex flex-col items-center justify-center backdrop-blur-sm touch-none shadow-lg">
                     <span class="text-sm leading-none">💥</span>
-                    <span class="text-[10px] mono font-extrabold text-white uppercase tracking-wider">8.8cm</span>
+                    <span id="mob-fire-caliber" class="text-[10px] mono font-extrabold text-white uppercase tracking-wider">8.8cm</span>
                 </button>
             </div>
         </div>
@@ -269,6 +285,9 @@
     <script src="js/audio.js"></script>
     <script src="js/shaders.js"></script>
     <script src="js/environment.js"></script>
+    <script src="js/tankTiger.js"></script>
+    <script src="js/tankSherman.js"></script>
+    <script src="js/tankT34.js"></script>
     <script src="js/tankModel.js"></script>
     <script src="js/physics.js"></script>
     <script src="js/controls.js"></script>

@@ -10,6 +10,12 @@ const soundFX = {
     engineSub: null,
     engineGain: null,
     initialized: false,
+    currentProfile: 'tiger',
+
+    setTankSoundProfile(spec) {
+        if (!spec) return;
+        this.currentProfile = spec.id || 'tiger';
+    },
 
     init() {
         if (this.initialized) return;
@@ -51,10 +57,108 @@ const soundFX = {
             this.engineGain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.08);
             return;
         }
-        const baseFreq = 34 + speedRatio * 58 + (isDriving ? 6 : 0);
+        let baseFreq = 34 + speedRatio * 58 + (isDriving ? 6 : 0);
+        if (this.currentProfile === 'sherman') {
+            baseFreq = 42 + speedRatio * 64 + (isDriving ? 8 : 0);
+        } else if (this.currentProfile === 't34') {
+            baseFreq = 28 + speedRatio * 52 + (isDriving ? 7 : 0);
+        }
         this.engineOsc.frequency.setTargetAtTime(baseFreq, this.ctx.currentTime, 0.08);
         this.engineSub.frequency.setTargetAtTime(baseFreq * 0.5, this.ctx.currentTime, 0.08);
         this.engineGain.gain.setTargetAtTime(0.035 + speedRatio * 0.045, this.ctx.currentTime, 0.1);
+    },
+
+    playMainCannon(spec) {
+        const id = (spec && spec.id) || this.currentProfile || 'tiger';
+        if (id === 'sherman') {
+            this.playShermanCannon();
+        } else if (id === 't34') {
+            this.playT34Cannon();
+        } else {
+            this.play88mmCannon();
+        }
+    },
+
+    playShermanCannon() {
+        this.init();
+        if (!this.enabled || !this.ctx) return;
+        const now = this.ctx.currentTime;
+
+        const bufferSize = Math.floor(this.ctx.sampleRate * 1.1);
+        const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+        const data = noiseBuffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+            data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (this.ctx.sampleRate * 0.22));
+        }
+        const noise = this.ctx.createBufferSource();
+        noise.buffer = noiseBuffer;
+
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(1250, now);
+        filter.frequency.exponentialRampToValueAtTime(80, now + 0.9);
+
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(0.58, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 1.0);
+
+        noise.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.ctx.destination);
+        noise.start(now);
+
+        const osc = this.ctx.createOscillator();
+        const oscGain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(140, now);
+        osc.frequency.exponentialRampToValueAtTime(32, now + 0.35);
+        oscGain.gain.setValueAtTime(0.48, now);
+        oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.38);
+        osc.connect(oscGain);
+        oscGain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.38);
+    },
+
+    playT34Cannon() {
+        this.init();
+        if (!this.enabled || !this.ctx) return;
+        const now = this.ctx.currentTime;
+
+        const bufferSize = Math.floor(this.ctx.sampleRate * 1.35);
+        const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+        const data = noiseBuffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+            data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (this.ctx.sampleRate * 0.25));
+        }
+        const noise = this.ctx.createBufferSource();
+        noise.buffer = noiseBuffer;
+
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(1450, now);
+        filter.frequency.exponentialRampToValueAtTime(70, now + 1.1);
+
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(0.62, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 1.25);
+
+        noise.connect(filter);
+        filter.connect(gain);
+        gain.connect(this.ctx.destination);
+        noise.start(now);
+
+        const osc = this.ctx.createOscillator();
+        const oscGain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(128, now);
+        osc.frequency.exponentialRampToValueAtTime(26, now + 0.42);
+        oscGain.gain.setValueAtTime(0.52, now);
+        oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.45);
+        osc.connect(oscGain);
+        oscGain.connect(this.ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.45);
     },
 
     play88mmCannon() {

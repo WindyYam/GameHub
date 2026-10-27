@@ -65,6 +65,46 @@ function generateTankPBRMaps() {
     drawWeldSeam(12, 12, 12, size - 12);
     drawWeldSeam(size * 0.45, 12, size * 0.45, size - 12);
 
+    // Procedural Scratch Generation for Tiger I RHA Armor
+    let tigerSeed = 5129;
+    function tRand() {
+        tigerSeed = (tigerSeed * 16807) % 2147483647;
+        return (tigerSeed - 1) / 2147483646;
+    }
+
+    const tigerScratches = [];
+    // 70 major scratches & glancing ricochet furrows
+    for (let s = 0; s < 70; s++) {
+        const x0 = Math.floor(tRand() * size);
+        const y0 = Math.floor(tRand() * size);
+        const angle = tRand() * Math.PI * 2;
+        const length = 16 + tRand() * 60;
+        const curvature = (tRand() - 0.5) * 0.04;
+        tigerScratches.push({ x0, y0, angle, length, curvature, isMajor: true });
+    }
+    // 200 micro-scratches & abrasions
+    for (let s = 0; s < 200; s++) {
+        const x0 = Math.floor(tRand() * size);
+        const y0 = Math.floor(tRand() * size);
+        const angle = tRand() * Math.PI * 2;
+        const length = 4 + tRand() * 14;
+        tigerScratches.push({ x0, y0, angle, length, curvature: 0, isMajor: false });
+    }
+
+    // Etch 3D scratch grooves into heightField for Sobel normal map
+    tigerScratches.forEach(sc => {
+        const steps = Math.floor(sc.length * 1.5);
+        let cx = sc.x0, cy = sc.y0, curAngle = sc.angle;
+        for (let step = 0; step < steps; step++) {
+            cx += Math.cos(curAngle) * 0.7;
+            cy += Math.sin(curAngle) * 0.7;
+            curAngle += sc.curvature;
+            const px = Math.floor((cx % size + size) % size);
+            const py = Math.floor((cy % size + size) % size);
+            heightField[py * size + px] = Math.max(0.08, heightField[py * size + px] - (sc.isMajor ? 0.16 : 0.08));
+        }
+    });
+
     // 3. Paint Albedo (Authentic RAL 7021 Dunkelgrau with tonal modulation & weathering)
     const aImg = aCtx.createImageData(size, size);
     const rImg = rCtx.createImageData(size, size);
@@ -112,14 +152,74 @@ function generateTankPBRMaps() {
             rImg.data[pIndex + 2] = rough;
             rImg.data[pIndex + 3] = 255;
 
-            // Ambient Occlusion Map
-            const aoVal = Math.min(255, Math.max(60, Math.floor(215 + (h - 0.5) * 80)));
+            // Multi-scale structural crevice ambient occlusion (wide radii: 8, 18, 36 texels)
+            const r1 = 8, r2 = 18, r3 = 36;
+            const hN1 = heightField[((y - r1 + size) % size) * size + x];
+            const hS1 = heightField[((y + r1) % size) * size + x];
+            const hE1 = heightField[y * size + ((x + r1) % size)];
+            const hW1 = heightField[y * size + ((x - r1 + size) % size)];
+            const avg1 = (hN1 + hS1 + hE1 + hW1) * 0.25;
+
+            const hN2 = heightField[((y - r2 + size) % size) * size + x];
+            const hS2 = heightField[((y + r2) % size) * size + x];
+            const hE2 = heightField[y * size + ((x + r2) % size)];
+            const hW2 = heightField[y * size + ((x - r2 + size) % size)];
+            const avg2 = (hN2 + hS2 + hE2 + hW2) * 0.25;
+
+            const hN3 = heightField[((y - r3 + size) % size) * size + x];
+            const hS3 = heightField[((y + r3) % size) * size + x];
+            const hE3 = heightField[y * size + ((x + r3) % size)];
+            const hW3 = heightField[y * size + ((x - r3 + size) % size)];
+            const avg3 = (hN3 + hS3 + hE3 + hW3) * 0.25;
+
+            // Broad-scale ambient occlusion factor
+            const broadCavity = Math.max(0, (avg2 - h) * 1.8 + (avg3 - h) * 1.2);
+            const fineCavity = Math.max(0, (avg1 - h) * 2.2);
+            const totalCavity = (broadCavity * 0.65 + fineCavity * 0.35);
+
+            // Large-scale structural ambient occlusion map
+            const aoVal = Math.min(255, Math.max(70, Math.floor(235 - totalCavity * 140 + (h - 0.5) * 40)));
             aoImg.data[pIndex + 0] = aoVal;
             aoImg.data[pIndex + 1] = aoVal;
             aoImg.data[pIndex + 2] = aoVal;
             aoImg.data[pIndex + 3] = 255;
         }
     }
+
+    // Render bare steel scratches onto Tiger Albedo & Roughness
+    tigerScratches.forEach(sc => {
+        const steps = Math.floor(sc.length * 1.5);
+        let cx = sc.x0, cy = sc.y0, curAngle = sc.angle;
+        for (let step = 0; step < steps; step++) {
+            cx += Math.cos(curAngle) * 0.7;
+            cy += Math.sin(curAngle) * 0.7;
+            curAngle += sc.curvature;
+            const px = Math.floor((cx % size + size) % size);
+            const py = Math.floor((cy % size + size) % size);
+            const p = (py * size + px) * 4;
+
+            const scratchBright = sc.isMajor ? (142 + Math.floor(tRand() * 24)) : (120 + Math.floor(tRand() * 18));
+            aImg.data[p + 0] = scratchBright;
+            aImg.data[p + 1] = scratchBright + 2;
+            aImg.data[p + 2] = scratchBright + 6;
+
+            rImg.data[p + 0] = 72;
+            rImg.data[p + 1] = 72;
+            rImg.data[p + 2] = 72;
+
+            if (sc.isMajor) {
+                [-1, 1].forEach(offset => {
+                    const nx = Math.floor((px - Math.sin(curAngle) * offset + size) % size);
+                    const ny = Math.floor((py + Math.cos(curAngle) * offset + size) % size);
+                    const np = (ny * size + nx) * 4;
+                    aImg.data[np + 0] = Math.max(28, aImg.data[np + 0] - 25);
+                    aImg.data[np + 1] = Math.max(32, aImg.data[np + 1] - 25);
+                    aImg.data[np + 2] = Math.max(36, aImg.data[np + 2] - 25);
+                });
+            }
+        }
+    });
+
     aCtx.putImageData(aImg, 0, 0);
     rCtx.putImageData(rImg, 0, 0);
     aoCtx.putImageData(aoImg, 0, 0);
@@ -406,8 +506,10 @@ function createHaltonPatternTexture() {
 }
 
 // ============================================================================
-// 64x64 Void-and-Cluster Blue Noise Matrix Generator (Robert Ulichney)
-// Mathematically engineered with zero low-frequency energy for minimum grain.
+// 64x64 Void-and-Cluster Blue Noise Matrix Generator (Robert Ulichney 1993)
+// Mathematically isotropic with zero directional bias and seamless toroidal
+// boundary conditions across both horizontal (X) and vertical (Y) seams.
+// Completely eliminates horizontal scanline banding and edge discontinuities.
 // ============================================================================
 let _blueNoiseTexture = null;
 
@@ -422,45 +524,126 @@ function createBlueNoiseTexture() {
     const ctx = canvas.getContext('2d');
     const imgData = ctx.createImageData(size, size);
 
-    // Toroidal Gaussian energy filter for Void-and-Cluster spatial relaxation
+    // Standard Void-and-Cluster Gaussian energy filter (Ulichney 1993)
+    // with toroidal wrapping across top, bottom, left, and right borders.
     const sigma = 1.9;
-    const R = 3;
+    const R = 7; // Truncation radius > 3.5 * sigma
     const lut = [];
     for (let y = -R; y <= R; y++) {
         for (let x = -R; x <= R; x++) {
-            lut.push({ dx: x, dy: y, w: Math.exp(-(x * x + y * y) / (2 * sigma * sigma)) });
+            const d2 = x * x + y * y;
+            lut.push({ dx: x, dy: y, w: Math.exp(-d2 / (2 * sigma * sigma)) });
         }
     }
 
+    // Deterministic LCG pseudo-random generator for reproducible isotropic seeds
+    let seedVal = 1337;
+    function sRand() {
+        seedVal = (seedVal * 16807) % 2147483647;
+        return (seedVal - 1) / 2147483646;
+    }
+
+    const pattern = new Uint8Array(total);
     const energy = new Float32Array(total);
 
-    for (let i = 0; i < total; i++) {
-        // Find largest void (minimum Gaussian energy location)
-        let minIdx = 0, minE = energy[0];
-        for (let j = 1; j < total; j++) {
-            if (energy[j] < minE) {
-                minE = energy[j];
-                minIdx = j;
-            }
-        }
-
-        // Assign normalized threshold [0, 255]
-        const threshold = Math.floor(((i + 0.5) / total) * 255);
-        const pIdx = minIdx * 4;
-        imgData.data[pIdx]     = threshold;
-        imgData.data[pIdx + 1] = threshold;
-        imgData.data[pIdx + 2] = threshold;
-        imgData.data[pIdx + 3] = 255;
-
-        // Mark as occupied and diffuse Gaussian energy into toroidal neighborhood
-        energy[minIdx] += 999999;
-        const mx = minIdx % size;
-        const my = Math.floor(minIdx / size);
+    function addEnergy(idx, mult, enArr) {
+        const mx = idx % size;
+        const my = Math.floor(idx / size);
         for (let k = 0; k < lut.length; k++) {
             const nx = (mx + lut[k].dx + size) % size;
             const ny = (my + lut[k].dy + size) % size;
-            energy[ny * size + nx] += lut[k].w;
+            enArr[ny * size + nx] += mult * lut[k].w;
         }
+    }
+
+    // Phase I: Initial random minority pattern (~10% ones = 409 points)
+    const M = Math.floor(total * 0.1);
+    const ones = [];
+    while (ones.length < M) {
+        const idx = Math.floor(sRand() * total);
+        if (!pattern[idx]) {
+            pattern[idx] = 1;
+            ones.push(idx);
+            addEnergy(idx, 1, energy);
+        }
+    }
+
+    // Phase I Relaxation: Iteratively replace the tightest cluster point with largest void
+    for (let iter = 0; iter < 150; iter++) {
+        let maxOnePos = 0, maxE = -1e9;
+        for (let j = 0; j < ones.length; j++) {
+            const idx = ones[j];
+            if (energy[idx] > maxE) {
+                maxE = energy[idx];
+                maxOnePos = j;
+            }
+        }
+        const maxIdx = ones[maxOnePos];
+        pattern[maxIdx] = 0;
+        addEnergy(maxIdx, -1, energy);
+
+        let minIdx = -1, minE = 1e9;
+        for (let i = 0; i < total; i++) {
+            if (!pattern[i] && energy[i] < minE) {
+                minE = energy[i];
+                minIdx = i;
+            }
+        }
+
+        pattern[minIdx] = 1;
+        addEnergy(minIdx, 1, energy);
+        ones[maxOnePos] = minIdx;
+
+        if (maxIdx === minIdx) break; // Reached stable isotropic equilibrium
+    }
+
+    // Phase II: Rank remaining zeros from M to total - 1 (sequentially pick largest void)
+    const ditherArray = new Uint8Array(total);
+    const p2_pattern = new Uint8Array(pattern);
+    const p2_energy = new Float32Array(energy);
+
+    for (let rank = M; rank < total; rank++) {
+        let minIdx = -1, minE = 1e9;
+        for (let i = 0; i < total; i++) {
+            if (!p2_pattern[i] && p2_energy[i] < minE) {
+                minE = p2_energy[i];
+                minIdx = i;
+            }
+        }
+        p2_pattern[minIdx] = 1;
+        ditherArray[minIdx] = Math.floor(((rank + 0.5) / total) * 255);
+        addEnergy(minIdx, 1, p2_energy);
+    }
+
+    // Phase III: Rank initial ones from M - 1 down to 0 (sequentially pick tightest cluster)
+    const p3_pattern = new Uint8Array(pattern);
+    const p3_energy = new Float32Array(energy);
+    const p3_ones = [...ones];
+
+    for (let rank = M - 1; rank >= 0; rank--) {
+        let maxOnePos = 0, maxE = -1e9;
+        for (let j = 0; j < p3_ones.length; j++) {
+            const idx = p3_ones[j];
+            if (p3_energy[idx] > maxE) {
+                maxE = p3_energy[idx];
+                maxOnePos = j;
+            }
+        }
+        const maxIdx = p3_ones[maxOnePos];
+        p3_ones.splice(maxOnePos, 1);
+        p3_pattern[maxIdx] = 0;
+        ditherArray[maxIdx] = Math.floor(((rank + 0.5) / total) * 255);
+        addEnergy(maxIdx, -1, p3_energy);
+    }
+
+    // Write pristine blue noise thresholds into texture
+    for (let i = 0; i < total; i++) {
+        const val = ditherArray[i];
+        const pIdx = i * 4;
+        imgData.data[pIdx]     = val;
+        imgData.data[pIdx + 1] = val;
+        imgData.data[pIdx + 2] = val;
+        imgData.data[pIdx + 3] = 255;
     }
 
     ctx.putImageData(imgData, 0, 0);
@@ -725,7 +908,7 @@ function createHaltonSmokeMaterial(colorHex = 0x94a3b8) {
                 // Core of the cloud (finalDensity >= 0.82) is completely SOLID (Zero grain / Zero noise!)
                 // Only the feathered outer ~18% perimeter and late evaporative wisps use Blue Noise!
                 if (finalDensity < 0.82) {
-                    vec2 ditherCoord = (gl_FragCoord.xy + ditherOffset) / 64.0;
+                    vec2 ditherCoord = (floor(gl_FragCoord.xy) + floor(ditherOffset) + 0.5) / 64.0;
                     float blueNoiseThreshold = texture2D(blueNoiseMap, ditherCoord).r;
 
                     // Normalize edge band [0.0, 0.82] to [0.0, 1.0] for optimal high-frequency dispersion
@@ -1382,6 +1565,29 @@ function createTurretNumberDecalTexture() {
         ctx.fillRect(cx, cy, 2 + Math.random() * 4, 2 + Math.random() * 3);
     }
 
+    // Scratches across the Tiger decal
+    ctx.save();
+    for (let i = 0; i < 22; i++) {
+        const sx0 = 60 + Math.random() * 390;
+        const sy0 = 40 + Math.random() * 170;
+        const slen = 15 + Math.random() * 55;
+        const sAngle = (Math.random() - 0.5) * 0.45;
+        ctx.strokeStyle = 'rgba(25, 30, 36, 0.75)';
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        ctx.moveTo(sx0, sy0 + 1);
+        ctx.lineTo(sx0 + Math.cos(sAngle) * slen, sy0 + Math.sin(sAngle) * slen + 1);
+        ctx.stroke();
+
+        ctx.strokeStyle = 'rgba(180, 190, 200, 0.85)';
+        ctx.lineWidth = 1.0;
+        ctx.beginPath();
+        ctx.moveTo(sx0, sy0);
+        ctx.lineTo(sx0 + Math.cos(sAngle) * slen, sy0 + Math.sin(sAngle) * slen);
+        ctx.stroke();
+    }
+    ctx.restore();
+
     const tex = new THREE.CanvasTexture(c);
     tex.needsUpdate = true;
     return tex;
@@ -1419,6 +1625,192 @@ function createGrilleTexture() {
     return tex;
 }
 
+// ----------------------------------------------------------------------------
+// Sherman "COUGAR" Sponson Decal Canvas Texture (2048x512)
+// ----------------------------------------------------------------------------
+function createShermanSponsonDecalTexture() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 2048;
+    canvas.height = 512;
+    const ctx = canvas.getContext('2d');
+
+    const grad = ctx.createLinearGradient(0, 0, 0, 512);
+    grad.addColorStop(0, '#444b37');
+    grad.addColorStop(0.5, '#3b4230');
+    grad.addColorStop(1, '#313728');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 2048, 512);
+
+    for (let i = 0; i < 650; i++) {
+        const x = Math.random() * 2048;
+        const y = Math.random() * 512;
+        ctx.fillStyle = (i % 2 === 0) ? 'rgba(25, 30, 18, 0.14)' : 'rgba(95, 105, 78, 0.08)';
+        ctx.fillRect(x, y, 2 + Math.random() * 4, 30 + Math.random() * 140);
+    }
+
+    ctx.fillStyle = 'rgba(130, 140, 110, 0.25)';
+    ctx.fillRect(0, 0, 2048, 8);
+
+    // "T212125" Serial Number
+    ctx.save();
+    ctx.font = 'bold 62px "Inter", "Arial Narrow", sans-serif';
+    ctx.fillStyle = '#e7eadf';
+    ctx.shadowColor = 'rgba(0,0,0,0.45)';
+    ctx.shadowBlur = 2;
+    ctx.transform(0.86, 0, 0, 1, 1105, 84);
+    ctx.fillText('T212125', 0, 0);
+    ctx.restore();
+
+    // "COUGAR" bold white stencil
+    ctx.save();
+    ctx.font = '700 112px "Inter", "Arial Narrow", sans-serif';
+    ctx.fillStyle = '#eef0e8';
+    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+    ctx.shadowBlur = 3;
+    ctx.transform(0.76, 0, 0, 1, 560, 255);
+    ctx.fillText('COUGAR', 0, 0);
+    ctx.restore();
+
+    // Small Allied maintenance stencil
+    ctx.fillStyle = '#d8e2ec';
+    ctx.fillRect(1685, 385, 68, 36);
+    ctx.fillStyle = '#2d4b73';
+    ctx.fillRect(1689, 389, 60, 14);
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.anisotropy = 8;
+    return tex;
+}
+
+// ----------------------------------------------------------------------------
+// Sherman Turret Number "13" Decal Texture (512x512)
+// ----------------------------------------------------------------------------
+function createShermanTurretDecalTexture() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 512;
+    canvas.height = 512;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, 512, 512);
+
+    const radGrad = ctx.createRadialGradient(256, 256, 40, 256, 256, 220);
+    radGrad.addColorStop(0, 'rgba(38, 62, 44, 0.85)');
+    radGrad.addColorStop(0.78, 'rgba(42, 68, 48, 0.72)');
+    radGrad.addColorStop(1, 'rgba(42, 68, 48, 0.0)');
+    ctx.fillStyle = radGrad;
+    ctx.beginPath();
+    ctx.arc(256, 256, 220, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.save();
+    ctx.font = '900 285px "Inter", "Arial Black", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.translate(256, 268);
+    ctx.scale(0.75, 1.05);
+
+    ctx.lineWidth = 28;
+    ctx.strokeStyle = '#141813';
+    ctx.strokeText('13', 0, 0);
+
+    ctx.fillStyle = '#f2f4ed';
+    ctx.fillText('13', 0, 0);
+    ctx.restore();
+
+    const tex = new THREE.CanvasTexture(canvas);
+    return tex;
+}
+
+// ----------------------------------------------------------------------------
+// T-34-85 Turret Stencil "311" + Polish Eagle / Star Decal (1024x512)
+// ----------------------------------------------------------------------------
+function createT34TurretDecalTexture(isLeftSide) {
+    const w = 1024;
+    const h = 512;
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+
+    const grad = ctx.createLinearGradient(0, 0, 0, h);
+    grad.addColorStop(0, '#20271b');
+    grad.addColorStop(0.5, '#242d1f');
+    grad.addColorStop(1, '#1b2116');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, w, h);
+
+    const numX = isLeftSide ? 420 : 600;
+    const eagleX = isLeftSide ? 690 : 330;
+    const centerY = 265;
+
+    ctx.save();
+    ctx.fillStyle = 'rgba(238, 240, 235, 0.94)';
+    ctx.font = 'bold 165px "Inter", "Arial Narrow", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    ctx.save();
+    ctx.translate(numX, centerY);
+    ctx.scale(0.82, 1.15);
+    ctx.fillText('311', 0, 0);
+    ctx.restore();
+
+    // Polish Piast Eagle
+    ctx.save();
+    ctx.translate(eagleX, centerY - 22);
+    ctx.scale(0.95, 1.05);
+    ctx.beginPath();
+    ctx.ellipse(0, 5, 14, 24, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(0, -24, 8, 0, Math.PI * 2);
+    ctx.fill();
+
+    const beakDir = isLeftSide ? -1 : 1;
+    ctx.beginPath();
+    ctx.moveTo(0, -27);
+    ctx.lineTo(beakDir * 14, -23);
+    ctx.lineTo(0, -20);
+    ctx.fill();
+
+    [-1, 1].forEach((side) => {
+        ctx.beginPath();
+        ctx.moveTo(side * 8, -8);
+        ctx.quadraticCurveTo(side * 36, -34, side * 44, -18);
+        ctx.lineTo(side * 38, -8);
+        ctx.lineTo(side * 42, 0);
+        ctx.lineTo(side * 33, 6);
+        ctx.lineTo(side * 36, 14);
+        ctx.lineTo(side * 12, 14);
+        ctx.closePath();
+        ctx.fill();
+    });
+
+    ctx.beginPath();
+    ctx.moveTo(-10, 22);
+    ctx.lineTo(-18, 40);
+    ctx.lineTo(0, 34);
+    ctx.lineTo(18, 40);
+    ctx.lineTo(10, 22);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    // Chipping & cast marks
+    for (let i = 0; i < 300; i++) {
+        const rx = (isLeftSide ? 280 : 220) + Math.random() * 520;
+        const ry = 130 + Math.random() * 250;
+        const rr = 1 + Math.random() * 3.5;
+        ctx.fillStyle = Math.random() > 0.4 ? '#474c3b' : '#313628';
+        ctx.beginPath();
+        ctx.arc(rx, ry, rr, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    ctx.restore();
+    return new THREE.CanvasTexture(canvas);
+}
+
 function createMaterials(pbrMaps, decal3818Tex, grilleTex) {
     if (!pbrMaps) pbrMaps = generateTankPBRMaps();
     if (!decal3818Tex) decal3818Tex = createTurretNumberDecalTexture();
@@ -1430,8 +1822,13 @@ function createMaterials(pbrMaps, decal3818Tex, grilleTex) {
     const pineNeedleTex = createPineNeedleTexture();
     const smokeSpriteTex = createSmokeParticleTexture();
 
+    const shermanSponsonTex = createShermanSponsonDecalTexture();
+    const shermanTurretDecalTex = createShermanTurretDecalTexture();
+    const t34DecalLeftTex = createT34TurretDecalTexture(true);
+    const t34DecalRightTex = createT34TurretDecalTexture(false);
+
     return {
-        // Authentic Dunkelgrau Rolled Homogeneous Armor
+        // --- German Pz.VI Tiger I PBR Materials ---
         armor: new THREE.MeshStandardMaterial({
             color: 0x5a6572,
             map: pbrMaps.albedo,
@@ -1461,17 +1858,17 @@ function createMaterials(pbrMaps, decal3818Tex, grilleTex) {
             metalness: 0.62
         }),
         muzzleBlack: new THREE.MeshStandardMaterial({
-            color: 0x181c20, // Heat-scorched carbon soot black
+            color: 0x181c20,
             roughness: 0.65,
             metalness: 0.50
         }),
         rubberTire: new THREE.MeshStandardMaterial({
-            color: 0x16181b, // Weathered German Buna-S synthetic rubber
+            color: 0x16181b,
             roughness: 0.88,
             metalness: 0.08
         }),
         trackSteel: new THREE.MeshStandardMaterial({
-            color: 0x22262b, // Cast manganese steel with bright metallic guide horn wear
+            color: 0x22262b,
             normalMap: pbrMaps.normalFine,
             normalScale: new THREE.Vector2(0.7, 0.7),
             roughness: 0.46,
@@ -1501,6 +1898,115 @@ function createMaterials(pbrMaps, decal3818Tex, grilleTex) {
             polygonOffset: true,
             polygonOffsetFactor: -2
         }),
+
+        // --- US M4 Sherman PBR Materials ---
+        shermanOlive: new THREE.MeshStandardMaterial({
+            color: 0x3a423d,
+            map: pbrMaps.albedo,
+            normalMap: pbrMaps.normal,
+            normalScale: new THREE.Vector2(0.35, 0.35),
+            roughnessMap: pbrMaps.roughness,
+            roughness: 0.46,
+            metalness: 0.35,
+            aoMap: pbrMaps.ao,
+            aoMapIntensity: 0.55
+        }),
+        shermanCast: new THREE.MeshStandardMaterial({
+            color: 0x323a35,
+            map: pbrMaps.albedoFine,
+            normalMap: pbrMaps.normalFine,
+            normalScale: new THREE.Vector2(0.40, 0.40),
+            roughness: 0.43,
+            metalness: 0.38,
+            aoMap: pbrMaps.ao,
+            aoMapIntensity: 0.60
+        }),
+        shermanSponson: new THREE.MeshStandardMaterial({
+            map: shermanSponsonTex,
+            roughness: 0.45,
+            metalness: 0.34,
+            normalMap: pbrMaps.normalFine,
+            normalScale: new THREE.Vector2(0.30, 0.30),
+            aoMap: pbrMaps.ao,
+            aoMapIntensity: 0.50
+        }),
+        shermanTurretDecal: new THREE.MeshStandardMaterial({
+            map: shermanTurretDecalTex,
+            transparent: true,
+            roughness: 0.28,
+            metalness: 0.30,
+            depthWrite: false,
+            polygonOffset: true,
+            polygonOffsetFactor: -2
+        }),
+        shermanTrackPad: new THREE.MeshStandardMaterial({
+            color: 0x1a1c19,
+            roughness: 0.65,
+            metalness: 0.15
+        }),
+        shermanTrackSteel: new THREE.MeshStandardMaterial({
+            color: 0x545b60,
+            normalMap: pbrMaps.normalFine,
+            normalScale: new THREE.Vector2(0.30, 0.30),
+            roughness: 0.25,
+            metalness: 0.82
+        }),
+
+        // --- Soviet T-34-85 PBR Materials ---
+        t34Green: new THREE.MeshStandardMaterial({
+            color: 0x2c3724,
+            map: pbrMaps.albedo,
+            normalMap: pbrMaps.normal,
+            normalScale: new THREE.Vector2(0.55, 0.55),
+            roughnessMap: pbrMaps.roughness,
+            roughness: 0.52,
+            metalness: 0.30,
+            aoMap: pbrMaps.ao,
+            aoMapIntensity: 0.8
+        }),
+        t34Cast: new THREE.MeshStandardMaterial({
+            color: 0x26301e,
+            map: pbrMaps.albedoFine,
+            normalMap: pbrMaps.normalFine,
+            normalScale: new THREE.Vector2(0.8, 0.8),
+            roughness: 0.50,
+            metalness: 0.34,
+            aoMap: pbrMaps.ao,
+            aoMapIntensity: 0.85
+        }),
+        t34DecalLeft: new THREE.MeshStandardMaterial({
+            map: t34DecalLeftTex,
+            roughness: 0.56,
+            metalness: 0.28
+        }),
+        t34DecalRight: new THREE.MeshStandardMaterial({
+            map: t34DecalRightTex,
+            roughness: 0.56,
+            metalness: 0.28
+        }),
+        t34TrackMetal: new THREE.MeshStandardMaterial({
+            color: 0x2a2e28,
+            normalMap: pbrMaps.normalFine,
+            normalScale: new THREE.Vector2(0.7, 0.7),
+            roughness: 0.45,
+            metalness: 0.78
+        }),
+        t34Rubber: new THREE.MeshStandardMaterial({
+            color: 0x16181b,
+            roughness: 0.88,
+            metalness: 0.08
+        }),
+        t34Rust: new THREE.MeshStandardMaterial({
+            color: 0x4d3222,
+            roughness: 0.85,
+            metalness: 0.2
+        }),
+        t34Log: new THREE.MeshStandardMaterial({
+            map: woodTex,
+            roughness: 0.88,
+            metalness: 0.02
+        }),
+
         // Environment materials
         birchBark: new THREE.MeshStandardMaterial({
             map: birchBarkTex,
@@ -1523,7 +2029,6 @@ function createMaterials(pbrMaps, decal3818Tex, grilleTex) {
             roughness: 0.78,
             metalness: 0.08
         }),
-        // Particle sprite texture reference
         smokeSpriteTex: smokeSpriteTex
     };
 }
@@ -1535,6 +2040,9 @@ window.createPineNeedleTexture = createPineNeedleTexture;
 window.createSmokeParticleTexture = createSmokeParticleTexture;
 window.createWoodTexture = createWoodTexture;
 window.createTurretNumberDecalTexture = createTurretNumberDecalTexture;
+window.createShermanSponsonDecalTexture = createShermanSponsonDecalTexture;
+window.createShermanTurretDecalTexture = createShermanTurretDecalTexture;
+window.createT34TurretDecalTexture = createT34TurretDecalTexture;
 window.createGrilleTexture = createGrilleTexture;
 window.createMaterials = createMaterials;
 window.haltonRadicalInverse = haltonRadicalInverse;

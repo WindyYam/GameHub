@@ -3,25 +3,6 @@
 // Detailed Hull, Turret, Mantlet, 8.8cm KwK 36, Schachtellaufwerk Tracks
 // ============================================================================
 
-var tankModel = null;
-var tankRoot = null;
-var hullGroup = null;
-var turretGroup = null;
-var gunElevationPivot = null;
-var barrelRecoilGroup = null;
-var mainGunMuzzleTip = null;
-var coaxMuzzleRef = null;
-var bowMgGroup = null;
-var bowMgBarrel = null;
-var headlightLights = [];
-var smokeTubes = [];
-var roadWheelStations = { left: [], right: [] };
-var driveSprockets = [];
-var idlerWheels = [];
-var trackChains = { left: [], right: [] };
-var evaluateTrackPoint = null;
-var updateTracksGeometry = null;
-
 function addPart(parent, geo, mat, x, y, z, rx = 0, ry = 0, rz = 0) {
     if (geo.attributes.uv && !geo.attributes.uv2) {
         geo.setAttribute('uv2', geo.attributes.uv);
@@ -34,13 +15,15 @@ function addPart(parent, geo, mat, x, y, z, rx = 0, ry = 0, rz = 0) {
     parent.add(m);
     return m;
 }
+window.addPart = addPart;
 
 function buildTigerTank(scene, mats) {
-    tankRoot = new THREE.Group();
-    scene.add(tankRoot);
+    const tankRoot = new THREE.Group();
+    const sc = scene || (typeof window !== 'undefined' ? window.scene : null);
+    if (sc && typeof sc.add === 'function') sc.add(tankRoot);
 
     // Chassis group (pitches/rolls/heaves dynamically on torsion bar springs)
-    hullGroup = new THREE.Group();
+    const hullGroup = new THREE.Group();
     hullGroup.position.y = 0.92;
     tankRoot.add(hullGroup);
 
@@ -82,15 +65,15 @@ function buildTigerTank(scene, mats) {
     addPart(visorGroup, new THREE.BoxGeometry(0.32, 0.045, 0.14), mats.muzzleBlack, 0, 0.02, 0.01);
 
     // Kugelblende 50 Ball-Mounted Bow MG34 (Front-Right, -X)
-    bowMgGroup = new THREE.Group();
+    const bowMgGroup = new THREE.Group();
     bowMgGroup.position.set(-0.74, 0.44, 2.51);
     hullGroup.add(bowMgGroup);
     addPart(bowMgGroup, new THREE.CylinderGeometry(0.18, 0.21, 0.12, 18), mats.armor, 0, 0, 0, Math.PI / 2, 0, 0);
     addPart(bowMgGroup, new THREE.SphereGeometry(0.13, 16, 16), mats.armorDark, 0, 0, 0.04);
-    bowMgBarrel = addPart(bowMgGroup, new THREE.CylinderGeometry(0.024, 0.028, 0.42, 10), mats.muzzleBlack, 0, 0, 0.22, Math.PI / 2, 0, 0);
+    const bowMgBarrel = addPart(bowMgGroup, new THREE.CylinderGeometry(0.024, 0.028, 0.42, 10), mats.muzzleBlack, 0, 0, 0.22, Math.PI / 2, 0, 0);
 
     // Twin Bosch Blackout Headlights on Front Hull Corners + Spotlights
-    headlightLights = [];
+    const headlightLights = [];
     [-1.28, 1.28].forEach((hx) => {
         const hlGroup = new THREE.Group();
         hlGroup.position.set(hx, 0.76, 2.28);
@@ -157,7 +140,7 @@ function buildTigerTank(scene, mats) {
     });
 
     // --- 5. TURRET, "3818" DECALS, CUPOLA, NEBELWURFGERÄT & 8.8cm BARREL ---
-    turretGroup = new THREE.Group();
+    const turretGroup = new THREE.Group();
     turretGroup.position.set(0, 0.70, 0.12);
     hullGroup.add(turretGroup);
 
@@ -199,7 +182,7 @@ function buildTigerTank(scene, mats) {
     addPart(turretGroup, new THREE.CylinderGeometry(0.18, 0.20, 0.07, 16), mats.armorDark, 0.0, 0.80, 0.25);
 
     // Nebelwurfgerät Smoke Grenade Dischargers
-    smokeTubes = [];
+    const smokeTubes = [];
     [-1, 1].forEach((side) => {
         const rack = new THREE.Group();
         rack.position.set(side * 1.14, 0.52, 0.62);
@@ -219,7 +202,7 @@ function buildTigerTank(scene, mats) {
     });
 
     // Gun Elevation Pivot & Walzenblende Mantlet
-    gunElevationPivot = new THREE.Group();
+    const gunElevationPivot = new THREE.Group();
     gunElevationPivot.position.set(0, 0.39, 0.92);
     turretGroup.add(gunElevationPivot);
 
@@ -228,11 +211,11 @@ function buildTigerTank(scene, mats) {
     addPart(gunElevationPivot, new THREE.BoxGeometry(0.58, 0.54, 0.22), mats.armor, -0.52, 0, 0.19);
     addPart(gunElevationPivot, new THREE.CylinderGeometry(0.035, 0.035, 0.16, 12), mats.muzzleBlack, 0.44, 0.04, 0.28, Math.PI / 2, 0, 0);
     addPart(gunElevationPivot, new THREE.CylinderGeometry(0.035, 0.035, 0.16, 12), mats.muzzleBlack, 0.58, 0.04, 0.28, Math.PI / 2, 0, 0);
-    coaxMuzzleRef = addPart(gunElevationPivot, new THREE.CylinderGeometry(0.032, 0.032, 0.22, 12), mats.muzzleBlack, -0.54, 0.04, 0.30, Math.PI / 2, 0, 0);
+    const coaxMuzzleRef = addPart(gunElevationPivot, new THREE.CylinderGeometry(0.032, 0.032, 0.22, 12), mats.muzzleBlack, -0.54, 0.04, 0.30, Math.PI / 2, 0, 0);
     addPart(gunElevationPivot, new THREE.CylinderGeometry(0.24, 0.28, 0.48, 24), mats.armor, 0, 0, 0.32, Math.PI / 2, 0, 0);
 
     // Recoiling 8.8 cm KwK 36 L/56 Barrel Assembly
-    barrelRecoilGroup = new THREE.Group();
+    const barrelRecoilGroup = new THREE.Group();
     gunElevationPivot.add(barrelRecoilGroup);
 
     addPart(barrelRecoilGroup, new THREE.CylinderGeometry(0.155, 0.175, 1.15, 24), mats.barrelSteel, 0, 0, 1.05, Math.PI / 2, 0, 0);
@@ -249,13 +232,13 @@ function buildTigerTank(scene, mats) {
     addPart(muzzleGroup, new THREE.BoxGeometry(0.35, 0.16, 0.13), mats.trackSteel, 0, 0, 0.06);
     addPart(muzzleGroup, new THREE.BoxGeometry(0.35, 0.16, 0.13), mats.trackSteel, 0, 0, 0.24);
     addPart(muzzleGroup, new THREE.CylinderGeometry(0.14, 0.165, 0.08, 24), mats.muzzleBlack, 0, 0, 0.38, Math.PI / 2, 0, 0);
-    mainGunMuzzleTip = addPart(muzzleGroup, new THREE.CylinderGeometry(0.095, 0.095, 0.12, 20), new THREE.MeshBasicMaterial({ color: 0x050608 }), 0, 0, 0.39, Math.PI / 2, 0, 0);
+    const mainGunMuzzleTip = addPart(muzzleGroup, new THREE.CylinderGeometry(0.095, 0.095, 0.12, 20), new THREE.MeshBasicMaterial({ color: 0x050608 }), 0, 0, 0.39, Math.PI / 2, 0, 0);
 
     // --- 6. SCHACHTELLAUFWERK WHEELS & ARTICULATED TRACKS ---
-    roadWheelStations = { left: [], right: [] };
-    driveSprockets = [];
-    idlerWheels = [];
-    trackChains = { left: [], right: [] };
+    const roadWheelStations = { left: [], right: [] };
+    const driveSprockets = [];
+    const idlerWheels = [];
+    const trackChains = { left: [], right: [] };
 
     const dishTireGeo = new THREE.CylinderGeometry(0.41, 0.41, 0.09, 28);
     dishTireGeo.rotateZ(Math.PI / 2);
@@ -341,17 +324,48 @@ function buildTigerTank(scene, mats) {
     const trackLinkGeo = new THREE.BoxGeometry(0.68, 0.045, 0.14);
     const trackGrouserGeo = new THREE.BoxGeometry(0.69, 0.028, 0.035);
 
+    // Continuous closed 2D track loop in (Z, Y) plane
+    // Calibrated to run below upper hull sponsons (Y = 0.14) and mudguards (Y = 0.16)
+    // with 16cm clean clearance to prevent clipping into upper body on terrain
+    const TIGER_TRACK_WAYPOINTS = [
+        new THREE.Vector2( 1.95, -0.92),  // 0: Bottom front ground contact
+        new THREE.Vector2(-2.00, -0.92),  // 1: Bottom rear ground contact
+        new THREE.Vector2(-2.48, -0.70),  // 2: Lower rear ramp up to idler
+        new THREE.Vector2(-2.84, -0.45),  // 3: Rear-most lower curve of idler
+        new THREE.Vector2(-2.84, -0.18),  // 4: Rear-most upper curve of idler
+        new THREE.Vector2(-2.52,  0.03),  // 5: Top of rear idler
+        new THREE.Vector2(-1.25, -0.02),  // 6: Rear-mid top run resting on wheels
+        new THREE.Vector2( 0.00, -0.02),  // 7: Center top run resting on wheels
+        new THREE.Vector2( 1.25, -0.01),  // 8: Front-mid top run
+        new THREE.Vector2( 2.52,  0.08),  // 9: Top of drive sprocket
+        new THREE.Vector2( 2.88, -0.12),  // 10: Upper-front curve of drive sprocket
+        new THREE.Vector2( 2.92, -0.32),  // 11: Front-most tip of drive sprocket
+        new THREE.Vector2( 2.82, -0.55),  // 12: Lower-front curve of drive sprocket
+        new THREE.Vector2( 2.45, -0.74)   // 13: Lower front ramp to ground
+    ];
+
+    const totalWaypoints = TIGER_TRACK_WAYPOINTS.length;
+    const trackSegmentLengths = [];
+    let totalTrackLength = 0;
+    for (let i = 0; i < totalWaypoints; i++) {
+        const p0 = TIGER_TRACK_WAYPOINTS[i];
+        const p1 = TIGER_TRACK_WAYPOINTS[(i + 1) % totalWaypoints];
+        const len = p0.distanceTo(p1);
+        trackSegmentLengths.push(len);
+        totalTrackLength += len;
+    }
+
     ['left', 'right'].forEach((sideKey) => {
         const sideSign = (sideKey === 'left') ? 1 : -1;
         const trackX = sideSign * 1.38;
 
         const sprocket = createDriveSprocket(sideSign);
-        sprocket.position.set(trackX, -0.16, 2.56);
+        sprocket.position.set(trackX, -0.32, 2.52);
         hullGroup.add(sprocket);
         driveSprockets.push({ mesh: sprocket, side: sideKey });
 
         const idler = createIdlerWheel();
-        idler.position.set(trackX, -0.12, -2.56);
+        idler.position.set(trackX, -0.32, -2.52);
         hullGroup.add(idler);
         idlerWheels.push({ mesh: idler, side: sideKey });
 
@@ -390,100 +404,57 @@ function buildTigerTank(scene, mats) {
         }
     });
 
-    evaluateTrackPoint = function(sideKey, uNorm) {
-        const stations = roadWheelStations[sideKey];
-        const u = ((uNorm % 1.0) + 1.0) % 1.0;
+    const evaluateTrackPoint = function(sideKey, uNorm) {
+        let u = ((uNorm % 1.0) + 1.0) % 1.0;
+        let targetDist = u * totalTrackLength;
 
-        if (u < 0.36) {
-            const t = u / 0.36;
-            const z = 1.88 - t * 3.80;
-            const exactIdx = t * 7.0;
-            const i0 = Math.max(0, Math.min(7, Math.floor(exactIdx)));
-            const i1 = Math.max(0, Math.min(7, i0 + 1));
-            const frac = exactIdx - i0;
-            const wheelOffset = stations[i0].currentOffset * (1 - frac) + stations[i1].currentOffset * frac;
-            const y = -0.92 + wheelOffset;
-            return { y, z, pitch: 0 };
-        } else if (u < 0.49) {
-            const t = (u - 0.36) / 0.13;
-            const rearWheelY = -0.92 + stations[7].currentOffset;
-            if (t < 0.45) {
-                const st = t / 0.45;
-                const z = -1.92 - st * 0.64;
-                const y = rearWheelY + st * (-0.42 - rearWheelY);
-                return { y, z, pitch: -0.62 };
-            } else {
-                const st = (t - 0.45) / 0.55;
-                const ang = -Math.PI * 0.65 - st * Math.PI * 0.85;
-                const z = -2.56 + Math.sin(ang) * 0.38;
-                const y = -0.12 + Math.cos(ang) * 0.38;
-                return { y, z, pitch: ang };
+        for (let i = 0; i < totalWaypoints; i++) {
+            const segLen = trackSegmentLengths[i];
+            if (targetDist <= segLen || i === totalWaypoints - 1) {
+                const p0 = TIGER_TRACK_WAYPOINTS[i];
+                const p1 = TIGER_TRACK_WAYPOINTS[(i + 1) % totalWaypoints];
+                const t = segLen > 0 ? targetDist / segLen : 0;
+                let z = THREE.MathUtils.lerp(p0.x, p1.x, t);
+                let y = THREE.MathUtils.lerp(p0.y, p1.y, t);
+
+                // Modulate bottom ground run by Schachtellaufwerk suspension station offsets
+                if (i === 0 && sideKey && roadWheelStations[sideKey] && roadWheelStations[sideKey].length >= 8) {
+                    const st = roadWheelStations[sideKey];
+                    const exactIdx = t * 7.0;
+                    const i0 = Math.max(0, Math.min(7, Math.floor(exactIdx)));
+                    const i1 = Math.max(0, Math.min(7, i0 + 1));
+                    const f = exactIdx - i0;
+                    const offset = st[i0].currentOffset * (1.0 - f) + st[i1].currentOffset * f;
+                    y += offset;
+                }
+
+                const dz = p1.x - p0.x;
+                const dy = p1.y - p0.y;
+                const angle = Math.atan2(dy, -dz);
+                return { z, y, pitch: angle };
             }
-        } else if (u < 0.85) {
-            const t = (u - 0.49) / 0.36;
-            const z = -2.56 + t * 5.12;
-            const sag = Math.sin(t * Math.PI * 4) * 0.018;
-            const y = 0.27 - t * 0.02 - sag;
-            return { y, z, pitch: Math.PI };
-        } else {
-            const t = (u - 0.85) / 0.15;
-            const frontWheelY = -0.92 + stations[0].currentOffset;
-            if (t < 0.55) {
-                const st = t / 0.55;
-                const ang = st * Math.PI * 0.78;
-                const z = 2.56 + Math.sin(ang) * 0.43;
-                const y = -0.16 + Math.cos(ang) * 0.43;
-                return { y, z, pitch: Math.PI - ang };
-            } else {
-                const st = (t - 0.55) / 0.45;
-                const z = 2.82 - st * 0.94;
-                const y = -0.45 + st * (frontWheelY - (-0.45));
-                return { y, z, pitch: 0.52 };
-            }
+            targetDist -= segLen;
         }
-    }
+        return { z: TIGER_TRACK_WAYPOINTS[0].x, y: TIGER_TRACK_WAYPOINTS[0].y, pitch: 0 };
+    };
 
-    updateTracksGeometry = function(leftPhase, rightPhase) {
+    const updateTracksGeometry = function(leftPhase, rightPhase) {
         ['left', 'right'].forEach((sideKey) => {
             const links = trackChains[sideKey];
             const phase = (sideKey === 'left') ? leftPhase : rightPhase;
             const n = links.length;
-            const du = 0.005;
 
             for (let i = 0; i < n; i++) {
                 const u = (i / n + phase) % 1.0;
-                const p0 = evaluateTrackPoint(sideKey, u);
-                const p1 = evaluateTrackPoint(sideKey, u + du);
-                const dz = p1.z - p0.z;
-                const dy = p1.y - p0.y;
-                const angle = Math.atan2(dy, -dz);
-
-                links[i].position.y = p0.y;
-                links[i].position.z = p0.z;
-                links[i].rotation.x = angle;
+                const pt = evaluateTrackPoint(sideKey, u);
+                links[i].position.z = pt.z;
+                links[i].position.y = pt.y;
+                links[i].rotation.x = pt.pitch;
             }
         });
-    }
+    };
 
-    window.tankRoot = tankRoot;
-    window.hullGroup = hullGroup;
-    window.turretGroup = turretGroup;
-    window.gunElevationPivot = gunElevationPivot;
-    window.barrelRecoilGroup = barrelRecoilGroup;
-    window.mainGunMuzzleTip = mainGunMuzzleTip;
-    window.coaxMuzzleRef = coaxMuzzleRef;
-    window.bowMgGroup = bowMgGroup;
-    window.bowMgBarrel = bowMgBarrel;
-    window.headlightLights = headlightLights;
-    window.smokeTubes = smokeTubes;
-    window.roadWheelStations = roadWheelStations;
-    window.driveSprockets = driveSprockets;
-    window.idlerWheels = idlerWheels;
-    window.trackChains = trackChains;
-    window.evaluateTrackPoint = evaluateTrackPoint;
-    window.updateTracksGeometry = updateTracksGeometry;
-
-    tankModel = {
+    return {
         tankRoot,
         hullGroup,
         turretGroup,
@@ -502,12 +473,6 @@ function buildTigerTank(scene, mats) {
         evaluateTrackPoint,
         updateTracksGeometry
     };
-    window.tankModel = tankModel;
-
-    return tankModel;
 }
 
-window.addPart = addPart;
 window.buildTigerTank = buildTigerTank;
-window.updateTracksGeometry = updateTracksGeometry;
-window.evaluateTrackPoint = evaluateTrackPoint;

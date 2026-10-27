@@ -37,15 +37,15 @@
   },
   {
     "id": 9,
-    "path": "games/SolarSys/index.html"
-  },
-  {
-    "id": 10,
     "path": "games/StarBattle/index.html"
   },
   {
-    "id": 11,
+    "id": 10,
     "path": "games/StarOutpost/index.html"
+  },
+  {
+    "id": 11,
+    "path": "games/TankClash/index.html"
   },
   {
     "id": 12,
@@ -53,22 +53,14 @@
   },
   {
     "id": 13,
-    "path": "games/TigerTank/index.html"
-  },
-  {
-    "id": 14,
-    "path": "games/TowerDefense/index.html"
-  },
-  {
-    "id": 15,
     "path": "games/USSFord/index.html"
   },
   {
-    "id": 16,
+    "id": 14,
     "path": "games/UmibeStation/index.html"
   },
   {
-    "id": 17,
+    "id": 15,
     "path": "games/WCFinal2026/index.html"
   }
 ]

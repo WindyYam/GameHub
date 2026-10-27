@@ -44,8 +44,19 @@ container.appendChild(renderer.domElement);
 window.renderer = renderer;
 
 // 4. Atmospheric Battlefield Lighting
-const hemiLight = new THREE.HemisphereLight(0xfff7ed, 0x3f4e3d, 0.88);
+const hemiLight = new THREE.HemisphereLight(0xfff7ed, 0x3f4e3d, 0.95);
 scene.add(hemiLight);
+
+// Balanced Omnidirectional Ambient Fill (eliminates crushed black shadows on tank flanks)
+const ambientLight = new THREE.AmbientLight(0xdce7f2, 0.70);
+scene.add(ambientLight);
+window.ambientLight = ambientLight;
+
+// Soft directional fill light targeting the tank's shadowed flank
+const fillLight = new THREE.DirectionalLight(0xb8cde0, 0.75);
+fillLight.castShadow = false;
+scene.add(fillLight);
+window.fillLight = fillLight;
 
 // ============================================================================
 // REALISTIC DYNAMIC DAY / NIGHT CYCLE MANAGER
@@ -99,6 +110,7 @@ sunLight.shadow.camera.right = d;
 sunLight.shadow.camera.top = d;
 sunLight.shadow.camera.bottom = -d;
 sunLight.shadow.bias = -0.0005;
+sunLight.shadow.radius = 2.5; // Soften PCF shadow filter kernel for large-scale contact occlusion
 scene.add(sunLight);
 window.sunLight = sunLight;
 
@@ -131,14 +143,33 @@ window.mats = mats;
 initEnvironment(scene);
 buildEnvironment();
 
-const tank = buildTigerTank(scene, mats);
+const tank = (typeof window.buildTankById === 'function') 
+    ? window.buildTankById('tiger', scene, mats) 
+    : (typeof buildTigerTank === 'function' ? buildTigerTank(scene, mats) : null);
 window.tankModel = tank;
+if (window.TANK_SPECS) {
+    tankState.currentTankSpec = window.TANK_SPECS.tiger;
+    if (typeof window.updateTankHUD === 'function') {
+        window.updateTankHUD(window.TANK_SPECS.tiger);
+    }
+}
 
 initControls(renderer);
 if (typeof updateTracksGeometry === 'function') {
     updateTracksGeometry(0, 0);
 } else if (typeof window.updateTracksGeometry === 'function') {
     window.updateTracksGeometry(0, 0);
+}
+
+// Ensure tank is seated cleanly on the road surface at spawn
+const initSpawnY = getTerrainHeight(0, 0);
+tankState.y = initSpawnY;
+if (tankRoot) {
+    tankRoot.position.set(0, initSpawnY, 0);
+}
+const seedBadge = document.getElementById('hud-seed-display');
+if (seedBadge && window.currentSeed) {
+    seedBadge.textContent = 'Seed: ' + window.currentSeed;
 }
 
 // ============================================================================
@@ -150,35 +181,113 @@ function updateSimulation(dt) {
     const nowSec = performance.now() * 0.001;
     const currentActiveCam = window.activeCamera || activeCamera;
 
-    // --- 1. DRIVING & STEERING PHYSICS (W, A, S, D & Mobile D-Pad) ---
+    // --- 1. DRIVING & TRACTOR FORCE DYNAMICS (Mass, Engine Power, Slope Gravity, Rolling Resistance) ---
     const forwardInput = ((keys['w'] ? 1 : 0) - (keys['s'] ? 1 : 0)) || touchDrive.forward;
     const turnInput    = ((keys['a'] ? 1 : 0) - (keys['d'] ? 1 : 0)) || touchDrive.turn;
 
-    const maxSpeed = 10.6; // ~38 km/h realistic Tiger I top road speed
-    const prevSpeed = tankState.speed;
+    const currentSpec = tankState.currentTankSpec || (window.TANK_SPECS && window.TANK_SPECS[window.currentTankId || 'tiger']) || {
+        massKg: 57000,
+        enginePowerKW: 515,
+        maxSpeed: 10.6,
+        reverseSpeed: 4.2,
+        turnSpeed: 1.15
+    };
 
-    if (forwardInput !== 0) {
-        tankState.speed += forwardInput * 4.8 * dt;
+    const mass = currentSpec.massKg || (parseFloat(currentSpec.weight) * 1000) || 57000;
+    const enginePower = (currentSpec.enginePowerKW || 515) * 1000; // in Watts
+    const transmissionEfficiency = 0.82;
+    const maxSpeed = tankState.MAX_SPEED || currentSpec.maxSpeed || 10.6;
+    const revSpeed = tankState.REVERSE_SPEED || currentSpec.reverseSpeed || 4.2;
+    const turnStrength = tankState.TURN_SPEED || currentSpec.turnSpeed || 1.15;
+    const gravity = 9.81;
+
+    // A. Longitudinal Slope Gravity Force:
+    // When climbing (pitch > 0, nose up), gravity pulls the tank backwards.
+    // When descending (pitch < 0, nose down), gravity accelerates the tank forwards.
+    const slopePitch = tankState.pitch;
+    const F_gravity = -mass * gravity * Math.sin(slopePitch);
+
+    // Normal Force perpendicular to terrain slope
+    const normalForce = Math.max(0.1, mass * gravity * Math.cos(slopePitch));
+
+    // B. Rolling Resistance of steel tracks over terrain / earth
+    const crr = 0.048;
+    const isMoving = Math.abs(tankState.speed) > 0.05;
+    const F_roll = -(isMoving ? Math.sign(tankState.speed) : forwardInput) * crr * normalForce;
+
+    // C. Engine Tractive Force & Dynamic Track Band Braking
+    let F_engine = 0;
+    const maxTrackAdhesion = 0.80 * normalForce; // Limit by track friction on ground
+
+    if (forwardInput > 0) {
+        if (tankState.speed < -0.25) {
+            // Foot brake applied while rolling backwards: strong mechanical track band brakes
+            F_engine = mass * 7.5;
+        } else {
+            // Forward tractive effort: Power / velocity curve with low-end adhesion limit
+            const effectiveSpeed = Math.max(Math.abs(tankState.speed), 1.35);
+            let rawTractiveForce = Math.min(maxTrackAdhesion, (enginePower * transmissionEfficiency) / effectiveSpeed);
+            // Speed governor roll-off as vehicle approaches maximum top gear speed
+            const speedRatio = Math.max(0, tankState.speed / maxSpeed);
+            const govFactor = Math.max(0, 1.0 - Math.pow(speedRatio, 2));
+            F_engine = rawTractiveForce * govFactor * forwardInput;
+        }
+    } else if (forwardInput < 0) {
+        if (tankState.speed > 0.25) {
+            // Foot brake applied while driving forward: rapid braking deceleration
+            F_engine = -mass * 7.5;
+        } else {
+            // Reverse gear tractive effort
+            const effectiveSpeed = Math.max(Math.abs(tankState.speed), 1.35);
+            let rawTractiveForce = Math.min(maxTrackAdhesion * 0.75, (enginePower * 0.50 * transmissionEfficiency) / effectiveSpeed);
+            const speedRatio = Math.max(0, -tankState.speed / revSpeed);
+            const govFactor = Math.max(0, 1.0 - Math.pow(speedRatio, 2));
+            F_engine = -rawTractiveForce * govFactor * Math.abs(forwardInput);
+        }
     } else {
-        tankState.speed *= Math.pow(0.18, dt);
-        if (Math.abs(tankState.speed) < 0.02) tankState.speed = 0;
+        // Neutral / Throttle Idle: Engine compression resistance and static track friction
+        if (isMoving) {
+            // Engine compression braking & track drag
+            F_engine = -tankState.speed * (mass * 0.45);
+        } else if (Math.abs(slopePitch) < 0.28) {
+            // Static track grip & transmission gear hold on slopes up to ~16°
+            F_engine = -F_gravity;
+        }
     }
-    tankState.speed = THREE.MathUtils.clamp(tankState.speed, -maxSpeed * 0.5, maxSpeed);
 
-    // Longitudinal acceleration pitch torque (squat on accel, dive on braking)
-    const accel = (tankState.speed - prevSpeed) / Math.max(dt, 0.001);
-    tankState.pitchVel += accel * 0.015 * dt;
+    // Net longitudinal force and resulting acceleration (F = m * a)
+    const F_net = F_engine + F_gravity + F_roll;
+    const accel = F_net / mass;
+    tankState.speed += accel * dt;
 
-    // Neutral / Pivot Steering
+    // Terminal velocity caps under extreme downhill runs
+    const terminalMax = maxSpeed * 1.55;
+    const terminalRev = revSpeed * 1.40;
+    tankState.speed = THREE.MathUtils.clamp(tankState.speed, -terminalRev, terminalMax);
+
+    // Static stick threshold on moderate slopes when idling
+    if (forwardInput === 0 && Math.abs(tankState.speed) < 0.08 && Math.abs(slopePitch) < 0.28) {
+        tankState.speed = 0;
+    }
+
+    // Longitudinal acceleration squat/dive impulse on chassis
+    tankState.pitchVel += accel * 0.012 * dt;
+
+    // Neutral / Pivot Steering Dynamics with track ground scrub resistance
+    const scrubFactor = 1.0 - Math.min(0.35, Math.abs(tankState.speed) / maxSpeed * 0.3);
     if (turnInput !== 0) {
-        tankState.turnRate = THREE.MathUtils.lerp(tankState.turnRate, turnInput * 0.85, 6 * dt);
+        tankState.turnRate = THREE.MathUtils.lerp(tankState.turnRate, turnInput * (0.85 * (turnStrength / 1.15)) * scrubFactor, 6 * dt);
     } else {
-        tankState.turnRate *= Math.pow(0.05, dt);
+        tankState.turnRate *= Math.pow(0.04, dt);
+        if (Math.abs(tankState.turnRate) < 0.005) tankState.turnRate = 0;
     }
 
     tankState.heading += tankState.turnRate * dt;
-    tankState.x += Math.sin(tankState.heading) * tankState.speed * dt;
-    tankState.z += Math.cos(tankState.heading) * tankState.speed * dt;
+
+    // Projected horizontal ground displacement along terrain slope
+    const horizSpeed = tankState.speed * Math.cos(tankState.pitch);
+    tankState.x += Math.sin(tankState.heading) * horizSpeed * dt;
+    tankState.z += Math.cos(tankState.heading) * horizSpeed * dt;
 
     // Kick up muddy track dirt particles when driving in the wild
     if (window.environmentMode === 'wild' && (Math.abs(tankState.speed) > 1.2 || Math.abs(tankState.turnRate) > 0.2) && Math.random() < 0.45) {
@@ -209,57 +318,114 @@ function updateSimulation(dt) {
     const speedRatio = Math.min(1, Math.abs(tankState.speed) / maxSpeed + Math.abs(tankState.turnRate) * 0.3);
     soundFX.updateEngine(speedRatio, forwardInput !== 0 || turnInput !== 0);
 
-    // --- 2. TORSION BAR SPRING-DAMPER SUSPENSION & TERRAIN SAMPLING ---
+    // --- 1b. TANK VS BUILDING COLLISION (Stop tank at solid house walls) ---
+    const worldBldgs = window.worldBuildings || [];
+    for (let bi = 0; bi < worldBldgs.length; bi++) {
+        const b = worldBldgs[bi];
+        const bdx = tankState.x - b.x;
+        const bdz = tankState.z - b.z;
+        const bDist = Math.hypot(bdx, bdz);
+        const minClearance = (b.radius || 3.5) + 1.8;
+        if (bDist < minClearance && bDist > 0.001) {
+            const overlap = minClearance - bDist;
+            tankState.x += (bdx / bDist) * overlap;
+            tankState.z += (bdz / bDist) * overlap;
+            tankState.speed *= 0.6;
+        }
+    }
+
+    // --- 2. MULTI-WHEEL GROUND PLANE FITTING & SUSPENSION DYNAMICS ---
     const cosH = Math.cos(tankState.heading);
     const sinH = Math.sin(tankState.heading);
 
-    let avgGroundY = 0;
-    let pitchTorque = 0;
-    let rollTorque = 0;
+    // Collect all road wheel stations or default footprint corners
+    const leftStations = (roadWheelStations && roadWheelStations.left && roadWheelStations.left.length > 0) ? roadWheelStations.left : [];
+    const rightStations = (roadWheelStations && roadWheelStations.right && roadWheelStations.right.length > 0) ? roadWheelStations.right : [];
+    const allStations = [...leftStations, ...rightStations];
 
-    ['left', 'right'].forEach((sideKey) => {
-        const sideSign = (sideKey === 'left') ? 1 : -1;
-        const stations = roadWheelStations[sideKey];
+    let sumH = 0;
+    let sumZ = 0;
+    let sumX = 0;
+    let sumZZ = 0;
+    let sumXX = 0;
+    let sumZH = 0;
+    let sumXH = 0;
+    const numStations = allStations.length;
 
-        for (let i = 0; i < stations.length; i++) {
-            const st = stations[i];
-            const wx = tankState.x + st.x * cosH + st.z * sinH;
-            const wz = tankState.z - st.x * sinH + st.z * cosH;
+    // Sample terrain height at each wheel contact patch and accumulate least-squares statistics
+    for (let i = 0; i < numStations; i++) {
+        const st = allStations[i];
+        const wx = tankState.x + st.x * cosH + st.z * sinH;
+        const wz = tankState.z - st.x * sinH + st.z * cosH;
+        const gh = getTerrainHeight(wx, wz);
+        st.lastGroundH = gh;
 
-            const groundH = getTerrainHeight(wx, wz);
-            avgGroundY += groundH;
+        sumH  += gh;
+        sumZ  += st.z;
+        sumX  += st.x;
+        sumZZ += st.z * st.z;
+        sumXX += st.x * st.x;
+        sumZH += st.z * gh;
+        sumXH += st.x * gh;
+    }
 
-            const hullWheelHeight = (tankState.y + tankState.heave) + st.z * Math.sin(tankState.pitch) - st.x * Math.sin(tankState.roll);
-            const targetCompression = THREE.MathUtils.clamp(groundH - hullWheelHeight, -0.18, 0.28);
+    let targetPitch = 0;
+    let targetRoll = 0;
+    let avgGroundH = tankState.y;
 
-            const springK = 140.0;
-            const dampingC = 18.0;
-            const force = (targetCompression - st.currentOffset) * springK - st.velocityY * dampingC;
-            st.velocityY += force * dt;
-            st.currentOffset = THREE.MathUtils.clamp(st.currentOffset + st.velocityY * dt, -0.18, 0.28);
+    if (numStations > 0) {
+        avgGroundH = sumH / numStations;
+        const varZ = sumZZ - (sumZ * sumZ) / numStations;
+        const varX = sumXX - (sumX * sumX) / numStations;
+        const covZH = sumZH - (sumZ * sumH) / numStations;
+        const covXH = sumXH - (sumX * sumH) / numStations;
 
-            st.cluster.position.y = st.baseY + st.currentOffset;
+        const slopeZ = varZ > 0.001 ? covZH / varZ : 0;
+        const slopeX = varX > 0.001 ? covXH / varX : 0;
 
-            pitchTorque += st.currentOffset * st.z * 0.42;
-            rollTorque  -= st.currentOffset * sideSign * 0.38;
-        }
-    });
+        targetPitch = Math.atan(slopeZ);
+        targetRoll  = Math.atan(slopeX);
+    } else {
+        avgGroundH = getTerrainHeight(tankState.x, tankState.z);
+    }
 
-    avgGroundY /= 16.0;
-    tankState.y = THREE.MathUtils.lerp(tankState.y, avgGroundY, 10 * dt);
+    // Dynamic Suspension Tracking: Spring-damper physics towards terrain ground plane
+    const pitchSpringK = 40.0;
+    const pitchDampC = 8.5;
+    const pitchForce = (targetPitch - tankState.pitch) * pitchSpringK - tankState.pitchVel * pitchDampC;
+    tankState.pitchVel += pitchForce * dt;
+    tankState.pitch += tankState.pitchVel * dt;
 
-    // Hull Heave, Pitch & Roll Spring-Damper Dynamics
+    // Centrifugal body roll during turns at speed
+    const rollSpringK = 44.0;
+    const rollDampC = 9.0;
+    const centrifugalRoll = -(tankState.speed * tankState.turnRate) * 0.035;
+    const rollForce = (targetRoll - tankState.roll) * rollSpringK - tankState.rollVel * rollDampC + centrifugalRoll;
+    tankState.rollVel += rollForce * dt;
+    tankState.roll += tankState.rollVel * dt;
+
+    // Vertical heave tracking & hull bounce
+    tankState.y = THREE.MathUtils.lerp(tankState.y, avgGroundH, Math.min(1.0, 12.0 * dt));
     const heaveForce = -tankState.heave * 42.0 - tankState.heaveVel * 7.5;
     tankState.heaveVel += heaveForce * dt;
     tankState.heave += tankState.heaveVel * dt;
 
-    const totalPitchForce = pitchTorque - tankState.pitch * 26.0 - tankState.pitchVel * 5.2;
-    tankState.pitchVel += totalPitchForce * dt;
-    tankState.pitch += tankState.pitchVel * dt;
+    // Individual road wheel suspension articulation relative to tilted hull floor
+    for (let i = 0; i < numStations; i++) {
+        const st = allStations[i];
+        const hullWheelH = (tankState.y + tankState.heave) + st.z * Math.sin(tankState.pitch) + st.x * Math.sin(tankState.roll);
+        const targetOffset = THREE.MathUtils.clamp(st.lastGroundH - hullWheelH, -0.22, 0.30);
 
-    const totalRollForce = rollTorque - tankState.roll * 32.0 - tankState.rollVel * 6.0;
-    tankState.rollVel += totalRollForce * dt;
-    tankState.roll += tankState.rollVel * dt;
+        const springK = 150.0;
+        const dampingC = 18.0;
+        const force = (targetOffset - st.currentOffset) * springK - st.velocityY * dampingC;
+        st.velocityY += force * dt;
+        st.currentOffset = THREE.MathUtils.clamp(st.currentOffset + st.velocityY * dt, -0.22, 0.30);
+
+        if (st.cluster) {
+            st.cluster.position.y = st.baseY + st.currentOffset;
+        }
+    }
 
     // Apply transforms to Tank Root & Chassis BEFORE computing camera & local turret aim
     tankRoot.position.set(tankState.x, tankState.y, tankState.z);
@@ -378,7 +544,7 @@ function updateSimulation(dt) {
         // Desired elevation in turret trunnion frame with KwK 36 773 m/s superelevation
         const dy = localTargetInHull.y - (0.70 + 0.39);
         const horizDist = Math.max(0.5, Math.hypot(dx, dz) - 0.92);
-        const flightTime = horizDist / 773.0;
+        const flightTime = horizDist / (tankState.SHELL_VELOCITY || 773.0);
         const drop = 0.5 * 9.81 * flightTime * flightTime;
         const gravityComp = Math.atan2(drop, horizDist);
         const desiredElev = Math.atan2(dy, horizDist) + gravityComp;
@@ -612,6 +778,13 @@ function updateSimulation(dt) {
     updateProjectiles(dt);
     updateParticles(dt);
 
+    // --- 8. PROCEDURAL CHUNK STREAMING, GRASS & DAYLIGHT ATMOSPHERE ---
+    if (typeof updateEnvironment === 'function') {
+        updateEnvironment(dt, tankState);
+    } else if (typeof window.updateEnvironment === 'function') {
+        window.updateEnvironment(dt, tankState);
+    }
+
     // --- CELESTIAL MECHANICS & REALISTIC DAY/NIGHT TRANSITION (Maldive Benchmark) ---
     if (!dayNight.paused) {
         dayNight.time = (dayNight.time + dt * dayNight.speed) % 24.0;
@@ -644,7 +817,7 @@ function updateSimulation(dt) {
     // Sun & Moon directional lighting
     const sunCol = DAY_NIGHT_COLORS.noonSun.clone().lerp(DAY_NIGHT_COLORS.goldenHour, twilightFactor * 0.92);
     sunLight.color.copy(sunCol);
-    sunLight.intensity = Math.max(0.0, THREE.MathUtils.smoothstep(sunY, -0.06, 0.28) * 2.8 + twilightFactor * 0.85);
+    sunLight.intensity = Math.max(0.0, THREE.MathUtils.smoothstep(sunY, -0.06, 0.28) * 2.1 + twilightFactor * 0.75);
 
     moonLight.color.setHex(0x8ab4f8);
     moonLight.intensity = nightFactor * 0.85;
@@ -665,7 +838,29 @@ function updateSimulation(dt) {
     // Hemisphere natural bounce lighting (Earth meadow up + Sky down)
     hemiLight.color.copy(skyHorizonColor);
     hemiLight.groundColor.copy(DAY_NIGHT_COLORS.groundNight).lerp(DAY_NIGHT_COLORS.groundDay, dayFactor);
-    hemiLight.intensity = 0.35 + dayFactor * 0.52 + twilightFactor * 0.26;
+    hemiLight.intensity = 0.55 + dayFactor * 0.50 + twilightFactor * 0.28;
+
+    // Omnidirectional sky ambient light to eliminate crushed dark sides
+    ambientLight.color.copy(skyHorizonColor).lerp(new THREE.Color(0xffffff), 0.45);
+    ambientLight.intensity = 0.45 + dayFactor * 0.38 + twilightFactor * 0.22;
+
+    // Dynamic directional fill light pointing from opposite sun azimuth to soften shaded tank flank
+    const fillDir = new THREE.Vector3(-sunDir.x, 0.42, -sunDir.z).normalize();
+    fillLight.position.set(
+        tankState.x + fillDir.x * 60,
+        tankState.y + fillDir.y * 60,
+        tankState.z + fillDir.z * 60
+    );
+    fillLight.target.position.set(tankState.x, tankState.y, tankState.z);
+    fillLight.target.updateMatrixWorld();
+    fillLight.color.copy(skyHorizonColor).lerp(new THREE.Color(0xb2ccdf), 0.55);
+    fillLight.intensity = 0.35 + dayFactor * 0.45 + twilightFactor * 0.20;
+
+    // Rim lighting following the tank
+    rimLight.position.set(tankState.x - 30, tankState.y + 24, tankState.z - 28);
+    rimLight.target.position.set(tankState.x, tankState.y, tankState.z);
+    rimLight.target.updateMatrixWorld();
+    rimLight.intensity = 0.25 + dayFactor * 0.30;
 
     // Fog & Background synced with horizon atmosphere
     if (scene.fog) {
@@ -780,6 +975,11 @@ function updateSimulation(dt) {
 
     const hitEl = document.getElementById('hud-targets');
     if (hitEl) hitEl.textContent = `Hits: ${tankState.hitsCount}`;
+
+    const hudSeedEl = document.getElementById('hud-seed-display');
+    if (hudSeedEl && window.currentSeed) {
+        hudSeedEl.textContent = `Seed: ${window.currentSeed} • X:${Math.round(tankState.x)}m Z:${Math.round(tankState.z)}m`;
+    }
 
     // Mobile Mini HUD updates
     const mobSpeedEl = document.getElementById('mob-speed');

@@ -75,9 +75,12 @@ function initControls(renderer) {
         if (k === 'f') { isFiringCoaxMG = true; }
         if (k === 'x') fireSmokeDischargers();
         if (k === 'h') toggleHeadlights();
+        if (k === 'r') { if (typeof window.restartGame === 'function') window.restartGame(); }
         if (k === 't') { if (window.dayNight && window.dayNight.cycleNext) window.dayNight.cycleNext(); }
-        if (k === '1') setCameraMode('orbit');
-        if (k === '5' || k === 'v') setCameraMode(cameraMode === 'fpv' ? 'orbit' : 'fpv');
+        if (k === '1') { if (typeof window.switchTank === 'function') window.switchTank('tiger'); }
+        if (k === '2') { if (typeof window.switchTank === 'function') window.switchTank('sherman'); }
+        if (k === '3') { if (typeof window.switchTank === 'function') window.switchTank('t34'); }
+        if (k === '5' || k === 'v' || k === 'c') setCameraMode(cameraMode === 'fpv' ? 'orbit' : 'fpv');
         if (k === 'z' && cameraMode === 'fpv') {
             isFpvZoomed = !isFpvZoomed;
             window.perspCamera.fov = isFpvZoomed ? 15 : 46;
@@ -369,6 +372,17 @@ function initControls(renderer) {
     // ------------------------------------------------------------------------
     // 4. TOP VIEWS & AUDIO CONTROLS
     // ------------------------------------------------------------------------
+    // Tank Selector Buttons in HUD
+    document.querySelectorAll('.tank-select-btn').forEach((btn) => {
+        btn.onclick = (e) => {
+            e.preventDefault();
+            const tid = btn.getAttribute('data-tank');
+            if (tid && typeof window.switchTank === 'function') {
+                window.switchTank(tid);
+            }
+        };
+    });
+
     const btnOrbit = document.getElementById('cam-orbit');
     if (btnOrbit) btnOrbit.onclick = () => setCameraMode('orbit');
 
@@ -438,10 +452,22 @@ function initControls(renderer) {
         if (window.dayNight && window.dayNight.cycleNext) window.dayNight.cycleNext();
     });
 
+    const btnRestart = document.getElementById('btn-restart');
+    if (btnRestart) btnRestart.addEventListener('click', (e) => {
+        e.preventDefault();
+        if (typeof window.restartGame === 'function') window.restartGame();
+    });
+
     const mobBtnTime = document.getElementById('mob-btn-time');
     if (mobBtnTime) mobBtnTime.addEventListener('pointerdown', (e) => {
         e.preventDefault();
         if (window.dayNight && window.dayNight.cycleNext) window.dayNight.cycleNext();
+    });
+
+    const mobBtnRestart = document.getElementById('mob-btn-restart');
+    if (mobBtnRestart) mobBtnRestart.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        if (typeof window.restartGame === 'function') window.restartGame();
     });
 
     // ------------------------------------------------------------------------
