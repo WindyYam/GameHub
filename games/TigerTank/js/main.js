@@ -545,6 +545,22 @@ function updateSimulation(dt) {
     const hitEl = document.getElementById('hud-targets');
     if (hitEl) hitEl.textContent = `Hits: ${tankState.hitsCount}`;
 
+    // Mobile Mini HUD updates
+    const mobSpeedEl = document.getElementById('mob-speed');
+    if (mobSpeedEl) mobSpeedEl.textContent = kmh;
+    const mobHitsEl = document.getElementById('mob-hits');
+    if (mobHitsEl) mobHitsEl.textContent = `Hits: ${tankState.hitsCount}`;
+    const mobReloadEl = document.getElementById('mob-reload');
+    if (mobReloadEl) {
+        if (tankState.reloadTimer <= 0) {
+            mobReloadEl.textContent = 'READY';
+            mobReloadEl.className = 'text-emerald-400 font-bold';
+        } else {
+            mobReloadEl.textContent = `${tankState.reloadTimer.toFixed(1)}s`;
+            mobReloadEl.className = 'text-amber-400 font-bold';
+        }
+    }
+
     const reloadBar = document.getElementById('hud-reload-bar');
     const reloadTxt = document.getElementById('hud-reload-text');
     if (reloadBar && reloadTxt) {
@@ -575,10 +591,50 @@ function animate(now) {
     renderer.render(scene, window.activeCamera || activeCamera);
 }
 
-window.addEventListener('resize', () => {
-    updateCameraProjectionAspect();
-    renderer.setSize(window.innerWidth, window.innerHeight);
+function onWindowResize() {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    if (w <= 0 || h <= 0) return;
+
+    if (window.perspCamera) {
+        window.perspCamera.aspect = w / h;
+        window.perspCamera.updateProjectionMatrix();
+    }
+    if (window.renderer) {
+        window.renderer.setSize(w, h);
+        window.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    }
+}
+window.onWindowResize = onWindowResize;
+window.updateCameraProjectionAspect = onWindowResize;
+
+window.addEventListener('resize', onWindowResize);
+window.addEventListener('orientationchange', () => {
+    onWindowResize();
+    setTimeout(onWindowResize, 100);
+    setTimeout(onWindowResize, 300);
+    setTimeout(onWindowResize, 600);
 });
+document.addEventListener('fullscreenchange', () => {
+    onWindowResize();
+    setTimeout(onWindowResize, 100);
+    setTimeout(onWindowResize, 300);
+    setTimeout(onWindowResize, 600);
+});
+document.addEventListener('webkitfullscreenchange', () => {
+    onWindowResize();
+    setTimeout(onWindowResize, 100);
+    setTimeout(onWindowResize, 300);
+    setTimeout(onWindowResize, 600);
+});
+if (screen.orientation && screen.orientation.addEventListener) {
+    screen.orientation.addEventListener('change', () => {
+        onWindowResize();
+        setTimeout(onWindowResize, 100);
+        setTimeout(onWindowResize, 300);
+        setTimeout(onWindowResize, 600);
+    });
+}
 
 window.onload = function () {
     animate(performance.now());
