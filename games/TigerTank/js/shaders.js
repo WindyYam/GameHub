@@ -349,7 +349,6 @@ function createHaltonPatternTexture() {
     if (_haltonPatternTexture) return _haltonPatternTexture;
 
     // High-resolution 64x64 grid = 4,096 continuous Halton threshold levels
-    // Eliminates coarse 8x8 tiling artifacts while maintaining optimal cache locality
     const size = 64;
     const canvas = document.createElement('canvas');
     canvas.width = size;
@@ -403,6 +402,77 @@ function createHaltonPatternTexture() {
     tex.generateMipmaps = false;
 
     _haltonPatternTexture = tex;
+    return tex;
+}
+
+// ============================================================================
+// 64x64 Void-and-Cluster Blue Noise Matrix Generator (Robert Ulichney)
+// Mathematically engineered with zero low-frequency energy for minimum grain.
+// ============================================================================
+let _blueNoiseTexture = null;
+
+function createBlueNoiseTexture() {
+    if (_blueNoiseTexture) return _blueNoiseTexture;
+
+    const size = 64;
+    const total = size * size;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    const imgData = ctx.createImageData(size, size);
+
+    // Toroidal Gaussian energy filter for Void-and-Cluster spatial relaxation
+    const sigma = 1.9;
+    const R = 3;
+    const lut = [];
+    for (let y = -R; y <= R; y++) {
+        for (let x = -R; x <= R; x++) {
+            lut.push({ dx: x, dy: y, w: Math.exp(-(x * x + y * y) / (2 * sigma * sigma)) });
+        }
+    }
+
+    const energy = new Float32Array(total);
+
+    for (let i = 0; i < total; i++) {
+        // Find largest void (minimum Gaussian energy location)
+        let minIdx = 0, minE = energy[0];
+        for (let j = 1; j < total; j++) {
+            if (energy[j] < minE) {
+                minE = energy[j];
+                minIdx = j;
+            }
+        }
+
+        // Assign normalized threshold [0, 255]
+        const threshold = Math.floor(((i + 0.5) / total) * 255);
+        const pIdx = minIdx * 4;
+        imgData.data[pIdx]     = threshold;
+        imgData.data[pIdx + 1] = threshold;
+        imgData.data[pIdx + 2] = threshold;
+        imgData.data[pIdx + 3] = 255;
+
+        // Mark as occupied and diffuse Gaussian energy into toroidal neighborhood
+        energy[minIdx] += 999999;
+        const mx = minIdx % size;
+        const my = Math.floor(minIdx / size);
+        for (let k = 0; k < lut.length; k++) {
+            const nx = (mx + lut[k].dx + size) % size;
+            const ny = (my + lut[k].dy + size) % size;
+            energy[ny * size + nx] += lut[k].w;
+        }
+    }
+
+    ctx.putImageData(imgData, 0, 0);
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.minFilter = THREE.NearestFilter;
+    tex.magFilter = THREE.NearestFilter;
+    tex.generateMipmaps = false;
+
+    _blueNoiseTexture = tex;
     return tex;
 }
 
@@ -470,13 +540,13 @@ function createVolumetricSmokeGeometry() {
 }
 
 // ============================================================================
-// Volumetric Cloud Smoke Material with 64x64 Halton Sampling
-// Combines true ray path thickness, 3D fractal billows, and Halton sampling
+// Band-Limited 64x64 Void-and-Cluster Blue Noise Volumetric Smoke Material
+// Solid Opaque Core (Zero Grain) + Feathered Blue Noise Perimeter (Zero Hard Edge)
 // Zero GPU alpha-overdraw, zero framebuffer read-modify-write, full Early-Z.
 // ============================================================================
 
 function createHaltonSmokeMaterial(colorHex = 0x94a3b8) {
-    const haltonTex = createHaltonPatternTexture();
+    const blueNoiseTex = createBlueNoiseTexture();
     const color = (colorHex && colorHex.isColor) ? colorHex.clone() : new THREE.Color(colorHex);
 
     const mat = new THREE.ShaderMaterial({
@@ -485,7 +555,8 @@ function createHaltonSmokeMaterial(colorHex = 0x94a3b8) {
             opacity:      { value: 0.88 },
             uAgeProgress: { value: 0.0 },
             ditherOffset: { value: new THREE.Vector2(0, 0) },
-            haltonMap:    { value: haltonTex },
+            blueNoiseMap: { value: blueNoiseTex },
+            haltonMap:    { value: blueNoiseTex },
             uTime:        celestialLighting.time,
             sunDirection: celestialLighting.sunDirection,
             sunColor:     celestialLighting.sunColor,
@@ -522,7 +593,7 @@ function createHaltonSmokeMaterial(colorHex = 0x94a3b8) {
             uniform float opacity;
             uniform float uAgeProgress;
             uniform vec2 ditherOffset;
-            uniform sampler2D haltonMap;
+            uniform sampler2D blueNoiseMap;
             uniform float uTime;
             uniform vec3 sunDirection;
             uniform vec3 sunColor;
@@ -573,7 +644,7 @@ function createHaltonSmokeMaterial(colorHex = 0x94a3b8) {
             }
 
             void main() {
-                // 1. True Volumetric Ray Thickness (Eliminates the "solid object" look)
+                // 1. True Volumetric Ray Path Thickness (Eliminates the "solid object" look)
                 float r = length(vLocalPos);
                 float NdotV = clamp(dot(vNormal, vViewDir), 0.0, 1.0);
                 
@@ -588,12 +659,18 @@ function createHaltonSmokeMaterial(colorHex = 0x94a3b8) {
                 float lifeFactor = 1.0 - smoothstep(0.45, 1.0, uAgeProgress);
                 float finalDensity = clamp(turbulentDensity * opacity * lifeFactor * 1.5, 0.0, 1.0);
 
-                // 2. High-Frequency 64x64 Halton Sequence Sampling Discard Test
-                vec2 haltonCoord = (gl_FragCoord.xy + ditherOffset) / 64.0;
-                float haltonThreshold = texture2D(haltonMap, haltonCoord).r;
+                // 2. Band-Limited Void-and-Cluster Blue Noise Sampling:
+                // Core of the cloud (finalDensity >= 0.82) is completely SOLID (Zero grain / Zero noise!)
+                // Only the feathered outer ~18% perimeter and late evaporative wisps use Blue Noise!
+                if (finalDensity < 0.82) {
+                    vec2 ditherCoord = (gl_FragCoord.xy + ditherOffset) / 64.0;
+                    float blueNoiseThreshold = texture2D(blueNoiseMap, ditherCoord).r;
 
-                if (finalDensity < haltonThreshold) {
-                    discard;
+                    // Normalize edge band [0.0, 0.82] to [0.0, 1.0] for optimal high-frequency dispersion
+                    float edgeFactor = finalDensity / 0.82;
+                    if (edgeFactor < blueNoiseThreshold) {
+                        discard;
+                    }
                 }
 
                 // 3. Maldive Henyey-Greenstein Dual-Lobe Scattering on Surviving Fragments
@@ -651,6 +728,7 @@ function createHaltonSmokeMaterial(colorHex = 0x94a3b8) {
 
 const createMaldiveSmokeMaterial = createHaltonSmokeMaterial;
 const createOpaqueVolumetricSmokeMaterial = createHaltonSmokeMaterial;
+const createBlueNoiseSmokeMaterial = createHaltonSmokeMaterial;
 
 // ============================================================================
 // Realistic 3D Grass Blade Tuft Geometry & Botanical Shader
@@ -1399,9 +1477,11 @@ window.createGrilleTexture = createGrilleTexture;
 window.createMaterials = createMaterials;
 window.haltonRadicalInverse = haltonRadicalInverse;
 window.createHaltonPatternTexture = createHaltonPatternTexture;
+window.createBlueNoiseTexture = createBlueNoiseTexture;
 window.createHaltonSmokeMaterial = createHaltonSmokeMaterial;
 window.createMaldiveSmokeMaterial = createMaldiveSmokeMaterial;
 window.createOpaqueVolumetricSmokeMaterial = createOpaqueVolumetricSmokeMaterial;
+window.createBlueNoiseSmokeMaterial = createBlueNoiseSmokeMaterial;
 window.createVolumetricSmokeGeometry = createVolumetricSmokeGeometry;
 window.createGrassTuftGeometry = createGrassTuftGeometry;
 window.createGrassMaterial = createGrassMaterial;
