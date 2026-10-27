@@ -45,8 +45,8 @@ var roadBaseX = 0;
 function setWorldSeed(seed) {
     currentSeed = seed;
     window.currentSeed = currentSeed;
-    seedOffset.x = (currentSeed % 1000) * 137.17;
-    seedOffset.z = ((Math.floor(currentSeed / 1000)) % 1000) * 173.31;
+    seedOffset.x = (currentSeed % 289);
+    seedOffset.z = ((Math.floor(currentSeed / 289)) % 289);
     roadBaseX = Math.sin(seedOffset.z * 0.009) * 32.0 + Math.cos(seedOffset.z * 0.021) * 12.0 + Math.sin(seedOffset.z * 0.0035) * 20.0;
 
     if (terrainUniforms && terrainUniforms.uSeedOffset) {
@@ -80,14 +80,13 @@ function smoothstep(edge0, edge1, x) {
     return t * t * (3.0 - 2.0 * t);
 }
 
-// Exact 3D-vector-hash matching GLSL hash2D_gpu bit-for-bit
+// Exact Stefan Gustavson modular permutation hash matching GLSL 1:1 with zero float precision divergence
+function mod289(x) { return ((x % 289) + 289) % 289; }
+function permute(x) { return mod289(((x * 34) + 1) * x); }
 function hash2D(px, py) {
-    let p3x = fract(px * 0.1031);
-    let p3y = fract(py * 0.1031);
-    let p3z = fract(px * 0.1031);
-    const d = p3x * (p3y + 33.33) + p3y * (p3z + 33.33) + p3z * (p3x + 33.33);
-    p3x += d; p3y += d; p3z += d;
-    return fract((p3x + p3y) * p3z);
+    const ix = Math.floor(px);
+    const iy = Math.floor(py);
+    return permute(permute(ix) + iy) / 288.0;
 }
 
 function valueNoise2D(px, py) {
@@ -131,10 +130,14 @@ const SHARED_TERRAIN_GLSL = `
     uniform vec2 uSeedOffset;
     uniform float uRoadBaseX;
 
+    float mod289_gpu(float x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+    vec2 mod289_gpu(vec2 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+    float permute_gpu(float x) { return mod289_gpu(((x * 34.0) + 1.0) * x); }
+    vec2 permute_gpu(vec2 x) { return mod289_gpu(((x * 34.0) + 1.0) * x); }
+
     float hash2D_gpu(vec2 p) {
-        vec3 p3 = fract(vec3(p.xyx) * 0.1031);
-        p3 += dot(p3, p3.yzx + 33.33);
-        return fract((p3.x + p3.y) * p3.z);
+        vec2 ip = floor(p);
+        return permute_gpu(permute_gpu(ip.x) + ip.y) * (1.0 / 288.0);
     }
 
     float valueNoise2D_gpu(vec2 p) {
@@ -202,6 +205,23 @@ const SHARED_TERRAIN_GLSL = `
             h -= (roadF * 0.35 + rut * roadF);
         }
         return h;
+    }
+
+    float getTerrainSurfaceHeight_gpu(float x, float z, out vec3 surfaceNormal) {
+        const float terrainCellSize = 2.5;
+        vec2 cell = floor(vec2(x, z) / terrainCellSize) * terrainCellSize;
+        vec2 f = (vec2(x, z) - cell) / terrainCellSize;
+        float h00 = getTerrainHeight_gpu(cell.x, cell.y);
+        float h10 = getTerrainHeight_gpu(cell.x + terrainCellSize, cell.y);
+        float h01 = getTerrainHeight_gpu(cell.x, cell.y + terrainCellSize);
+        float h11 = getTerrainHeight_gpu(cell.x + terrainCellSize, cell.y + terrainCellSize);
+
+        if (f.x + f.y <= 1.0) {
+            surfaceNormal = normalize(vec3(h00 - h10, terrainCellSize, h00 - h01));
+            return h00 * (1.0 - f.x - f.y) + h10 * f.x + h01 * f.y;
+        }
+        surfaceNormal = normalize(vec3(h01 - h11, terrainCellSize, h10 - h11));
+        return h11 * (f.x + f.y - 1.0) + h01 * (1.0 - f.x) + h10 * (1.0 - f.y);
     }
 `;
 
@@ -919,12 +939,8 @@ function createStratifiedToroidalGrass(geo, count, patchSize, minRadius, maxRadi
             float ringVisibility = ringFadeIn * ringFadeOut;
 
             // Accurate GPU terrain height matching CPU identically
-            float groundY = getTerrainHeight_gpu(worldXZ.x, worldXZ.y);
-
-            // Slope checking to cull on sheer rocky cliffs
-            float hR = getTerrainHeight_gpu(worldXZ.x + 0.6, worldXZ.y);
-            float hU = getTerrainHeight_gpu(worldXZ.x, worldXZ.y + 0.6);
-            vec3 surfNorm = normalize(vec3(groundY - hR, 0.6, groundY - hU));
+            vec3 surfNorm;
+            float groundY = getTerrainSurfaceHeight_gpu(worldXZ.x, worldXZ.y, surfNorm);
             float slope = 1.0 - surfNorm.y;
             float slopeCull = 1.0 - smoothstep(0.22, 0.35, slope);
 
@@ -977,8 +993,11 @@ function createStratifiedToroidalGrass(geo, count, patchSize, minRadius, maxRadi
             rotPos.z += bend * 0.55;
             rotPos.y -= abs(bend) * 0.20;
 
-            // Anchor blade roots securely into terrain surface
-            transformed = rotPos + vec3(worldXZ.x, groundY - 0.02, worldXZ.y);
+            vec3 surfaceTangentX = normalize(vec3(ca, -(surfNorm.x * ca + surfNorm.z * sa) / max(surfNorm.y, 0.001), sa));
+            vec3 surfaceTangentZ = normalize(cross(surfaceTangentX, surfNorm));
+            vec3 surfaceOffset = surfaceTangentX * rotPos.x + surfNorm * rotPos.y + surfaceTangentZ * rotPos.z;
+
+            transformed = surfaceOffset + vec3(worldXZ.x, groundY - 0.015, worldXZ.y);
             vWorldPos = transformed;
             `
         );
@@ -994,11 +1013,11 @@ function createStratifiedToroidalGrass(geo, count, patchSize, minRadius, maxRadi
             '#include <color_fragment>',
             `
             #include <color_fragment>
-            vec3 rootCol = vec3(0.12, 0.18, 0.05);
+            vec3 rootCol = vec3(0.20, 0.29, 0.08);
             vec3 lushTip = vec3(0.44, 0.58, 0.17);
             vec3 goldTip = vec3(0.72, 0.67, 0.24);
             vec3 tipCol = mix(lushTip, goldTip, vBladeSeed * 0.5 + 0.2);
-            vec3 bladeGrad = mix(rootCol, tipCol, smoothstep(0.0, 0.95, vHeightRatio));
+            vec3 bladeGrad = mix(rootCol, tipCol, smoothstep(0.0, 0.45, vHeightRatio));
 
             if (vFlowerType > 0.5 && vHeightRatio > 0.72) {
                 vec3 blossomCol = vBladeSeed > 0.982 ? vec3(0.98, 0.95, 0.82) : vec3(0.98, 0.78, 0.15);
