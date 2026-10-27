@@ -464,7 +464,7 @@ const soundFX = {
         const rushFilter = this.ctx.createBiquadFilter();
         rushFilter.type = 'bandpass';
         rushFilter.frequency.setValueAtTime(320, now);
-        rushFilter.linearRampToValueAtTime(520, now + 0.035);
+        rushFilter.frequency.linearRampToValueAtTime(520, now + 0.035);
         const rushGain = this.ctx.createGain();
         rushGain.gain.setValueAtTime(0.32, now);
         rushGain.gain.exponentialRampToValueAtTime(0.001, now + 0.038);

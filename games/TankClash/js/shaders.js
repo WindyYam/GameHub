@@ -880,7 +880,7 @@ function createHaltonSmokeMaterial(colorHex = 0x94a3b8) {
             float fbmSmoke(vec3 p) {
                 float v = 0.0;
                 float a = 0.55;
-                for (int i = 0; i < 3; i++) {
+                for (int i = 0; i < 2; i++) {
                     v += a * noise(p);
                     p = p * 2.12 + vec3(2.3, 1.7, 5.1);
                     a *= 0.48;
@@ -1334,7 +1334,7 @@ const TIGER_SKY_FRAGMENT_SHADER = `
         float nightFactor = 1.0 - smoothstep(-0.18, 0.05, sunAlt);
 
         // Rayleigh-Mie realistic sky gradient
-        vec3 dayZenith = vec3(0.008, 0.09, 0.34);
+        vec3 dayZenith = vec3(0.035, 0.22, 0.62);
         vec3 sunsetZenith = vec3(0.08, 0.12, 0.32);
         vec3 nightZenith = vec3(0.005, 0.012, 0.038);
 

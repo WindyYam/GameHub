@@ -66,6 +66,61 @@ shockwaveGeo.rotateX(-Math.PI / 2);
 // Reusable smoke particle pool for zero runtime garbage collection
 const smokePool = [];
 window.smokePool = smokePool;
+const reusableParticlePools = new Map();
+const PARTICLE_POOL_LIMIT = 64;
+let particlePoolsPrewarmed = false;
+
+function getParticlePoolKey(type, isAdditive) {
+    return `${type}:${isAdditive ? 1 : 0}`;
+}
+
+function createParticleObject(type, isAdditive, colorHex) {
+    const isSpark = type === 'spark';
+    const isFire = type === 'fire';
+    const mat = new THREE.MeshBasicMaterial({
+        color: colorHex,
+        transparent: true,
+        opacity: isFire ? 0.95 : (isAdditive ? 0.9 : 0.85),
+        blending: isAdditive || isFire ? THREE.AdditiveBlending : THREE.NormalBlending,
+        depthWrite: false
+    });
+    const mesh = new THREE.Mesh(isSpark ? sparkParticleGeo : sphereParticleGeo, mat);
+    if (window.excludeFromSSAO) window.excludeFromSSAO(mesh);
+    return { mesh, mat };
+}
+
+function prewarmParticlePools() {
+    if (particlePoolsPrewarmed || !window.scene) return;
+    particlePoolsPrewarmed = true;
+
+    const smokeGeometry = window.createVolumetricSmokeGeometry
+        ? window.createVolumetricSmokeGeometry()
+        : sphereParticleGeo;
+    for (let i = 0; i < 64; i++) {
+        const mat = (window.createHaltonSmokeMaterial || window.createMaldiveSmokeMaterial)(0x94a3b8);
+        const mesh = new THREE.Mesh(smokeGeometry, mat);
+        if (window.excludeFromSSAO) window.excludeFromSSAO(mesh);
+        mesh.visible = false;
+        smokePool.push({ mesh, mat });
+    }
+
+    const warmParticleType = (type, isAdditive, count) => {
+        const poolKey = getParticlePoolKey(type, isAdditive);
+        const pool = [];
+        for (let i = 0; i < count; i++) {
+            const particle = createParticleObject(type, isAdditive, 0xffffff);
+            particle.mesh.visible = false;
+            pool.push(particle);
+        }
+        reusableParticlePools.set(poolKey, pool);
+    };
+
+    warmParticleType('fire', true, 24);
+    warmParticleType('spark', true, 32);
+    warmParticleType('spark', false, 8);
+    warmParticleType('dirt', false, 16);
+}
+window.prewarmParticlePools = prewarmParticlePools;
 
 // Dynamic Point Light Flash Pool for Muzzle Blast & Explosions
 function spawnDynamicFlash(pos, colorHex, intensity, distance, lifeTime) {
@@ -99,6 +154,7 @@ function spawnShockwave(pos, maxRadius, duration, colorHex = 0xfde68a) {
     });
     const mesh = new THREE.Mesh(shockwaveGeo, mat);
     mesh.position.set(pos.x, pos.y + 0.08, pos.z);
+    if (window.excludeFromSSAO) window.excludeFromSSAO(mesh);
     currentScene.add(mesh);
 
     shockwaves.push({
@@ -139,9 +195,12 @@ function spawnParticle(pos, vel, colorHex, startSize, endSize, life, isAdditive 
                 : createHaltonSmokeMaterial(colorHex);
             const smokeGeo = window.createVolumetricSmokeGeometry ? window.createVolumetricSmokeGeometry() : sphereParticleGeo;
             mesh = new THREE.Mesh(smokeGeo, mat);
+            if (window.excludeFromSSAO) window.excludeFromSSAO(mesh);
             currentScene.add(mesh);
         }
 
+        if (window.excludeFromSSAO) window.excludeFromSSAO(mesh);
+        if (mesh.parent !== currentScene) currentScene.add(mesh);
         mesh.position.copy(pos);
         mesh.scale.setScalar(startSize);
         mesh.rotation.set(Math.random() * 6.28, Math.random() * 6.28, Math.random() * 6.28);
@@ -172,15 +231,16 @@ function spawnParticle(pos, vel, colorHex, startSize, endSize, life, isAdditive 
     const isDirt  = (type === 'dirt');
     const isFire  = (type === 'fire');
 
-    const mat = new THREE.MeshBasicMaterial({
-        color: colorHex,
-        transparent: true,
-        opacity: isFire ? 0.95 : (isAdditive ? 0.9 : 0.85),
-        blending: isAdditive || isFire ? THREE.AdditiveBlending : THREE.NormalBlending,
-        depthWrite: false
-    });
-
-    const mesh = new THREE.Mesh(isSpark ? sparkParticleGeo : sphereParticleGeo, mat);
+    const poolKey = getParticlePoolKey(type, isAdditive);
+    const pool = reusableParticlePools.get(poolKey);
+    const pooled = pool && pool.length > 0 ? pool.pop() : null;
+    const { mesh, mat } = pooled || createParticleObject(type, isAdditive, colorHex);
+    if (pooled) {
+        if (typeof colorHex === 'number') mat.color.setHex(colorHex);
+        else if (colorHex && colorHex.isColor) mat.color.copy(colorHex);
+        mat.opacity = isFire ? 0.95 : (isAdditive ? 0.9 : 0.85);
+        mesh.visible = true;
+    }
     mesh.position.copy(pos);
     mesh.scale.setScalar(startSize);
     if (isSpark && vel.lengthSq() > 0.1) {
@@ -189,7 +249,7 @@ function spawnParticle(pos, vel, colorHex, startSize, endSize, life, isAdditive 
         mesh.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
     }
 
-    currentScene.add(mesh);
+    if (mesh.parent !== currentScene) currentScene.add(mesh);
 
     particles.push({
         mesh,
@@ -200,6 +260,7 @@ function spawnParticle(pos, vel, colorHex, startSize, endSize, life, isAdditive 
         age: 0,
         life,
         type,
+        poolKey,
         rotVel: new THREE.Vector3(
             (Math.random() - 0.5) * 2.5,
             (Math.random() - 0.5) * 2.5,
@@ -256,7 +317,7 @@ function fireMainCannon(tankModel) {
     // 5. Muzzle Blast Pattern: Lateral T-Shape for Muzzle Brakes (Tiger I), Forward Cone for Open Muzzles (Sherman / T-34)
     if (tankState.hasMuzzleBrake) {
         [-1, 1].forEach((side) => {
-            for (let i = 0; i < 9; i++) {
+            for (let i = 0; i < 5; i++) {
                 const sideVel = rightVec.clone().multiplyScalar(side * (12 + Math.random() * 8))
                     .add(upVec.clone().multiplyScalar((Math.random() - 0.3) * 3))
                     .add(shootDir.clone().multiplyScalar(1.5 + Math.random() * 2));
@@ -267,7 +328,7 @@ function fireMainCannon(tankModel) {
         });
     } else {
         // Forward high-velocity conical blast cloud
-        for (let i = 0; i < 14; i++) {
+        for (let i = 0; i < 8; i++) {
             const coneVel = shootDir.clone().multiplyScalar(12 + Math.random() * 10)
                 .add(rightVec.clone().multiplyScalar((Math.random() - 0.5) * 6))
                 .add(upVec.clone().multiplyScalar((Math.random() - 0.2) * 5));
@@ -277,7 +338,7 @@ function fireMainCannon(tankModel) {
     }
 
     // 6. Lingering Heavy Barrel Gunsmoke
-    for (let i = 0; i < 14; i++) {
+    for (let i = 0; i < 8; i++) {
         const smokeVel = shootDir.clone().multiplyScalar(6 + Math.random() * 9)
             .add(new THREE.Vector3((Math.random() - 0.5) * 4, 1.4 + Math.random() * 2.5, (Math.random() - 0.5) * 4));
         spawnParticle(muzzlePos, smokeVel, 0x64748b, 0.45, 3.6, 2.2 + Math.random() * 1.0, false, 'smoke');
@@ -287,7 +348,7 @@ function fireMainCannon(tankModel) {
     const groundUnderMuzzle = muzzlePos.clone();
     groundUnderMuzzle.y = getTerrainHeight(muzzlePos.x, muzzlePos.z) + 0.12;
     spawnShockwave(groundUnderMuzzle, 4.8, 0.35, 0xd4a373);
-    for (let i = 0; i < 16; i++) {
+    for (let i = 0; i < 8; i++) {
         const dustVel = new THREE.Vector3(
             (Math.random() - 0.5) * 9,
             0.6 + Math.random() * 1.8,
@@ -316,6 +377,7 @@ function fireMainCannon(tankModel) {
     tracerFlame.position.z = -0.7;
     shellGroup.add(tracerFlame);
 
+    if (window.excludeFromSSAO) window.excludeFromSSAO(shellGroup);
     window.scene.add(shellGroup);
 
     const shellSpeed = tankState.SHELL_VELOCITY || 773;
@@ -339,6 +401,7 @@ function spawnTracerRound(pos, dir, quat) {
     wrap.position.copy(pos);
     wrap.quaternion.copy(quat);
     wrap.add(tracerMesh);
+    if (window.excludeFromSSAO) window.excludeFromSSAO(wrap);
     window.scene.add(wrap);
 
     tracers.push({
@@ -411,7 +474,7 @@ function fireSmokeDischargers(tankModel) {
         const dir = new THREE.Vector3(0, 0, 1).applyQuaternion(q).normalize();
 
         // High-density volumetric smoke screen curtain
-        for (let i = 0; i < 6; i++) {
+        for (let i = 0; i < 4; i++) {
             const v = dir.clone().multiplyScalar(12 + Math.random() * 8)
                 .add(new THREE.Vector3((Math.random() - 0.5) * 5, 1.5 + Math.random() * 4, (Math.random() - 0.5) * 5));
             spawnParticle(p, v, 0xf1f5f9, 0.45, 5.2, 4.5 + Math.random() * 2.0, false, 'smoke');
@@ -430,7 +493,7 @@ function triggerHeavyDetonation(pos) {
     spawnShockwave(pos, 8.5, 0.45, 0xfef08a);
 
     // 3. Central White-Hot to Fiery Orange Fireball Plume
-    for (let i = 0; i < 14; i++) {
+    for (let i = 0; i < 10; i++) {
         const fireVel = new THREE.Vector3(
             (Math.random() - 0.5) * 8.0,
             3.5 + Math.random() * 8.5,
@@ -441,7 +504,7 @@ function triggerHeavyDetonation(pos) {
     }
 
     // 4. Giant Billowing Charcoal/Black Smoke Plume that rises into sky
-    for (let i = 0; i < 16; i++) {
+    for (let i = 0; i < 10; i++) {
         const smokeVel = new THREE.Vector3(
             (Math.random() - 0.5) * 9.5,
             2.5 + Math.random() * 7.5,
@@ -452,7 +515,7 @@ function triggerHeavyDetonation(pos) {
     }
 
     // 5. Fountain of Incandescent Shrapnel Sparks
-    for (let i = 0; i < 38; i++) {
+    for (let i = 0; i < 24; i++) {
         const sparkVel = new THREE.Vector3(
             (Math.random() - 0.5) * 26.0,
             6.0 + Math.random() * 22.0,
@@ -462,7 +525,7 @@ function triggerHeavyDetonation(pos) {
     }
 
     // 6. Heavy Clods of Earth & Shrapnel Debris
-    for (let i = 0; i < 18; i++) {
+    for (let i = 0; i < 10; i++) {
         const dirtVel = new THREE.Vector3(
             (Math.random() - 0.5) * 16.0,
             4.0 + Math.random() * 14.0,
@@ -650,10 +713,21 @@ function updateParticles(dt) {
         if (p.age >= p.life) {
             if (p.isPooled) {
                 p.mesh.visible = false;
-                smokePool.push({ mesh: p.mesh, mat: p.mat });
+                if (smokePool.length < PARTICLE_POOL_LIMIT) {
+                    smokePool.push({ mesh: p.mesh, mat: p.mat });
+                } else {
+                    window.scene.remove(p.mesh);
+                    p.mat.dispose();
+                }
             } else {
-                window.scene.remove(p.mesh);
-                if (p.mat && p.mat.dispose) p.mat.dispose();
+                const pool = reusableParticlePools.get(p.poolKey);
+                if (pool && pool.length < PARTICLE_POOL_LIMIT) {
+                    p.mesh.visible = false;
+                    pool.push({ mesh: p.mesh, mat: p.mat });
+                } else {
+                    window.scene.remove(p.mesh);
+                    if (p.mat && p.mat.dispose) p.mat.dispose();
+                }
             }
             particles.splice(i, 1);
             continue;

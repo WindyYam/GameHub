@@ -39,21 +39,99 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.12;
+renderer.toneMappingExposure = 1.0;
 container.appendChild(renderer.domElement);
 window.renderer = renderer;
 
+const composer = new THREE.EffectComposer(renderer);
+composer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1));
+const ssaoPass = new THREE.SSAOPass(scene, perspCamera, window.innerWidth, window.innerHeight);
+ssaoPass.kernelRadius = 10;
+ssaoPass.minDistance = 0.005;
+ssaoPass.maxDistance = 0.12;
+composer.addPass(ssaoPass);
+window.ssaoPass = ssaoPass;
+
+const SSAO_FX_LAYER = 1;
+function excludeFromSSAO(object) {
+    object.traverse(child => child.layers.set(SSAO_FX_LAYER));
+}
+window.excludeFromSSAO = excludeFromSSAO;
+
+class FXCompositePass extends THREE.Pass {
+    constructor(scene) {
+        super();
+        this.scene = scene;
+        this.needsSwap = true;
+        this.copyMaterial = new THREE.ShaderMaterial({
+            uniforms: THREE.UniformsUtils.clone(THREE.CopyShader.uniforms),
+            vertexShader: THREE.CopyShader.vertexShader,
+            fragmentShader: THREE.CopyShader.fragmentShader,
+            depthTest: false,
+            depthWrite: false
+        });
+        this.fullScreenQuad = new THREE.FullScreenQuad(this.copyMaterial);
+        this.depthMaterial = new THREE.MeshBasicMaterial({
+            colorWrite: false,
+            depthTest: true,
+            depthWrite: true
+        });
+    }
+
+    render(renderer, writeBuffer, readBuffer) {
+        const camera = ssaoPass.camera;
+        const oldTarget = renderer.getRenderTarget();
+        const oldAutoClear = renderer.autoClear;
+        const oldCameraMask = camera.layers.mask;
+        const oldOverrideMaterial = this.scene.overrideMaterial;
+        const oldBackground = this.scene.background;
+
+        try {
+            renderer.autoClear = false;
+            renderer.setRenderTarget(this.renderToScreen ? null : writeBuffer);
+            renderer.clear(true, true, true);
+            this.copyMaterial.uniforms.tDiffuse.value = readBuffer.texture;
+            this.fullScreenQuad.render(renderer);
+
+            renderer.clearDepth();
+            this.scene.background = null;
+            camera.layers.set(0);
+            this.scene.overrideMaterial = this.depthMaterial;
+            renderer.render(this.scene, camera);
+
+            this.scene.overrideMaterial = oldOverrideMaterial;
+            camera.layers.set(SSAO_FX_LAYER);
+            renderer.render(this.scene, camera);
+        } finally {
+            this.scene.overrideMaterial = oldOverrideMaterial;
+            this.scene.background = oldBackground;
+            camera.layers.mask = oldCameraMask;
+            renderer.autoClear = oldAutoClear;
+            renderer.setRenderTarget(oldTarget);
+        }
+    }
+
+    dispose() {
+        this.copyMaterial.dispose();
+        this.depthMaterial.dispose();
+        this.fullScreenQuad.dispose();
+    }
+}
+
+const fxCompositePass = new FXCompositePass(scene);
+composer.addPass(fxCompositePass);
+
 // 4. Atmospheric Battlefield Lighting
-const hemiLight = new THREE.HemisphereLight(0xfff7ed, 0x3f4e3d, 0.95);
+const hemiLight = new THREE.HemisphereLight(0xfff7ed, 0x3f4e3d, 0.62);
 scene.add(hemiLight);
 
 // Balanced Omnidirectional Ambient Fill (eliminates crushed black shadows on tank flanks)
-const ambientLight = new THREE.AmbientLight(0xdce7f2, 0.70);
+const ambientLight = new THREE.AmbientLight(0xdce7f2, 0.24);
 scene.add(ambientLight);
 window.ambientLight = ambientLight;
 
 // Soft directional fill light targeting the tank's shadowed flank
-const fillLight = new THREE.DirectionalLight(0xb8cde0, 0.75);
+const fillLight = new THREE.DirectionalLight(0xb8cde0, 0.22);
 fillLight.castShadow = false;
 scene.add(fillLight);
 window.fillLight = fillLight;
@@ -62,8 +140,8 @@ window.fillLight = fillLight;
 // REALISTIC DYNAMIC DAY / NIGHT CYCLE MANAGER
 // ============================================================================
 const dayNight = {
-    time: 10.5,        // Current hour (0.00 to 24.00, starts at 10:30 AM)
-    speed: 0.1,        // Progress rate (~4 minutes per 24-hour cycle)
+    time: 12.0,        // Current hour (0.00 to 24.00, starts at midday)
+    speed: 0.02,       // Progress rate (~20 minutes per 24-hour cycle)
     paused: false,
     phase: 'Day',
     setTime(h) {
@@ -87,13 +165,13 @@ window.dayNight = dayNight;
 const DAY_NIGHT_COLORS = {
     noonSun:     new THREE.Color(0xfff8eb),
     goldenHour:  new THREE.Color(0xff6b2b),
-    dayTop:      new THREE.Color(0x062b68),
-    dayHor:      new THREE.Color(0x397cca),
+    dayTop:      new THREE.Color(0x1f65b5),
+    dayHor:      new THREE.Color(0x79b2df),
     sunTop:      new THREE.Color(0x16193b),
     sunHor:      new THREE.Color(0xe05a1e),
     nitTop:      new THREE.Color(0x03091e),
     nitHor:      new THREE.Color(0x0d1b35),
-    groundDay:   new THREE.Color(0x4d613c),
+    groundDay:   new THREE.Color(0x465b32),
     groundNight: new THREE.Color(0x111c14)
 };
 
@@ -142,6 +220,7 @@ window.mats = mats;
 
 initEnvironment(scene);
 buildEnvironment();
+prewarmParticlePools();
 
 const tank = (typeof window.buildTankById === 'function') 
     ? window.buildTankById('tiger', scene, mats) 
@@ -290,7 +369,7 @@ function updateSimulation(dt) {
     tankState.z += Math.cos(tankState.heading) * horizSpeed * dt;
 
     // Kick up muddy track dirt particles when driving in the wild
-    if (window.environmentMode === 'wild' && (Math.abs(tankState.speed) > 1.2 || Math.abs(tankState.turnRate) > 0.2) && Math.random() < 0.45) {
+    if (window.environmentMode === 'wild' && (Math.abs(tankState.speed) > 1.2 || Math.abs(tankState.turnRate) > 0.2) && Math.random() < 1.0 - Math.exp(-3.0 * dt)) {
         [-1.38, 1.38].forEach((sideX) => {
             const kickPos = new THREE.Vector3(sideX, -0.85, -2.4);
             hullGroup.localToWorld(kickPos);
@@ -300,7 +379,8 @@ function updateSimulation(dt) {
     }
 
     // Realistic Twin Armored Exhaust Puffs (Maybach HL230 V12 Engine)
-    if (Math.random() < (forwardInput !== 0 ? 0.42 : 0.15)) {
+    const exhaustPuffRate = forwardInput !== 0 ? 5.0 : 1.5;
+    if (Math.random() < 1.0 - Math.exp(-exhaustPuffRate * dt)) {
         [-0.52, 0.52].forEach((ex) => {
             const exhaustPos = new THREE.Vector3(ex, 0.82, -2.75);
             hullGroup.localToWorld(exhaustPos);
@@ -838,11 +918,11 @@ function updateSimulation(dt) {
     // Hemisphere natural bounce lighting (Earth meadow up + Sky down)
     hemiLight.color.copy(skyHorizonColor);
     hemiLight.groundColor.copy(DAY_NIGHT_COLORS.groundNight).lerp(DAY_NIGHT_COLORS.groundDay, dayFactor);
-    hemiLight.intensity = 0.55 + dayFactor * 0.50 + twilightFactor * 0.28;
+    hemiLight.intensity = 0.38 + dayFactor * 0.24 + twilightFactor * 0.18;
 
     // Omnidirectional sky ambient light to eliminate crushed dark sides
     ambientLight.color.copy(skyHorizonColor).lerp(new THREE.Color(0xffffff), 0.45);
-    ambientLight.intensity = 0.45 + dayFactor * 0.38 + twilightFactor * 0.22;
+    ambientLight.intensity = 0.12 + dayFactor * 0.14 + twilightFactor * 0.10;
 
     // Dynamic directional fill light pointing from opposite sun azimuth to soften shaded tank flank
     const fillDir = new THREE.Vector3(-sunDir.x, 0.42, -sunDir.z).normalize();
@@ -854,13 +934,13 @@ function updateSimulation(dt) {
     fillLight.target.position.set(tankState.x, tankState.y, tankState.z);
     fillLight.target.updateMatrixWorld();
     fillLight.color.copy(skyHorizonColor).lerp(new THREE.Color(0xb2ccdf), 0.55);
-    fillLight.intensity = 0.35 + dayFactor * 0.45 + twilightFactor * 0.20;
+    fillLight.intensity = 0.08 + dayFactor * 0.16 + twilightFactor * 0.10;
 
     // Rim lighting following the tank
     rimLight.position.set(tankState.x - 30, tankState.y + 24, tankState.z - 28);
     rimLight.target.position.set(tankState.x, tankState.y, tankState.z);
     rimLight.target.updateMatrixWorld();
-    rimLight.intensity = 0.25 + dayFactor * 0.30;
+    rimLight.intensity = 0.08 + dayFactor * 0.12;
 
     // Fog & Background synced with horizon atmosphere
     if (scene.fog) {
@@ -1024,7 +1104,18 @@ function animate(now) {
     lastTime = now;
 
     updateSimulation(dt);
-    renderer.render(scene, window.activeCamera || activeCamera);
+    const renderCamera = window.activeCamera || activeCamera;
+    const renderCameraLayers = renderCamera.layers.mask;
+    renderCamera.layers.set(0);
+    ssaoPass.camera = renderCamera;
+    ssaoPass.ssaoMaterial.uniforms.cameraNear.value = renderCamera.near;
+    ssaoPass.ssaoMaterial.uniforms.cameraFar.value = renderCamera.far;
+    ssaoPass.ssaoMaterial.uniforms.cameraProjectionMatrix.value.copy(renderCamera.projectionMatrix);
+    ssaoPass.ssaoMaterial.uniforms.cameraInverseProjectionMatrix.value.copy(renderCamera.projectionMatrixInverse);
+    ssaoPass.depthRenderMaterial.uniforms.cameraNear.value = renderCamera.near;
+    ssaoPass.depthRenderMaterial.uniforms.cameraFar.value = renderCamera.far;
+    composer.render(dt);
+    renderCamera.layers.mask = renderCameraLayers;
 }
 
 function onWindowResize() {
@@ -1040,6 +1131,7 @@ function onWindowResize() {
         window.renderer.setSize(w, h);
         window.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     }
+    if (composer) composer.setSize(w, h);
 }
 window.onWindowResize = onWindowResize;
 window.updateCameraProjectionAspect = onWindowResize;

@@ -22,6 +22,8 @@ var terrainMeshRef = null;
 var waterMeshRef = null;
 var grassMeshRef = null;
 var grassLOD0Mesh = null;
+var grassLOD0MidMesh = null;
+var grassLOD0FarMesh = null;
 var grassLOD1Mesh = null;
 var skyDome = null;
 var skyMat = null;
@@ -350,7 +352,7 @@ terrainMat.onBeforeCompile = (shader) => {
         vec2 windUV = vTerrainWorldPos.xz * 0.055 + vec2(uTime * 0.38 * uWindSpeed, uTime * 0.18 * uWindSpeed);
         float windRipple = valueNoise2D_gpu(windUV);
 
-        vec3 farBladeTint = mix(vec3(0.18, 0.26, 0.08), vec3(0.52, 0.58, 0.20), microGrass);
+        vec3 farBladeTint = mix(vec3(0.07, 0.12, 0.025), vec3(0.19, 0.25, 0.05), microGrass);
         diffuseColor.rgb = mix(diffuseColor.rgb, farBladeTint, grassSurfaceMask * 0.62);
         diffuseColor.rgb *= (1.0 + windRipple * 0.12 * grassSurfaceMask);
         `
@@ -522,41 +524,25 @@ function createDetailedSpruceGeometry() {
         const yBase = 2.1 + progress * 8.6;
         const tierRadius = (3.25 - progress * 2.35) * (0.92 + (t % 2) * 0.12);
         const tierHeight = 2.15 - progress * 0.95;
-
-        const bough = new THREE.ConeGeometry(tierRadius, tierHeight, 12, 2, false);
-        const bPos = bough.attributes.position;
-        for (let k = 0; k < bPos.count; k++) {
-            const vx = bPos.getX(k), vy = bPos.getY(k), vz = bPos.getZ(k);
-            const r = Math.sqrt(vx * vx + vz * vz);
-            const angle = Math.atan2(vz, vx);
-            if (r > 0.2) {
-                const armWave = 0.78 + 0.28 * Math.cos(angle * 6.0 + t * 1.7);
-                const droop = -Math.pow(r / tierRadius, 1.6) * 0.55;
-                bPos.setX(k, vx * armWave);
-                bPos.setY(k, vy + droop + Math.sin(angle * 12.0) * 0.12);
-                bPos.setZ(k, vz * armWave);
-            }
-        }
-        bough.computeVertexNormals();
-        bough.translate(0, yBase, 0);
-        parts.push(colorizeBotanicalGeometry(bough, 0x0f1f10, 0x2e4f23, tierRadius));
-
-        if (t < 6) {
-            const subBranches = 5;
-            for (let b = 0; b < subBranches; b++) {
-                const bAng = (b / subBranches) * Math.PI * 2.0 + t * 0.9;
-                const dist = tierRadius * 0.58;
-                const tuft = new THREE.ConeGeometry(tierRadius * 0.42, tierHeight * 0.65, 6);
-                tuft.rotateZ((hash2D(b * 3.1, t * 7.1) - 0.5) * 0.25);
-                tuft.translate(Math.cos(bAng) * dist, yBase - 0.25, Math.sin(bAng) * dist);
-                parts.push(colorizeBotanicalGeometry(tuft, 0x122413, 0x385c28, tierRadius));
-            }
+        const branchCount = 7 + (t % 2);
+        for (let b = 0; b < branchCount; b++) {
+            const angle = (b / branchCount) * Math.PI * 2 + t * 0.63;
+            const branchLength = tierRadius * (1.05 + hash2D(b + 4.1, t + 2.7) * 0.22);
+            const branch = new THREE.ConeGeometry(tierHeight * 0.36, branchLength, 12, 3);
+            branch.rotateZ(Math.PI / 2 - 0.28);
+            branch.rotateY(angle);
+            branch.translate(
+                Math.cos(angle) * tierRadius * 0.22,
+                yBase + (hash2D(b + 1.3, t + 7.2) - 0.5) * 0.35,
+                Math.sin(angle) * tierRadius * 0.22
+            );
+            parts.push(colorizeBotanicalGeometry(branch, 0x1b2c19, 0x456432, tierRadius));
         }
     }
 
     const spire = new THREE.ConeGeometry(0.45, 2.1, 6);
     spire.translate(0, 11.6, 0);
-    parts.push(colorizeBotanicalGeometry(spire, 0x193018, 0x3b6129, 0.5));
+    parts.push(colorizeBotanicalGeometry(spire, 0x21351c, 0x4c6c31, 0.5));
 
     return mergeBufferGeometries(parts);
 }
@@ -605,7 +591,7 @@ function createDetailedDeciduousGeometry() {
     ];
 
     canopyLobes.forEach(([cx, cy, cz, radius], idx) => {
-        const lobe = new THREE.IcosahedronGeometry(radius, 2);
+        const lobe = new THREE.IcosahedronGeometry(radius, 3);
         const lPos = lobe.attributes.position;
         for (let k = 0; k < lPos.count; k++) {
             const vx = lPos.getX(k), vy = lPos.getY(k), vz = lPos.getZ(k);
@@ -615,8 +601,8 @@ function createDetailedDeciduousGeometry() {
         }
         lobe.computeVertexNormals();
         lobe.translate(cx, cy, cz);
-        const innerCol = idx % 2 === 0 ? 0x1e2e10 : 0x243613;
-        const outerCol = idx % 3 === 0 ? 0x697d2b : 0x526b22;
+        const innerCol = idx % 2 === 0 ? 0x18240f : 0x1c2a12;
+        const outerCol = idx % 3 === 0 ? 0x52642a : 0x40531f;
         parts.push(colorizeBotanicalGeometry(lobe, innerCol, outerCol, 3.2));
     });
 
@@ -635,7 +621,7 @@ function createDetailedBushGeometry() {
         [ 0.0, 1.25,  0.1, 0.85]
     ];
     lobes.forEach(([bx, by, bz, br], idx) => {
-        const g = new THREE.IcosahedronGeometry(br, 1);
+        const g = new THREE.IcosahedronGeometry(br, 2);
         const p = g.attributes.position;
         for (let k = 0; k < p.count; k++) {
             const jitter = 0.85 + 0.3 * hash2D(p.getX(k) * 9.1 + idx, p.getZ(k) * 9.1);
@@ -643,7 +629,7 @@ function createDetailedBushGeometry() {
         }
         g.computeVertexNormals();
         g.translate(bx, by, bz);
-        parts.push(colorizeBotanicalGeometry(g, 0x1c2b0e, idx % 2 === 0 ? 0x556b23 : 0x687828, 1.6));
+        parts.push(colorizeBotanicalGeometry(g, 0x18240f, idx % 2 === 0 ? 0x43591f : 0x536325, 1.6));
     });
     return mergeBufferGeometries(parts);
 }
@@ -791,30 +777,56 @@ function isMobileDevice() {
     return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '') || (navigator.maxTouchPoints > 1);
 }
 
-const LOD0_PATCH_SIZE = 96.0;   // Covers [-48m .. +48m] around tank
-const LOD1_PATCH_SIZE = 270.0;  // Covers [-135m .. +135m] around tank
+const LOD0_PATCH_SIZE = 110.0;       // Covers [0m .. 55m] with high LOD0 blade density (10.74 inst/m², ~32 blades/m²)
+const LOD0_MID_PATCH_SIZE = 280.0;   // Covers [55m .. 140m] with identical high density as near ring (10.74 inst/m²)
+const LOD0_FAR_PATCH_SIZE = 500.0;   // Covers [140m .. 250m] with previous mid ring density (1.72 inst/m²)
 
 function createLOD0BladeGeometry() {
     const geo = new THREE.BufferGeometry();
-    const bw = 0.058, bh = 0.88;
-    const positions = new Float32Array([
-        -bw,        0.0,       0.0,
-         bw,        0.0,       0.0,
-        -bw * 0.82, bh * 0.33, 0.03,
-         bw * 0.82, bh * 0.33, 0.03,
-        -bw * 0.52, bh * 0.68, 0.08,
-         bw * 0.52, bh * 0.68, 0.08,
-         0.0,       bh,        0.18
-    ]);
-    const uvs = new Float32Array([
-        0, 0.0,  1, 0.0,
-        0, 0.33, 1, 0.33,
-        0, 0.68, 1, 0.68,
-        0.5, 1.0
-    ]);
-    const indices = [0, 1, 2,  2, 1, 3,  2, 3, 4,  4, 3, 5,  4, 5, 6];
-    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+    const bw = 0.065, bh = 0.9;
+    const angles = [0.0, 1.05, 2.09]; // 0 deg, 60 deg, 120 deg
+    const heightMults = [1.0, 0.92, 0.86];
+    const zBends = [0.28, -0.22, 0.18];
+
+    const positions = [];
+    const uvs = [];
+    const indices = [];
+
+    for (let b = 0; b < 3; b++) {
+        const ang = angles[b];
+        const ca = Math.cos(ang), sa = Math.sin(ang);
+        const h = bh * heightMults[b];
+        const zb = zBends[b];
+        const baseIdx = b * 7;
+
+        const verts = [
+            [-bw,        0.0,      0.0,        0.0, 0.0],
+            [ bw,        0.0,      0.0,        1.0, 0.0],
+            [-bw * 0.82, h * 0.33, zb * 0.15,  0.0, 0.33],
+            [ bw * 0.82, h * 0.33, zb * 0.15,  1.0, 0.33],
+            [-bw * 0.52, h * 0.68, zb * 0.45,  0.0, 0.68],
+            [ bw * 0.52, h * 0.68, zb * 0.45,  1.0, 0.68],
+            [ 0.0,       h,        zb,         0.5, 1.0]
+        ];
+
+        for (let i = 0; i < verts.length; i++) {
+            let rx = verts[i][0] * ca - verts[i][2] * sa;
+            let rz = verts[i][0] * sa + verts[i][2] * ca;
+            positions.push(rx, verts[i][1], rz);
+            uvs.push(verts[i][3], verts[i][4]);
+        }
+
+        indices.push(
+            baseIdx + 0, baseIdx + 1, baseIdx + 2,
+            baseIdx + 2, baseIdx + 1, baseIdx + 3,
+            baseIdx + 2, baseIdx + 3, baseIdx + 4,
+            baseIdx + 4, baseIdx + 3, baseIdx + 5,
+            baseIdx + 4, baseIdx + 5, baseIdx + 6
+        );
+    }
+
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uvs), 2));
     geo.setIndex(indices);
     geo.computeVertexNormals();
     return geo;
@@ -822,22 +834,52 @@ function createLOD0BladeGeometry() {
 
 function createLOD1ClumpGeometry() {
     const geo = new THREE.BufferGeometry();
-    const bw = 0.13, bh = 0.98;
-    const positions = new Float32Array([
-        -bw,        0.0,       0.0,
-         bw,        0.0,       0.0,
-        -bw * 0.70, bh * 0.50, 0.05,
-         bw * 0.70, bh * 0.50, 0.05,
-         0.0,       bh,        0.14
-    ]);
-    const uvs = new Float32Array([
-        0, 0.0,  1, 0.0,
-        0, 0.5,  1, 0.5,
-        0.5, 1.0
-    ]);
-    const indices = [0, 1, 2,  2, 1, 3,  2, 3, 4];
-    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+    const bw1 = 0.25, bh1 = 0.94;
+    const bw2 = 0.21, bh2 = 0.88;
+    const ang2 = 1.15;
+    const c2 = Math.cos(ang2), s2 = Math.sin(ang2);
+
+    const positions = [];
+    const uvs = [];
+    const indices = [];
+
+    // Clump blade 1
+    const b1 = [
+        [-bw1,        0.0,        0.0,   0.0, 0.0],
+        [ bw1,        0.0,        0.0,   1.0, 0.0],
+        [-bw1 * 0.70, bh1 * 0.50, 0.12,  0.0, 0.5],
+        [ bw1 * 0.70, bh1 * 0.50, 0.12,  1.0, 0.5],
+        [ 0.0,        bh1,        0.28,  0.5, 1.0]
+    ];
+    for (let i = 0; i < b1.length; i++) {
+        positions.push(b1[i][0], b1[i][1], b1[i][2]);
+        uvs.push(b1[i][3], b1[i][4]);
+    }
+    indices.push(0, 1, 2,  2, 1, 3,  2, 3, 4);
+
+    // Clump blade 2
+    const b2 = [
+        [-bw2,        0.0,        0.0,   0.0, 0.0],
+        [ bw2,        0.0,        0.0,   1.0, 0.0],
+        [-bw2 * 0.70, bh2 * 0.50, -0.10, 0.0, 0.5],
+        [ bw2 * 0.70, bh2 * 0.50, -0.10, 1.0, 0.5],
+        [ 0.0,        bh2,        -0.24, 0.5, 1.0]
+    ];
+    const baseIdx = 5;
+    for (let i = 0; i < b2.length; i++) {
+        let rx = b2[i][0] * c2 - b2[i][2] * s2;
+        let rz = b2[i][0] * s2 + b2[i][2] * c2;
+        positions.push(rx, b2[i][1], rz);
+        uvs.push(b2[i][3], b2[i][4]);
+    }
+    indices.push(
+        baseIdx + 0, baseIdx + 1, baseIdx + 2,
+        baseIdx + 2, baseIdx + 1, baseIdx + 3,
+        baseIdx + 2, baseIdx + 3, baseIdx + 4
+    );
+
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uvs), 2));
     geo.setIndex(indices);
     geo.computeVertexNormals();
     return geo;
@@ -882,9 +924,9 @@ function createStratifiedToroidalGrass(geo, count, patchSize, minRadius, maxRadi
     geo.setAttribute('aInstanceData', new THREE.InstancedBufferAttribute(offsets, 4));
 
     const mat = new THREE.MeshStandardMaterial({
-        color: 0x5c732c,
-        roughness: 0.65,
-        metalness: 0.04,
+        color: 0x668039,
+        roughness: 0.88,
+        metalness: 0.0,
         side: THREE.DoubleSide
     });
 
@@ -933,10 +975,8 @@ function createStratifiedToroidalGrass(geo, count, patchSize, minRadius, maxRadi
             float worldHash = hash2D_gpu(floor(worldXZ * 2.5) + seed * 17.3);
             float distToCam = length(relXZ);
 
-            // Ring visibility mask between min and max radius
-            float ringFadeIn = uMinRadius > 0.1 ? smoothstep(uMinRadius, uMinRadius + 8.0, distToCam) : 1.0;
-            float ringFadeOut = 1.0 - smoothstep(uMaxRadius - 9.0, uMaxRadius, distToCam);
-            float ringVisibility = ringFadeIn * ringFadeOut;
+            // Crisp, solid boundary with zero cross-fade: full height & thickness across the entire layer
+            float ringVisibility = (distToCam >= uMinRadius && distToCam < uMaxRadius) ? 1.0 : 0.0;
 
             // Accurate GPU terrain height matching CPU identically
             vec3 surfNorm;
@@ -958,9 +998,9 @@ function createStratifiedToroidalGrass(geo, count, patchSize, minRadius, maxRadi
                 }
             }
 
-            // Spawn pad clearing
+            // Spawn pad clearing (tight clearance around tank hull, leaving lush grass around tracks)
             float dSpawn = length(worldXZ);
-            float spawnCull = smoothstep(2.5, 7.5, dSpawn);
+            float spawnCull = smoothstep(0.8, 2.2, dSpawn);
 
             // Flowers (buttercups & golden seed heads) on select LOD0 blades
             vFlowerType = (${isLOD0 ? '1.0' : '0.0'} > 0.5 && seed > 0.962 && roadF < 0.20) ? 1.0 : 0.0;
@@ -971,8 +1011,9 @@ function createStratifiedToroidalGrass(geo, count, patchSize, minRadius, maxRadi
             float ang = aInstanceData.z + worldHash * 6.28318;
             float ca = cos(ang), sa = sin(ang);
 
-            float hScale = (0.75 + fract(seed * 7.13) * 0.35) * masterScale;
-            float wScale = (0.85 + fract(seed * 3.7) * 0.30) * (vFlowerType > 0.5 ? 1.6 : 1.0) * step(0.001, masterScale);
+            // Consistent, uniform height and thickness across the entire meadow
+            float hScale = (0.94 + fract(seed * 7.13) * 0.28) * masterScale;
+            float wScale = (1.05 + fract(seed * 3.7) * 0.22) * (vFlowerType > 0.5 ? 1.6 : 1.0) * step(0.001, masterScale);
 
             vec3 localPos = transformed;
             localPos.x *= wScale;
@@ -1007,16 +1048,20 @@ function createStratifiedToroidalGrass(geo, count, patchSize, minRadius, maxRadi
             varying vec3 vWorldPos;
             varying float vBladeSeed;
             varying float vFlowerType;
+            ${SHARED_TERRAIN_GLSL}
         ` + shader.fragmentShader;
 
         shader.fragmentShader = shader.fragmentShader.replace(
             '#include <color_fragment>',
             `
             #include <color_fragment>
-            vec3 rootCol = vec3(0.20, 0.29, 0.08);
-            vec3 lushTip = vec3(0.44, 0.58, 0.17);
-            vec3 goldTip = vec3(0.72, 0.67, 0.24);
-            vec3 tipCol = mix(lushTip, goldTip, vBladeSeed * 0.5 + 0.2);
+            float fieldVariation = fbm3_gpu((vWorldPos.xz + uSeedOffset) * 0.007) * 0.5 + 0.5;
+            float bladeVariation = hash2D_gpu(floor(vWorldPos.xz * 1.7) + vBladeSeed * 23.0);
+            vec3 yellowGreen = vec3(0.66, 0.74, 0.25);
+            vec3 normalGreen = vec3(0.32, 0.64, 0.19);
+            vec3 fieldColor = mix(yellowGreen, normalGreen, smoothstep(0.22, 0.78, fieldVariation));
+            vec3 tipCol = fieldColor * mix(0.90, 1.08, bladeVariation);
+            vec3 rootCol = fieldColor * vec3(0.32, 0.42, 0.18);
             vec3 bladeGrad = mix(rootCol, tipCol, smoothstep(0.0, 0.45, vHeightRatio));
 
             if (vFlowerType > 0.5 && vHeightRatio > 0.72) {
@@ -1073,8 +1118,9 @@ class TerrainChunk {
         const count = pos.count;
         const colors = new Float32Array(count * 3);
 
-        const colLushGrass = new THREE.Color(0x364a1d);
-        const colDryGrass  = new THREE.Color(0x6d692c);
+        const colLushGrass = new THREE.Color(0x263a1c);
+        const colDryGrass  = new THREE.Color(0x514b23);
+        const colSunlitGrass = new THREE.Color(0x3c5125);
         const colMudRoad   = new THREE.Color(0x3a2e21);
         const colWetRut    = new THREE.Color(0x221a12);
         const colCliffRock = new THREE.Color(0x52504c);
@@ -1096,8 +1142,11 @@ class TerrainChunk {
             const n = getTerrainNormal(wx, wz);
             const slope = 1.0 - n.y;
             const patchNoise = fbm3((wx + seedOffset.x) * 0.04, (wz + seedOffset.z) * 0.04) * 0.5 + 0.5;
+            const fieldNoise = fbm3((wx + seedOffset.x) * 0.014, (wz + seedOffset.z) * 0.014) * 0.5 + 0.5;
 
-            tempCol.copy(colLushGrass).lerp(colDryGrass, Math.min(1.0, patchNoise * 1.15));
+            tempCol.copy(colLushGrass).lerp(colSunlitGrass, smoothstep(0.10, 0.60, fieldNoise) * 0.75);
+            tempCol.lerp(colDryGrass, smoothstep(0.58, 0.94, fieldNoise) * 0.82);
+            tempCol.lerp(colLushGrass, patchNoise * 0.12);
 
             const roadF = getRoadFactor(wx, wz);
             if (roadF > 0.01) {
@@ -1270,6 +1319,7 @@ class TerrainChunk {
                     const fireSprite = new THREE.Sprite(fireMat);
                     fireSprite.position.set(hx, hy + 2.0, hz);
                     fireSprite.scale.set(8.5 * bScale, 6.5 * bScale, 1);
+                    if (window.excludeFromSSAO) window.excludeFromSSAO(fireSprite);
                     this.group.add(fireSprite);
 
                     const fireLight = new THREE.PointLight(0xff6a1a, 1.8, 38);
@@ -1294,6 +1344,7 @@ class TerrainChunk {
                             opacity: 0.42
                         });
                         const s = new THREE.Sprite(sMat);
+                        if (window.excludeFromSSAO) window.excludeFromSSAO(s);
                         this.group.add(s);
 
                         const puffData = {
@@ -1541,16 +1592,27 @@ function buildEnvironment(scene) {
     }
 
     // Smooth & Uniform Stratified Toroidal Grass System
+    // Keep detailed blade tufts near the player and use simpler clumps in the outer rings.
     if (!grassLOD0Mesh) {
         const isMob = isMobileDevice();
-        const lod0Count = isMob ? 45000 : 95000;
-        const lod1Count = isMob ? 30000 : 70000;
+        const lod0Count = isMob ? 65000 : 130000;
+        // Mid ring matches near ring density (10.74 inst/m²): 78,400 m² * 10.74 = ~842,000 instances
+        const lod0MidCount = isMob ? 420000 : 842000;
+        // Far ring matches previous mid ring density (1.72 inst/m²): 250,000 m² * 1.72 = ~430,000 instances
+        const lod0FarCount = isMob ? 210000 : 430000;
 
-        grassLOD0Mesh = createStratifiedToroidalGrass(createLOD0BladeGeometry(), lod0Count, LOD0_PATCH_SIZE, 0.0, 47.0, true);
-        grassLOD1Mesh = createStratifiedToroidalGrass(createLOD1ClumpGeometry(), lod1Count, LOD1_PATCH_SIZE, 38.0, 134.0, false);
+        grassLOD0Mesh = createStratifiedToroidalGrass(createLOD0BladeGeometry(), lod0Count, LOD0_PATCH_SIZE, 0.0, 55.0, true);
+        grassLOD0MidMesh = createStratifiedToroidalGrass(createLOD1ClumpGeometry(), lod0MidCount, LOD0_MID_PATCH_SIZE, 55.0, 140.0, false);
+        grassLOD0FarMesh = createStratifiedToroidalGrass(createLOD1ClumpGeometry(), lod0FarCount, LOD0_FAR_PATCH_SIZE, 140.0, 250.0, false);
+        grassLOD1Mesh = grassLOD0FarMesh; // Alias for backward compatibility
         envGroup.add(grassLOD0Mesh);
-        envGroup.add(grassLOD1Mesh);
+        envGroup.add(grassLOD0MidMesh);
+        envGroup.add(grassLOD0FarMesh);
         grassMeshRef = grassLOD0Mesh;
+        window.grassLOD0Mesh = grassLOD0Mesh;
+        window.grassLOD0MidMesh = grassLOD0MidMesh;
+        window.grassLOD0FarMesh = grassLOD0FarMesh;
+        window.grassLOD1Mesh = grassLOD1Mesh;
         window.grassMeshRef = grassMeshRef;
     }
 
@@ -1568,8 +1630,12 @@ function updateEnvironment(dt, tankState) {
     const px = (tankState && tankState.x !== undefined) ? tankState.x : 0;
     const pz = (tankState && tankState.z !== undefined) ? tankState.z : 0;
 
-    terrainUniforms.uCameraPos.value.set(px, 0, pz);
-    grassUniforms.uCameraPos.value.set(px, 0, pz);
+    const cam = window.activeCamera;
+    const cx = (cam && cam.position && !isNaN(cam.position.x)) ? cam.position.x : px;
+    const cz = (cam && cam.position && !isNaN(cam.position.z)) ? cam.position.z : pz;
+
+    terrainUniforms.uCameraPos.value.set(cx, 0, cz);
+    grassUniforms.uCameraPos.value.set(cx, 0, cz);
 
     // Update building positions near player for real-time grass culling
     const nearBldgs = [];
@@ -1687,6 +1753,10 @@ window.swayTrees = swayTrees;
 window.worldBuildings = worldBuildings;
 window.terrainMeshRef = terrainMeshRef;
 window.waterMeshRef = waterMeshRef;
+window.grassLOD0Mesh = grassLOD0Mesh;
+window.grassLOD0MidMesh = grassLOD0MidMesh;
+window.grassLOD0FarMesh = grassLOD0FarMesh;
+window.grassLOD1Mesh = grassLOD1Mesh;
 window.grassMeshRef = grassMeshRef;
 window.skyDome = skyDome;
 window.skyMat = skyMat;
