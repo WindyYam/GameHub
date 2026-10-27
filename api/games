@@ -53,18 +53,22 @@
   },
   {
     "id": 13,
-    "path": "games/TowerDefense/index.html"
+    "path": "games/TigerTank/index.html"
   },
   {
     "id": 14,
-    "path": "games/USSFord/index.html"
+    "path": "games/TowerDefense/index.html"
   },
   {
     "id": 15,
-    "path": "games/UmibeStation/index.html"
+    "path": "games/USSFord/index.html"
   },
   {
     "id": 16,
+    "path": "games/UmibeStation/index.html"
+  },
+  {
+    "id": 17,
     "path": "games/WCFinal2026/index.html"
   }
 ]

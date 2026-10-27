@@ -134,6 +134,7 @@ export function addLandingGear(parent, noseZ, mainX, mainZ) {
 }
 
 export function setWingFoldRatio(mesh, ratio) {
+    if (mesh.userData.wingFoldRatio === ratio) return;
     mesh.userData.wingFoldRatio = ratio;
     if (!mesh.userData.wingFoldPivots) return;
     mesh.userData.wingFoldPivots.forEach(w => {
@@ -414,13 +415,13 @@ export function createFA18({ foldedWings = false, tailColor = 0x1e293b } = {}) {
     const wingFoldPivots = [];
     [-1, 1].forEach(side => {
         const foldPivot = new THREE.Group();
-        foldPivot.position.set(side * 4.35, 1.15, -0.5);
+        foldPivot.position.set(side * 4.35, 1.15, -1.7);
 
         const tipShape = new THREE.Shape();
-        tipShape.moveTo(0, 0.5);
-        tipShape.lineTo(side * 1.55, -0.3);
-        tipShape.lineTo(side * 1.55, -1.2);
-        tipShape.lineTo(0, -0.9);
+        tipShape.moveTo(0, 0.7);
+        tipShape.lineTo(side * 1.55, -0.1);
+        tipShape.lineTo(side * 1.55, -1.0);
+        tipShape.lineTo(0, -0.7);
         tipShape.closePath();
 
         const tipGeo = new THREE.ExtrudeGeometry(tipShape, { depth: 0.14, bevelEnabled: false });
@@ -697,12 +698,6 @@ export function createSeahawk() {
         blade.castShadow = true;
         mainRotor.add(blade);
     }
-    const rotorBlur = new THREE.Mesh(
-        new THREE.RingGeometry(0.95, 5.3, 32),
-        new THREE.MeshBasicMaterial({ color: 0xcbd5e1, side: THREE.DoubleSide, transparent: true, opacity: 0.16 })
-    );
-    rotorBlur.rotation.x = Math.PI / 2;
-    mainRotor.add(rotorBlur);
     heli.add(mainRotor);
 
     const tailRotor = new THREE.Group();
@@ -777,17 +772,30 @@ const crewSkinMat  = new THREE.MeshStandardMaterial({ color: 0xd6a786, roughness
 const crewVisorMat = new THREE.MeshStandardMaterial({ color: 0x090d16, roughness: 0.15, metalness: 0.85 });
 const wandGlowMat  = new THREE.MeshBasicMaterial({ color: 0xfde047 });
 
+const crewMaterialsCache = new Map();
+function getCrewSpecMaterials(spec) {
+    const key = spec.jersey + '_' + spec.vest + '_' + spec.helmet;
+    let mats = crewMaterialsCache.get(key);
+    if (!mats) {
+        mats = {
+            jerseyMat: new THREE.MeshStandardMaterial({ color: spec.jersey, roughness: 0.62 }),
+            vestMat:   new THREE.MeshStandardMaterial({ color: spec.vest,   roughness: 0.52 }),
+            helmetMat: new THREE.MeshStandardMaterial({ color: spec.helmet, roughness: 0.38 })
+        };
+        crewMaterialsCache.set(key, mats);
+    }
+    return mats;
+}
+
 export function createNavyPersonnel(spec) {
     const person = new THREE.Group();
-    const jerseyMat = new THREE.MeshStandardMaterial({ color: spec.jersey, roughness: 0.62 });
-    const vestMat   = new THREE.MeshStandardMaterial({ color: spec.vest,   roughness: 0.52 });
-    const helmetMat = new THREE.MeshStandardMaterial({ color: spec.helmet, roughness: 0.38 });
+    const { jerseyMat, vestMat, helmetMat } = getCrewSpecMaterials(spec);
 
     const leftLeg = new THREE.Group();
     leftLeg.position.set(-0.11, 0.72, 0);
     const lThigh = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.075, 0.62, 8), crewPantsMat);
     lThigh.position.y = -0.31;
-    lThigh.castShadow = true;
+    // lThigh.castShadow = true;
     leftLeg.add(lThigh);
     const lBoot = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.12, 0.24), crewBootMat);
     lBoot.position.set(0, -0.66, 0.04);
@@ -798,7 +806,7 @@ export function createNavyPersonnel(spec) {
     rightLeg.position.set(0.11, 0.72, 0);
     const rThigh = new THREE.Mesh(new THREE.CylinderGeometry(0.085, 0.075, 0.62, 8), crewPantsMat);
     rThigh.position.y = -0.31;
-    rThigh.castShadow = true;
+    // rThigh.castShadow = true;
     rightLeg.add(rThigh);
     const rBoot = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.12, 0.24), crewBootMat);
     rBoot.position.set(0, -0.66, 0.04);
@@ -827,7 +835,7 @@ export function createNavyPersonnel(spec) {
     const cranial = new THREE.Mesh(new THREE.SphereGeometry(0.155, 10, 10), helmetMat);
     cranial.position.set(0, 0.02, -0.01);
     cranial.scale.set(1.0, 1.05, 1.08);
-    cranial.castShadow = true;
+    // cranial.castShadow = true;
     headGroup.add(cranial);
 
     const goggles = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.08, 0.14), crewVisorMat);

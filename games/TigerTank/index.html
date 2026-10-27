@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pz.Kpfw. VI Tiger Ausf. E ("3818") — Interactive 3D Physics & Ballistics Simulation</title>
+    <link rel="icon" href="data:,">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #111418;
+            font-family: 'Inter', sans-serif;
+            user-select: none;
+        }
+        #canvas-container {
+            width: 100%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .hud-panel {
+            background: rgba(15, 19, 24, 0.82);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(148, 163, 184, 0.22);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+        }
+        .hud-btn {
+            background: rgba(30, 38, 49, 0.9);
+            border: 1px solid rgba(148, 163, 184, 0.3);
+            transition: all 0.15s ease;
+        }
+        .hud-btn:hover {
+            background: rgba(51, 65, 85, 0.95);
+            border-color: rgba(248, 250, 252, 0.6);
+            transform: translateY(-1px);
+        }
+        .hud-btn.active {
+            background: rgba(217, 119, 6, 0.9);
+            border-color: rgba(251, 191, 36, 0.9);
+            color: #fff;
+        }
+        /* TZF 9b Sniper Reticle Overlay */
+        #sniper-overlay {
+            pointer-events: none;
+            z-index: 10;
+            background: radial-gradient(circle, transparent 36%, rgba(0,0,0,0.96) 40%);
+        }
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+    </style>
+</head>
+<body class="text-slate-100">
+
+    <!-- 3D WebGL Canvas -->
+    <div id="canvas-container"></div>
+
+    <!-- Gunner TZF 9b Optical Sight Overlay (Hidden unless in Sniper Mode) -->
+    <div id="sniper-overlay" class="hidden fixed inset-0 flex items-center justify-center pointer-events-none">
+        <svg class="w-full h-full max-w-[900px] max-h-[900px]" viewBox="0 0 600 600">
+            <!-- Outer Sight Ring -->
+            <circle cx="300" cy="300" r="265" stroke="rgba(20, 25, 30, 0.9)" stroke-width="6" fill="none"/>
+            <!-- Range Scale Arc -->
+            <circle cx="300" cy="300" r="235" stroke="rgba(255,255,255,0.45)" stroke-width="1" stroke-dasharray="4 8" fill="none"/>
+            <!-- German TZF 9b Triangles & Stadia Lines -->
+            <line x1="60" y1="300" x2="255" y2="300" stroke="#111" stroke-width="2.2"/>
+            <line x1="345" y1="300" x2="540" y2="300" stroke="#111" stroke-width="2.2"/>
+            <line x1="60" y1="300" x2="255" y2="300" stroke="rgba(255,255,255,0.75)" stroke-width="1"/>
+            <line x1="345" y1="300" x2="540" y2="300" stroke="rgba(255,255,255,0.75)" stroke-width="1"/>
+            <!-- Center Aiming Chevron (Main Triangle) -->
+            <polygon points="300,300 291,322 309,322" fill="rgba(15,15,15,0.95)" stroke="rgba(255,255,255,0.7)" stroke-width="0.8"/>
+            <!-- Side Mil Triangles -->
+            <polygon points="270,300 265,312 275,312" fill="rgba(15,15,15,0.9)"/>
+            <polygon points="240,300 236,309 244,309" fill="rgba(15,15,15,0.9)"/>
+            <polygon points="330,300 325,312 335,312" fill="rgba(15,15,15,0.9)"/>
+            <polygon points="360,300 356,309 364,309" fill="rgba(15,15,15,0.9)"/>
+            <!-- Ballistic Drop Marks for 8.8cm PzGr. 39 -->
+            <line x1="292" y1="335" x2="308" y2="335" stroke="#fbbf24" stroke-width="1.3"/>
+            <text x="315" y="338" fill="#fbbf24" font-size="9" font-family="monospace">800m</text>
+            <line x1="290" y1="355" x2="310" y2="355" stroke="#fbbf24" stroke-width="1.3"/>
+            <text x="315" y="358" fill="#fbbf24" font-size="9" font-family="monospace">1200m</text>
+            <line x1="288" y1="380" x2="312" y2="380" stroke="#fbbf24" stroke-width="1.3"/>
+            <text x="315" y="383" fill="#fbbf24" font-size="9" font-family="monospace">1600m</text>
+            <!-- Sight Telemetry -->
+            <text x="225" y="110" fill="#fbbf24" font-size="12" font-family="monospace" font-weight="bold">TZF 9b — 8.8cm KwK 36 L/56 (773 m/s)</text>
+        </svg>
+    </div>
+
+    <!-- First Person Turret Aim Sight Overlay (Shown in FPV Mode) -->
+    <div id="fpv-overlay" class="hidden fixed inset-0 pointer-events-none flex items-center justify-center z-10">
+        <svg class="w-full h-full max-w-[800px] max-h-[800px] pointer-events-none" viewBox="0 0 600 600">
+            <!-- Vignette Ring Frame -->
+            <circle cx="300" cy="300" r="275" stroke="rgba(16, 185, 129, 0.28)" stroke-width="1.5" stroke-dasharray="6 12" fill="none"/>
+            <circle cx="300" cy="300" r="285" stroke="rgba(15, 23, 42, 0.45)" stroke-width="6" fill="none"/>
+            <!-- Stadiametric / Mil Crosshair Lines -->
+            <line x1="130" y1="300" x2="270" y2="300" stroke="#34d399" stroke-width="1.5" stroke-opacity="0.85"/>
+            <line x1="330" y1="300" x2="470" y2="300" stroke="#34d399" stroke-width="1.5" stroke-opacity="0.85"/>
+            <line x1="300" y1="150" x2="300" y2="270" stroke="#34d399" stroke-width="1.5" stroke-opacity="0.85"/>
+            <line x1="300" y1="330" x2="300" y2="450" stroke="#34d399" stroke-width="1.5" stroke-opacity="0.85"/>
+            <!-- Mil Sub-ticks -->
+            <line x1="210" y1="294" x2="210" y2="306" stroke="#34d399" stroke-width="1.2" stroke-opacity="0.7"/>
+            <line x1="240" y1="296" x2="240" y2="304" stroke="#34d399" stroke-width="1.2" stroke-opacity="0.7"/>
+            <line x1="360" y1="296" x2="360" y2="304" stroke="#34d399" stroke-width="1.2" stroke-opacity="0.7"/>
+            <line x1="390" y1="294" x2="390" y2="306" stroke="#34d399" stroke-width="1.2" stroke-opacity="0.7"/>
+            <!-- Ballistic Drop Ticks (KwK 36 773 m/s) -->
+            <line x1="294" y1="340" x2="306" y2="340" stroke="#fbbf24" stroke-width="1.4"/>
+            <text x="312" y="343" fill="#fbbf24" font-size="9" font-family="monospace">400m</text>
+            <line x1="290" y1="360" x2="310" y2="360" stroke="#fbbf24" stroke-width="1.4"/>
+            <text x="315" y="363" fill="#fbbf24" font-size="9" font-family="monospace">800m</text>
+            <line x1="286" y1="385" x2="314" y2="385" stroke="#fbbf24" stroke-width="1.4"/>
+            <text x="319" y="388" fill="#fbbf24" font-size="9" font-family="monospace">1200m</text>
+            <!-- Center Aim Reticle Circle & Dot -->
+            <circle cx="300" cy="300" r="14" stroke="#34d399" stroke-width="1.5" stroke-opacity="0.9" fill="none"/>
+            <circle cx="300" cy="300" r="2.5" fill="#34d399"/>
+            <!-- Telemetry / Zoom Status -->
+            <text x="300" y="245" text-anchor="middle" fill="#6ee7b7" font-size="11" font-family="monospace" font-weight="bold">8.8cm KwK 36 L/56 • 773 M/S</text>
+            <text id="fpv-svg-range" x="300" y="485" text-anchor="middle" fill="#38bdf8" font-size="11" font-family="monospace" font-weight="bold">RANGE: 120m</text>
+            <text id="fpv-svg-zoom" x="300" y="505" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="monospace">OPTICAL 1.0× [HOLD RMB / SCROLL: 3.5× ZOOM]</text>
+        </svg>
+    </div>
+
+    <!-- DUAL BALLISTIC RETICLE HUD (Camera Target Crosshair + Actual 8.8cm Gun Bore Reticle) -->
+    <div id="external-reticle" class="fixed inset-0 pointer-events-none z-10 overflow-hidden">
+        <!-- 1. Camera Target Crosshair (Where Player is Aiming in 3D Space) -->
+        <div id="camera-aim-reticle" class="absolute -translate-x-1/2 -translate-y-1/2 w-9 h-9 rounded-full border-2 border-white/75 flex items-center justify-center shadow-sm" style="left: 50%; top: 50%;">
+            <div class="w-1.5 h-1.5 bg-white rounded-full"></div>
+            <div class="absolute -top-2 w-0.5 h-2 bg-white/75"></div>
+            <div class="absolute -bottom-2 w-0.5 h-2 bg-white/75"></div>
+            <div class="absolute -left-2 w-2 h-0.5 bg-white/75"></div>
+            <div class="absolute -right-2 w-2 h-0.5 bg-white/75"></div>
+            <span id="aim-range-tag" class="absolute top-10 text-[10px] mono font-bold text-white/90 bg-slate-900/75 px-1.5 py-0.5 rounded whitespace-nowrap">120m</span>
+        </div>
+
+        <!-- 2. Actual 8.8cm KwK 36 Gun Bore Reticle (Dynamic Ballistic Circle converging onto Target) -->
+        <div id="gun-bore-reticle" class="absolute -translate-x-1/2 -translate-y-1/2 w-7 h-7 rounded-full border-2 border-emerald-400 flex items-center justify-center transition-colors duration-75" style="left: 50%; top: 50%;">
+            <div id="gun-bore-dot" class="w-2 h-2 bg-emerald-400 rounded-full"></div>
+        </div>
+    </div>
+
+    <!-- Pointer-Lock / Aim Status Banner -->
+    <div id="aim-status-banner" class="fixed top-16 left-1/2 -translate-x-1/2 z-20 pointer-events-none transition-opacity duration-300">
+        <div class="hud-panel px-3.5 py-1 rounded-full text-[11px] mono text-amber-300 flex items-center gap-2">
+            <span id="aim-mode-indicator" class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span id="aim-banner-text">FOLLOW AIM ACTIVE — Move Mouse to Aim • Click Canvas to Lock Mouse &amp; Fire 8.8cm • [C] Free Inspect • [O] Ortho View</span>
+        </div>
+    </div>
+
+    <!-- TOP BAR: Tank Designation & Quick Camera / Orthogonal Controls -->
+    <div class="fixed top-3 left-3 right-3 z-20 flex flex-wrap items-center justify-between gap-2 pointer-events-none">
+        <!-- Title Badge -->
+        <div class="hud-panel px-4 py-2.5 rounded-xl pointer-events-auto flex items-center gap-3">
+            <div class="w-10 h-10 rounded-lg bg-slate-800 border border-slate-600 flex flex-col items-center justify-center">
+                <span class="mono text-xs font-bold text-amber-400 leading-none">3818</span>
+                <span class="text-[9px] text-slate-400 tracking-wider mt-0.5">TIGER I</span>
+            </div>
+            <div>
+                <div class="flex items-center gap-2">
+                    <h1 class="font-extrabold text-sm sm:text-base tracking-tight text-white">Pz.Kpfw. VI Tiger Ausf. E</h1>
+                    <span class="text-[10px] mono uppercase px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40">Wilderness Sector</span>
+                </div>
+                <p class="text-[11px] text-slate-300">8.8 cm KwK 36 L/56 • Dual-Reticle Ballistics • Schachtellaufwerk</p>
+            </div>
+        </div>
+
+        <!-- Mode, Projection & Camera Switchers (Collapsible) -->
+        <div id="panel-views" class="hud-panel px-3 py-2 rounded-xl pointer-events-auto flex items-center gap-1.5 transition-all">
+            <button id="btn-collapse-views" class="hud-btn px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-300 flex items-center gap-1" title="Toggle Camera & Views Toolbar">
+                <span>📷 Views</span>
+                <span id="views-collapse-indicator" class="text-[10px] mono text-amber-400">▲</span>
+            </button>
+            <div id="panel-views-content" class="flex flex-wrap items-center gap-1.5">
+                <button id="cam-orbit" class="hud-btn active px-2.5 py-1.5 rounded-lg text-xs font-semibold" title="Third-person follow-aim camera (elevated view center)">Follow Aim (1)</button>
+                <button id="cam-fpv" class="hud-btn px-2.5 py-1.5 rounded-lg text-xs font-semibold text-emerald-300" title="First-Person Turret Aim Mode with direct precision aiming & zoom">First Person (5)</button>
+                <button id="cam-sniper" class="hud-btn px-2.5 py-1.5 rounded-lg text-xs font-semibold" title="TZF 9b Gunner Optical Sight">TZF 9b Sight (V/2)</button>
+                <button id="cam-inspect" class="hud-btn px-2.5 py-1.5 rounded-lg text-xs font-semibold" title="Orbit camera freely without turning turret">Free Inspect (C/3)</button>
+                <button id="cam-suspension" class="hud-btn px-2.5 py-1.5 rounded-lg text-xs font-semibold">Wheel Cam (4)</button>
+                <div class="h-4 w-[1px] bg-slate-700 mx-1"></div>
+                <button id="proj-toggle" class="hud-btn px-2.5 py-1.5 rounded-lg text-xs font-semibold text-sky-300 border-sky-500/40">📐 View: Perspective (O)</button>
+                <!-- Orthogonal Preset Bar -->
+                <div id="ortho-presets" class="flex items-center gap-1 bg-slate-900/80 px-1.5 py-0.5 rounded-lg border border-slate-700">
+                    <span class="text-[9px] mono text-slate-400 uppercase px-1">Ortho:</span>
+                    <button data-ortho="iso" class="ortho-preset-btn hud-btn px-1.5 py-1 rounded text-[10px] mono">ISO</button>
+                    <button data-ortho="side" class="ortho-preset-btn hud-btn px-1.5 py-1 rounded text-[10px] mono">SIDE</button>
+                    <button data-ortho="front" class="ortho-preset-btn hud-btn px-1.5 py-1 rounded text-[10px] mono">FRONT</button>
+                    <button data-ortho="top" class="ortho-preset-btn hud-btn px-1.5 py-1 rounded text-[10px] mono">TOP</button>
+                </div>
+                <div class="h-4 w-[1px] bg-slate-700 mx-1"></div>
+                <button id="env-toggle" class="hud-btn px-2.5 py-1.5 rounded-lg text-xs font-semibold text-amber-300">🌲 Scene: Wild Valley</button>
+                <button id="audio-toggle" class="hud-btn px-2.5 py-1.5 rounded-lg text-xs font-semibold text-emerald-400">🔊 Audio ON</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- LEFT PANEL: Controls & Inspection Features (Collapsible) -->
+    <div id="panel-controls" class="fixed top-24 left-3 z-20 w-64 hud-panel p-3.5 rounded-xl pointer-events-auto hidden md:block transition-all duration-300">
+        <div class="flex items-center justify-between border-b border-slate-700/80 pb-2 mb-2 cursor-pointer select-none" id="header-panel-controls" title="Click to collapse / expand">
+            <div class="flex items-center gap-1.5">
+                <span class="text-xs font-bold uppercase tracking-wider text-amber-400 mono">Crew Controls</span>
+                <span class="text-[10px] mono text-slate-400">57.0t</span>
+            </div>
+            <button id="btn-collapse-controls" class="text-[11px] mono px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-700 transition-colors">▲ Hide</button>
+        </div>
+        <div id="panel-controls-body" class="transition-all duration-300">
+            <div class="space-y-1.5 text-xs">
+                <div class="flex justify-between"><span class="text-slate-400">Drive / Steer:</span><span class="mono font-semibold text-white">W, A, S, D / Touch D-Pad</span></div>
+                <div class="flex justify-between"><span class="text-slate-400">Aim Turret &amp; Gun:</span><span class="mono font-semibold text-emerald-300">Mouse / Touch Drag</span></div>
+                <div class="flex justify-between"><span class="text-slate-400">Fire 8.8 cm KwK 36:</span><span class="mono font-semibold text-amber-400">Left-Click / Space</span></div>
+                <div class="flex justify-between"><span class="text-slate-400">Coax MG34 (Turret):</span><span class="mono font-semibold text-amber-400">Right-Click / F</span></div>
+                <div class="flex justify-between"><span class="text-slate-400">Bow MG34 (Front):</span><span class="mono font-semibold text-orange-400">G Key</span></div>
+                <div class="flex justify-between"><span class="text-slate-400">First Person View:</span><span class="mono font-semibold text-emerald-300">[5] Key / RMB Zoom</span></div>
+                <div class="flex justify-between"><span class="text-slate-400">Sniper Sight TZF 9b:</span><span class="mono font-semibold text-sky-300">V Key / [2]</span></div>
+                <div class="flex justify-between"><span class="text-slate-400">Free Inspect Lock:</span><span class="mono font-semibold text-purple-300">Hold/Press C / [3]</span></div>
+                <div class="flex justify-between"><span class="text-slate-400">Smoke / Headlights:</span><span class="mono font-semibold text-emerald-300">X / H Keys</span></div>
+                <div class="flex justify-between"><span class="text-slate-400">Toggle Telemetry:</span><span class="mono font-semibold text-sky-300">U Key</span></div>
+            </div>
+
+            <div class="border-t border-slate-700/80 mt-3 pt-2.5">
+                <span class="text-[11px] font-bold uppercase tracking-wider text-slate-300 mono block mb-2">Interactive Tests</span>
+                <div class="grid grid-cols-2 gap-1.5">
+                    <button id="btn-fire-88" class="hud-btn py-1.5 px-2 rounded-lg text-xs font-semibold text-amber-300 col-span-2">💥 Fire 8.8cm</button>
+                    <button id="btn-fire-coax" class="hud-btn py-1.5 px-2 rounded-lg text-xs font-semibold text-amber-400">🔥 Coax MG</button>
+                    <button id="btn-fire-bow" class="hud-btn py-1.5 px-2 rounded-lg text-xs font-semibold text-orange-400">🎯 Bow MG (G)</button>
+                    <button id="btn-smoke" class="hud-btn py-1.5 px-2 rounded-lg text-xs font-semibold text-slate-200">💨 Smoke (X)</button>
+                    <button id="btn-headlights" class="hud-btn py-1.5 px-2 rounded-lg text-xs font-semibold text-yellow-300">💡 Lights (H)</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MOBILE CONTROLS OVERLAY (Shown ONLY on mobile/touch browsers) -->
+    <div id="mobile-controls-wrapper" class="hidden">
+        <!-- Mobile Collapse Toggle Button -->
+        <button id="btn-collapse-mobile" class="fixed top-20 right-3 z-30 pointer-events-auto hud-panel px-2.5 py-1 rounded-lg text-[11px] mono text-amber-300 border border-slate-700 shadow-md">🎮 Controls ▲</button>
+
+        <!-- 1. Virtual Analog Joystick for Tank Driving & Steering (Bottom-Left) -->
+        <div id="mobile-joystick-container" class="fixed bottom-24 left-4 z-30 pointer-events-auto select-none touch-none transition-opacity duration-200">
+            <div id="joystick-base" class="relative w-32 h-32 rounded-full bg-slate-900/80 border-2 border-emerald-500/50 backdrop-blur-md shadow-2xl flex items-center justify-center touch-none">
+                <!-- Inner Directional Guideline Crosshair -->
+                <div class="absolute inset-2.5 rounded-full border border-dashed border-emerald-500/25 pointer-events-none"></div>
+                <span class="absolute top-1 text-[10px] text-emerald-400/60 font-bold pointer-events-none">▲</span>
+                <span class="absolute bottom-1 text-[10px] text-emerald-400/60 font-bold pointer-events-none">▼</span>
+                <span class="absolute left-1.5 text-[10px] text-emerald-400/60 font-bold pointer-events-none">◄</span>
+                <span class="absolute right-1.5 text-[10px] text-emerald-400/60 font-bold pointer-events-none">►</span>
+                <!-- Joystick Draggable Thumb Puck -->
+                <div id="joystick-knob" class="absolute w-14 h-14 rounded-full bg-gradient-to-br from-emerald-500 to-teal-700 border-2 border-emerald-300 shadow-xl flex items-center justify-center pointer-events-none" style="left: 50%; top: 50%; transform: translate(-50%, -50%);">
+                    <div class="w-4 h-4 rounded-full bg-emerald-200/70 shadow-inner"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. Mobile Combat Action Pad (Bottom-Right) -->
+        <div id="mobile-actions" class="fixed bottom-24 right-3 z-30 pointer-events-auto flex flex-col items-end gap-2 select-none touch-none transition-opacity duration-200">
+            <!-- Top auxiliary row: Zoom, Smoke, Bow MG -->
+            <div class="flex items-center gap-1.5">
+                <button id="mob-btn-zoom" class="h-11 px-2.5 bg-slate-900/85 border border-sky-500/60 active:bg-sky-600/60 text-sky-300 font-bold text-xs rounded-xl flex items-center gap-1 shadow-md backdrop-blur-md touch-none active:scale-95">
+                    <span>🔍</span>
+                    <span class="text-[10px] mono">ZOOM</span>
+                </button>
+                <button id="mob-btn-smoke" class="h-11 px-2.5 bg-slate-900/85 border border-slate-500/60 active:bg-slate-600/60 text-slate-200 font-bold text-xs rounded-xl flex items-center gap-1 shadow-md backdrop-blur-md touch-none active:scale-95">
+                    <span>💨</span>
+                    <span class="text-[10px] mono">SMOKE</span>
+                </button>
+                <button id="mob-fire-bow" class="h-11 px-3 bg-slate-900/85 border border-orange-500/70 active:bg-orange-600/60 text-orange-400 font-bold text-xs rounded-xl flex items-center gap-1 shadow-md backdrop-blur-md touch-none active:scale-95">
+                    <span>🎯</span>
+                    <span class="text-[10px] mono font-bold">BOW MG</span>
+                </button>
+            </div>
+            <!-- Primary fire row: Coax MG and 8.8cm Cannon -->
+            <div class="flex items-center gap-2">
+                <button id="mob-fire-coax" class="h-14 px-3.5 bg-slate-900/90 border-2 border-amber-500/80 active:bg-amber-600/70 text-amber-300 font-bold text-xs rounded-2xl flex flex-col items-center justify-center shadow-lg backdrop-blur-md touch-none active:scale-95">
+                    <span class="text-sm">🔥</span>
+                    <span class="text-[10px] mono font-bold">COAX MG</span>
+                </button>
+                <button id="mob-fire-88" class="h-14 px-4 bg-gradient-to-br from-red-950/90 to-amber-950/90 border-2 border-amber-500 active:border-amber-300 active:scale-95 text-amber-300 font-extrabold text-sm rounded-2xl flex flex-col items-center justify-center shadow-2xl backdrop-blur-md touch-none">
+                    <span class="text-base leading-none">💥</span>
+                    <span class="text-[11px] mono font-extrabold text-white uppercase tracking-wider">8.8cm FIRE</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- BOTTOM TELEMETRY & WEAPONS HUD (Collapsible) -->
+    <div id="bottom-hud" class="fixed bottom-3 left-3 right-3 z-20 flex flex-wrap items-end justify-between gap-3 pointer-events-none transition-all duration-300">
+        
+        <!-- Left: Drivetrain, Maybach Engine & Suspension Status -->
+        <div id="hud-drivetrain-panel" class="hud-panel p-3.5 rounded-xl pointer-events-auto flex items-center gap-4 transition-all duration-300">
+            <div class="text-center pr-3 border-r border-slate-700">
+                <div class="text-[10px] mono uppercase text-slate-400">Speed</div>
+                <div id="hud-speed" class="mono text-2xl font-bold text-white">0.0</div>
+                <div class="text-[10px] mono text-slate-400">km/h</div>
+            </div>
+            <div class="space-y-1 text-xs min-w-[145px]">
+                <div class="flex justify-between">
+                    <span class="text-slate-400">Maybach HL230:</span>
+                    <span id="hud-rpm" class="mono text-amber-400 font-semibold">800 RPM</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-400">Olvar Gear:</span>
+                    <span id="hud-gear" class="mono text-white font-semibold">NEUTRAL</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-400">Hull Pitch / Roll:</span>
+                    <span id="hud-attitude" class="mono text-sky-300 font-semibold">0.0° / 0.0°</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Center: HUD Telemetry Minimize / Expand Toggle Pill -->
+        <button id="btn-collapse-telemetry" class="hud-panel px-3 py-1.5 rounded-full pointer-events-auto text-[11px] mono text-slate-300 hover:text-amber-300 border border-slate-700/80 shadow-lg flex items-center gap-1.5 transition-all active:scale-95 mb-1" title="Toggle bottom telemetry panels (U Key)">
+            <span>📊 Telemetry</span>
+            <span id="telemetry-collapse-icon" class="text-[10px] mono text-amber-400 font-bold">▲ Hide</span>
+        </button>
+
+        <!-- Right: Turret Azimuth, Gun Clinometer (-8° to +15°) & Weapon Reload -->
+        <div id="hud-weapons-panel" class="hud-panel p-3.5 rounded-xl pointer-events-auto flex items-center gap-4 transition-all duration-300">
+            <!-- Turret & Barrel Angles -->
+            <div class="space-y-1 text-xs pr-3 border-r border-slate-700 min-w-[165px]">
+                <div class="flex justify-between">
+                    <span class="text-slate-400">Turret Azimuth:</span>
+                    <span id="hud-azimuth" class="mono text-white font-semibold">000.0°</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-slate-400">KwK 36 Elev:</span>
+                    <span id="hud-elevation" class="mono text-amber-400 font-semibold">+0.0°</span>
+                </div>
+                <div class="text-[10px] mono text-slate-400 flex justify-between">
+                    <span>V₀: 773 m/s</span>
+                    <span id="hud-targets" class="text-emerald-400">Hits: 0</span>
+                </div>
+            </div>
+
+            <!-- Weapon Status Bars -->
+            <div class="w-44 space-y-2">
+                <div>
+                    <div class="flex justify-between text-[11px] mono mb-0.5">
+                        <span class="font-bold text-amber-300">8.8cm PzGr. 39 (773 m/s)</span>
+                        <span id="hud-reload-text" class="text-emerald-400 font-bold">READY</span>
+                    </div>
+                    <div class="w-full h-2 bg-slate-800 rounded-full overflow-hidden border border-slate-700">
+                        <div id="hud-reload-bar" class="h-full bg-emerald-500 transition-all duration-75" style="width: 100%"></div>
+                    </div>
+                </div>
+                <div>
+                    <div class="flex justify-between text-[11px] mono mb-0.5">
+                        <span class="font-bold text-orange-300">2× 7.92mm MG34</span>
+                        <span id="hud-mg-text" class="text-slate-300">BELT OK</span>
+                    </div>
+                    <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden border border-slate-700">
+                        <div id="hud-mg-bar" class="h-full bg-orange-400 transition-all duration-75" style="width: 100%"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modularized Tiger Tank Simulation Scripts -->
+    <script src="js/audio.js"></script>
+    <script src="js/shaders.js"></script>
+    <script src="js/environment.js"></script>
+    <script src="js/tankModel.js"></script>
+    <script src="js/physics.js"></script>
+    <script src="js/controls.js"></script>
+    <script src="js/main.js"></script>
+</body>
+</html>

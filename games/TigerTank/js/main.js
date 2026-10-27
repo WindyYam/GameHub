@@ -1,0 +1,585 @@
+// ============================================================================
+// TigerTank Main Engine & Simulation Orchestrator
+// Coordinates 3D Scene, PBR Shaders, Physics, Controls & HUD Telemetry
+// ============================================================================
+
+const container = document.getElementById('canvas-container');
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0xc8d6e5);
+scene.fog = new THREE.FogExp2(0xc4d0dc, 0.0032);
+window.scene = scene;
+
+// 1. Perspective Camera
+const perspCamera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.15, 800);
+window.perspCamera = perspCamera;
+
+// 2. Orthographic Camera (Seamless switch via 'O' key or HUD button)
+const orthoFrustumSize = 18;
+window.orthoFrustumSize = orthoFrustumSize;
+const aspect = window.innerWidth / window.innerHeight;
+const orthoCamera = new THREE.OrthographicCamera(
+    -orthoFrustumSize * aspect / 2,
+     orthoFrustumSize * aspect / 2,
+     orthoFrustumSize / 2,
+    -orthoFrustumSize / 2,
+    -200,
+    800
+);
+orthoCamera.zoom = 1.15;
+orthoCamera.updateProjectionMatrix();
+window.orthoCamera = orthoCamera;
+
+let activeCamera = perspCamera;
+window.activeCamera = activeCamera;
+
+// 3. WebGL High-Performance Renderer
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.12;
+container.appendChild(renderer.domElement);
+window.renderer = renderer;
+
+// 4. Atmospheric Battlefield Lighting
+const hemiLight = new THREE.HemisphereLight(0xfff7ed, 0x3f4e3d, 0.88);
+scene.add(hemiLight);
+
+const sunLight = new THREE.DirectionalLight(0xfff1db, 1.45);
+sunLight.position.set(45, 55, 38);
+sunLight.castShadow = true;
+sunLight.shadow.mapSize.width = 2048;
+sunLight.shadow.mapSize.height = 2048;
+sunLight.shadow.camera.near = 5;
+sunLight.shadow.camera.far = 180;
+const d = 48;
+sunLight.shadow.camera.left = -d;
+sunLight.shadow.camera.right = d;
+sunLight.shadow.camera.top = d;
+sunLight.shadow.camera.bottom = -d;
+sunLight.shadow.bias = -0.0005;
+scene.add(sunLight);
+window.sunLight = sunLight;
+
+const rimLight = new THREE.DirectionalLight(0x93c5fd, 0.45);
+rimLight.position.set(-35, 22, -30);
+scene.add(rimLight);
+
+// ============================================================================
+// SYSTEM INITIALIZATION
+// ============================================================================
+const mats = createMaterials();
+window.mats = mats;
+
+initEnvironment(scene);
+buildEnvironment();
+
+const tank = buildTigerTank(scene, mats);
+window.tankModel = tank;
+
+initControls(renderer);
+if (typeof updateTracksGeometry === 'function') {
+    updateTracksGeometry(0, 0);
+} else if (typeof window.updateTracksGeometry === 'function') {
+    window.updateTracksGeometry(0, 0);
+}
+
+// ============================================================================
+// MAIN SIMULATION & PHYSICS LOOP
+// ============================================================================
+let lastTime = performance.now();
+
+function updateSimulation(dt) {
+    const nowSec = performance.now() * 0.001;
+    const currentActiveCam = window.activeCamera || activeCamera;
+
+    // --- 1. DRIVING & STEERING PHYSICS (W, A, S, D & Mobile D-Pad) ---
+    const forwardInput = ((keys['w'] ? 1 : 0) - (keys['s'] ? 1 : 0)) || touchDrive.forward;
+    const turnInput    = ((keys['a'] ? 1 : 0) - (keys['d'] ? 1 : 0)) || touchDrive.turn;
+
+    const maxSpeed = 10.6; // ~38 km/h realistic Tiger I top road speed
+    const prevSpeed = tankState.speed;
+
+    if (forwardInput !== 0) {
+        tankState.speed += forwardInput * 4.8 * dt;
+    } else {
+        tankState.speed *= Math.pow(0.18, dt);
+        if (Math.abs(tankState.speed) < 0.02) tankState.speed = 0;
+    }
+    tankState.speed = THREE.MathUtils.clamp(tankState.speed, -maxSpeed * 0.5, maxSpeed);
+
+    // Longitudinal acceleration pitch torque (squat on accel, dive on braking)
+    const accel = (tankState.speed - prevSpeed) / Math.max(dt, 0.001);
+    tankState.pitchVel += accel * 0.015 * dt;
+
+    // Neutral / Pivot Steering
+    if (turnInput !== 0) {
+        tankState.turnRate = THREE.MathUtils.lerp(tankState.turnRate, turnInput * 0.85, 6 * dt);
+    } else {
+        tankState.turnRate *= Math.pow(0.05, dt);
+    }
+
+    tankState.heading += tankState.turnRate * dt;
+    tankState.x += Math.sin(tankState.heading) * tankState.speed * dt;
+    tankState.z += Math.cos(tankState.heading) * tankState.speed * dt;
+
+    // Kick up muddy track dirt particles when driving in the wild
+    if (window.environmentMode === 'wild' && (Math.abs(tankState.speed) > 1.2 || Math.abs(tankState.turnRate) > 0.2) && Math.random() < 0.45) {
+        [-1.38, 1.38].forEach((sideX) => {
+            const kickPos = new THREE.Vector3(sideX, -0.85, -2.4);
+            hullGroup.localToWorld(kickPos);
+            const kickVel = new THREE.Vector3((Math.random() - 0.5) * 2.5, 1.8 + Math.random() * 2.0, (Math.random() - 0.5) * 2.5);
+            spawnParticle(kickPos, kickVel, 0x5c4d3c, 0.18, 0.65, 0.45, false, 'dirt');
+        });
+    }
+
+    // Realistic Twin Armored Exhaust Puffs (Maybach HL230 V12 Engine)
+    if (Math.random() < (forwardInput !== 0 ? 0.42 : 0.15)) {
+        [-0.52, 0.52].forEach((ex) => {
+            const exhaustPos = new THREE.Vector3(ex, 0.82, -2.75);
+            hullGroup.localToWorld(exhaustPos);
+            const exhaustVel = new THREE.Vector3(
+                (Math.random() - 0.5) * 0.4 - Math.sin(tankState.heading) * tankState.speed * 0.25,
+                0.55 + Math.random() * 0.65,
+                (Math.random() - 0.5) * 0.4 - Math.cos(tankState.heading) * tankState.speed * 0.25
+            );
+            const col = (forwardInput !== 0) ? 0x334155 : 0x64748b;
+            spawnParticle(exhaustPos, exhaustVel, col, 0.12, 0.72, 0.85 + Math.random() * 0.45, false, 'smoke');
+        });
+    }
+
+    // Update Engine Audio
+    const speedRatio = Math.min(1, Math.abs(tankState.speed) / maxSpeed + Math.abs(tankState.turnRate) * 0.3);
+    soundFX.updateEngine(speedRatio, forwardInput !== 0 || turnInput !== 0);
+
+    // --- 2. TORSION BAR SPRING-DAMPER SUSPENSION & TERRAIN SAMPLING ---
+    const cosH = Math.cos(tankState.heading);
+    const sinH = Math.sin(tankState.heading);
+
+    let avgGroundY = 0;
+    let pitchTorque = 0;
+    let rollTorque = 0;
+
+    ['left', 'right'].forEach((sideKey) => {
+        const sideSign = (sideKey === 'left') ? 1 : -1;
+        const stations = roadWheelStations[sideKey];
+
+        for (let i = 0; i < stations.length; i++) {
+            const st = stations[i];
+            const wx = tankState.x + st.x * cosH + st.z * sinH;
+            const wz = tankState.z - st.x * sinH + st.z * cosH;
+
+            const groundH = getTerrainHeight(wx, wz);
+            avgGroundY += groundH;
+
+            const hullWheelHeight = (tankState.y + tankState.heave) + st.z * Math.sin(tankState.pitch) - st.x * Math.sin(tankState.roll);
+            const targetCompression = THREE.MathUtils.clamp(groundH - hullWheelHeight, -0.18, 0.28);
+
+            const springK = 140.0;
+            const dampingC = 18.0;
+            const force = (targetCompression - st.currentOffset) * springK - st.velocityY * dampingC;
+            st.velocityY += force * dt;
+            st.currentOffset = THREE.MathUtils.clamp(st.currentOffset + st.velocityY * dt, -0.18, 0.28);
+
+            st.cluster.position.y = st.baseY + st.currentOffset;
+
+            pitchTorque += st.currentOffset * st.z * 0.42;
+            rollTorque  -= st.currentOffset * sideSign * 0.38;
+        }
+    });
+
+    avgGroundY /= 16.0;
+    tankState.y = THREE.MathUtils.lerp(tankState.y, avgGroundY, 10 * dt);
+
+    // Hull Heave, Pitch & Roll Spring-Damper Dynamics
+    const heaveForce = -tankState.heave * 42.0 - tankState.heaveVel * 7.5;
+    tankState.heaveVel += heaveForce * dt;
+    tankState.heave += tankState.heaveVel * dt;
+
+    const totalPitchForce = pitchTorque - tankState.pitch * 26.0 - tankState.pitchVel * 5.2;
+    tankState.pitchVel += totalPitchForce * dt;
+    tankState.pitch += tankState.pitchVel * dt;
+
+    const totalRollForce = rollTorque - tankState.roll * 32.0 - tankState.rollVel * 6.0;
+    tankState.rollVel += totalRollForce * dt;
+    tankState.roll += tankState.rollVel * dt;
+
+    // Apply transforms to Tank Root & Chassis BEFORE computing camera & local turret aim
+    tankRoot.position.set(tankState.x, tankState.y, tankState.z);
+    tankRoot.rotation.y = tankState.heading;
+
+    hullGroup.position.y = 0.92 + tankState.heave;
+    hullGroup.rotation.x = -tankState.pitch;
+    hullGroup.rotation.z = tankState.roll;
+    tankRoot.updateMatrixWorld(true);
+
+    // --- 3. CAMERA POSITIONING & 3D RAYCAST AIMING SYSTEM ---
+    if (cameraMode === 'orbit') {
+        const tankAnchor = new THREE.Vector3(tankState.x, tankState.y + 1.85, tankState.z);
+
+        // Compute camera forward view direction from player mouse orbit angles (theta, phi)
+        const lookDir = new THREE.Vector3(
+            -Math.sin(camOrbit.phi) * Math.sin(camOrbit.theta),
+            -Math.cos(camOrbit.phi),
+            -Math.sin(camOrbit.phi) * Math.cos(camOrbit.theta)
+        ).normalize();
+
+        // Position camera behind tank along -lookDir, and offset up so view center is above turret
+        const camDist = camOrbit.distance;
+        const camPos = tankAnchor.clone()
+            .addScaledVector(lookDir, -camDist)
+            .add(new THREE.Vector3(0, 1.65, 0));
+
+        // Terrain collision clearance
+        const minCamY = getTerrainHeight(camPos.x, camPos.z) + 0.55;
+        if (camPos.y < minCamY) camPos.y = minCamY;
+
+        const lookTarget = camPos.clone().addScaledVector(lookDir, 100.0);
+        currentActiveCam.position.copy(camPos);
+        currentActiveCam.lookAt(lookTarget);
+        currentActiveCam.updateMatrixWorld();
+    } else if (cameraMode === 'inspect') {
+        const lookPivot = new THREE.Vector3(tankState.x, tankState.y + 1.85, tankState.z);
+        const cx = lookPivot.x + camOrbit.distance * Math.sin(camOrbit.phi) * Math.sin(camOrbit.theta);
+        const cz = lookPivot.z + camOrbit.distance * Math.sin(camOrbit.phi) * Math.cos(camOrbit.theta);
+        const minCamY = getTerrainHeight(cx, cz) + 0.45;
+        const cy = Math.max(minCamY, lookPivot.y + camOrbit.distance * Math.cos(camOrbit.phi));
+        currentActiveCam.position.set(cx, cy, cz);
+        currentActiveCam.lookAt(lookPivot);
+        currentActiveCam.updateMatrixWorld();
+    } else if (cameraMode === 'fpv') {
+        const sightLocal = new THREE.Vector3(0.0, 0.40, 0.45);
+        gunElevationPivot.localToWorld(sightLocal);
+
+        const barrelQuat = new THREE.Quaternion();
+        gunElevationPivot.getWorldQuaternion(barrelQuat);
+        const forwardDir = new THREE.Vector3(0, 0, 1).applyQuaternion(barrelQuat).normalize();
+        const sightTarget = sightLocal.clone().addScaledVector(forwardDir, 100.0);
+
+        currentActiveCam.position.copy(sightLocal);
+        currentActiveCam.lookAt(sightTarget);
+        currentActiveCam.updateMatrixWorld();
+    } else if (cameraMode === 'sniper') {
+        const sightPos = new THREE.Vector3(0.46, 0.08, 0.45);
+        gunElevationPivot.localToWorld(sightPos);
+        const lookTarget = new THREE.Vector3(0.46, 0.08, 90.0);
+        gunElevationPivot.localToWorld(lookTarget);
+        currentActiveCam.position.copy(sightPos);
+        currentActiveCam.lookAt(lookTarget);
+        currentActiveCam.updateMatrixWorld();
+    } else if (cameraMode === 'suspension') {
+        const camLocal = new THREE.Vector3(3.45, 0.58, 1.35);
+        tankRoot.localToWorld(camLocal);
+        const lookLocal = new THREE.Vector3(1.2, 0.48, 0.15);
+        tankRoot.localToWorld(lookLocal);
+        currentActiveCam.position.copy(camLocal);
+        currentActiveCam.lookAt(lookLocal);
+        currentActiveCam.updateMatrixWorld();
+    }
+
+    // Manual Keyboard Override for Turret Traverse & Gun Elevation (Arrow Keys or I/J/K/L)
+    const manualTurn = (keys['arrowleft'] || keys['j'] ? 1 : 0) - (keys['arrowright'] || keys['l'] ? 1 : 0);
+    const manualElev = (keys['arrowup']   || keys['i'] ? 1 : 0) - (keys['arrowdown']  || keys['k'] ? 1 : 0);
+
+    if (manualTurn !== 0 || manualElev !== 0) {
+        tankState.targetTurretYaw += manualTurn * 0.95 * dt;
+        tankState.targetGunElevation = THREE.MathUtils.clamp(
+            tankState.targetGunElevation + manualElev * 0.55 * dt,
+            tankState.MIN_ELEV_RAD,
+            tankState.MAX_ELEV_RAD
+        );
+        if (cameraMode === 'sniper' || cameraMode === 'fpv') {
+            camOrbit.theta = tankState.heading + tankState.targetTurretYaw + Math.PI;
+        }
+    } else if (cameraMode === 'orbit') {
+        // WAR THUNDER / WoT 3D RAYCAST AIMING:
+        raycaster.setFromCamera(aimCursorNDC, currentActiveCam);
+        let foundHit = false;
+
+        const intersectables = [];
+        if (window.terrainMeshRef) intersectables.push(window.terrainMeshRef);
+        targets.forEach(tg => { if (tg.group) intersectables.push(tg.group); });
+
+        const hits = raycaster.intersectObjects(intersectables, true);
+        for (let i = 0; i < hits.length; i++) {
+            if (hits[i].distance > 3.0) {
+                worldAimPoint.copy(hits[i].point);
+                foundHit = true;
+                break;
+            }
+        }
+        if (!foundHit) {
+            raycaster.ray.at(250.0, worldAimPoint);
+        }
+
+        // Convert worldAimPoint into hullGroup's LOCAL coordinate space
+        const localTargetInHull = hullGroup.worldToLocal(worldAimPoint.clone());
+        const dx = localTargetInHull.x;
+        const dz = localTargetInHull.z - 0.12;
+        tankState.targetTurretYaw = Math.atan2(dx, dz);
+
+        // Desired elevation in turret trunnion frame with KwK 36 773 m/s superelevation
+        const dy = localTargetInHull.y - (0.70 + 0.39);
+        const horizDist = Math.max(0.5, Math.hypot(dx, dz) - 0.92);
+        const flightTime = horizDist / 773.0;
+        const drop = 0.5 * 9.81 * flightTime * flightTime;
+        const gravityComp = Math.atan2(drop, horizDist);
+        const desiredElev = Math.atan2(dy, horizDist) + gravityComp;
+
+        tankState.targetGunElevation = THREE.MathUtils.clamp(
+            desiredElev,
+            tankState.MIN_ELEV_RAD,
+            tankState.MAX_ELEV_RAD
+        );
+    } else if (cameraMode === 'sniper') {
+        const desiredYawFromCam = (camOrbit.theta - Math.PI) - tankState.heading;
+        tankState.targetTurretYaw = Math.atan2(Math.sin(desiredYawFromCam), Math.cos(desiredYawFromCam));
+        const desiredElevFromCam = (1.42 - camOrbit.phi) * 0.85;
+        tankState.targetGunElevation = THREE.MathUtils.clamp(
+            desiredElevFromCam,
+            tankState.MIN_ELEV_RAD,
+            tankState.MAX_ELEV_RAD
+        );
+    }
+
+    // Shortest-angle hydraulic turret traverse smoothing
+    let yawError = tankState.targetTurretYaw - tankState.turretYaw;
+    yawError = Math.atan2(Math.sin(yawError), Math.cos(yawError));
+    const maxTraverseStep = (cameraMode === 'fpv' ? 1.45 : 1.15) * dt;
+    tankState.turretYaw += THREE.MathUtils.clamp(yawError, -maxTraverseStep, maxTraverseStep);
+    tankState.turretYaw = Math.atan2(Math.sin(tankState.turretYaw), Math.cos(tankState.turretYaw));
+
+    // Gun elevation smoothing
+    const elevLerpRate = (cameraMode === 'fpv' ? 16 : 12);
+    tankState.gunElevation = THREE.MathUtils.lerp(tankState.gunElevation, tankState.targetGunElevation, elevLerpRate * dt);
+
+    turretGroup.rotation.y = tankState.turretYaw;
+    gunElevationPivot.rotation.x = -tankState.gunElevation;
+    turretGroup.updateMatrixWorld(true);
+
+    // --- 4. COMPUTE ACTUAL 8.8cm GUN BORE RAYCAST & PROJECT RETICLES ---
+    const muzzleWorldPos = new THREE.Vector3();
+    mainGunMuzzleTip.getWorldPosition(muzzleWorldPos);
+    const barrelWorldQuat = new THREE.Quaternion();
+    gunElevationPivot.getWorldQuaternion(barrelWorldQuat);
+    const boreDir = new THREE.Vector3(0, 0, 1).applyQuaternion(barrelWorldQuat).normalize();
+
+    raycaster.set(muzzleWorldPos, boreDir);
+    let boreDist = 250.0;
+    const boreIntersectables = [];
+    if (window.terrainMeshRef) boreIntersectables.push(window.terrainMeshRef);
+    targets.forEach(tg => { if (tg.group) boreIntersectables.push(tg.group); });
+
+    const boreHits = raycaster.intersectObjects(boreIntersectables, true);
+    if (boreHits.length > 0) {
+        actualGunHitPoint.copy(boreHits[0].point);
+        boreDist = boreHits[0].distance;
+    } else {
+        raycaster.ray.at(250.0, actualGunHitPoint);
+    }
+
+    if (cameraMode === 'fpv') {
+        const fpvRangeEl = document.getElementById('fpv-svg-range');
+        if (fpvRangeEl) fpvRangeEl.textContent = `RANGE: ${Math.round(boreDist)}m`;
+    }
+
+    if (cameraMode === 'orbit' || cameraMode === 'inspect') {
+        const camAimScreen = worldAimPoint.clone().project(currentActiveCam);
+        const camReticleEl = document.getElementById('camera-aim-reticle');
+        if (camAimScreen.z < 1.0) {
+            const cx = (camAimScreen.x * 0.5 + 0.5) * window.innerWidth;
+            const cy = (-camAimScreen.y * 0.5 + 0.5) * window.innerHeight;
+            camReticleEl.style.left = `${cx}px`;
+            camReticleEl.style.top  = `${cy}px`;
+            camReticleEl.style.opacity = '1';
+            const rangeTag = document.getElementById('aim-range-tag');
+            if (rangeTag) rangeTag.textContent = `${Math.round(boreDist)}m`;
+        } else {
+            camReticleEl.style.opacity = '0';
+        }
+
+        const boreScreen = actualGunHitPoint.clone().project(currentActiveCam);
+        const boreReticleEl = document.getElementById('gun-bore-reticle');
+        const boreDotEl = document.getElementById('gun-bore-dot');
+        if (boreScreen.z < 1.0) {
+            const bx = (boreScreen.x * 0.5 + 0.5) * window.innerWidth;
+            const by = (-boreScreen.y * 0.5 + 0.5) * window.innerHeight;
+            boreReticleEl.style.left = `${bx}px`;
+            boreReticleEl.style.top  = `${by}px`;
+            boreReticleEl.style.opacity = '1';
+
+            const aligned = Math.abs(yawError) < 0.03 && Math.abs(tankState.targetGunElevation - tankState.gunElevation) < 0.02;
+            boreReticleEl.className = `absolute -translate-x-1/2 -translate-y-1/2 w-7 h-7 rounded-full border-2 flex items-center justify-center ${
+                aligned ? 'border-emerald-400' : 'border-amber-400'
+            }`;
+            boreDotEl.className = `w-2 h-2 rounded-full ${aligned ? 'bg-emerald-400' : 'bg-amber-400'}`;
+        } else {
+            boreReticleEl.style.opacity = '0';
+        }
+    }
+
+    // --- 5. 8.8cm BARREL RECOIL RECOVERY & WEAPON TIMERS ---
+    if (tankState.barrelRecoilOffset > 0.001) {
+        tankState.barrelRecoilOffset = THREE.MathUtils.lerp(tankState.barrelRecoilOffset, 0, 6.5 * dt);
+    } else {
+        tankState.barrelRecoilOffset = 0;
+    }
+    barrelRecoilGroup.position.z = -tankState.barrelRecoilOffset;
+
+    if (tankState.reloadTimer > 0) {
+        const timeElapsed = tankState.RELOAD_TIME - tankState.reloadTimer;
+        // 1. Spent brass casing clatters out at ~0.8s
+        if (tankState.reloadStage === 1 && timeElapsed >= 0.8) {
+            soundFX.playShellEject();
+            tankState.reloadStage = 2;
+        }
+        // 2. Heavy 8.8cm shell sliding into breech tray at ~2.3s
+        if (tankState.reloadStage === 2 && timeElapsed >= 2.3) {
+            soundFX.playShellSlide();
+            tankState.reloadStage = 3;
+        }
+
+        tankState.reloadTimer = Math.max(0, tankState.reloadTimer - dt);
+
+        // 3. Breech block snaps shut with heavy lock
+        if (tankState.reloadTimer <= 0 && tankState.reloadStage === 3) {
+            soundFX.playBreechLock();
+            tankState.reloadStage = 0;
+        }
+    }
+
+    if (tankState.coaxMgCooldown > 0) {
+        tankState.coaxMgCooldown = Math.max(0, tankState.coaxMgCooldown - dt);
+    }
+    if (tankState.bowMgCooldown > 0) {
+        tankState.bowMgCooldown = Math.max(0, tankState.bowMgCooldown - dt);
+    }
+
+    const isCoaxActive = isFiringCoaxMG || keys['f'];
+    const isBowActive  = isFiringBowMG  || keys['g'];
+
+    if (isCoaxActive) fireCoaxMG();
+    if (isBowActive)  fireBowMG();
+
+    if (!isCoaxActive && !isBowActive) {
+        tankState.mgHeat = Math.max(0, tankState.mgHeat - 25 * dt);
+    }
+
+    // --- 6. TRACK ANIMATION, ROAD WHEELS & SWAYING TREES ---
+    const leftTrackSpeed  = tankState.speed - tankState.turnRate * 1.45;
+    const rightTrackSpeed = tankState.speed + tankState.turnRate * 1.45;
+
+    tankState.leftTrackPhase  = (tankState.leftTrackPhase  + leftTrackSpeed  * 0.082 * dt) % 1.0;
+    tankState.rightTrackPhase = (tankState.rightTrackPhase + rightTrackSpeed * 0.082 * dt) % 1.0;
+
+    tankState.wheelSpinLeft  += (leftTrackSpeed  / 0.41) * dt;
+    tankState.wheelSpinRight += (rightTrackSpeed / 0.41) * dt;
+
+    roadWheelStations.left.forEach(w => { w.spinGroup.rotation.x = tankState.wheelSpinLeft; });
+    roadWheelStations.right.forEach(w => { w.spinGroup.rotation.x = tankState.wheelSpinRight; });
+    driveSprockets.forEach(s => {
+        s.mesh.rotation.x = (s.side === 'left') ? tankState.wheelSpinLeft : tankState.wheelSpinRight;
+    });
+    idlerWheels.forEach(id => {
+        id.mesh.rotation.x = (id.side === 'left') ? tankState.wheelSpinLeft : tankState.wheelSpinRight;
+    });
+
+    if (typeof updateTracksGeometry === 'function') {
+        updateTracksGeometry(tankState.leftTrackPhase, tankState.rightTrackPhase);
+    } else if (typeof window.updateTracksGeometry === 'function') {
+        window.updateTracksGeometry(tankState.leftTrackPhase, tankState.rightTrackPhase);
+    }
+
+    // Wind sway on trees
+    for (let i = 0; i < swayTrees.length; i++) {
+        const st = swayTrees[i];
+        st.group.rotation.z = Math.sin(nowSec * 1.4 + st.phase) * 0.022;
+        st.group.rotation.x = Math.cos(nowSec * 1.1 + st.phase) * 0.015;
+    }
+
+    // --- 7. BALLISTIC PROJECTILES & PARTICLES ---
+    updateProjectiles(dt);
+    updateParticles(dt);
+
+    // Follow tank with directional sunlight shadow camera
+    sunLight.position.set(tankState.x + 45, tankState.y + 55, tankState.z + 38);
+    sunLight.target.position.set(tankState.x, tankState.y, tankState.z);
+    sunLight.target.updateMatrixWorld();
+
+    // --- 8. TELEMETRY HUD UPDATE ---
+    const kmh = Math.abs(tankState.speed * 3.6).toFixed(1);
+    const speedEl = document.getElementById('hud-speed');
+    if (speedEl) speedEl.textContent = kmh;
+
+    const rpm = Math.floor(800 + speedRatio * 2150);
+    const rpmEl = document.getElementById('hud-rpm');
+    if (rpmEl) rpmEl.textContent = `${rpm} RPM`;
+
+    let gearStr = 'NEUTRAL';
+    if (tankState.speed > 0.15) {
+        const g = Math.min(8, Math.max(1, Math.ceil((tankState.speed / maxSpeed) * 8)));
+        gearStr = `FWD ${g}`;
+    } else if (tankState.speed < -0.15) {
+        gearStr = 'REV 1';
+    } else if (Math.abs(tankState.turnRate) > 0.05) {
+        gearStr = 'PIVOT';
+    }
+    const gearEl = document.getElementById('hud-gear');
+    if (gearEl) gearEl.textContent = gearStr;
+
+    const pitchDeg = THREE.MathUtils.radToDeg(tankState.pitch).toFixed(1);
+    const rollDeg  = THREE.MathUtils.radToDeg(tankState.roll).toFixed(1);
+    const attEl = document.getElementById('hud-attitude');
+    if (attEl) attEl.textContent = `${pitchDeg}° / ${rollDeg}°`;
+
+    let azDeg = (THREE.MathUtils.radToDeg(tankState.turretYaw) % 360 + 360) % 360;
+    const azEl = document.getElementById('hud-azimuth');
+    if (azEl) azEl.textContent = `${azDeg.toFixed(1).padStart(5, '0')}°`;
+
+    const elevDeg = THREE.MathUtils.radToDeg(tankState.gunElevation);
+    const elevEl = document.getElementById('hud-elevation');
+    if (elevEl) elevEl.textContent = `${elevDeg >= 0 ? '+' : ''}${elevDeg.toFixed(1)}°`;
+
+    const hitEl = document.getElementById('hud-targets');
+    if (hitEl) hitEl.textContent = `Hits: ${tankState.hitsCount}`;
+
+    const reloadBar = document.getElementById('hud-reload-bar');
+    const reloadTxt = document.getElementById('hud-reload-text');
+    if (reloadBar && reloadTxt) {
+        if (tankState.reloadTimer <= 0) {
+            reloadBar.style.width = '100%';
+            reloadBar.className = 'h-full bg-emerald-500 transition-all duration-75';
+            reloadTxt.textContent = 'READY';
+            reloadTxt.className = 'text-emerald-400 font-bold';
+        } else {
+            const pct = ((tankState.RELOAD_TIME - tankState.reloadTimer) / tankState.RELOAD_TIME) * 100;
+            reloadBar.style.width = `${pct}%`;
+            reloadBar.className = 'h-full bg-amber-500 transition-all duration-75';
+            reloadTxt.textContent = `${tankState.reloadTimer.toFixed(1)}s`;
+            reloadTxt.className = 'text-amber-400 font-bold';
+        }
+    }
+
+    const mgBar = document.getElementById('hud-mg-bar');
+    if (mgBar) mgBar.style.width = `${100 - tankState.mgHeat}%`;
+}
+
+function animate(now) {
+    requestAnimationFrame(animate);
+    const dt = Math.min((now - lastTime) / 1000, 0.05);
+    lastTime = now;
+
+    updateSimulation(dt);
+    renderer.render(scene, window.activeCamera || activeCamera);
+}
+
+window.addEventListener('resize', () => {
+    updateCameraProjectionAspect();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+window.onload = function () {
+    animate(performance.now());
+};

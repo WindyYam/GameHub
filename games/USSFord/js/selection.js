@@ -14,97 +14,97 @@ export function createSelectionBracket(deckAssetsGroup) {
     selectionBracket.add(deckSelGroup);
     selectionBracket.userData.deckGroup = deckSelGroup;
 
-    // Vivid military neon green materials (unaffected by sun glare/shadows)
-    const greenBracketMat = new THREE.MeshBasicMaterial({
-        color: 0x00ff44,
+    // Tactical high-visibility cyan target materials
+    const targetLineMat = new THREE.MeshBasicMaterial({
+        color: 0x55f4ff,
         transparent: true,
-        opacity: 0.98,
+        opacity: 0.92,
         side: THREE.DoubleSide,
         depthWrite: false
     });
 
-    const greenGlowMat = new THREE.MeshBasicMaterial({
-        color: 0x00ff55,
+    const targetAccentMat = new THREE.MeshBasicMaterial({
+        color: 0xa2fbff,
         transparent: true,
-        opacity: 0.28,
+        opacity: 0.62,
         side: THREE.DoubleSide,
         depthWrite: false
     });
 
-    // 1. Semi-translucent green targeting disc on deck
-    const innerDiscGeo = new THREE.RingGeometry(0.2, 6.5, 48);
-    innerDiscGeo.rotateX(-Math.PI / 2);
-    deckSelGroup.add(new THREE.Mesh(innerDiscGeo, greenGlowMat));
-
-    // 2. Rotating segmented tactical reticle ring on deck (broad high-contrast ribbon)
+    // 1. Rotating tactical reticle ring on deck
     const ringGroup = new THREE.Group();
-    const mainRingGeo = new THREE.RingGeometry(6.0, 7.2, 48);
+    const mainRingGeo = new THREE.RingGeometry(6.86, 7.00, 64);
     mainRingGeo.rotateX(-Math.PI / 2);
-    ringGroup.add(new THREE.Mesh(mainRingGeo, greenBracketMat));
+    ringGroup.add(new THREE.Mesh(mainRingGeo, targetLineMat));
 
-    // 4 crosshair tick marks at 0, 90, 180, 270 deg
+    for (let i = 0; i < 4; i++) {
+        const arcGeo = new THREE.RingGeometry(7.55, 7.65, 48, 1, i * Math.PI / 2 + 0.18, Math.PI / 4);
+        arcGeo.rotateX(-Math.PI / 2);
+        ringGroup.add(new THREE.Mesh(arcGeo, targetAccentMat));
+    }
+
     [
-        { x: 0, z: 8.0, w: 0.7, l: 2.0 },
-        { x: 0, z: -8.0, w: 0.7, l: 2.0 },
-        { x: 8.0, z: 0, w: 2.0, l: 0.7 },
-        { x: -8.0, z: 0, w: 2.0, l: 0.7 }
+        { x: 0, z: 8.0, w: 0.2, l: 1.7 },
+        { x: 0, z: -8.0, w: 0.2, l: 1.7 },
+        { x: 8.0, z: 0, w: 1.7, l: 0.2 },
+        { x: -8.0, z: 0, w: 1.7, l: 0.2 }
     ].forEach(tk => {
         const tickGeo = new THREE.PlaneGeometry(tk.w, tk.l);
         tickGeo.rotateX(-Math.PI / 2);
-        const tm = new THREE.Mesh(tickGeo, greenBracketMat);
+        const tm = new THREE.Mesh(tickGeo, targetAccentMat);
         tm.position.set(tk.x, 0.01, tk.z);
         ringGroup.add(tm);
     });
     deckSelGroup.add(ringGroup);
     selectionBracket.userData.targetRing = ringGroup;
 
-    // 3. Thick L-shaped corner brackets (width 0.75m, length 3.6m) for maximum daylight visibility
+    // 2. Corner brackets
     const bSizeX = 7.4;
     const bSizeZ = 9.0;
     const armLen = 3.6;
-    const armWidth = 0.75;
+    const armWidth = 0.22;
 
     [[-1, -1], [1, -1], [1, 1], [-1, 1]].forEach(([sx, sz]) => {
         const armZGeo = new THREE.PlaneGeometry(armWidth, armLen);
         armZGeo.rotateX(-Math.PI / 2);
-        const meshZ = new THREE.Mesh(armZGeo, greenBracketMat);
+        const meshZ = new THREE.Mesh(armZGeo, targetLineMat);
         meshZ.position.set(sx * bSizeX, 0.02, sz * (bSizeZ - armLen * 0.5));
         deckSelGroup.add(meshZ);
 
         const armXGeo = new THREE.PlaneGeometry(armLen, armWidth);
         armXGeo.rotateX(-Math.PI / 2);
-        const meshX = new THREE.Mesh(armXGeo, greenBracketMat);
+        const meshX = new THREE.Mesh(armXGeo, targetLineMat);
         meshX.position.set(sx * (bSizeX - armLen * 0.5), 0.02, sz * bSizeZ);
         deckSelGroup.add(meshX);
     });
 
-    // 4. Forward heading tactical chevron on deck at z = +9.8
-    const chevronGeo = new THREE.ConeGeometry(1.2, 2.2, 3);
+    // 3. Forward heading tactical chevron on deck
+    const chevronGeo = new THREE.ConeGeometry(0.85, 1.6, 3);
     chevronGeo.rotateX(-Math.PI / 2);
-    const chevronMesh = new THREE.Mesh(chevronGeo, greenBracketMat);
+    const chevronMesh = new THREE.Mesh(chevronGeo, targetLineMat);
     chevronMesh.position.set(0, 0.03, 9.8);
     deckSelGroup.add(chevronMesh);
 
-    // 5. Overhead floating tactical beacon marker
+    // 4. Overhead floating tactical beacon marker
     const overheadBeacon = new THREE.Group();
     overheadBeacon.position.y = 6.8;
 
     const beaconGeo = new THREE.OctahedronGeometry(1.6, 0);
     const beaconMesh = new THREE.Mesh(beaconGeo, new THREE.MeshBasicMaterial({
-        color: 0x00ff44,
+        color: 0x55f4ff,
         transparent: true,
         opacity: 0.95
     }));
     overheadBeacon.add(beaconMesh);
 
-    const haloGeo = new THREE.RingGeometry(2.0, 2.6, 32);
+    const haloGeo = new THREE.RingGeometry(2.35, 2.48, 32);
     haloGeo.rotateX(-Math.PI / 2);
-    const haloMesh = new THREE.Mesh(haloGeo, greenBracketMat);
+    const haloMesh = new THREE.Mesh(haloGeo, targetAccentMat);
     overheadBeacon.add(haloMesh);
 
-    const beamGeo = new THREE.CylinderGeometry(0.12, 0.12, 6.0, 8);
+    const beamGeo = new THREE.CylinderGeometry(0.055, 0.055, 6.0, 8);
     const beamMat = new THREE.MeshBasicMaterial({
-        color: 0x00ff66,
+        color: 0x55f4ff,
         transparent: true,
         opacity: 0.65
     });

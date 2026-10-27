@@ -4,6 +4,7 @@ import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 
 import { ORTHO_FRUSTUM_HEIGHT, CAMERA_PRESETS } from './config.js';
@@ -34,7 +35,7 @@ camera.updateProjectionMatrix();
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -48,8 +49,8 @@ scene.add(hemiLight);
 const sunLight = new THREE.DirectionalLight(0xfffef5, 3.05);
 sunLight.position.set(-135, 260, 130);
 sunLight.castShadow = true;
-sunLight.shadow.mapSize.width = 4096;
-sunLight.shadow.mapSize.height = 4096;
+sunLight.shadow.mapSize.width = 2048;
+sunLight.shadow.mapSize.height = 2048;
 sunLight.shadow.camera.near = 50;
 sunLight.shadow.camera.far = 680;
 const shadowD = 195;
@@ -78,11 +79,14 @@ controls.minZoom = 0.2;
 controls.maxZoom = 10.0;
 
 const composer = new EffectComposer(renderer);
+const composerSamples = Math.min(4, renderer.capabilities.maxSamples);
+composer.renderTarget1.samples = composerSamples;
+composer.renderTarget2.samples = composerSamples;
 const renderPass = new RenderPass(scene, camera);
 composer.addPass(renderPass);
 
 const gtaoPass = new GTAOPass(scene, camera, window.innerWidth, window.innerHeight);
-gtaoPass.updateGtaoMaterial({ radius: 2, scale: 10.0, samples: 16 });
+gtaoPass.updateGtaoMaterial({ radius: 2, scale: 10.0, samples: 4 });
 gtaoPass.blendIntensity = 0.92;
 gtaoPass.setSceneClipBox(new THREE.Box3(
     new THREE.Vector3(-46, -3, -160),
@@ -97,6 +101,7 @@ const bloomPass = new UnrealBloomPass(
     0.94
 );
 composer.addPass(bloomPass);
+composer.addPass(new SMAAPass(window.innerWidth, window.innerHeight));
 composer.addPass(new OutputPass());
 
 // 4. Photorealistic Ocean & Wake
@@ -107,20 +112,37 @@ const carrier = buildCarrier(scene);
 
 // 6. Particle System (Steam & Jet Exhaust)
 const particles = [];
+const particlePool = [];
 const puffGeo = new THREE.SphereGeometry(0.65, 7, 7);
 
 function spawnParticle(pos, vel, s0, s1, maxLife, colorHex = 0xf8fafc, alpha0 = 0.45) {
-    const mat = new THREE.MeshBasicMaterial({
-        color: colorHex,
-        transparent: true,
-        opacity: alpha0,
-        depthWrite: false
-    });
-    const m = new THREE.Mesh(puffGeo, mat);
+    let p = particlePool.pop();
+    if (!p) {
+        const mat = new THREE.MeshBasicMaterial({
+            color: colorHex,
+            transparent: true,
+            opacity: alpha0,
+            depthWrite: false
+        });
+        p = {
+            mesh: new THREE.Mesh(puffGeo, mat),
+            vel: new THREE.Vector3()
+        };
+    } else {
+        p.mesh.material.color.setHex(colorHex);
+    }
+    const m = p.mesh;
     m.position.copy(pos);
     m.scale.setScalar(s0);
+    m.material.opacity = alpha0;
+    p.vel.copy(vel);
+    p.s0 = s0;
+    p.s1 = s1;
+    p.life = 0;
+    p.maxLife = maxLife;
+    p.alpha0 = alpha0;
     carrier.carrierGroup.add(m);
-    particles.push({ mesh: m, vel: vel.clone(), s0, s1, life: 0, maxLife, alpha0 });
+    particles.push(p);
 }
 
 function updateParticles(dt) {
@@ -129,8 +151,8 @@ function updateParticles(dt) {
         p.life += dt;
         if (p.life >= p.maxLife) {
             carrier.carrierGroup.remove(p.mesh);
-            p.mesh.material.dispose();
             particles.splice(i, 1);
+            particlePool.push(p);
             continue;
         }
         const t = p.life / p.maxLife;
@@ -268,9 +290,7 @@ ui.bindActions({
         );
     },
     onTimeChange: (mode) => {
-        const isDay = (mode === 'day');
-        buildMaritimeEnvironment(renderer, scene, isDay);
-        setOceanLightingMode(scene, hemiLight, sunLight, fillLight, isDay);
+        setOceanLightingMode(mode, sunLight, hemiLight, fillLight, scene, renderer);
     }
 });
 
@@ -300,7 +320,7 @@ const clock = new THREE.Clock();
 function animate() {
     requestAnimationFrame(animate);
 
-    const dt = clock.getDelta();
+    const dt = Math.min(clock.getDelta(), 0.04);
     const elapsed = clock.getElapsedTime();
 
     // Ocean waves animation

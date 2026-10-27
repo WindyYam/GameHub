@@ -1,13 +1,14 @@
-// ../game/GameHub/games/USSFord/js/main.js
+// games/USSFord/js/main.js
 import * as THREE8 from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { GTAOPass } from "three/addons/postprocessing/GTAOPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import { SMAAPass } from "three/addons/postprocessing/SMAAPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 
-// ../game/GameHub/games/USSFord/js/config.js
+// games/USSFord/js/config.js
 import * as THREE from "three";
 var DECK_MIN_X = -40;
 var DECK_MAX_X = 44;
@@ -18,6 +19,24 @@ var RUNWAY_START = new THREE.Vector2(-4.5, -152);
 var RUNWAY_END = new THREE.Vector2(36.5, 42);
 var RUNWAY_DIR = new THREE.Vector2(36.5 - -4.5, 42 - -152).normalize();
 var RUNWAY_YAW = Math.atan2(RUNWAY_DIR.x, RUNWAY_DIR.y);
+var APPROACH_TOUCHDOWN = new THREE.Vector3(3.5, 0, -98);
+var APPROACH_ENTRY = APPROACH_TOUCHDOWN.clone().addScaledVector(
+  new THREE.Vector3(RUNWAY_DIR.x, 0, RUNWAY_DIR.y),
+  -215
+);
+APPROACH_ENTRY.y = 32;
+var LAUNCH_ORBIT_POSITION = new THREE.Vector3(0, 42, 245);
+var LAUNCH_ORBIT_VELOCITY = new THREE.Vector3(145 * 0.2, 8 * 0.2, 0);
+var APPROACH_GLIDE_VELOCITY = new THREE.Vector3(
+  RUNWAY_DIR.x * 58,
+  -8,
+  RUNWAY_DIR.y * 58
+);
+var APPROACH_TOUCHDOWN_VELOCITY = new THREE.Vector3(
+  RUNWAY_DIR.x * 58,
+  0,
+  RUNWAY_DIR.y * 58
+);
 var ORTHO_FRUSTUM_HEIGHT = 165;
 var CAMERA_PRESETS = {
   iso: { pos: new THREE.Vector3(-245, 195, 235), target: new THREE.Vector3(-2, 12, 5), zoom: 1.18 },
@@ -25,6 +44,30 @@ var CAMERA_PRESETS = {
   island: { pos: new THREE.Vector3(-220, 148, 35), target: new THREE.Vector3(-22, 22, -52), zoom: 2.35 },
   stern: { pos: new THREE.Vector3(-210, 152, -165), target: new THREE.Vector3(6, 12, -60), zoom: 1.85 }
 };
+function sampleHermiteMotion(start, end, startVelocity, endVelocity, duration, t, position, velocity) {
+  const t2 = t * t;
+  const t3 = t2 * t;
+  const h00 = 2 * t3 - 3 * t2 + 1;
+  const h10 = t3 - 2 * t2 + t;
+  const h01 = -2 * t3 + 3 * t2;
+  const h11 = t3 - t2;
+  position.set(
+    h00 * start.x + h10 * duration * startVelocity.x + h01 * end.x + h11 * duration * endVelocity.x,
+    h00 * start.y + h10 * duration * startVelocity.y + h01 * end.y + h11 * duration * endVelocity.y,
+    h00 * start.z + h10 * duration * startVelocity.z + h01 * end.z + h11 * duration * endVelocity.z
+  );
+  if (velocity) {
+    const dh00 = (6 * t2 - 6 * t) / duration;
+    const dh10 = 3 * t2 - 4 * t + 1;
+    const dh01 = (-6 * t2 + 6 * t) / duration;
+    const dh11 = 3 * t2 - 2 * t;
+    velocity.set(
+      dh00 * start.x + dh10 * startVelocity.x + dh01 * end.x + dh11 * endVelocity.x,
+      dh00 * start.y + dh10 * startVelocity.y + dh01 * end.y + dh11 * endVelocity.y,
+      dh00 * start.z + dh10 * startVelocity.z + dh01 * end.z + dh11 * endVelocity.z
+    );
+  }
+}
 function lerpYaw(a, b, t) {
   let diff = (b - a + Math.PI) % (Math.PI * 2) - Math.PI;
   if (diff < -Math.PI) diff += Math.PI * 2;
@@ -36,7 +79,7 @@ function angleDiff(a, b) {
   return diff;
 }
 
-// ../game/GameHub/games/USSFord/js/ocean.js
+// games/USSFord/js/ocean.js
 import * as THREE2 from "three";
 var oceanUniforms = {
   uTime: { value: 0 },
@@ -527,10 +570,10 @@ function setOceanLightingMode(mode, sunLight2, hemiLight2, fillLight2, scene2, r
   }
 }
 
-// ../game/GameHub/games/USSFord/js/carrier.js
+// games/USSFord/js/carrier.js
 import * as THREE4 from "three";
 
-// ../game/GameHub/games/USSFord/js/textures.js
+// games/USSFord/js/textures.js
 import * as THREE3 from "three";
 function heightCanvasToNormalTex(heightCanvas, strength = 2.6, repeatS = 1, repeatT = 1, maxAniso = 4) {
   const w = heightCanvas.width;
@@ -1174,7 +1217,7 @@ function createRotodomeTexture() {
   return tex;
 }
 
-// ../game/GameHub/games/USSFord/js/carrier.js
+// games/USSFord/js/carrier.js
 function getStarboardEdgeX(z) {
   if (z >= 98) return THREE4.MathUtils.lerp(-26.5, -18, (z - 98) / 56);
   if (z >= 36) return THREE4.MathUtils.lerp(-38.5, -26.5, (z - 36) / 62);
@@ -1809,10 +1852,10 @@ function buildCarrier(scene2) {
   };
 }
 
-// ../game/GameHub/games/USSFord/js/flightOps.js
+// games/USSFord/js/flightOps.js
 import * as THREE6 from "three";
 
-// ../game/GameHub/games/USSFord/js/aircraft.js
+// games/USSFord/js/aircraft.js
 import * as THREE5 from "three";
 var spinningPropsAndDomes = [];
 var allHeliRotors = [];
@@ -1919,6 +1962,7 @@ function addLandingGear(parent, noseZ, mainX, mainZ) {
   parent.userData.gearGroup = gearGroup;
 }
 function setWingFoldRatio(mesh, ratio) {
+  if (mesh.userData.wingFoldRatio === ratio) return;
   mesh.userData.wingFoldRatio = ratio;
   if (!mesh.userData.wingFoldPivots) return;
   mesh.userData.wingFoldPivots.forEach((w) => {
@@ -2150,12 +2194,12 @@ function createFA18({ foldedWings = false, tailColor = 1976635 } = {}) {
   const wingFoldPivots = [];
   [-1, 1].forEach((side) => {
     const foldPivot = new THREE5.Group();
-    foldPivot.position.set(side * 4.35, 1.15, -0.5);
+    foldPivot.position.set(side * 4.35, 1.15, -1.7);
     const tipShape = new THREE5.Shape();
-    tipShape.moveTo(0, 0.5);
-    tipShape.lineTo(side * 1.55, -0.3);
-    tipShape.lineTo(side * 1.55, -1.2);
-    tipShape.lineTo(0, -0.9);
+    tipShape.moveTo(0, 0.7);
+    tipShape.lineTo(side * 1.55, -0.1);
+    tipShape.lineTo(side * 1.55, -1);
+    tipShape.lineTo(0, -0.7);
     tipShape.closePath();
     const tipGeo = new THREE5.ExtrudeGeometry(tipShape, { depth: 0.14, bevelEnabled: false });
     tipGeo.rotateX(Math.PI / 2);
@@ -2381,12 +2425,6 @@ function createSeahawk() {
     blade.castShadow = true;
     mainRotor.add(blade);
   }
-  const rotorBlur = new THREE5.Mesh(
-    new THREE5.RingGeometry(0.95, 5.3, 32),
-    new THREE5.MeshBasicMaterial({ color: 13358561, side: THREE5.DoubleSide, transparent: true, opacity: 0.16 })
-  );
-  rotorBlur.rotation.x = Math.PI / 2;
-  mainRotor.add(rotorBlur);
   heli.add(mainRotor);
   const tailRotor = new THREE5.Group();
   tailRotor.position.set(0.36, 3.02, -7.42);
@@ -2446,16 +2484,27 @@ var crewBootMat = new THREE5.MeshStandardMaterial({ color: 988970, roughness: 0.
 var crewSkinMat = new THREE5.MeshStandardMaterial({ color: 14067590, roughness: 0.65 });
 var crewVisorMat = new THREE5.MeshStandardMaterial({ color: 593174, roughness: 0.15, metalness: 0.85 });
 var wandGlowMat = new THREE5.MeshBasicMaterial({ color: 16638023 });
+var crewMaterialsCache = /* @__PURE__ */ new Map();
+function getCrewSpecMaterials(spec) {
+  const key = spec.jersey + "_" + spec.vest + "_" + spec.helmet;
+  let mats = crewMaterialsCache.get(key);
+  if (!mats) {
+    mats = {
+      jerseyMat: new THREE5.MeshStandardMaterial({ color: spec.jersey, roughness: 0.62 }),
+      vestMat: new THREE5.MeshStandardMaterial({ color: spec.vest, roughness: 0.52 }),
+      helmetMat: new THREE5.MeshStandardMaterial({ color: spec.helmet, roughness: 0.38 })
+    };
+    crewMaterialsCache.set(key, mats);
+  }
+  return mats;
+}
 function createNavyPersonnel(spec) {
   const person = new THREE5.Group();
-  const jerseyMat = new THREE5.MeshStandardMaterial({ color: spec.jersey, roughness: 0.62 });
-  const vestMat = new THREE5.MeshStandardMaterial({ color: spec.vest, roughness: 0.52 });
-  const helmetMat = new THREE5.MeshStandardMaterial({ color: spec.helmet, roughness: 0.38 });
+  const { jerseyMat, vestMat, helmetMat } = getCrewSpecMaterials(spec);
   const leftLeg = new THREE5.Group();
   leftLeg.position.set(-0.11, 0.72, 0);
   const lThigh = new THREE5.Mesh(new THREE5.CylinderGeometry(0.085, 0.075, 0.62, 8), crewPantsMat);
   lThigh.position.y = -0.31;
-  lThigh.castShadow = true;
   leftLeg.add(lThigh);
   const lBoot = new THREE5.Mesh(new THREE5.BoxGeometry(0.14, 0.12, 0.24), crewBootMat);
   lBoot.position.set(0, -0.66, 0.04);
@@ -2465,7 +2514,6 @@ function createNavyPersonnel(spec) {
   rightLeg.position.set(0.11, 0.72, 0);
   const rThigh = new THREE5.Mesh(new THREE5.CylinderGeometry(0.085, 0.075, 0.62, 8), crewPantsMat);
   rThigh.position.y = -0.31;
-  rThigh.castShadow = true;
   rightLeg.add(rThigh);
   const rBoot = new THREE5.Mesh(new THREE5.BoxGeometry(0.14, 0.12, 0.24), crewBootMat);
   rBoot.position.set(0, -0.66, 0.04);
@@ -2488,7 +2536,6 @@ function createNavyPersonnel(spec) {
   const cranial = new THREE5.Mesh(new THREE5.SphereGeometry(0.155, 10, 10), helmetMat);
   cranial.position.set(0, 0.02, -0.01);
   cranial.scale.set(1, 1.05, 1.08);
-  cranial.castShadow = true;
   headGroup.add(cranial);
   const goggles = new THREE5.Mesh(new THREE5.BoxGeometry(0.24, 0.08, 0.14), crewVisorMat);
   goggles.position.set(0, 0.02, 0.1);
@@ -2543,7 +2590,7 @@ function createParkingChocksGroup(x, z, rotY) {
   return g;
 }
 
-// ../game/GameHub/games/USSFord/js/flightOps.js
+// games/USSFord/js/flightOps.js
 var FlightOpsSystem = class {
   constructor(carrierContext, onStatusLog, onRosterChanged) {
     this.carrierContext = carrierContext;
@@ -2757,25 +2804,28 @@ var FlightOpsSystem = class {
       { color: 15381256, x: -26.2, z: -38, rot: 0.35 },
       { color: 15381256, x: -24.2, z: -54, rot: 1.57 },
       { color: 15381256, x: -30.5, z: -70, rot: 0.1 },
-      { color: 15381256, x: 25.5, z: 20, rot: -0.15, speed: 4, route: [
-        { x: 16, z: 19 },
-        { x: 18, z: 24 },
-        { x: 14, z: 28 },
+      // Tug 1: Mid-Deck Apron corridor
+      { color: 15381256, x: 16, z: 22, rot: -0.15, speed: 4, route: [
+        { x: 14, z: 18 },
+        { x: 17, z: 25 },
+        { x: 13, z: 30 },
         { x: 11, z: 22 },
         { x: 12, z: 16 }
       ] },
-      { color: 15381256, x: 4.5, z: -78, rot: 0.4, speed: 4, route: [
-        { x: -15, z: -78 },
-        { x: -17, z: -72 },
-        { x: -19, z: -77 },
-        { x: -18, z: -84 },
-        { x: -15, z: -88 }
+      // Tug 2: Starboard Island Apron (outboard of island, safely away from runway)
+      { color: 15381256, x: -22, z: -68, rot: 0.1, speed: 4, route: [
+        { x: -21, z: -62 },
+        { x: -20, z: -50 },
+        { x: -20, z: -36 },
+        { x: -23, z: -48 },
+        { x: -22, z: -65 }
       ] },
-      { color: 16317180, x: 16.5, z: -64, rot: -0.6, speed: 3.6, route: [
-        { x: -7, z: -61 },
-        { x: -9, z: -56 },
-        { x: -13, z: -60 },
-        { x: -12, z: -66 }
+      // Tug 3: Bow Catapult Staging Apron (starboard of bow cats, safe from recovery runway)
+      { color: 16317180, x: -16, z: 32, rot: 0, speed: 3.6, route: [
+        { x: -15, z: 22 },
+        { x: -14, z: 38 },
+        { x: -16, z: 54 },
+        { x: -17, z: 36 }
       ] }
     ];
     islandSupportVehicles.forEach((t) => {
@@ -2835,10 +2885,10 @@ var FlightOpsSystem = class {
       pos.z = THREE6.MathUtils.clamp(pos.z, -142, 145);
     };
     const strategicCrewZones = [
-      { xMin: -25.5, xMax: -13, zMin: -25, zMax: 95, count: 28 },
-      { xMin: -2.2, xMax: 3.2, zMin: 42, zMax: 128, count: 18 },
-      { xMin: -24.5, xMax: -14.5, zMin: -78, zMax: -28, count: 18 },
-      { xMin: -23.5, xMax: -15.5, zMin: -128, zMax: -80, count: 14 }
+      { xMin: -25, xMax: -14.5, zMin: -20, zMax: 90, count: 22 },
+      { xMin: -1.5, xMax: 1.5, zMin: 60, zMax: 125, count: 10 },
+      { xMin: -24, xMax: -15, zMin: -75, zMax: -32, count: 14 },
+      { xMin: -23, xMax: -16, zMin: -125, zMax: -82, count: 10 }
     ];
     let crewCounter = 0;
     strategicCrewZones.forEach((zone) => {
@@ -2866,6 +2916,7 @@ var FlightOpsSystem = class {
           mesh: crew,
           baseX: bx,
           baseZ: bz,
+          finalPosition: { x: bx, z: bz },
           evadeOffsetX: 0,
           evadeOffsetZ: 0,
           evadeVelX: 0,
@@ -2891,19 +2942,64 @@ var FlightOpsSystem = class {
     );
   }
   gatherDynamicDeckObstacles(excludeUnit) {
-    const obs = this.deckObstacleList.map((o) => ({ x: o.x, z: o.z, r: o.radius }));
-    this.mobileDeckVehicles.forEach((vehicle) => {
-      obs.push({ x: vehicle.mesh.position.x, z: vehicle.mesh.position.z, r: 4 });
-    });
-    this.airWingUnits.forEach((other) => {
-      if (other === excludeUnit) return;
-      if (other.state === "PARKED" || other.state === "TAXI_TO_CAT" || other.state === "PRE_LAUNCH" || other.state === "TAXI_TO_PARK" || other.state === "TOUCHDOWN_ROLLOUT") {
-        const rad = other.type === "E-2D" ? 8.5 : 6.4;
-        obs.push({ x: other.mesh.position.x, z: other.mesh.position.z, r: rad });
+    const obs = excludeUnit && excludeUnit.taxiObstacleCache || (this._taxiObstacleCache || (this._taxiObstacleCache = []));
+    let count = 0;
+    for (let i = 0; i < this.deckObstacleList.length; i++) {
+      const source = this.deckObstacleList[i];
+      const obstacle = obs[count] || (obs[count] = {});
+      obstacle.x = source.x;
+      obstacle.z = source.z;
+      obstacle.r = source.radius;
+      count++;
+    }
+    for (let i = 0; i < this.mobileDeckVehicles.length; i++) {
+      const position = this.mobileDeckVehicles[i].mesh.position;
+      const obstacle = obs[count] || (obs[count] = {});
+      obstacle.x = position.x;
+      obstacle.z = position.z;
+      obstacle.r = 3.6;
+      count++;
+    }
+    for (let i = 0; i < this.airWingUnits.length; i++) {
+      const other = this.airWingUnits[i];
+      if (other === excludeUnit) continue;
+      if (other.state === "TAXI_TO_CAT" || other.state === "PRE_LAUNCH" || other.state === "TAXI_TO_PARK" || other.state === "TOUCHDOWN_ROLLOUT") {
+        const rad = other.type === "E-2D" ? 8.2 : 6;
+        const obstacle = obs[count] || (obs[count] = {});
+        obstacle.x = other.mesh.position.x;
+        obstacle.z = other.mesh.position.z;
+        obstacle.r = rad;
+        count++;
+      } else if (other.state === "PARKED") {
+        if (excludeUnit && excludeUnit.mesh) {
+          const dx = other.mesh.position.x - excludeUnit.mesh.position.x;
+          const dz = other.mesh.position.z - excludeUnit.mesh.position.z;
+          if (dx * dx + dz * dz < 324) {
+            const rad = other.type === "E-2D" ? 7.6 : 5.4;
+            const obstacle = obs[count] || (obs[count] = {});
+            obstacle.x = other.mesh.position.x;
+            obstacle.z = other.mesh.position.z;
+            obstacle.r = rad;
+            count++;
+          }
+        }
       }
-    });
-    if (this.jbdCat1.targetAngle > 0.1) obs.push({ x: -7.5, z: 44, r: 5.8 });
-    if (this.jbdCat2.targetAngle > 0.1) obs.push({ x: 8.5, z: 38, r: 5.8 });
+    }
+    if (this.jbdCat1.targetAngle > 0.1) {
+      const obstacle = obs[count] || (obs[count] = {});
+      obstacle.x = -7.5;
+      obstacle.z = 44;
+      obstacle.r = 5.8;
+      count++;
+    }
+    if (this.jbdCat2.targetAngle > 0.1) {
+      const obstacle = obs[count] || (obs[count] = {});
+      obstacle.x = 8.5;
+      obstacle.z = 38;
+      obstacle.r = 5.8;
+      count++;
+    }
+    obs.length = count;
     return obs;
   }
   relaxControlPointsAgainstObstacles(pts, obstacles, iterations = 16) {
@@ -2959,9 +3055,18 @@ var FlightOpsSystem = class {
     this.relaxControlPointsAgainstObstacles(controlPts, obstacles, 16);
     const curve = new THREE6.CatmullRomCurve3(controlPts, false, "centripetal", 0.5);
     const totalLen = curve.getLength();
-    const taxiSpeed = 13.5;
     unit.taxiCurve = curve;
-    unit.taxiDuration = Math.max(2.4, totalLen / taxiSpeed);
+    unit.taxiLength = totalLen;
+    unit.taxiMaxSpeed = 8;
+    unit.taxiAcceleration = 2;
+    unit.taxiAccelDuration = Math.min(
+      unit.taxiMaxSpeed / unit.taxiAcceleration,
+      Math.sqrt(totalLen / unit.taxiAcceleration)
+    );
+    const accelDistance = 0.5 * unit.taxiAcceleration * unit.taxiAccelDuration ** 2;
+    const peakSpeed = unit.taxiAcceleration * unit.taxiAccelDuration;
+    unit.taxiCruiseDuration = Math.max(0, (totalLen - 2 * accelDistance) / peakSpeed);
+    unit.taxiDuration = 2 * unit.taxiAccelDuration + unit.taxiCruiseDuration;
     unit.taxiTargetRot = 0;
     unit.currentYaw = startYaw;
     unit.taxiAvoidOffset = new THREE6.Vector2(0, 0);
@@ -2988,9 +3093,18 @@ var FlightOpsSystem = class {
     this.relaxControlPointsAgainstObstacles(controlPts, obstacles, 16);
     const curve = new THREE6.CatmullRomCurve3(controlPts, false, "centripetal", 0.5);
     const totalLen = curve.getLength();
-    const taxiSpeed = 13.5;
     unit.taxiCurve = curve;
-    unit.taxiDuration = Math.max(4.5, totalLen / taxiSpeed);
+    unit.taxiLength = totalLen;
+    unit.taxiMaxSpeed = 8;
+    unit.taxiAcceleration = 2;
+    unit.taxiAccelDuration = Math.min(
+      unit.taxiMaxSpeed / unit.taxiAcceleration,
+      Math.sqrt(totalLen / unit.taxiAcceleration)
+    );
+    const accelDistance = 0.5 * unit.taxiAcceleration * unit.taxiAccelDuration ** 2;
+    const peakSpeed = unit.taxiAcceleration * unit.taxiAccelDuration;
+    unit.taxiCruiseDuration = Math.max(0, (totalLen - 2 * accelDistance) / peakSpeed);
+    unit.taxiDuration = 2 * unit.taxiAccelDuration + unit.taxiCruiseDuration;
     unit.taxiTargetRot = homeYaw;
     unit.currentYaw = startYaw;
     unit.taxiAvoidOffset = new THREE6.Vector2(0, 0);
@@ -2999,75 +3113,89 @@ var FlightOpsSystem = class {
   stepAircraftAlongTaxiSpline(unit, dt) {
     const m = unit.mesh;
     const dur = unit.taxiDuration || 6;
-    const rawT = Math.min(unit.stateTimer / dur, 1);
-    const s = rawT * rawT * (3 - 2 * rawT);
+    const elapsed = Math.min(unit.stateTimer, dur);
+    const accelDuration = unit.taxiAccelDuration || 2;
+    const accel = unit.taxiAcceleration || 2;
+    const accelDistance = 0.5 * accel * accelDuration ** 2;
+    const cruiseEnd = accelDuration + (unit.taxiCruiseDuration || 0);
+    let distance;
+    if (elapsed < accelDuration) {
+      distance = 0.5 * accel * elapsed ** 2;
+    } else if (elapsed < cruiseEnd) {
+      distance = accelDistance + accel * accelDuration * (elapsed - accelDuration);
+    } else {
+      const remaining = dur - elapsed;
+      distance = (unit.taxiLength || 0) - 0.5 * accel * remaining ** 2;
+    }
+    const rawT = Math.min(elapsed / dur, 1);
+    const s = unit.taxiLength > 0 ? THREE6.MathUtils.clamp(distance / unit.taxiLength, 0, 1) : rawT;
     if (unit.taxiCurve) {
-      const pos = unit.taxiCurve.getPointAt(s);
-      const tan = unit.taxiCurve.getTangentAt(s).normalize();
+      const pos = unit.taxiCurve.getPointAt(
+        s,
+        unit.taxiSamplePosition || (unit.taxiSamplePosition = new THREE6.Vector3())
+      );
+      const tan = unit.taxiCurve.getTangentAt(
+        s,
+        unit.taxiSampleTangent || (unit.taxiSampleTangent = new THREE6.Vector3())
+      ).normalize();
       if (!unit.taxiAvoidOffset) unit.taxiAvoidOffset = new THREE6.Vector2(0, 0);
       const obstacles = this.gatherDynamicDeckObstacles(unit);
-      const myRadius = unit.type === "E-2D" ? 8.2 : 5.8;
+      const myRadius = unit.type === "E-2D" ? 7.5 : 5.2;
       let targetAvoidX = 0;
       let targetAvoidZ = 0;
       const normX = -tan.z;
       const normZ = tan.x;
       const curX = pos.x + unit.taxiAvoidOffset.x;
       const curZ = pos.z + unit.taxiAvoidOffset.y;
-      obstacles.forEach((ob) => {
-        const dx = curX - ob.x;
-        const dz = curZ - ob.z;
-        const dist = Math.hypot(dx, dz);
-        const safeDist = ob.r + myRadius + 1.2;
-        if (dist < safeDist && dist > 1e-3) {
+      for (let i = 0; i < obstacles.length; i++) {
+        const ob = obstacles[i];
+        const toObX = ob.x - curX;
+        const toObZ = ob.z - curZ;
+        const distSq = toObX * toObX + toObZ * toObZ;
+        const safeDist = ob.r + myRadius + 0.8;
+        if (distSq < safeDist * safeDist && distSq > 1e-3) {
+          const dist = Math.sqrt(distSq);
           const overlap = safeDist - dist;
-          const pushX = dx / dist;
-          const pushZ = dz / dist;
-          const latSign = pushX * normX + pushZ * normZ >= 0 ? 1 : -1;
-          targetAvoidX += (pushX * 0.75 + normX * latSign * 0.65) * overlap;
-          targetAvoidZ += (pushZ * 0.75 + normZ * latSign * 0.65) * overlap;
+          const latComp = -toObX * normX + -toObZ * normZ;
+          const side = latComp >= 0 ? 1 : -1;
+          const fwdComp = toObX * tan.x + toObZ * tan.z;
+          const fwdWeight = fwdComp > -3 && fwdComp < 10 ? 1 : 0.4;
+          targetAvoidX += normX * side * overlap * 0.7 * fwdWeight;
+          targetAvoidZ += normZ * side * overlap * 0.7 * fwdWeight;
         }
-      });
+      }
       let blend = 1;
-      if (rawT < 0.15) {
-        blend = rawT / 0.15;
-      } else if (rawT > 0.82) {
-        blend = Math.max(0, (1 - rawT) / 0.18);
+      if (rawT < 0.12) {
+        blend = rawT / 0.12;
+      } else if (rawT > 0.84) {
+        blend = Math.max(0, (1 - rawT) / 0.16);
       }
       targetAvoidX *= blend;
       targetAvoidZ *= blend;
-      const maxDeflect = 6;
+      const maxDeflect = 5;
       targetAvoidX = THREE6.MathUtils.clamp(targetAvoidX, -maxDeflect, maxDeflect);
       targetAvoidZ = THREE6.MathUtils.clamp(targetAvoidZ, -maxDeflect, maxDeflect);
-      const lerpFactor = Math.min(1, dt * 4.5);
-      unit.taxiAvoidOffset.x = THREE6.MathUtils.lerp(unit.taxiAvoidOffset.x, targetAvoidX, lerpFactor);
-      unit.taxiAvoidOffset.y = THREE6.MathUtils.lerp(unit.taxiAvoidOffset.y, targetAvoidZ, lerpFactor);
-      const finalX = THREE6.MathUtils.clamp(pos.x + unit.taxiAvoidOffset.x, -21, 22);
-      const finalZ = THREE6.MathUtils.clamp(pos.z + unit.taxiAvoidOffset.y, -125, 130);
+      const lerpFactor = Math.min(1, dt * 4);
+      unit.taxiAvoidOffset.x = THREE6.MathUtils.lerp(unit.taxiAvoidOffset.x, targetAvoidX, lerpFactor) * blend;
+      unit.taxiAvoidOffset.y = THREE6.MathUtils.lerp(unit.taxiAvoidOffset.y, targetAvoidZ, lerpFactor) * blend;
+      const finalX = THREE6.MathUtils.clamp(pos.x + unit.taxiAvoidOffset.x, -37, 41);
+      const finalZ = THREE6.MathUtils.clamp(pos.z + unit.taxiAvoidOffset.y, -150, 152);
       m.position.set(finalX, pos.y, finalZ);
       let desiredYaw;
-      if (rawT > 0.88) {
-        const endBlend = (rawT - 0.88) / 0.12;
-        const baseYaw = Math.atan2(tan.x, tan.z);
-        desiredYaw = lerpYaw(baseYaw, unit.taxiTargetRot, endBlend);
-      } else if (unit.prevTaxiPos) {
-        const moveX = finalX - unit.prevTaxiPos.x;
-        const moveZ = finalZ - unit.prevTaxiPos.z;
-        const moveDist = Math.hypot(moveX, moveZ);
-        if (moveDist > 0.015) {
-          desiredYaw = Math.atan2(moveX, moveZ);
-        } else {
-          desiredYaw = Math.atan2(tan.x, tan.z);
-        }
+      const baseTanYaw = Math.atan2(tan.x, tan.z);
+      if (rawT > 0.86) {
+        const endBlend = (rawT - 0.86) / 0.14;
+        desiredYaw = lerpYaw(baseTanYaw, unit.taxiTargetRot, endBlend);
       } else {
-        desiredYaw = Math.atan2(tan.x, tan.z);
+        const latHeadingBias = (unit.taxiAvoidOffset.x * normX + unit.taxiAvoidOffset.y * normZ) * 0.05;
+        desiredYaw = baseTanYaw + THREE6.MathUtils.clamp(latHeadingBias, -0.3, 0.3);
       }
-      if (!unit.prevTaxiPos) unit.prevTaxiPos = new THREE6.Vector3();
-      unit.prevTaxiPos.set(finalX, pos.y, finalZ);
       const prevYaw = unit.currentYaw;
-      unit.currentYaw = lerpYaw(unit.currentYaw, desiredYaw, Math.min(1, dt * 8.5));
-      const yawRate = angleDiff(prevYaw, unit.currentYaw) / Math.max(dt, 1e-3);
-      const turnRoll = THREE6.MathUtils.clamp(-yawRate * 0.018, -0.04, 0.04);
-      const brakePitch = rawT > 0.85 ? Math.sin((rawT - 0.85) / 0.15 * Math.PI) * 0.018 : 0;
+      unit.currentYaw = lerpYaw(unit.currentYaw, desiredYaw, Math.min(1, dt * 6.5));
+      const rawYawRate = angleDiff(prevYaw, unit.currentYaw) / Math.max(dt, 1e-3);
+      const yawRate = THREE6.MathUtils.clamp(rawYawRate, -2.5, 2.5);
+      const turnRoll = THREE6.MathUtils.clamp(-yawRate * 0.015, -0.035, 0.035);
+      const brakePitch = rawT > 0.88 ? Math.sin((rawT - 0.88) / 0.12 * Math.PI) * 0.015 : 0;
       m.rotation.set(brakePitch, unit.currentYaw, turnRoll);
     }
     return rawT;
@@ -3096,15 +3224,18 @@ var FlightOpsSystem = class {
       this.log(`LSO: FOUL DECK \u2014 ${unit.callsign} WAVE OFF`);
       return false;
     }
-    const touchdown = new THREE6.Vector3(3.5, 0, -98);
-    const approachEntry = touchdown.clone().addScaledVector(
-      new THREE6.Vector3(RUNWAY_DIR.x, 0, RUNWAY_DIR.y),
-      -215
-    );
-    approachEntry.y = 32;
     unit.approachStartPosition = unit.mesh.position.clone();
     unit.approachStartRotation = unit.mesh.rotation.clone();
-    unit.approachJoinDuration = Math.max(2.5, unit.mesh.position.distanceTo(approachEntry) / 85);
+    const patrolSpeed = unit.patrolAngularSpeed ?? 0.42;
+    unit.approachStartVelocity = new THREE6.Vector3(
+      Math.cos(unit.patrolAngle) * 145 * patrolSpeed,
+      Math.cos(unit.patrolAngle * 2) * 8 * patrolSpeed,
+      -Math.sin(unit.patrolAngle) * 245 * patrolSpeed
+    );
+    unit.approachJoinDuration = Math.max(2.5, unit.mesh.position.distanceTo(APPROACH_ENTRY) / 72);
+    unit.approachSlopeDuration = APPROACH_ENTRY.distanceTo(APPROACH_TOUCHDOWN) / 58;
+    unit.approachPosition = new THREE6.Vector3();
+    unit.approachVelocity = new THREE6.Vector3();
     unit.state = "APPROACH";
     unit.stateTimer = 0;
     this.log(`LSO: "${unit.callsign} ON FINAL GLIDE SLOPE \u2014 CALLING THE BALL"`);
@@ -3133,13 +3264,13 @@ var FlightOpsSystem = class {
     return false;
   }
   updateVehicles(dt, hazards) {
-    const stepTime = Math.min(dt, 0.05);
+    const stepTime = Math.min(dt, 0.04);
     this.mobileDeckVehicles.forEach((vehicle) => {
       let waypoint = vehicle.route[vehicle.routeIndex];
       let toX = waypoint.x - vehicle.mesh.position.x;
       let toZ = waypoint.z - vehicle.mesh.position.z;
       let goalDistance = Math.hypot(toX, toZ);
-      if (goalDistance < 1.8) {
+      if (goalDistance < 2) {
         vehicle.routeIndex = (vehicle.routeIndex + 1) % vehicle.route.length;
         waypoint = vehicle.route[vehicle.routeIndex];
         toX = waypoint.x - vehicle.mesh.position.x;
@@ -3149,59 +3280,64 @@ var FlightOpsSystem = class {
       let avoidX = 0;
       let avoidZ = 0;
       let yieldToAircraft = false;
-      hazards.forEach((hazard) => {
+      for (let i = 0; i < hazards.length; i++) {
+        const hazard = hazards[i];
         const dx = vehicle.mesh.position.x - hazard.x;
         const dz = vehicle.mesh.position.z - hazard.z;
         const distance = Math.hypot(dx, dz);
-        const clearance = hazard.radius + 3.5;
-        if (distance >= clearance) return;
-        if (hazard.urgent && distance < hazard.radius + 5) yieldToAircraft = true;
-        const strength = (clearance - distance) / clearance;
-        const awayX = distance > 1e-3 ? dx / distance : vehicle.routeIndex % 2 ? 1 : -1;
-        const awayZ = distance > 1e-3 ? dz / distance : 0;
-        avoidX += awayX * strength;
-        avoidZ += awayZ * strength;
-      });
-      this.deckObstacleList.forEach((obstacle) => {
+        const clearance = hazard.radius + 4;
+        if (distance >= clearance) continue;
+        if (hazard.urgent && distance < hazard.radius + 6) yieldToAircraft = true;
+        const strength = Math.pow((clearance - distance) / clearance, 1.3);
+        const awayX = distance > 0.01 ? dx / distance : vehicle.routeIndex % 2 ? 1 : -1;
+        const awayZ = distance > 0.01 ? dz / distance : 0;
+        avoidX += awayX * strength * 2;
+        avoidZ += awayZ * strength * 2;
+      }
+      for (let i = 0; i < this.deckObstacleList.length; i++) {
+        const obstacle = this.deckObstacleList[i];
         const dx = vehicle.mesh.position.x - obstacle.x;
         const dz = vehicle.mesh.position.z - obstacle.z;
         const distance = Math.hypot(dx, dz);
-        const clearance = obstacle.radius + 3.2;
-        if (distance >= clearance || distance < 1e-3) return;
-        const strength = (clearance - distance) / clearance;
+        const clearance = obstacle.radius + 3;
+        if (distance >= clearance || distance < 0.01) continue;
+        const strength = Math.pow((clearance - distance) / clearance, 1.5);
         avoidX += dx / distance * strength;
         avoidZ += dz / distance * strength;
-      });
-      this.mobileDeckVehicles.forEach((other) => {
-        if (other === vehicle) return;
+      }
+      for (let i = 0; i < this.mobileDeckVehicles.length; i++) {
+        const other = this.mobileDeckVehicles[i];
+        if (other === vehicle) continue;
         const dx = vehicle.mesh.position.x - other.mesh.position.x;
         const dz = vehicle.mesh.position.z - other.mesh.position.z;
         const distance = Math.hypot(dx, dz);
-        const clearance = 6;
-        if (distance >= clearance || distance < 1e-3) return;
-        const strength = (clearance - distance) / clearance;
+        const clearance = 5.5;
+        if (distance >= clearance || distance < 0.01) continue;
+        const strength = Math.pow((clearance - distance) / clearance, 1.5);
         avoidX += dx / distance * strength;
         avoidZ += dz / distance * strength;
-      });
-      if (yieldToAircraft || goalDistance < 1e-3) return;
-      const steerX = toX / goalDistance + avoidX * 2.4;
-      const steerZ = toZ / goalDistance + avoidZ * 2.4;
+      }
+      const targetSpeed = yieldToAircraft ? 0 : vehicle.speed;
+      vehicle.currentSpeed = THREE6.MathUtils.lerp(vehicle.currentSpeed ?? vehicle.speed, targetSpeed, Math.min(1, stepTime * 6));
+      if (vehicle.currentSpeed < 0.05 || goalDistance < 0.01) return;
+      const steerX = toX / goalDistance + avoidX * 1.8;
+      const steerZ = toZ / goalDistance + avoidZ * 1.8;
       const steerLength = Math.hypot(steerX, steerZ);
-      if (steerLength < 1e-3) return;
+      if (steerLength < 0.01) return;
       const desiredYaw = Math.atan2(steerX, steerZ);
-      const turnBlend = 1 - Math.exp(-4 * stepTime);
+      const turnBlend = 1 - Math.exp(-4.5 * stepTime);
       vehicle.mesh.rotation.y = lerpYaw(vehicle.mesh.rotation.y, desiredYaw, turnBlend);
       const yawError = Math.abs(angleDiff(vehicle.mesh.rotation.y, desiredYaw));
-      const driveFactor = Math.max(0.18, Math.cos(yawError));
-      const driveDistance = vehicle.speed * driveFactor * stepTime;
+      const driveFactor = Math.max(0.25, Math.cos(yawError));
+      const driveDistance = vehicle.currentSpeed * driveFactor * stepTime;
       const moveX = Math.sin(vehicle.mesh.rotation.y) * driveDistance;
       const moveZ = Math.cos(vehicle.mesh.rotation.y) * driveDistance;
-      vehicle.mesh.position.x += moveX;
-      vehicle.mesh.position.z += moveZ;
+      vehicle.mesh.position.x = THREE6.MathUtils.clamp(vehicle.mesh.position.x + moveX, -36, 40);
+      vehicle.mesh.position.z = THREE6.MathUtils.clamp(vehicle.mesh.position.z + moveZ, -148, 150);
     });
   }
   updateCrew(dt, elapsed, hazards) {
-    const clampOutOfRunwayZone = (pos, minClearance = 12.2) => {
+    const clampOutOfRunwayZone = (pos, minClearance = 12.5) => {
       const rAx = -4.5, rAz = -152;
       const rBx = 36.5, rBz = 42;
       const rDx = rBx - rAx, rDz = rBz - rAz;
@@ -3213,14 +3349,16 @@ var FlightOpsSystem = class {
       const dz = pos.z - closeRz;
       const dist = Math.hypot(dx, dz);
       if (dist < minClearance) {
-        const pushDirX = dx < 2 ? -1 : 1;
+        const pushDirX = dx < 0 ? -1 : 1;
         const nx = dist > 1e-3 ? dx / dist : pushDirX;
         const nz = dist > 1e-3 ? dz / dist : 0;
         pos.x = closeRx + nx * minClearance;
         pos.z = closeRz + nz * minClearance;
+        return true;
       }
       pos.x = THREE6.MathUtils.clamp(pos.x, -33, 34);
       pos.z = THREE6.MathUtils.clamp(pos.z, -142, 145);
+      return false;
     };
     this.deckCrewList.forEach((c) => {
       const a = elapsed * c.speed + c.phase;
@@ -3252,67 +3390,68 @@ var FlightOpsSystem = class {
       }
       const fleeMag = Math.hypot(fleeDirX, fleeDirZ);
       if (fleeMag > 0.01 && maxUrgency > 0.02) {
-        const runSpeed = 9.5 + Math.min(maxUrgency * 6, 6.5);
+        const runSpeed = 7.5 + Math.min(maxUrgency * 4.5, 5);
         const targetVx = fleeDirX / fleeMag * runSpeed;
         const targetVz = fleeDirZ / fleeMag * runSpeed;
-        c.evadeVelX = THREE6.MathUtils.lerp(c.evadeVelX, targetVx, Math.min(1, dt * 12));
-        c.evadeVelZ = THREE6.MathUtils.lerp(c.evadeVelZ, targetVz, Math.min(1, dt * 12));
+        c.evadeVelX = THREE6.MathUtils.lerp(c.evadeVelX, targetVx, Math.min(1, dt * 10));
+        c.evadeVelZ = THREE6.MathUtils.lerp(c.evadeVelZ, targetVz, Math.min(1, dt * 10));
         c.evadeOffsetX += c.evadeVelX * dt;
         c.evadeOffsetZ += c.evadeVelZ * dt;
         c.isEvading = true;
       } else {
         const offsetDist = Math.hypot(c.evadeOffsetX, c.evadeOffsetZ);
         if (offsetDist > 0.15) {
-          const returnSpeed = 3.6;
-          const rVx = -c.evadeOffsetX / offsetDist * Math.min(returnSpeed, offsetDist * 3);
-          const rVz = -c.evadeOffsetZ / offsetDist * Math.min(returnSpeed, offsetDist * 3);
-          c.evadeVelX = THREE6.MathUtils.lerp(c.evadeVelX, rVx, Math.min(1, dt * 6));
-          c.evadeVelZ = THREE6.MathUtils.lerp(c.evadeVelZ, rVz, Math.min(1, dt * 6));
+          const returnSpeed = 3.2;
+          const rVx = -c.evadeOffsetX / offsetDist * Math.min(returnSpeed, offsetDist * 2.5);
+          const rVz = -c.evadeOffsetZ / offsetDist * Math.min(returnSpeed, offsetDist * 2.5);
+          c.evadeVelX = THREE6.MathUtils.lerp(c.evadeVelX, rVx, Math.min(1, dt * 5));
+          c.evadeVelZ = THREE6.MathUtils.lerp(c.evadeVelZ, rVz, Math.min(1, dt * 5));
           c.evadeOffsetX += c.evadeVelX * dt;
           c.evadeOffsetZ += c.evadeVelZ * dt;
-          c.isEvading = offsetDist > 0.6;
+          c.isEvading = offsetDist > 0.4;
         } else {
-          c.evadeOffsetX = THREE6.MathUtils.lerp(c.evadeOffsetX, 0, Math.min(1, dt * 5));
-          c.evadeOffsetZ = THREE6.MathUtils.lerp(c.evadeOffsetZ, 0, Math.min(1, dt * 5));
-          c.evadeVelX *= 0.8;
-          c.evadeVelZ *= 0.8;
+          c.evadeOffsetX = 0;
+          c.evadeOffsetZ = 0;
+          c.evadeVelX = 0;
+          c.evadeVelZ = 0;
           c.isEvading = false;
         }
       }
-      const finalPt = { x: patrolX + c.evadeOffsetX, z: patrolZ + c.evadeOffsetZ };
-      clampOutOfRunwayZone(finalPt, 12.2);
-      c.evadeOffsetX = finalPt.x - patrolX;
-      c.evadeOffsetZ = finalPt.z - patrolZ;
+      const finalPt = c.finalPosition || (c.finalPosition = { x: patrolX, z: patrolZ });
+      finalPt.x = patrolX + c.evadeOffsetX;
+      finalPt.z = patrolZ + c.evadeOffsetZ;
+      const clamped = clampOutOfRunwayZone(finalPt, 12.5);
+      if (clamped) {
+        c.evadeOffsetX = finalPt.x - patrolX;
+        c.evadeOffsetZ = finalPt.z - patrolZ;
+        c.evadeVelX = 0;
+        c.evadeVelZ = 0;
+      }
       const prevX = c.mesh.position.x;
       const prevZ = c.mesh.position.z;
       c.mesh.position.set(finalPt.x, 0, finalPt.z);
       const moveDx = finalPt.x - prevX;
       const moveDz = finalPt.z - prevZ;
       const moveSpeed = Math.hypot(moveDx, moveDz) / Math.max(dt, 1e-3);
-      if (c.isEvading && moveSpeed > 0.8) {
+      if (c.isEvading && moveSpeed > 0.4) {
         const runHeading = Math.atan2(moveDx, moveDz);
-        c.mesh.rotation.y = lerpYaw(c.mesh.rotation.y, runHeading, Math.min(1, dt * 14));
+        c.mesh.rotation.y = lerpYaw(c.mesh.rotation.y, runHeading, Math.min(1, dt * 10));
         if (limbs) {
-          const sprintCycle = Math.sin(elapsed * 18 + c.phase) * 0.95;
+          const sprintCycle = Math.sin(elapsed * 14 + c.phase) * 0.85;
           limbs.leftLeg.rotation.x = sprintCycle;
           limbs.rightLeg.rotation.x = -sprintCycle;
-          limbs.leftArm.rotation.x = -sprintCycle * 1.1;
-          limbs.rightArm.rotation.x = sprintCycle * 1.1;
-          limbs.leftArm.rotation.z = -0.15;
-          limbs.rightArm.rotation.z = 0.15;
+          limbs.leftArm.rotation.x = -sprintCycle * 1;
+          limbs.rightArm.rotation.x = sprintCycle * 1;
         }
       } else if (c.stationary) {
         c.mesh.rotation.y = c.baseRot + Math.sin(a * 0.7) * 0.25;
         if (limbs) {
-          limbs.leftLeg.rotation.x = 0;
-          limbs.rightLeg.rotation.x = 0;
           if (limbs.pose === "MARSHAL") {
             limbs.leftArm.rotation.x = -2.35 + Math.sin(elapsed * 4.5 + c.phase) * 0.45;
             limbs.rightArm.rotation.x = -2.35 + Math.cos(elapsed * 4.5 + c.phase) * 0.45;
             limbs.leftArm.rotation.z = -0.35 + Math.sin(elapsed * 4.5) * 0.25;
             limbs.rightArm.rotation.z = 0.35 - Math.sin(elapsed * 4.5) * 0.25;
-          } else {
-            limbs.leftArm.rotation.x = -0.45;
+          } else if (limbs.pose === "CLIPBOARD") {
             limbs.rightArm.rotation.x = -0.65 + Math.sin(elapsed * 2.5 + c.phase) * 0.15;
           }
         }
@@ -3414,7 +3553,7 @@ var FlightOpsSystem = class {
             this.notifyRoster();
           }
         } else if (u.state === "LAUNCHING") {
-          const strokeDur = 1.45;
+          const strokeDur = 2.35;
           if (u.stateTimer <= strokeDur) {
             if (isCat1) this.jbdCat1.targetAngle = 0.82;
             else this.jbdCat2.targetAngle = 0.82;
@@ -3423,7 +3562,7 @@ var FlightOpsSystem = class {
             const cx = THREE6.MathUtils.lerp(catStartX, catEndX, accel);
             const cz = THREE6.MathUtils.lerp(catStartZ, catEndZ, accel);
             m.position.set(cx, 0, cz);
-            m.rotation.set(t > 0.82 ? -0.14 : 0, 0, 0);
+            m.rotation.set(-0.06 * accel, 0, 0);
             if (spawnParticle2) {
               spawnParticle2(
                 new THREE6.Vector3(cx, DECK_Y + 0.25, cz - 3),
@@ -3436,28 +3575,66 @@ var FlightOpsSystem = class {
               );
             }
           } else {
-            const climbT = (u.stateTimer - strokeDur) / 3;
+            const climbDuration = 4;
+            const climbT = Math.min((u.stateTimer - strokeDur) / climbDuration, 1);
+            if (!u.launchClimbStartPosition) {
+              u.launchClimbStartPosition = new THREE6.Vector3(catEndX, 0, catEndZ);
+              u.launchClimbStartVelocity = new THREE6.Vector3(
+                (catEndX - catStartX) * 2 / strokeDur,
+                0,
+                (catEndZ - catStartZ) * 2 / strokeDur
+              );
+            }
+            sampleHermiteMotion(
+              u.launchClimbStartPosition,
+              LAUNCH_ORBIT_POSITION,
+              u.launchClimbStartVelocity,
+              LAUNCH_ORBIT_VELOCITY,
+              climbDuration,
+              climbT,
+              u.launchSamplePosition || (u.launchSamplePosition = new THREE6.Vector3()),
+              u.launchSampleVelocity || (u.launchSampleVelocity = new THREE6.Vector3())
+            );
+            m.position.copy(u.launchSamplePosition);
+            const horizontalSpeed = Math.hypot(u.launchSampleVelocity.x, u.launchSampleVelocity.z);
+            const pitchBlend = THREE6.MathUtils.clamp(climbT / 0.12, 0, 1);
+            const smoothPitchBlend = pitchBlend * pitchBlend * (3 - 2 * pitchBlend);
+            const velocityPitch = -Math.atan2(u.launchSampleVelocity.y, horizontalSpeed);
+            m.rotation.set(
+              THREE6.MathUtils.lerp(-0.06, velocityPitch, smoothPitchBlend),
+              Math.atan2(u.launchSampleVelocity.x, u.launchSampleVelocity.z),
+              -0.28 * Math.sin(climbT * Math.PI)
+            );
             if (climbT > 0.25 && m.userData.gearGroup) m.userData.gearGroup.visible = false;
-            const cz = catEndZ + climbT * 135;
-            const cy = Math.pow(climbT, 1.35) * 38;
-            const turnDir = isCat1 ? -1 : 1;
-            const cx = catEndX + turnDir * Math.pow(climbT, 1.8) * 55;
-            m.position.set(cx, cy, cz);
-            m.rotation.set(-0.22 * (1 - climbT * 0.5), turnDir * climbT * 0.85, -turnDir * 0.42);
             if (climbT >= 1) {
+              const climbOvershoot = Math.max(0, u.stateTimer - strokeDur - climbDuration);
               u.state = "AIRBORNE_PATROL";
               u.stateTimer = 0;
               u.patrolLaps = 0;
-              u.patrolAngle = Math.atan2(m.position.x / 145, m.position.z / 245);
-              u.patrolTransitionStartPosition = m.position.clone();
-              u.patrolTransitionStartRotation = m.rotation.clone();
-              u.patrolTransitionTimer = 0;
+              u.patrolAngle = 0.2 * climbOvershoot + 0.5 * 0.07 * climbOvershoot ** 2;
+              u.patrolAngularSpeed = 0.2 + 0.07 * climbOvershoot;
+              u.patrolBank = 0;
+              u.launchClimbStartPosition = null;
+              m.position.set(
+                Math.sin(u.patrolAngle) * 145,
+                42 + Math.sin(u.patrolAngle * 2) * 4,
+                Math.cos(u.patrolAngle) * 245
+              );
+              const orbitVx = Math.cos(u.patrolAngle) * 145 * u.patrolAngularSpeed;
+              const orbitVy = Math.cos(u.patrolAngle * 2) * 8 * u.patrolAngularSpeed;
+              const orbitVz = -Math.sin(u.patrolAngle) * 245 * u.patrolAngularSpeed;
+              m.rotation.set(
+                -Math.atan2(orbitVy, Math.hypot(orbitVx, orbitVz)),
+                Math.atan2(orbitVx, orbitVz),
+                0
+              );
               if (m.userData.afterburners) m.userData.afterburners.forEach((ab) => ab.visible = false);
               this.notifyRoster();
             }
           }
         } else if (u.state === "AIRBORNE_PATROL") {
-          const angularSpeed = 0.42;
+          const angularSpeed = Math.min(0.42, (u.patrolAngularSpeed ?? 0.42) + dt * 0.07);
+          u.patrolAngularSpeed = angularSpeed;
           const prevAngle = u.patrolAngle;
           u.patrolAngle += angularSpeed * dt;
           if (Math.floor(u.patrolAngle / (Math.PI * 2)) > Math.floor(prevAngle / (Math.PI * 2))) {
@@ -3468,8 +3645,9 @@ var FlightOpsSystem = class {
           const px = Math.sin(u.patrolAngle) * rx;
           const pz = Math.cos(u.patrolAngle) * rz;
           const py = 42 + Math.sin(u.patrolAngle * 2) * 4;
-          const dx = Math.cos(u.patrolAngle) * rx;
-          const dz = -Math.sin(u.patrolAngle) * rz;
+          const dx = Math.cos(u.patrolAngle) * rx * angularSpeed;
+          const dy = Math.cos(u.patrolAngle * 2) * 8 * angularSpeed;
+          const dz = -Math.sin(u.patrolAngle) * rz * angularSpeed;
           const heading = Math.atan2(dx, dz);
           if (u.patrolTransitionStartPosition) {
             u.patrolTransitionTimer = Math.min(u.patrolTransitionTimer + dt, 2.5);
@@ -3482,41 +3660,63 @@ var FlightOpsSystem = class {
             if (transitionProgress >= 1) u.patrolTransitionStartPosition = null;
           } else {
             m.position.set(px, py, pz);
-            m.rotation.set(0.03, heading, 0.28);
+            u.patrolBank = Math.min(0.28, (u.patrolBank || 0) + dt * 0.12);
+            m.rotation.set(-Math.atan2(dy, Math.hypot(dx, dz)), heading, u.patrolBank);
           }
         } else if (u.state === "APPROACH") {
           if (m.userData.gearGroup) m.userData.gearGroup.visible = true;
-          const touchdown = new THREE6.Vector3(3.5, 0, -98);
-          const approachEntry = touchdown.clone().addScaledVector(
-            new THREE6.Vector3(RUNWAY_DIR.x, 0, RUNWAY_DIR.y),
-            -215
-          );
-          approachEntry.y = 32;
           const joinDur = u.approachJoinDuration || 3;
           if (u.stateTimer <= joinDur) {
-            const t = u.stateTimer / joinDur;
-            const s = t * t * (3 - 2 * t);
-            m.position.lerpVectors(u.approachStartPosition, approachEntry, s);
-            m.rotation.y = lerpYaw(u.approachStartRotation.y, RUNWAY_YAW, s);
-            m.rotation.x = THREE6.MathUtils.lerp(u.approachStartRotation.x, 0.07, s);
-            m.rotation.z = THREE6.MathUtils.lerp(u.approachStartRotation.z, 0, s);
+            const t = THREE6.MathUtils.clamp(u.stateTimer / joinDur, 0, 1);
+            sampleHermiteMotion(
+              u.approachStartPosition,
+              APPROACH_ENTRY,
+              u.approachStartVelocity,
+              APPROACH_GLIDE_VELOCITY,
+              joinDur,
+              t,
+              u.approachPosition,
+              u.approachVelocity
+            );
           } else {
-            const slopeDur = 4.8;
-            const tSlope = Math.min((u.stateTimer - joinDur) / slopeDur, 1);
-            m.position.lerpVectors(approachEntry, touchdown, tSlope);
-            m.rotation.set(0.07, RUNWAY_YAW, 0);
+            const slopeDur = u.approachSlopeDuration || 4.2;
+            const tSlope = THREE6.MathUtils.clamp((u.stateTimer - joinDur) / slopeDur, 0, 1);
+            sampleHermiteMotion(
+              APPROACH_ENTRY,
+              APPROACH_TOUCHDOWN,
+              APPROACH_GLIDE_VELOCITY,
+              APPROACH_TOUCHDOWN_VELOCITY,
+              slopeDur,
+              tSlope,
+              u.approachPosition,
+              u.approachVelocity
+            );
             if (tSlope >= 1) {
+              const rolloutDistance = 74;
+              const rolloutStartSpeed = 58;
+              const rolloutDuration = 2 * rolloutDistance / rolloutStartSpeed;
+              const rolloutElapsed = Math.max(0, u.stateTimer - joinDur - slopeDur);
               u.state = "TOUCHDOWN_ROLLOUT";
-              u.stateTimer = 0;
+              u.stateTimer = rolloutElapsed;
               this.log(`TRAP! ${u.callsign} CAUGHT 3-WIRE OK`);
               this.notifyRoster();
             }
           }
+          m.position.copy(u.approachPosition);
+          const horizSpeed = Math.hypot(u.approachVelocity.x, u.approachVelocity.z);
+          if (horizSpeed > 0.1) {
+            m.rotation.set(
+              -Math.atan2(u.approachVelocity.y, horizSpeed),
+              Math.atan2(u.approachVelocity.x, u.approachVelocity.z),
+              0
+            );
+          }
         } else if (u.state === "TOUCHDOWN_ROLLOUT") {
-          const dur = 1.75;
+          const rolloutDistance = 74;
+          const rolloutStartSpeed = 58;
+          const dur = 2 * rolloutDistance / rolloutStartSpeed;
           const t = Math.min(u.stateTimer / dur, 1);
-          const decel = 1 - Math.pow(1 - t, 2.6);
-          const runDist = decel * 74;
+          const runDist = rolloutDistance * (2 * t - t * t);
           const touchX = 3.5;
           const touchZ = -98;
           const jx = touchX + RUNWAY_DIR.x * runDist;
@@ -3628,7 +3828,7 @@ var FlightOpsSystem = class {
   }
 };
 
-// ../game/GameHub/games/USSFord/js/selection.js
+// games/USSFord/js/selection.js
 import * as THREE7 from "three";
 function createSelectionBracket(deckAssetsGroup) {
   const selectionBracket = new THREE7.Group();
@@ -3642,36 +3842,38 @@ function createSelectionBracket(deckAssetsGroup) {
   deckSelGroup.position.y = 0.22;
   selectionBracket.add(deckSelGroup);
   selectionBracket.userData.deckGroup = deckSelGroup;
-  const greenBracketMat = new THREE7.MeshBasicMaterial({
-    color: 65348,
+  const targetLineMat = new THREE7.MeshBasicMaterial({
+    color: 5633279,
     transparent: true,
-    opacity: 0.98,
+    opacity: 0.92,
     side: THREE7.DoubleSide,
     depthWrite: false
   });
-  const greenGlowMat = new THREE7.MeshBasicMaterial({
-    color: 65365,
+  const targetAccentMat = new THREE7.MeshBasicMaterial({
+    color: 10681343,
     transparent: true,
-    opacity: 0.28,
+    opacity: 0.62,
     side: THREE7.DoubleSide,
     depthWrite: false
   });
-  const innerDiscGeo = new THREE7.RingGeometry(0.2, 6.5, 48);
-  innerDiscGeo.rotateX(-Math.PI / 2);
-  deckSelGroup.add(new THREE7.Mesh(innerDiscGeo, greenGlowMat));
   const ringGroup = new THREE7.Group();
-  const mainRingGeo = new THREE7.RingGeometry(6, 7.2, 48);
+  const mainRingGeo = new THREE7.RingGeometry(6.86, 7, 64);
   mainRingGeo.rotateX(-Math.PI / 2);
-  ringGroup.add(new THREE7.Mesh(mainRingGeo, greenBracketMat));
+  ringGroup.add(new THREE7.Mesh(mainRingGeo, targetLineMat));
+  for (let i = 0; i < 4; i++) {
+    const arcGeo = new THREE7.RingGeometry(7.55, 7.65, 48, 1, i * Math.PI / 2 + 0.18, Math.PI / 4);
+    arcGeo.rotateX(-Math.PI / 2);
+    ringGroup.add(new THREE7.Mesh(arcGeo, targetAccentMat));
+  }
   [
-    { x: 0, z: 8, w: 0.7, l: 2 },
-    { x: 0, z: -8, w: 0.7, l: 2 },
-    { x: 8, z: 0, w: 2, l: 0.7 },
-    { x: -8, z: 0, w: 2, l: 0.7 }
+    { x: 0, z: 8, w: 0.2, l: 1.7 },
+    { x: 0, z: -8, w: 0.2, l: 1.7 },
+    { x: 8, z: 0, w: 1.7, l: 0.2 },
+    { x: -8, z: 0, w: 1.7, l: 0.2 }
   ].forEach((tk) => {
     const tickGeo = new THREE7.PlaneGeometry(tk.w, tk.l);
     tickGeo.rotateX(-Math.PI / 2);
-    const tm = new THREE7.Mesh(tickGeo, greenBracketMat);
+    const tm = new THREE7.Mesh(tickGeo, targetAccentMat);
     tm.position.set(tk.x, 0.01, tk.z);
     ringGroup.add(tm);
   });
@@ -3680,40 +3882,40 @@ function createSelectionBracket(deckAssetsGroup) {
   const bSizeX = 7.4;
   const bSizeZ = 9;
   const armLen = 3.6;
-  const armWidth = 0.75;
+  const armWidth = 0.22;
   [[-1, -1], [1, -1], [1, 1], [-1, 1]].forEach(([sx, sz]) => {
     const armZGeo = new THREE7.PlaneGeometry(armWidth, armLen);
     armZGeo.rotateX(-Math.PI / 2);
-    const meshZ = new THREE7.Mesh(armZGeo, greenBracketMat);
+    const meshZ = new THREE7.Mesh(armZGeo, targetLineMat);
     meshZ.position.set(sx * bSizeX, 0.02, sz * (bSizeZ - armLen * 0.5));
     deckSelGroup.add(meshZ);
     const armXGeo = new THREE7.PlaneGeometry(armLen, armWidth);
     armXGeo.rotateX(-Math.PI / 2);
-    const meshX = new THREE7.Mesh(armXGeo, greenBracketMat);
+    const meshX = new THREE7.Mesh(armXGeo, targetLineMat);
     meshX.position.set(sx * (bSizeX - armLen * 0.5), 0.02, sz * bSizeZ);
     deckSelGroup.add(meshX);
   });
-  const chevronGeo = new THREE7.ConeGeometry(1.2, 2.2, 3);
+  const chevronGeo = new THREE7.ConeGeometry(0.85, 1.6, 3);
   chevronGeo.rotateX(-Math.PI / 2);
-  const chevronMesh = new THREE7.Mesh(chevronGeo, greenBracketMat);
+  const chevronMesh = new THREE7.Mesh(chevronGeo, targetLineMat);
   chevronMesh.position.set(0, 0.03, 9.8);
   deckSelGroup.add(chevronMesh);
   const overheadBeacon = new THREE7.Group();
   overheadBeacon.position.y = 6.8;
   const beaconGeo = new THREE7.OctahedronGeometry(1.6, 0);
   const beaconMesh = new THREE7.Mesh(beaconGeo, new THREE7.MeshBasicMaterial({
-    color: 65348,
+    color: 5633279,
     transparent: true,
     opacity: 0.95
   }));
   overheadBeacon.add(beaconMesh);
-  const haloGeo = new THREE7.RingGeometry(2, 2.6, 32);
+  const haloGeo = new THREE7.RingGeometry(2.35, 2.48, 32);
   haloGeo.rotateX(-Math.PI / 2);
-  const haloMesh = new THREE7.Mesh(haloGeo, greenBracketMat);
+  const haloMesh = new THREE7.Mesh(haloGeo, targetAccentMat);
   overheadBeacon.add(haloMesh);
-  const beamGeo = new THREE7.CylinderGeometry(0.12, 0.12, 6, 8);
+  const beamGeo = new THREE7.CylinderGeometry(0.055, 0.055, 6, 8);
   const beamMat = new THREE7.MeshBasicMaterial({
-    color: 65382,
+    color: 5633279,
     transparent: true,
     opacity: 0.65
   });
@@ -3811,7 +4013,7 @@ var SelectionManager = class {
   }
 };
 
-// ../game/GameHub/games/USSFord/js/ui.js
+// games/USSFord/js/ui.js
 var UIManager = class {
   constructor() {
     this.statusLogEl = document.getElementById("ops-status-log");
@@ -3967,7 +4169,7 @@ var UIManager = class {
   }
 };
 
-// ../game/GameHub/games/USSFord/js/main.js
+// games/USSFord/js/main.js
 var container = document.getElementById("canvas-container");
 var scene = new THREE8.Scene();
 scene.background = new THREE8.Color(796742);
@@ -3986,7 +4188,7 @@ camera.zoom = CAMERA_PRESETS.iso.zoom;
 camera.updateProjectionMatrix();
 var renderer = new THREE8.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE8.PCFSoftShadowMap;
 renderer.toneMapping = THREE8.ACESFilmicToneMapping;
@@ -3997,8 +4199,8 @@ scene.add(hemiLight);
 var sunLight = new THREE8.DirectionalLight(16776949, 3.05);
 sunLight.position.set(-135, 260, 130);
 sunLight.castShadow = true;
-sunLight.shadow.mapSize.width = 4096;
-sunLight.shadow.mapSize.height = 4096;
+sunLight.shadow.mapSize.width = 2048;
+sunLight.shadow.mapSize.height = 2048;
 sunLight.shadow.camera.near = 50;
 sunLight.shadow.camera.far = 680;
 var shadowD = 195;
@@ -4021,10 +4223,13 @@ controls.maxPolarAngle = Math.PI * 0.47;
 controls.minZoom = 0.2;
 controls.maxZoom = 10;
 var composer = new EffectComposer(renderer);
+var composerSamples = Math.min(4, renderer.capabilities.maxSamples);
+composer.renderTarget1.samples = composerSamples;
+composer.renderTarget2.samples = composerSamples;
 var renderPass = new RenderPass(scene, camera);
 composer.addPass(renderPass);
 var gtaoPass = new GTAOPass(scene, camera, window.innerWidth, window.innerHeight);
-gtaoPass.updateGtaoMaterial({ radius: 2, scale: 10, samples: 16 });
+gtaoPass.updateGtaoMaterial({ radius: 2, scale: 10, samples: 4 });
 gtaoPass.blendIntensity = 0.92;
 gtaoPass.setSceneClipBox(new THREE8.Box3(
   new THREE8.Vector3(-46, -3, -160),
@@ -4038,23 +4243,41 @@ var bloomPass = new UnrealBloomPass(
   0.94
 );
 composer.addPass(bloomPass);
+composer.addPass(new SMAAPass(window.innerWidth, window.innerHeight));
 composer.addPass(new OutputPass());
 var oceanMesh = createOcean(scene);
 var carrier = buildCarrier(scene);
 var particles = [];
+var particlePool = [];
 var puffGeo = new THREE8.SphereGeometry(0.65, 7, 7);
 function spawnParticle(pos, vel, s0, s1, maxLife, colorHex = 16317180, alpha0 = 0.45) {
-  const mat = new THREE8.MeshBasicMaterial({
-    color: colorHex,
-    transparent: true,
-    opacity: alpha0,
-    depthWrite: false
-  });
-  const m = new THREE8.Mesh(puffGeo, mat);
+  let p = particlePool.pop();
+  if (!p) {
+    const mat = new THREE8.MeshBasicMaterial({
+      color: colorHex,
+      transparent: true,
+      opacity: alpha0,
+      depthWrite: false
+    });
+    p = {
+      mesh: new THREE8.Mesh(puffGeo, mat),
+      vel: new THREE8.Vector3()
+    };
+  } else {
+    p.mesh.material.color.setHex(colorHex);
+  }
+  const m = p.mesh;
   m.position.copy(pos);
   m.scale.setScalar(s0);
+  m.material.opacity = alpha0;
+  p.vel.copy(vel);
+  p.s0 = s0;
+  p.s1 = s1;
+  p.life = 0;
+  p.maxLife = maxLife;
+  p.alpha0 = alpha0;
   carrier.carrierGroup.add(m);
-  particles.push({ mesh: m, vel: vel.clone(), s0, s1, life: 0, maxLife, alpha0 });
+  particles.push(p);
 }
 function updateParticles(dt) {
   for (let i = particles.length - 1; i >= 0; i--) {
@@ -4062,8 +4285,8 @@ function updateParticles(dt) {
     p.life += dt;
     if (p.life >= p.maxLife) {
       carrier.carrierGroup.remove(p.mesh);
-      p.mesh.material.dispose();
       particles.splice(i, 1);
+      particlePool.push(p);
       continue;
     }
     const t = p.life / p.maxLife;
@@ -4185,9 +4408,7 @@ ui.bindActions({
     );
   },
   onTimeChange: (mode) => {
-    const isDay = mode === "day";
-    buildMaritimeEnvironment(renderer, scene, isDay);
-    setOceanLightingMode(scene, hemiLight, sunLight, fillLight, isDay);
+    setOceanLightingMode(mode, sunLight, hemiLight, fillLight, scene, renderer);
   }
 });
 window.addEventListener("resize", () => {
@@ -4209,7 +4430,7 @@ window.commandHeliSortie = (u) => flightOps.commandHeliSortie(u);
 var clock = new THREE8.Clock();
 function animate() {
   requestAnimationFrame(animate);
-  const dt = clock.getDelta();
+  const dt = Math.min(clock.getDelta(), 0.04);
   const elapsed = clock.getElapsedTime();
   oceanUniforms.uTime.value = elapsed;
   carrier.updateCarrier(elapsed, dt);
