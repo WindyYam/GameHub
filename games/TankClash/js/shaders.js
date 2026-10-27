@@ -1124,7 +1124,6 @@ function createRiverWaterMaterial() {
             varying float vShoreDist;
 
             void main() {
-                // Fluid river currents and gentle rolling riverbed waves
                 float flow = uTime * 0.35;
                 float wave1 = sin((position.x + flow * 2.2) * 0.55 + position.z * 0.35) * 0.038;
                 float wave2 = cos((position.x - flow * 1.4) * 0.95 + position.z * 0.75) * 0.022;
@@ -1136,8 +1135,6 @@ function createRiverWaterMaterial() {
                 vWorldPos = worldPos.xyz;
                 vNormal = normalize((modelMatrix * vec4(normal, 0.0)).xyz);
                 vViewDir = normalize(cameraPosition - worldPos.xyz);
-
-                // Riverbed width is 26m, z coordinates range -13 to +13 relative to river center
                 vShoreDist = 13.0 - abs(position.z);
 
                 gl_Position = projectionMatrix * viewMatrix * worldPos;
@@ -1155,43 +1152,124 @@ function createRiverWaterMaterial() {
             varying float vShoreDist;
 
             void main() {
-                // Dual flowing ripple layers
                 vec2 uv1 = vWorldPos.xz * 0.22 + vec2(uTime * 0.14, uTime * 0.03);
                 vec2 uv2 = vWorldPos.xz * 0.38 - vec2(uTime * 0.08, -uTime * 0.06);
 
-                // Animated wave normal perturbations
                 vec3 n1 = vec3(sin(uv1.x * 14.0) * 0.18, 1.0, cos(uv1.y * 14.0) * 0.18);
                 vec3 n2 = vec3(cos(uv2.x * 18.0) * 0.14, 1.0, sin(uv2.y * 18.0) * 0.14);
                 vec3 waveNormal = normalize(vNormal + n1 * 0.45 + n2 * 0.45);
 
-                // Fresnel reflectance (steep angle = transparent water; shallow grazing = sky reflection)
                 float NdotV = max(dot(waveNormal, vViewDir), 0.0);
                 float fresnel = clamp(pow(1.0 - NdotV, 3.2), 0.12, 0.96);
 
-                // Water Depth Color (Emerald shallows vs Deep navy riverbed channel)
                 float depthFactor = clamp(vShoreDist / 7.5, 0.0, 1.0);
                 vec3 shallowCol = vec3(0.18, 0.38, 0.36);
                 vec3 deepCol    = vec3(0.06, 0.18, 0.26);
                 vec3 waterBase  = mix(shallowCol, deepCol, depthFactor);
 
-                // Sky mirror reflection
                 vec3 reflectSky = mix(skyColor * 0.85, vec3(0.92, 0.96, 1.0), fresnel);
 
-                // Glistening Sun / Moon Specular Glints
                 vec3 halfVec = normalize(sunDirection + vViewDir);
                 float spec = pow(max(dot(waveNormal, halfVec), 0.0), 96.0);
                 vec3 specGlint = sunColor * spec * 2.4;
 
-                // Shoreline white foam / froth pulsing along riverbanks
                 float foamNoise = sin(vWorldPos.x * 3.5 + uTime * 2.2) * cos(vWorldPos.z * 4.2);
                 float shoreFoam = smoothstep(1.3, 0.1, vShoreDist) * clamp(0.5 + 0.5 * foamNoise, 0.0, 1.0);
                 vec3 foamColor = vec3(0.94, 0.97, 0.99);
 
-                // Composite final river water
                 vec3 finalColor = mix(waterBase, reflectSky, fresnel) + specGlint;
                 finalColor = mix(finalColor, foamColor, shoreFoam * 0.75);
 
                 gl_FragColor = vec4(finalColor, 0.88);
+            }
+        `,
+        transparent: true,
+        depthWrite: false
+    });
+}
+
+// Photorealistic Coastal Seaside Ocean Shader (Gerstner Waves & Sun Glade Sparkle)
+function createCoastalOceanMaterial() {
+    return new THREE.ShaderMaterial({
+        uniforms: {
+            uTime:        celestialLighting.time,
+            sunDirection: celestialLighting.sunDirection,
+            sunColor:     celestialLighting.sunColor,
+            skyColor:     celestialLighting.skyColor
+        },
+        vertexShader: `
+            uniform float uTime;
+            varying vec3 vWorldPos;
+            varying vec3 vNormal;
+            varying vec3 vViewDir;
+
+            void main() {
+                vec3 p = position;
+                // Animated Gerstner ocean waves rolling toward coast
+                float w1 = sin((p.x * 0.035 + p.z * 0.055) + uTime * 1.6) * 0.32;
+                float w2 = cos((-p.x * 0.065 + p.z * 0.085) - uTime * 2.1) * 0.18;
+                float w3 = sin((p.x * 0.12 - p.z * 0.045) + uTime * 2.8) * 0.08;
+                p.y += w1 + w2 + w3;
+
+                vec4 worldPos = modelMatrix * vec4(p, 1.0);
+                vWorldPos = worldPos.xyz;
+                vNormal = normalize((modelMatrix * vec4(normal, 0.0)).xyz);
+                vViewDir = normalize(cameraPosition - worldPos.xyz);
+
+                gl_Position = projectionMatrix * viewMatrix * worldPos;
+            }
+        `,
+        fragmentShader: `
+            uniform float uTime;
+            uniform vec3 sunDirection;
+            uniform vec3 sunColor;
+            uniform vec3 skyColor;
+
+            varying vec3 vWorldPos;
+            varying vec3 vNormal;
+            varying vec3 vViewDir;
+
+            void main() {
+                // High-frequency animated micro-wave normals
+                vec2 uv1 = vWorldPos.xz * 0.085 + vec2(uTime * 0.06, uTime * 0.035);
+                vec2 uv2 = vWorldPos.xz * 0.19  - vec2(uTime * 0.09, -uTime * 0.055);
+                vec2 uv3 = vWorldPos.xz * 0.42  + vec2(uTime * 0.14, -uTime * 0.11);
+
+                vec3 n1 = vec3(sin(uv1.x * 12.0) * 0.22, 1.0, cos(uv1.y * 12.0) * 0.22);
+                vec3 n2 = vec3(cos(uv2.x * 16.0) * 0.18, 1.0, sin(uv2.y * 16.0) * 0.18);
+                vec3 n3 = vec3(sin(uv3.x * 24.0) * 0.12, 1.0, cos(uv3.y * 24.0) * 0.12);
+                vec3 waveNormal = normalize(vNormal + (n1 + n2 + n3) * 0.38);
+
+                float NdotV = max(dot(waveNormal, vViewDir), 0.0);
+                float fresnel = clamp(pow(1.0 - NdotV, 3.8), 0.07, 0.98);
+
+                // Authentic Coastal Mediterranean / Seaside Ocean Colors
+                // Shallows near shoreline vs deep royal navy open sea
+                float coastalDepth = smoothstep(120.0, 320.0, vWorldPos.z);
+                vec3 shallowsColor = vec3(0.04, 0.26, 0.44);
+                vec3 deepSeaColor  = vec3(0.015, 0.10, 0.28);
+                vec3 oceanBase     = mix(shallowsColor, deepSeaColor, coastalDepth);
+
+                // Sky mirror reflection with subtle warm sunlit tint
+                vec3 reflectSky = mix(skyColor * 0.94, vec3(0.96, 0.98, 1.0), fresnel);
+
+                // Dazzling Sun Glade Specular Glisten (Broad shimmer + sparkling wave crests)
+                vec3 halfVec = normalize(sunDirection + vViewDir);
+                float HdotN = max(dot(waveNormal, halfVec), 0.0);
+                float specGlade   = pow(HdotN, 38.0) * 2.8;
+                float specSparkle = pow(HdotN, 320.0) * 8.5;
+                vec3 sunGlitter   = sunColor * (specGlade + specSparkle);
+
+                // Shoreline gentle foam surf along the coastal edge
+                float surfNoise = sin(vWorldPos.x * 0.45 + uTime * 1.8) * cos(vWorldPos.z * 0.55);
+                float shoreFade = smoothstep(100.0, 140.0, vWorldPos.z);
+                float shoreFoam = (1.0 - shoreFade) * clamp(0.4 + 0.6 * surfNoise, 0.0, 1.0) * 0.45;
+                vec3 foamColor = vec3(0.95, 0.98, 1.0);
+
+                vec3 finalOcean = mix(oceanBase, reflectSky, fresnel) + sunGlitter;
+                finalOcean = mix(finalOcean, foamColor, shoreFoam);
+
+                gl_FragColor = vec4(finalOcean, 0.94);
             }
         `,
         transparent: true,
@@ -1319,9 +1397,9 @@ const TIGER_SKY_FRAGMENT_SHADER = `
         float billowingTurbulence = ridgedFbm(p * 1.45 + windMicro * 0.5);
         float wispyEdges = fbm(p * 3.8 - windMicro);
 
-        float composite = baseFronts * 0.62 + billowingTurbulence * 0.25 + wispyEdges * 0.13;
-        float threshold = mix(0.66, 0.35, uCloudCoverage);
-        return smoothstep(threshold, threshold + 0.22, composite);
+        float composite = baseFronts * 0.65 + billowingTurbulence * 0.28 + wispyEdges * 0.15;
+        float threshold = mix(0.56, 0.30, uCloudCoverage);
+        return smoothstep(threshold, threshold + 0.18, composite);
     }
 
     void main() {
@@ -1333,8 +1411,8 @@ const TIGER_SKY_FRAGMENT_SHADER = `
         float twilightFactor = smoothstep(-0.22, 0.08, sunAlt) * (1.0 - smoothstep(0.05, 0.38, sunAlt));
         float nightFactor = 1.0 - smoothstep(-0.18, 0.05, sunAlt);
 
-        // Rayleigh-Mie realistic sky gradient
-        vec3 dayZenith = vec3(0.035, 0.22, 0.62);
+        // Rayleigh-Mie realistic coastal sky gradient
+        vec3 dayZenith = vec3(0.045, 0.34, 0.76);
         vec3 sunsetZenith = vec3(0.08, 0.12, 0.32);
         vec3 nightZenith = vec3(0.005, 0.012, 0.038);
 
@@ -1459,26 +1537,26 @@ const TIGER_SKY_FRAGMENT_SHADER = `
                 float opticalDepth = (s1 * 0.45 + s2 * 0.35 + s3 * 0.20) * 1.35;
                 float transmittance = exp(-opticalDepth * 1.65);
 
-                vec3 sunlitTop = mix(vec3(0.10, 0.16, 0.28), vec3(0.98, 0.99, 1.0), dayFactor);
-                sunlitTop = mix(sunlitTop, vec3(1.0, 0.52, 0.24), twilightFactor * 0.94);
+                vec3 sunlitTop = mix(vec3(0.10, 0.16, 0.28), vec3(1.0, 1.0, 1.0), dayFactor);
+                sunlitTop = mix(sunlitTop, vec3(1.0, 0.65, 0.35), twilightFactor * 0.94);
 
-                vec3 ambientBelly = mix(vec3(0.02, 0.035, 0.08), vec3(0.46, 0.58, 0.74), dayFactor);
-                ambientBelly = mix(ambientBelly, vec3(0.26, 0.14, 0.28), twilightFactor * 0.92);
+                vec3 ambientBelly = mix(vec3(0.02, 0.035, 0.08), vec3(0.52, 0.64, 0.78), dayFactor);
+                ambientBelly = mix(ambientBelly, vec3(0.30, 0.18, 0.30), twilightFactor * 0.92);
 
-                vec3 cloudCol = mix(ambientBelly, sunlitTop, clamp(transmittance * 0.85 + (1.0 - density) * 0.25, 0.0, 1.0));
+                vec3 cloudCol = mix(ambientBelly, sunlitTop, clamp(transmittance * 0.92 + (1.0 - density) * 0.35, 0.0, 1.0));
 
-                float hgPhase = pow(sunDot, 6.0) * smoothstep(-0.1, 0.4, sunAlt);
-                float silverLining = (1.0 - exp(-density * 2.5)) * exp(-opticalDepth * 0.9) * hgPhase;
-                cloudCol += mieTint * silverLining * 0.95;
+                float hgPhase = pow(sunDot, 5.0) * smoothstep(-0.1, 0.4, sunAlt);
+                float silverLining = (1.0 - exp(-density * 2.8)) * exp(-opticalDepth * 0.85) * hgPhase;
+                cloudCol += mieTint * silverLining * 1.15;
 
                 float moonDotCloud = max(dot(dir, uMoonDir), 0.0);
                 float lunarSilver = (1.0 - exp(-density * 2.2)) * exp(-opticalDepth * 0.8) * pow(moonDotCloud, 7.0) * nightFactor;
                 cloudCol += vec3(0.55, 0.72, 1.0) * lunarSilver * 0.55;
 
-                float horizonFade = smoothstep(0.015, 0.22, dir.y);
+                float horizonFade = smoothstep(0.012, 0.18, dir.y);
                 cloudCol = mix(horizonCol, cloudCol, horizonFade);
 
-                float cloudAlpha = smoothstep(0.01, 0.42, density) * smoothstep(0.015, 0.08, dir.y) * 0.94;
+                float cloudAlpha = smoothstep(0.01, 0.36, density) * smoothstep(0.012, 0.08, dir.y) * 0.96;
                 skyCol = mix(skyCol, cloudCol, cloudAlpha);
             }
         }
@@ -2056,4 +2134,5 @@ window.createVolumetricSmokeGeometry = createVolumetricSmokeGeometry;
 window.createGrassTuftGeometry = createGrassTuftGeometry;
 window.createGrassMaterial = createGrassMaterial;
 window.createRiverWaterMaterial = createRiverWaterMaterial;
+window.createCoastalOceanMaterial = createCoastalOceanMaterial;
 window.createMaldiveSkyDome = createMaldiveSkyDome;

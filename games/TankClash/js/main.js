@@ -5,8 +5,8 @@
 
 const container = document.getElementById('canvas-container');
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0xc8d6e5);
-scene.fog = new THREE.FogExp2(0xc4d0dc, 0.0032);
+scene.background = new THREE.Color(0x82b4dc);
+scene.fog = new THREE.FogExp2(0x82b4dc, 0.00085);
 window.scene = scene;
 
 // 1. Perspective Camera
@@ -39,12 +39,15 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.0;
+renderer.toneMappingExposure = 1.05;
+renderer.outputEncoding = THREE.sRGBEncoding;
 container.appendChild(renderer.domElement);
 window.renderer = renderer;
 
 const composer = new THREE.EffectComposer(renderer);
 composer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1));
+if (composer.renderTarget1) composer.renderTarget1.texture.encoding = THREE.sRGBEncoding;
+if (composer.renderTarget2) composer.renderTarget2.texture.encoding = THREE.sRGBEncoding;
 const ssaoPass = new THREE.SSAOPass(scene, perspCamera, window.innerWidth, window.innerHeight);
 ssaoPass.kernelRadius = 10;
 ssaoPass.minDistance = 0.005;
@@ -161,17 +164,17 @@ const dayNight = {
 };
 window.dayNight = dayNight;
 
-// Physically calibrated 24-hour celestial color palette (Maldive-grade fidelity)
+// Physically calibrated 24-hour celestial color palette (Mediterranean Seaside Countryside fidelity)
 const DAY_NIGHT_COLORS = {
-    noonSun:     new THREE.Color(0xfff8eb),
-    goldenHour:  new THREE.Color(0xff6b2b),
-    dayTop:      new THREE.Color(0x1f65b5),
-    dayHor:      new THREE.Color(0x79b2df),
+    noonSun:     new THREE.Color(0xfff6eb),
+    goldenHour:  new THREE.Color(0xff7a32),
+    dayTop:      new THREE.Color(0x1958aa),
+    dayHor:      new THREE.Color(0x82b6e5),
     sunTop:      new THREE.Color(0x16193b),
     sunHor:      new THREE.Color(0xe05a1e),
     nitTop:      new THREE.Color(0x03091e),
     nitHor:      new THREE.Color(0x0d1b35),
-    groundDay:   new THREE.Color(0x465b32),
+    groundDay:   new THREE.Color(0x4a652e),
     groundNight: new THREE.Color(0x111c14)
 };
 
@@ -945,7 +948,7 @@ function updateSimulation(dt) {
     // Fog & Background synced with horizon atmosphere
     if (scene.fog) {
         scene.fog.color.copy(skyHorizonColor);
-        scene.fog.density = 0.0028 + twilightFactor * 0.0010 + nightFactor * 0.0008;
+        scene.fog.density = 0.00085 + twilightFactor * 0.0006 + nightFactor * 0.0005;
     }
     if (scene.background) {
         scene.background.copy(skyHorizonColor);

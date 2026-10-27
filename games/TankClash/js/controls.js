@@ -7,9 +7,9 @@ var cameraMode = 'orbit'; // 'orbit' (Follow Aim) | 'fpv' (First Person)
 var isFpvZoomed = false;
 
 var camOrbit = {
-    theta: Math.PI + 0.38,
-    phi: 1.42,
-    distance: 10.5
+    theta: Math.PI + 0.16,
+    phi: 1.34,
+    distance: 11.5
 };
 
 var aimCursorNDC = new THREE.Vector2(0, 0);
