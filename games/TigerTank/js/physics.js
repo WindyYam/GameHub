@@ -56,6 +56,10 @@ const sparkParticleGeo  = new THREE.BoxGeometry(0.12, 0.12, 0.35);
 const shockwaveGeo      = new THREE.RingGeometry(0.2, 1.0, 32);
 shockwaveGeo.rotateX(-Math.PI / 2);
 
+// Reusable smoke particle pool for zero runtime garbage collection
+const smokePool = [];
+window.smokePool = smokePool;
+
 // Dynamic Point Light Flash Pool for Muzzle Blast & Explosions
 function spawnDynamicFlash(pos, colorHex, intensity, distance, lifeTime) {
     const currentScene = window.scene;
@@ -103,6 +107,55 @@ function spawnShockwave(pos, maxRadius, duration, colorHex = 0xfde68a) {
 function spawnParticle(pos, vel, colorHex, startSize, endSize, life, isAdditive = false, type = 'smoke') {
     const currentScene = window.scene;
     if (!currentScene) return;
+
+    // Photorealistic Maldive-Grade Volumetric Cloud Smoke (Beer-Lambert Law, Henyey-Greenstein scattering, soft Fresnel)
+    if (type === 'smoke') {
+        let mesh, mat;
+        if (smokePool.length > 0) {
+            const pooled = smokePool.pop();
+            mesh = pooled.mesh;
+            mat = pooled.mat;
+            if (typeof colorHex === 'number') {
+                mat.uniforms.diffuse.value.setHex(colorHex);
+            } else if (colorHex && colorHex.isColor) {
+                mat.uniforms.diffuse.value.copy(colorHex);
+            }
+            mat.uniforms.opacity.value = 0.0;
+            mesh.visible = true;
+        } else {
+            mat = (window.createMaldiveSmokeMaterial || window.createHaltonSmokeMaterial)
+                ? (window.createMaldiveSmokeMaterial || window.createHaltonSmokeMaterial)(colorHex)
+                : createMaldiveSmokeMaterial(colorHex);
+            const smokeGeo = window.createVolumetricSmokeGeometry ? window.createVolumetricSmokeGeometry() : sphereParticleGeo;
+            mesh = new THREE.Mesh(smokeGeo, mat);
+            currentScene.add(mesh);
+        }
+
+        mesh.position.copy(pos);
+        mesh.scale.setScalar(startSize);
+        mesh.rotation.set(Math.random() * 6.28, Math.random() * 6.28, Math.random() * 6.28);
+
+        particles.push({
+            mesh,
+            mat,
+            vel: vel.clone(),
+            startSize,
+            endSize,
+            age: 0,
+            life,
+            type,
+            rotVel: new THREE.Vector3(
+                (Math.random() - 0.5) * 2.5,
+                (Math.random() - 0.5) * 2.5,
+                (Math.random() - 0.5) * 2.5
+            ),
+            drag: 0.94,
+            buoyancy: 1.4,
+            gravity: 0.0,
+            isPooled: true
+        });
+        return;
+    }
 
     const isSpark = (type === 'spark');
     const isDirt  = (type === 'dirt');
@@ -332,7 +385,7 @@ function fireSmokeDischargers(tankModel) {
         const dir = new THREE.Vector3(0, 0, 1).applyQuaternion(q).normalize();
 
         // High-density volumetric smoke screen curtain
-        for (let i = 0; i < 12; i++) {
+        for (let i = 0; i < 6; i++) {
             const v = dir.clone().multiplyScalar(12 + Math.random() * 8)
                 .add(new THREE.Vector3((Math.random() - 0.5) * 5, 1.5 + Math.random() * 4, (Math.random() - 0.5) * 5));
             spawnParticle(p, v, 0xf1f5f9, 0.45, 5.2, 4.5 + Math.random() * 2.0, false, 'smoke');
@@ -362,7 +415,7 @@ function triggerHeavyDetonation(pos) {
     }
 
     // 4. Giant Billowing Charcoal/Black Smoke Plume that rises into sky
-    for (let i = 0; i < 26; i++) {
+    for (let i = 0; i < 16; i++) {
         const smokeVel = new THREE.Vector3(
             (Math.random() - 0.5) * 9.5,
             2.5 + Math.random() * 7.5,
@@ -434,6 +487,25 @@ function updateProjectiles(dt) {
             }
         }
 
+        // Check collision against forest trees (Shoot tree down with 88mm shell)
+        if (!hit) {
+            const trees = window.swayTrees || [];
+            for (let tr = 0; tr < trees.length; tr++) {
+                const tree = trees[tr];
+                if (tree.isFallen) continue;
+                const toTree = new THREE.Vector3(tree.x - prevPos.x, (tree.y + tree.trunkHeight * 0.45) - prevPos.y, tree.z - prevPos.z);
+                const projT = (segLenSq > 0.0001) ? THREE.MathUtils.clamp(toTree.dot(seg) / segLenSq, 0, 1) : 0;
+                const closestPt = prevPos.clone().addScaledVector(seg, projT);
+                const dSq = (closestPt.x - tree.x) ** 2 + (closestPt.z - tree.z) ** 2;
+                if (dSq < tree.radius * tree.radius * 2.2 && closestPt.y >= tree.y - 0.2 && closestPt.y <= tree.y + tree.trunkHeight * 1.2) {
+                    hit = true;
+                    impactPos = closestPt;
+                    if (window.hitTree) window.hitTree(tree, s.vel.clone().normalize(), 7.5);
+                    break;
+                }
+            }
+        }
+
         // CCD against terrain
         const groundPrev = getTerrainHeight(prevPos.x, prevPos.z);
         const groundNext = getTerrainHeight(s.pos.x, s.pos.z);
@@ -489,6 +561,26 @@ function updateProjectiles(dt) {
             }
         }
 
+        // Check MG burst against forest trees
+        if (!hit) {
+            const trees = window.swayTrees || [];
+            for (let trk = 0; trk < trees.length; trk++) {
+                const tree = trees[trk];
+                if (tree.isFallen) continue;
+                const dSq = (tr.pos.x - tree.x) ** 2 + (tr.pos.z - tree.z) ** 2;
+                if (dSq < tree.radius * tree.radius && tr.pos.y >= tree.y && tr.pos.y <= tree.y + tree.trunkHeight) {
+                    hit = true;
+                    impactPos = tr.pos.clone();
+                    tree.bulletHits = (tree.bulletHits || 0) + 1;
+                    spawnParticle(tr.pos, tr.vel.clone().multiplyScalar(-0.12), (tree.type === 'pine' ? 0x3d281a : 0xdddddd), 0.12, 0.04, 0.35, false, 'spark');
+                    if (tree.bulletHits >= 4 && window.hitTree) {
+                        window.hitTree(tree, tr.vel.clone().normalize(), 3.5);
+                    }
+                    break;
+                }
+            }
+        }
+
         const groundNext = getTerrainHeight(tr.pos.x, tr.pos.z);
         let hitTerrain = false;
         if (!hit && tr.pos.y <= groundNext) {
@@ -530,7 +622,13 @@ function updateParticles(dt) {
         const p = particles[i];
         p.age += dt;
         if (p.age >= p.life) {
-            window.scene.remove(p.mesh);
+            if (p.isPooled) {
+                p.mesh.visible = false;
+                smokePool.push({ mesh: p.mesh, mat: p.mat });
+            } else {
+                window.scene.remove(p.mesh);
+                if (p.mat && p.mat.dispose) p.mat.dispose();
+            }
             particles.splice(i, 1);
             continue;
         }

@@ -10,7 +10,128 @@ var targets = [];         // Destructible enemy armored hulls / target wrecks
 var swayTrees = [];       // Instanced or grouped trees that sway & react to shockwaves
 var terrainMeshRef = null;  // Used for 3D camera aim raycasting
 var waterMeshRef = null;
+var grassMeshRef = null;
+var skyCanvas = null;
+var skyTex = null;
+var skyDome = null;
 var terrainBumpTex = null;
+
+// Pre-generated static star positions on the sky dome for night transitions
+const starCoords = [];
+for (let i = 0; i < 320; i++) {
+    starCoords.push({
+        x: Math.floor(Math.random() * 128),
+        y: Math.floor(Math.random() * 180),
+        r: Math.random() < 0.2 ? 1.5 : 1.0,
+        alpha: 0.45 + Math.random() * 0.55
+    });
+}
+
+function lerpHex(hex1, hex2, t) {
+    const c1 = parseInt(hex1.replace('#', ''), 16);
+    const c2 = parseInt(hex2.replace('#', ''), 16);
+    const r1 = (c1 >> 16) & 255, g1 = (c1 >> 8) & 255, b1 = c1 & 255;
+    const r2 = (c2 >> 16) & 255, g2 = (c2 >> 8) & 255, b2 = c2 & 255;
+    const r = Math.round(r1 + (r2 - r1) * t);
+    const g = Math.round(g1 + (g2 - g1) * t);
+    const b = Math.round(b1 + (b2 - b1) * t);
+    return `rgb(${r},${g},${b})`;
+}
+
+let lastSkyHour = -1;
+
+function updateSkyDome(t) {
+    if (!skyCanvas || !skyTex) return;
+    if (Math.abs(t - lastSkyHour) < 0.015) return;
+    lastSkyHour = t;
+
+    const sCtx = skyCanvas.getContext('2d');
+    const grad = sCtx.createLinearGradient(0, 0, 0, 256);
+
+    let zCol, mCol, hCol, gCol;
+    let starAlpha = 0;
+
+    if (t >= 6.0 && t < 16.5) {
+        // Daylight: Full clear blue sky with warm horizon glow
+        zCol = '#2563eb';
+        mCol = '#60a5fa';
+        hCol = '#dbeafe';
+        gCol = '#fef3c7';
+        starAlpha = 0;
+    } else if (t >= 16.5 && t < 18.0) {
+        // Late Afternoon / Golden Hour
+        const frac = (t - 16.5) / 1.5;
+        zCol = lerpHex('#2563eb', '#1e3a8a', frac);
+        mCol = lerpHex('#60a5fa', '#a855f7', frac);
+        hCol = lerpHex('#dbeafe', '#fb923c', frac);
+        gCol = lerpHex('#fef3c7', '#f59e0b', frac);
+        starAlpha = 0;
+    } else if (t >= 18.0 && t < 19.8) {
+        // Sunset: Fiery vermilion, amber & twilight purple
+        const frac = (t - 18.0) / 1.8;
+        zCol = lerpHex('#1e3a8a', '#0f172a', frac);
+        mCol = lerpHex('#a855f7', '#7c2d12', frac);
+        hCol = lerpHex('#fb923c', '#ea580c', frac);
+        gCol = lerpHex('#f59e0b', '#dc2626', frac);
+        starAlpha = frac * 0.45;
+    } else if (t >= 19.8 && t < 21.0) {
+        // Dusk / Twilight: Fading into deep midnight
+        const frac = (t - 19.8) / 1.2;
+        zCol = lerpHex('#0f172a', '#020617', frac);
+        mCol = lerpHex('#7c2d12', '#1e1b4b', frac);
+        hCol = lerpHex('#ea580c', '#1e293b', frac);
+        gCol = lerpHex('#dc2626', '#0f172a', frac);
+        starAlpha = 0.45 + frac * 0.55;
+    } else if (t >= 21.0 || t < 4.5) {
+        // Night: Deep midnight sky with shimmering stars
+        zCol = '#020617';
+        mCol = '#090d16';
+        hCol = '#0f172a';
+        gCol = '#1e293b';
+        starAlpha = 1.0;
+    } else {
+        // Dawn (4.5 to 6.0): Sunrise rose-gold transition
+        const frac = (t - 4.5) / 1.5;
+        zCol = lerpHex('#020617', '#2563eb', frac);
+        mCol = lerpHex('#090d16', '#60a5fa', frac);
+        hCol = lerpHex('#0f172a', '#fb7185', frac);
+        gCol = lerpHex('#1e293b', '#fbbf24', frac);
+        starAlpha = (1.0 - frac);
+    }
+
+    grad.addColorStop(0.0, zCol);
+    grad.addColorStop(0.55, mCol);
+    grad.addColorStop(0.82, hCol);
+    grad.addColorStop(1.0, gCol);
+
+    sCtx.fillStyle = grad;
+    sCtx.fillRect(0, 0, 128, 256);
+
+    // Render stars on night sky
+    if (starAlpha > 0.05) {
+        starCoords.forEach(st => {
+            sCtx.fillStyle = `rgba(255, 255, 255, ${st.alpha * starAlpha})`;
+            sCtx.beginPath();
+            sCtx.arc(st.x, st.y, st.r, 0, Math.PI * 2);
+            sCtx.fill();
+        });
+        // Glowing Crescent / Full Moon in night sky
+        sCtx.fillStyle = `rgba(241, 245, 249, ${starAlpha * 0.95})`;
+        sCtx.beginPath();
+        sCtx.arc(92, 45, 6.5, 0, Math.PI * 2);
+        sCtx.fill();
+        // Moon soft atmospheric halo
+        const moonGlow = sCtx.createRadialGradient(92, 45, 6, 92, 45, 22);
+        moonGlow.addColorStop(0.0, `rgba(186, 230, 253, ${starAlpha * 0.45})`);
+        moonGlow.addColorStop(1.0, 'rgba(186, 230, 253, 0.0)');
+        sCtx.fillStyle = moonGlow;
+        sCtx.beginPath();
+        sCtx.arc(92, 45, 22, 0, Math.PI * 2);
+        sCtx.fill();
+    }
+
+    skyTex.needsUpdate = true;
+}
 
 // Generate rich organic micro-relief texture for wild terrain (grass blades, pebbles, dark loam)
 function createTerrainDetailTexture() {
@@ -97,6 +218,46 @@ function getTerrainHeight(x, z) {
     return h;
 }
 
+function hitTree(tree, hitDir, force = 3.5) {
+    if (!tree || tree.isFallen) return;
+    tree.isFallen = true;
+    tree.angularVel = Math.max(2.2, force);
+
+    const hDir = new THREE.Vector3(hitDir ? hitDir.x : 0, 0, hitDir ? hitDir.z : 1).normalize();
+    if (hDir.lengthSq() < 0.001) hDir.set(0, 0, 1);
+    tree.fallAxis = new THREE.Vector3(-hDir.z, 0, hDir.x).normalize();
+
+    // Spawn fracture splinters and foliage debris
+    const impactY = tree.y + 0.9 * tree.scale;
+    const impactPos = new THREE.Vector3(tree.x, impactY, tree.z);
+
+    // Wood splinters & bark chips
+    for (let s = 0; s < 12; s++) {
+        const spkVel = new THREE.Vector3(
+            (Math.random() - 0.5) * 6 + hDir.x * 2.5,
+            2.0 + Math.random() * 4,
+            (Math.random() - 0.5) * 6 + hDir.z * 2.5
+        );
+        spawnParticle(impactPos, spkVel, (tree.type === 'pine' ? 0x3d281a : 0xdddddd), 0.16, 0.05, 0.8 + Math.random() * 0.5, false, 'spark');
+    }
+
+    // Foliage burst
+    const folCol = (tree.type === 'pine') ? 0x1f3624 : 0x5a7d36;
+    for (let f = 0; f < 16; f++) {
+        const folVel = new THREE.Vector3(
+            (Math.random() - 0.5) * 5 + hDir.x * 2.5,
+            1.5 + Math.random() * 3.5,
+            (Math.random() - 0.5) * 5 + hDir.z * 2.5
+        );
+        spawnParticle(impactPos, folVel, folCol, 0.22, 0.65, 0.9 + Math.random() * 0.7, false, 'smoke');
+    }
+
+    if (window.soundFX && typeof window.soundFX.playTreeCrack === 'function') {
+        window.soundFX.playTreeCrack();
+    }
+}
+window.hitTree = hitTree;
+
 function initEnvironment(scene) {
     if (!envGroup) {
         envGroup = new THREE.Group();
@@ -146,23 +307,14 @@ function buildEnvironment(scene) {
     currentScene.fog.color.setHex(0xc2d0dc);
     currentScene.fog.density = 0.0032;
 
-    // 1. Atmospheric Sky Dome with Horizon Glow
-    const skyCanvas = document.createElement('canvas');
-    skyCanvas.width = 64; skyCanvas.height = 256;
-    const sCtx = skyCanvas.getContext('2d');
-    const grad = sCtx.createLinearGradient(0, 0, 0, 256);
-    grad.addColorStop(0.0, '#4b6584');
-    grad.addColorStop(0.55, '#95afc0');
-    grad.addColorStop(0.82, '#dfe4ea');
-    grad.addColorStop(1.0, '#f6e58d');
-    sCtx.fillStyle = grad;
-    sCtx.fillRect(0, 0, 64, 256);
-    const skyTex = new THREE.CanvasTexture(skyCanvas);
-    const skyDome = new THREE.Mesh(
-        new THREE.SphereGeometry(420, 32, 20),
-        new THREE.MeshBasicMaterial({ map: skyTex, side: THREE.BackSide, fog: false })
-    );
-    envGroup.add(skyDome);
+    // 1. Photorealistic Maldive-Grade Atmospheric Sky Dome
+    if (window.createMaldiveSkyDome) {
+        const skyData = window.createMaldiveSkyDome();
+        skyDome = skyData.skyMesh;
+        window.skyDome = skyDome;
+        window.skyMat = skyData.skyMat;
+        envGroup.add(skyDome);
+    }
 
     // 2. Register Earth Mounds / Tank Berms for Suspension Articulation
     const bermCoords = [
@@ -233,8 +385,8 @@ function buildEnvironment(scene) {
     terrainMeshRef = groundMesh;
     window.terrainMeshRef = groundMesh;
 
-    // 4. Semi-Transparent Shallow River Water Plane along the Valley Ford
-    const waterGeo = new THREE.PlaneGeometry(320, 26, 80, 12);
+    // 4. High-Fidelity Flowing River Water along the Valley Ford
+    const waterGeo = new THREE.PlaneGeometry(340, 28, 120, 16);
     waterGeo.rotateX(-Math.PI / 2);
     const wPos = waterGeo.attributes.position;
     for (let i = 0; i < wPos.count; i++) {
@@ -245,16 +397,59 @@ function buildEnvironment(scene) {
         wPos.setY(i, -0.42);
     }
     waterGeo.computeVertexNormals();
-    const waterMat = new THREE.MeshStandardMaterial({
-        color: 0x385a64,
-        roughness: 0.18,
-        metalness: 0.65,
-        transparent: true,
-        opacity: 0.78
-    });
+
+    const waterMat = (window.createRiverWaterMaterial ? window.createRiverWaterMaterial() : new THREE.MeshStandardMaterial({
+        color: 0x385a64, roughness: 0.18, metalness: 0.65, transparent: true, opacity: 0.78
+    }));
     waterMeshRef = new THREE.Mesh(waterGeo, waterMat);
-    waterMeshRef.receiveShadow = true;
     envGroup.add(waterMeshRef);
+    window.waterMeshRef = waterMeshRef;
+
+    // 4b. 3D Instanced Natural Grass Tufts across Meadows and Foothills
+    const grassGeo = window.createGrassTuftGeometry ? window.createGrassTuftGeometry() : null;
+    const grassMat = window.createGrassMaterial ? window.createGrassMaterial() : null;
+    if (grassGeo && grassMat) {
+        const grassCount = 3600;
+        const grassInstanced = new THREE.InstancedMesh(grassGeo, grassMat, grassCount);
+        const dummy = new THREE.Object3D();
+        let instIdx = 0;
+
+        let gSeed = 9973;
+        const gRand = () => {
+            gSeed = (gSeed * 16807) % 2147483647;
+            return (gSeed - 1) / 2147483646;
+        };
+
+        for (let attempt = 0; attempt < 8000 && instIdx < grassCount; attempt++) {
+            const gx = (gRand() - 0.5) * 220;
+            const gz = (gRand() - 0.5) * 220;
+            const distSpawn = Math.hypot(gx, gz);
+            const roadCenterX = Math.sin(gz * 0.035) * 4.5;
+            const distToRoad = Math.abs(gx - roadCenterX);
+            const riverCenterZ = 28.0 + Math.sin(gx * 0.05) * 6.5;
+            const distToRiver = Math.abs(gz - riverCenterZ);
+
+            // Avoid spawn pad, dirt road, and river channel
+            if (distSpawn < 5.0 || distToRoad < 3.2 || distToRiver < 7.2) continue;
+
+            const gy = getTerrainHeight(gx, gz);
+            // Avoid high rocky peaks (> 2.0m)
+            if (gy > 2.0) continue;
+
+            dummy.position.set(gx, gy - 0.02, gz);
+            dummy.rotation.set(0, gRand() * Math.PI * 2, 0);
+            const s = 0.75 + gRand() * 0.55;
+            dummy.scale.set(s, s * (0.85 + gRand() * 0.3), s);
+            dummy.updateMatrix();
+
+            grassInstanced.setMatrixAt(instIdx, dummy.matrix);
+            instIdx++;
+        }
+        grassInstanced.instanceMatrix.needsUpdate = true;
+        envGroup.add(grassInstanced);
+        grassMeshRef = grassInstanced;
+        window.grassMeshRef = grassInstanced;
+    }
 
     // 5. Realistic Pine & Silver Birch Forest Clusters + Boulders + Czech Hedgehogs
     const mats = window.mats || {};
@@ -289,7 +484,8 @@ function buildEnvironment(scene) {
         const scale = 0.85 + rand() * 0.65;
         treeGroup.scale.setScalar(scale);
 
-        if (rand() > 0.35) {
+        const isPine = (rand() > 0.35);
+        if (isPine) {
             // Realistic Tiered Conifer Spruce / Pine Tree
             // Tapered trunk with root flare
             const trunkHeight = 4.2;
@@ -368,7 +564,23 @@ function buildEnvironment(scene) {
         }
 
         envGroup.add(treeGroup);
-        swayTrees.push({ group: treeGroup, phase: rand() * Math.PI * 2 });
+        swayTrees.push({
+            group: treeGroup,
+            phase: rand() * Math.PI * 2,
+            x: tx,
+            y: ty,
+            z: tz,
+            scale: scale,
+            isFallen: false,
+            fallAngle: 0.0,
+            angularVel: 0.0,
+            maxFallAngle: Math.PI * 0.48,
+            fallAxis: new THREE.Vector3(1, 0, 0),
+            radius: 1.35 * scale,
+            trunkHeight: (isPine ? 4.2 : 3.6) * scale,
+            type: isPine ? 'pine' : 'birch',
+            bulletHits: 0
+        });
     }
 
     // Spawn Weathered Boulders & Anti-Tank Czech Hedgehogs (Tschechenigel) along the valley
@@ -472,6 +684,10 @@ window.targets = targets;
 window.swayTrees = swayTrees;
 window.terrainMeshRef = terrainMeshRef;
 window.waterMeshRef = waterMeshRef;
+window.grassMeshRef = grassMeshRef;
+window.skyDome = skyDome;
+window.updateSkyDome = updateSkyDome;
 window.getTerrainHeight = getTerrainHeight;
+window.hitTree = hitTree;
 window.initEnvironment = initEnvironment;
 window.buildEnvironment = buildEnvironment;

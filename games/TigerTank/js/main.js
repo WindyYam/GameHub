@@ -47,6 +47,45 @@ window.renderer = renderer;
 const hemiLight = new THREE.HemisphereLight(0xfff7ed, 0x3f4e3d, 0.88);
 scene.add(hemiLight);
 
+// ============================================================================
+// REALISTIC DYNAMIC DAY / NIGHT CYCLE MANAGER
+// ============================================================================
+const dayNight = {
+    time: 10.5,        // Current hour (0.00 to 24.00, starts at 10:30 AM)
+    speed: 0.1,        // Progress rate (~4 minutes per 24-hour cycle)
+    paused: false,
+    phase: 'Day',
+    setTime(h) {
+        this.time = (h % 24 + 24) % 24;
+    },
+    cycleNext() {
+        if (this.time >= 5.5 && this.time < 16.5) {
+            this.time = 18.2; // Sunset
+        } else if (this.time >= 16.5 && this.time < 20.2) {
+            this.time = 22.5; // Moonlit Night
+        } else if (this.time >= 20.2 || this.time < 4.5) {
+            this.time = 5.5;  // Dawn / Sunrise
+        } else {
+            this.time = 11.5; // Midday
+        }
+    }
+};
+window.dayNight = dayNight;
+
+// Physically calibrated 24-hour celestial color palette (Maldive-grade fidelity)
+const DAY_NIGHT_COLORS = {
+    noonSun:     new THREE.Color(0xfff8eb),
+    goldenHour:  new THREE.Color(0xff6b2b),
+    dayTop:      new THREE.Color(0x062b68),
+    dayHor:      new THREE.Color(0x397cca),
+    sunTop:      new THREE.Color(0x16193b),
+    sunHor:      new THREE.Color(0xe05a1e),
+    nitTop:      new THREE.Color(0x03091e),
+    nitHor:      new THREE.Color(0x0d1b35),
+    groundDay:   new THREE.Color(0x4d613c),
+    groundNight: new THREE.Color(0x111c14)
+};
+
 const sunLight = new THREE.DirectionalLight(0xfff1db, 1.45);
 sunLight.position.set(45, 55, 38);
 sunLight.castShadow = true;
@@ -62,6 +101,22 @@ sunLight.shadow.camera.bottom = -d;
 sunLight.shadow.bias = -0.0005;
 scene.add(sunLight);
 window.sunLight = sunLight;
+
+// Secondary Moon Directional Light for Authentic Nighttime Illumination
+const moonLight = new THREE.DirectionalLight(0x8ab4f8, 0.0);
+moonLight.position.set(-45, 55, -38);
+moonLight.castShadow = false;
+moonLight.shadow.mapSize.width = 2048;
+moonLight.shadow.mapSize.height = 2048;
+moonLight.shadow.camera.near = 5;
+moonLight.shadow.camera.far = 180;
+moonLight.shadow.camera.left = -d;
+moonLight.shadow.camera.right = d;
+moonLight.shadow.camera.top = d;
+moonLight.shadow.camera.bottom = -d;
+moonLight.shadow.bias = -0.0005;
+scene.add(moonLight);
+window.moonLight = moonLight;
 
 const rimLight = new THREE.DirectionalLight(0x93c5fd, 0.45);
 rimLight.position.set(-35, 22, -30);
@@ -492,21 +547,202 @@ function updateSimulation(dt) {
         window.updateTracksGeometry(tankState.leftTrackPhase, tankState.rightTrackPhase);
     }
 
-    // Wind sway on trees
-    for (let i = 0; i < swayTrees.length; i++) {
-        const st = swayTrees[i];
-        st.group.rotation.z = Math.sin(nowSec * 1.4 + st.phase) * 0.022;
-        st.group.rotation.x = Math.cos(nowSec * 1.1 + st.phase) * 0.015;
+    // --- 6b. TANK VS TREE CRUSH COLLISION (Drive over trees to knock them down) ---
+    const trees = window.swayTrees || swayTrees || [];
+    const tankX = tankState.x;
+    const tankZ = tankState.z;
+    const tankSpeed = Math.abs(tankState.speed);
+    const headingDir = new THREE.Vector3(Math.sin(tankState.heading), 0, Math.cos(tankState.heading));
+
+    for (let i = 0; i < trees.length; i++) {
+        const tree = trees[i];
+        if (tree.isFallen) continue;
+        const dx = tree.x - tankX;
+        const dz = tree.z - tankZ;
+        const distSq = dx * dx + dz * dz;
+        const crushDist = 2.45 + (tree.radius || 1.2) * 0.45;
+        if (distSq < crushDist * crushDist) {
+            const pushDir = new THREE.Vector3(dx, 0, dz).normalize();
+            if (tankSpeed > 0.08) {
+                pushDir.addScaledVector(headingDir, Math.sign(tankState.speed) * 0.85).normalize();
+            }
+            if (window.hitTree) {
+                window.hitTree(tree, pushDir, Math.max(3.2, tankSpeed * 2.4));
+            }
+            // Hull resistance from crushing massive timber
+            tankState.speed *= 0.82;
+            tankState.pitchVel += (Math.random() - 0.5) * 0.08;
+            tankState.rollVel += (Math.random() - 0.5) * 0.08;
+        }
+    }
+
+    // Tree wind sway and dynamic toppling physics animation
+    for (let i = 0; i < trees.length; i++) {
+        const st = trees[i];
+        if (st.isFallen) {
+            if (st.fallAngle < st.maxFallAngle) {
+                st.angularVel += 7.2 * dt;
+                st.fallAngle += st.angularVel * dt;
+                if (st.fallAngle >= st.maxFallAngle) {
+                    st.fallAngle = st.maxFallAngle;
+                    st.angularVel = 0;
+                    // Dust puff impact when canopy/trunk hits the ground
+                    const tipDist = (st.trunkHeight || 3.5) * 0.72;
+                    const tipX = st.x + (-st.fallAxis.z) * tipDist;
+                    const tipZ = st.z + (st.fallAxis.x) * tipDist;
+                    const tipY = getTerrainHeight(tipX, tipZ);
+                    for (let p = 0; p < 7; p++) {
+                        const dVel = new THREE.Vector3(
+                            (Math.random() - 0.5) * 4.2,
+                            0.5 + Math.random() * 1.5,
+                            (Math.random() - 0.5) * 4.2
+                        );
+                        spawnParticle(new THREE.Vector3(tipX, tipY + 0.15, tipZ), dVel, 0x5a4d41, 0.35, 1.8, 1.1, false, 'dirt');
+                    }
+                }
+                st.group.quaternion.setFromAxisAngle(st.fallAxis, st.fallAngle);
+            }
+        } else {
+            st.group.rotation.z = Math.sin(nowSec * 1.4 + st.phase) * 0.022;
+            st.group.rotation.x = Math.cos(nowSec * 1.1 + st.phase) * 0.015;
+        }
     }
 
     // --- 7. BALLISTIC PROJECTILES & PARTICLES ---
     updateProjectiles(dt);
     updateParticles(dt);
 
-    // Follow tank with directional sunlight shadow camera
-    sunLight.position.set(tankState.x + 45, tankState.y + 55, tankState.z + 38);
+    // --- CELESTIAL MECHANICS & REALISTIC DAY/NIGHT TRANSITION (Maldive Benchmark) ---
+    if (!dayNight.paused) {
+        dayNight.time = (dayNight.time + dt * dayNight.speed) % 24.0;
+    }
+
+    const t = dayNight.time;
+    // Periodic 2*PI solar angle calibrated so 24:00 is mathematically identical to 00:00
+    const solarAngle = ((t - 6.0) / 24.0) * Math.PI * 2.0;
+    const sunY = Math.sin(solarAngle);
+    const sunX = Math.cos(solarAngle);
+    const sunZ = 0.32 * Math.sin(solarAngle + 0.4);
+
+    const sunDir = new THREE.Vector3(sunX, sunY, sunZ).normalize();
+    const moonDir = new THREE.Vector3(-sunX, -sunY, -sunZ).normalize();
+
+    const lightDist = 95.0;
+    sunLight.position.set(tankState.x + sunDir.x * lightDist, tankState.y + sunDir.y * lightDist, tankState.z + sunDir.z * lightDist);
     sunLight.target.position.set(tankState.x, tankState.y, tankState.z);
     sunLight.target.updateMatrixWorld();
+
+    moonLight.position.set(tankState.x + moonDir.x * lightDist, tankState.y + moonDir.y * lightDist, tankState.z + moonDir.z * lightDist);
+    moonLight.target.position.set(tankState.x, tankState.y, tankState.z);
+    moonLight.target.updateMatrixWorld();
+
+    // Maldive continuous atmospheric interpolation factors
+    const dayFactor = THREE.MathUtils.smoothstep(sunY, -0.10, 0.28);
+    const twilightFactor = THREE.MathUtils.smoothstep(sunY, -0.20, 0.06) * (1.0 - THREE.MathUtils.smoothstep(sunY, 0.04, 0.34));
+    const nightFactor = 1.0 - THREE.MathUtils.smoothstep(sunY, -0.14, 0.04);
+
+    // Sun & Moon directional lighting
+    const sunCol = DAY_NIGHT_COLORS.noonSun.clone().lerp(DAY_NIGHT_COLORS.goldenHour, twilightFactor * 0.92);
+    sunLight.color.copy(sunCol);
+    sunLight.intensity = Math.max(0.0, THREE.MathUtils.smoothstep(sunY, -0.06, 0.28) * 2.8 + twilightFactor * 0.85);
+
+    moonLight.color.setHex(0x8ab4f8);
+    moonLight.intensity = nightFactor * 0.85;
+
+    // Toggle shadow casting dynamically so only active celestial light renders shadows
+    sunLight.castShadow = (sunLight.intensity > 0.15);
+    moonLight.castShadow = (moonLight.intensity > 0.15 && !sunLight.castShadow);
+
+    // Sky top & horizon colors calibrated from Maldive
+    const skyHorizonColor = DAY_NIGHT_COLORS.nitHor.clone()
+        .lerp(DAY_NIGHT_COLORS.dayHor, dayFactor)
+        .lerp(DAY_NIGHT_COLORS.sunHor, twilightFactor * 0.9);
+
+    const skyTopColor = DAY_NIGHT_COLORS.nitTop.clone()
+        .lerp(DAY_NIGHT_COLORS.dayTop, dayFactor)
+        .lerp(DAY_NIGHT_COLORS.sunTop, twilightFactor * 0.8);
+
+    // Hemisphere natural bounce lighting (Earth meadow up + Sky down)
+    hemiLight.color.copy(skyHorizonColor);
+    hemiLight.groundColor.copy(DAY_NIGHT_COLORS.groundNight).lerp(DAY_NIGHT_COLORS.groundDay, dayFactor);
+    hemiLight.intensity = 0.35 + dayFactor * 0.52 + twilightFactor * 0.26;
+
+    // Fog & Background synced with horizon atmosphere
+    if (scene.fog) {
+        scene.fog.color.copy(skyHorizonColor);
+        scene.fog.density = 0.0028 + twilightFactor * 0.0010 + nightFactor * 0.0008;
+    }
+    if (scene.background) {
+        scene.background.copy(skyHorizonColor);
+    }
+
+    // Centering the Photorealistic Atmospheric Sky Dome around camera
+    const curCam = window.activeCamera || activeCamera;
+    if (window.skyDome && curCam) {
+        window.skyDome.position.copy(curCam.position);
+    }
+    if (window.skyMat && window.skyMat.uniforms) {
+        window.skyMat.uniforms.uSunDir.value.copy(sunDir);
+        window.skyMat.uniforms.uMoonDir.value.copy(moonDir);
+        window.skyMat.uniforms.uSkyRotation.value = solarAngle;
+        window.skyMat.uniforms.uSkyHorizonColor.value.copy(skyHorizonColor);
+        window.skyMat.uniforms.uTime.value = nowSec;
+    }
+
+    // Update shared shader lighting uniforms (Volumetric smoke, water ripples, grass tufts)
+    if (window.celestialLighting) {
+        const isSunActive = (sunY > -0.05);
+        window.celestialLighting.sunDirection.value.copy(isSunActive ? sunDir : moonDir);
+        window.celestialLighting.sunColor.value.copy(isSunActive ? sunCol : moonLight.color);
+        window.celestialLighting.skyColor.value.copy(skyHorizonColor);
+        if (window.celestialLighting.groundColor) {
+            window.celestialLighting.groundColor.value.copy(hemiLight.groundColor);
+        }
+        window.celestialLighting.time.value = nowSec;
+    }
+
+    // Bosch Headlights activation during dusk and night
+    const isDark = (sunY < 0.02);
+    const hlLights = window.headlightLights || [];
+    hlLights.forEach(hl => {
+        if (hl.spot) {
+            hl.spot.intensity = isDark ? 3.2 : 0.0;
+        }
+        if (hl.slitMat) {
+            hl.slitMat.color.setHex(isDark ? 0xfef08a : 0x334155);
+        }
+    });
+
+    // Determine descriptive phase name and icon matching Maldive
+    let phaseName = 'Night';
+    let phaseIcon = '🌙';
+    if (t >= 5.0 && t < 7.0) {
+        phaseName = 'Golden Sunrise'; phaseIcon = '🌅';
+    } else if (t >= 7.0 && t < 11.5) {
+        phaseName = 'Morning Light'; phaseIcon = '🌤️';
+    } else if (t >= 11.5 && t < 16.5) {
+        phaseName = 'Midday Sun'; phaseIcon = '☀️';
+    } else if (t >= 16.5 && t < 18.5) {
+        phaseName = 'Golden Hour'; phaseIcon = '🌤️';
+    } else if (t >= 18.5 && t < 20.0) {
+        phaseName = 'Sunset'; phaseIcon = '🌇';
+    } else if (t >= 20.0 && t < 21.5) {
+        phaseName = 'Dusk'; phaseIcon = '🌆';
+    } else {
+        phaseName = 'Starlit Night'; phaseIcon = '🌙';
+    }
+    dayNight.phase = phaseName;
+
+    // Update HUD time readout
+    const hours = Math.floor(t);
+    const minutes = Math.floor((t - hours) * 60);
+    const timeStr = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+    const hudTimeEl = document.getElementById('hud-time-label');
+    if (hudTimeEl) hudTimeEl.textContent = `${timeStr}`;
+    const mobTimeEl = document.getElementById('mob-time-label');
+    if (mobTimeEl) mobTimeEl.textContent = `${phaseName}`;
+    const btnTimeEl = document.getElementById('btn-time-cycle');
+    if (btnTimeEl) btnTimeEl.innerHTML = `${phaseIcon} <span id="hud-time-label">${timeStr}</span>`;
 
     // --- 8. TELEMETRY HUD UPDATE ---
     const kmh = Math.abs(tankState.speed * 3.6).toFixed(1);
@@ -635,6 +871,8 @@ if (screen.orientation && screen.orientation.addEventListener) {
         setTimeout(onWindowResize, 600);
     });
 }
+
+window.updateSimulation = updateSimulation;
 
 window.onload = function () {
     animate(performance.now());

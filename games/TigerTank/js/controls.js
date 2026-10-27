@@ -75,6 +75,7 @@ function initControls(renderer) {
         if (k === 'f') { isFiringCoaxMG = true; }
         if (k === 'x') fireSmokeDischargers();
         if (k === 'h') toggleHeadlights();
+        if (k === 't') { if (window.dayNight && window.dayNight.cycleNext) window.dayNight.cycleNext(); }
         if (k === '1') setCameraMode('orbit');
         if (k === '5' || k === 'v') setCameraMode(cameraMode === 'fpv' ? 'orbit' : 'fpv');
         if (k === 'z' && cameraMode === 'fpv') {
@@ -430,6 +431,18 @@ function initControls(renderer) {
 
     const mobSmoke = document.getElementById('mob-btn-smoke');
     if (mobSmoke) mobSmoke.addEventListener('pointerdown', (e) => { e.preventDefault(); soundFX.init(); fireSmokeDischargers(); });
+
+    const btnTimeCycle = document.getElementById('btn-time-cycle');
+    if (btnTimeCycle) btnTimeCycle.addEventListener('click', (e) => {
+        e.preventDefault();
+        if (window.dayNight && window.dayNight.cycleNext) window.dayNight.cycleNext();
+    });
+
+    const mobBtnTime = document.getElementById('mob-btn-time');
+    if (mobBtnTime) mobBtnTime.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        if (window.dayNight && window.dayNight.cycleNext) window.dayNight.cycleNext();
+    });
 
     // ------------------------------------------------------------------------
     // 6. FULLSCREEN & LANDSCAPE HELPER

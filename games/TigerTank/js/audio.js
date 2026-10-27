@@ -154,6 +154,51 @@ const soundFX = {
         src.start(now);
     },
 
+    playTreeCrack() {
+        if (!this.enabled || !this.ctx) return;
+        try {
+            const now = this.ctx.currentTime;
+            // 1. Sharp wooden timber fracture snap
+            const bufferSize = Math.floor(this.ctx.sampleRate * 0.35);
+            const buf = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+            const data = buf.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) {
+                data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (this.ctx.sampleRate * 0.06));
+            }
+            const src = this.ctx.createBufferSource();
+            src.buffer = buf;
+
+            const bp = this.ctx.createBiquadFilter();
+            bp.type = 'bandpass';
+            bp.frequency.setValueAtTime(680, now);
+            bp.Q.setValueAtTime(2.2, now);
+
+            const gain = this.ctx.createGain();
+            gain.gain.setValueAtTime(0.42, now);
+            gain.gain.exponentialRampToValueAtTime(0.005, now + 0.32);
+
+            src.connect(bp);
+            bp.connect(gain);
+            gain.connect(this.ctx.destination);
+            src.start(now);
+
+            // 2. Heavy trunk groan & low impact thud
+            const osc = this.ctx.createOscillator();
+            const oscGain = this.ctx.createGain();
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(130, now);
+            osc.frequency.exponentialRampToValueAtTime(45, now + 0.38);
+
+            oscGain.gain.setValueAtTime(0.28, now);
+            oscGain.gain.exponentialRampToValueAtTime(0.005, now + 0.4);
+
+            osc.connect(oscGain);
+            oscGain.connect(this.ctx.destination);
+            osc.start(now);
+            osc.stop(now + 0.4);
+        } catch (e) {}
+    },
+
     playShellEject() {
         this.init();
         if (!this.enabled || !this.ctx) return;
