@@ -673,6 +673,8 @@ function triggerHeavyDetonation(pos) {
     }
 }
 
+const _obstacleRaycaster = new THREE.Raycaster();
+
 // Continuous Collision Detection (CCD) and Ballistic Trajectory Updates
 function updateProjectiles(dt) {
     // 1. Update 8.8cm Cannon Shells (773 m/s)
@@ -733,29 +735,57 @@ function updateProjectiles(dt) {
             }
         }
 
-        // Check collision against tactical cover obstacles: Massive Rocks, Houses, Ruins
+        // Check collision against tactical cover obstacles: Massive Rocks, Houses, Ruins, Barns, Walls
         if (!hit) {
             const obstacles = window.worldObstacles || [];
+            const segLen = Math.sqrt(segLenSq);
+            const segDir = (segLen > 0.0001) ? seg.clone().multiplyScalar(1 / segLen) : new THREE.Vector3(0, 0, 1);
+
             for (let ob = 0; ob < obstacles.length; ob++) {
                 const obs = obstacles[ob];
-                const obsCenterY = obs.y + (obs.height ? obs.height * 0.45 : 2.0);
-                const toObs = new THREE.Vector3(obs.x - prevPos.x, obsCenterY - prevPos.y, obs.z - prevPos.z);
-                const projT = (segLenSq > 0.0001) ? THREE.MathUtils.clamp(toObs.dot(seg) / segLenSq, 0, 1) : 0;
-                const closestPt = prevPos.clone().addScaledVector(seg, projT);
-                const dSqXZ = (closestPt.x - obs.x) ** 2 + (closestPt.z - obs.z) ** 2;
-                const rSq = obs.radius * obs.radius;
-                const obsTop = obs.y + (obs.height || 4.5);
-                const obsBottom = obs.y - 0.5;
+                const dCenterSq = (prevPos.x - obs.x) ** 2 + (prevPos.z - obs.z) ** 2;
+                const maxRange = obs.radius + segLen + 2.0;
+                if (dCenterSq > maxRange * maxRange) continue;
 
-                if (dSqXZ < rSq && closestPt.y >= obsBottom && closestPt.y <= obsTop) {
-                    hit = true;
-                    const hitDirXZ = new THREE.Vector2(closestPt.x - obs.x, closestPt.z - obs.z).normalize();
-                    impactPos.set(
-                        obs.x + hitDirXZ.x * (obs.radius * 0.95),
-                        closestPt.y,
-                        obs.z + hitDirXZ.y * (obs.radius * 0.95)
-                    );
-                    break;
+                // 1. Direct mesh polygon raycast for exact geometric surface impact point
+                if (obs.mesh) {
+                    _obstacleRaycaster.set(prevPos, segDir);
+                    _obstacleRaycaster.far = segLen + 0.2;
+                    const hits = _obstacleRaycaster.intersectObject(obs.mesh, true);
+                    if (hits.length > 0 && hits[0].distance <= segLen + 0.2) {
+                        hit = true;
+                        impactPos.copy(hits[0].point);
+                        break;
+                    }
+                }
+
+                // 2. Analytical ray-cylinder entry point along line of flight (facing gun, never side)
+                const dx = prevPos.x - obs.x;
+                const dz = prevPos.z - obs.z;
+                const vx = segDir.x;
+                const vz = segDir.z;
+                const a = vx * vx + vz * vz;
+                const b = 2 * (dx * vx + dz * vz);
+                const c = dx * dx + dz * dz - obs.radius * obs.radius;
+                const disc = b * b - 4 * a * c;
+
+                if (disc >= 0 && a > 0.0001) {
+                    const sqrtD = Math.sqrt(disc);
+                    const t0 = (-b - sqrtD) / (2 * a);
+                    const t1 = (-b + sqrtD) / (2 * a);
+
+                    if (t0 <= segLen + 0.2 && t1 >= -0.2) {
+                        const tHit = Math.max(0, t0);
+                        const testPt = prevPos.clone().addScaledVector(segDir, tHit);
+                        const obsTop = obs.y + (obs.height || 4.5);
+                        const obsBottom = obs.y - 0.5;
+
+                        if (testPt.y >= obsBottom && testPt.y <= obsTop) {
+                            hit = true;
+                            impactPos.copy(testPt);
+                            break;
+                        }
+                    }
                 }
             }
         }
@@ -840,15 +870,48 @@ function updateProjectiles(dt) {
         // Check MG burst against cover obstacles (Rocks, Houses, Ruins)
         if (!hit) {
             const obstacles = window.worldObstacles || [];
+            const trSeg = tr.pos.clone().sub(prevPos);
+            const trSegLen = trSeg.length();
+            const trSegDir = (trSegLen > 0.0001) ? trSeg.clone().multiplyScalar(1 / trSegLen) : new THREE.Vector3(0, 0, 1);
+
             for (let ob = 0; ob < obstacles.length; ob++) {
                 const obs = obstacles[ob];
                 const dSqXZ = (tr.pos.x - obs.x) ** 2 + (tr.pos.z - obs.z) ** 2;
-                const obsTop = obs.y + (obs.height || 4.5);
-                const obsBottom = obs.y - 0.5;
-                if (dSqXZ < obs.radius * obs.radius && tr.pos.y >= obsBottom && tr.pos.y <= obsTop) {
-                    hit = true;
-                    impactPos.copy(tr.pos);
-                    break;
+                const maxR = obs.radius + trSegLen + 1.0;
+                if (dSqXZ > maxR * maxR) continue;
+
+                // 1. Direct mesh raycast
+                if (obs.mesh) {
+                    _obstacleRaycaster.set(prevPos, trSegDir);
+                    _obstacleRaycaster.far = trSegLen + 0.15;
+                    const hits = _obstacleRaycaster.intersectObject(obs.mesh, true);
+                    if (hits.length > 0 && hits[0].distance <= trSegLen + 0.15) {
+                        hit = true;
+                        impactPos.copy(hits[0].point);
+                        break;
+                    }
+                }
+
+                // 2. Analytical entry point on front face facing the gun
+                const dx = prevPos.x - obs.x;
+                const dz = prevPos.z - obs.z;
+                const a = trSegDir.x * trSegDir.x + trSegDir.z * trSegDir.z;
+                const b = 2 * (dx * trSegDir.x + dz * trSegDir.z);
+                const c = dx * dx + dz * dz - obs.radius * obs.radius;
+                const disc = b * b - 4 * a * c;
+                if (disc >= 0 && a > 0.0001) {
+                    const t0 = (-b - Math.sqrt(disc)) / (2 * a);
+                    const t1 = (-b + Math.sqrt(disc)) / (2 * a);
+                    if (t0 <= trSegLen + 0.15 && t1 >= -0.15) {
+                        const testPt = prevPos.clone().addScaledVector(trSegDir, Math.max(0, t0));
+                        const obsTop = obs.y + (obs.height || 4.5);
+                        const obsBottom = obs.y - 0.5;
+                        if (testPt.y >= obsBottom && testPt.y <= obsTop) {
+                            hit = true;
+                            impactPos.copy(testPt);
+                            break;
+                        }
+                    }
                 }
             }
         }

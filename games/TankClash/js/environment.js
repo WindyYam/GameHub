@@ -1895,7 +1895,8 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
 // ============================================================================
 const CHUNK_SIZE = 80;
 const CHUNK_SEGS = 32;
-const VIEW_RADIUS = 2; // 5x5 = 25 chunks (400m x 400m) - perfectly sized & 50% fewer draw calls!
+const VIEW_RADIUS = 4; // 9x9 = 81 chunks (320m radius) - covers visual range with fog transition
+const UNLOAD_RADIUS = 5; // Hysteresis buffer: only dispose chunks when player is >= 5 chunks (400m) away
 
 class TerrainChunk {
     constructor(cx, cz) {
@@ -2021,9 +2022,13 @@ class TerrainChunk {
             ];
 
             villageTemplates.forEach((struct, sIdx) => {
-                const bx = chunkCenterX + struct.rx + (rng() - 0.5) * 5.0;
-                const bz = chunkCenterZ + struct.rz + (rng() - 0.5) * 5.0;
-                if (Math.hypot(bx, bz) < 18) return; // Keep spawn pad clear
+                let bx = chunkCenterX + struct.rx + (rng() - 0.5) * 4.0;
+                let bz = chunkCenterZ + struct.rz + (rng() - 0.5) * 4.0;
+                bx = THREE.MathUtils.clamp(bx, xMin + 8, xMin + CHUNK_SIZE - 8);
+                bz = THREE.MathUtils.clamp(bz, zMin + 8, zMin + CHUNK_SIZE - 8);
+                if (Math.hypot(bx, bz) < 32) return; // Keep spawn pad clear
+                if (Math.hypot(bx - (-18), bz - 112) < 24) return; // Don't duplicate signature seaside cottage
+                if (Math.hypot(bx - (-19), bz - 22) < 20) return; // Don't duplicate signature rock
 
                 const by = getTerrainHeight(bx, bz);
                 const norm = getTerrainNormal(bx, bz);
@@ -2081,8 +2086,13 @@ class TerrainChunk {
             const roadDistCenter = getRoadDistance(chunkCenterX, chunkCenterZ);
             if (roadDistCenter < 35) {
                 const sideSign = (rng() > 0.5) ? 1 : -1;
-                const hx = chunkCenterX + sideSign * (14.0 + rng() * 10.0);
-                const hz = chunkCenterZ + (rng() - 0.5) * 22.0;
+                let hx = chunkCenterX + sideSign * (14.0 + rng() * 8.0);
+                let hz = chunkCenterZ + (rng() - 0.5) * 18.0;
+                hx = THREE.MathUtils.clamp(hx, xMin + 8, xMin + CHUNK_SIZE - 8);
+                hz = THREE.MathUtils.clamp(hz, zMin + 8, zMin + CHUNK_SIZE - 8);
+                if (Math.hypot(hx, hz) < 32) return; // Keep spawn area clear
+                if (Math.hypot(hx - (-18), hz - 112) < 24) return; // Don't duplicate signature seaside cottage
+                if (Math.hypot(hx - (-19), hz - 22) < 20) return; // Don't duplicate signature rock
                 const hy = getTerrainHeight(hx, hz);
                 const norm = getTerrainNormal(hx, hz);
 
@@ -2117,8 +2127,10 @@ class TerrainChunk {
 
                     // Add an attached stone wall border
                     if (rng() < 0.60) {
-                        const wx = hx + (rng() > 0.5 ? 7.2 : -7.2);
-                        const wz = hz + (rng() - 0.5) * 4.0;
+                        let wx = hx + (rng() > 0.5 ? 7.0 : -7.0);
+                        let wz = hz + (rng() - 0.5) * 4.0;
+                        wx = THREE.MathUtils.clamp(wx, xMin + 6, xMin + CHUNK_SIZE - 6);
+                        wz = THREE.MathUtils.clamp(wz, zMin + 6, zMin + CHUNK_SIZE - 6);
                         const wy = getTerrainHeight(wx, wz);
                         const wMesh = new THREE.Mesh(sharedStoneWallGeo, villageMat);
                         wMesh.position.set(wx, wy - 0.15, wz);
@@ -2144,8 +2156,10 @@ class TerrainChunk {
         this.rocks = [];
         const rockCount = (distFromSpawn > 20 && !isVillage && rng() < 0.70) ? (1 + Math.floor(rng() * 2)) : 0;
         for (let r = 0; r < rockCount; r++) {
-            const rx = xMin + (0.12 + rng() * 0.76) * CHUNK_SIZE;
-            const rz = zMin + (0.12 + rng() * 0.76) * CHUNK_SIZE;
+            let rx = xMin + (0.15 + rng() * 0.70) * CHUNK_SIZE;
+            let rz = zMin + (0.15 + rng() * 0.70) * CHUNK_SIZE;
+            if (Math.hypot(rx, rz) < 26) continue;
+            if (Math.hypot(rx - (-19), rz - 22) < 18) continue;
             if (getRoadFactor(rx, rz) > 0.25) continue;
             const ry = getTerrainHeight(rx, rz);
             if (ry < -2.0) continue;
@@ -2193,10 +2207,10 @@ class TerrainChunk {
         }
 
         for (let t = 0; t < targetTreeCount; t++) {
-            const tx = xMin + (0.06 + rng() * 0.88) * CHUNK_SIZE;
-            const tz = zMin + (0.06 + rng() * 0.88) * CHUNK_SIZE;
+            let tx = xMin + (0.08 + rng() * 0.84) * CHUNK_SIZE;
+            let tz = zMin + (0.08 + rng() * 0.84) * CHUNK_SIZE;
 
-            if (Math.hypot(tx, tz) < 14) continue;
+            if (Math.hypot(tx, tz) < 20) continue; // Keep spawn clear
             if (getRoadFactor(tx, tz) > 0.20) continue; // Keep roads clear
 
             // Don't collide into buildings
@@ -2446,21 +2460,24 @@ function updateTerrainChunks(playerX, playerZ) {
     const playerCZ = Math.floor(playerZ / CHUNK_SIZE);
     if (activeChunks.size > 0 && playerCX === activeChunkCenterX && playerCZ === activeChunkCenterZ) return;
 
-    const neededKeys = new Set();
+    // Load all chunks within VIEW_RADIUS (4 chunks = 320m)
     for (let dx = -VIEW_RADIUS; dx <= VIEW_RADIUS; dx++) {
         for (let dz = -VIEW_RADIUS; dz <= VIEW_RADIUS; dz++) {
             const cx = playerCX + dx;
             const cz = playerCZ + dz;
             const key = `${cx},${cz}`;
-            neededKeys.add(key);
             if (!activeChunks.has(key)) {
                 activeChunks.set(key, new TerrainChunk(cx, cz));
             }
         }
     }
 
+    // Only dispose chunks that are further than UNLOAD_RADIUS (5 chunks = 400m)
+    // This hysteresis prevents any popping/thrashing when driving near chunk boundaries
     for (const [key, chunk] of activeChunks.entries()) {
-        if (!neededKeys.has(key)) {
+        const distCX = Math.abs(chunk.cx - playerCX);
+        const distCZ = Math.abs(chunk.cz - playerCZ);
+        if (distCX > UNLOAD_RADIUS || distCZ > UNLOAD_RADIUS) {
             chunk.dispose();
             activeChunks.delete(key);
         }
@@ -2903,6 +2920,8 @@ function restartGame(customSeed) {
         chunk.dispose();
     }
     activeChunks.clear();
+    activeChunkCenterX = null;
+    activeChunkCenterZ = null;
     updateTerrainChunks(0, 0);
 
     const seedEl = document.getElementById('hud-seed-display');
