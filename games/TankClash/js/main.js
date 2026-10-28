@@ -89,7 +89,7 @@ composer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1));
 if (composer.renderTarget1) composer.renderTarget1.texture.encoding = THREE.sRGBEncoding;
 if (composer.renderTarget2) composer.renderTarget2.texture.encoding = THREE.sRGBEncoding;
 const ssaoPass = new THREE.SSAOPass(scene, perspCamera, window.innerWidth, window.innerHeight);
-ssaoPass.kernelRadius = 8;
+ssaoPass.kernelRadius = 4;
 ssaoPass.minDistance = 0.005;
 ssaoPass.maxDistance = 0.12;
 composer.addPass(ssaoPass);
@@ -158,20 +158,9 @@ class FXCompositePass extends THREE.Pass {
 const fxCompositePass = new FXCompositePass(scene);
 composer.addPass(fxCompositePass);
 
-// 4. Atmospheric Battlefield Lighting
-const hemiLight = new THREE.HemisphereLight(0xfff7ed, 0x526b38, 0.85);
+// 4. Atmospheric Battlefield Lighting: one hemisphere light plus one directional light (sun by day, moon by night)
+const hemiLight = new THREE.HemisphereLight(0xfff7ed, 0x526b38, 0.50);
 scene.add(hemiLight);
-
-// Balanced Omnidirectional Ambient Fill (eliminates crushed black shadows on tank flanks)
-const ambientLight = new THREE.AmbientLight(0xdce7f2, 0.40);
-scene.add(ambientLight);
-window.ambientLight = ambientLight;
-
-// Soft directional fill light targeting the tank's shadowed flank
-const fillLight = new THREE.DirectionalLight(0xb8cde0, 0.38);
-fillLight.castShadow = false;
-scene.add(fillLight);
-window.fillLight = fillLight;
 
 // ============================================================================
 // REALISTIC DYNAMIC DAY / NIGHT CYCLE MANAGER
@@ -229,25 +218,8 @@ sunLight.shadow.radius = 2.5; // Soften PCF shadow filter kernel for large-scale
 scene.add(sunLight);
 window.sunLight = sunLight;
 
-// Secondary Moon Directional Light for Authentic Nighttime Illumination
-const moonLight = new THREE.DirectionalLight(0x8ab4f8, 0.0);
-moonLight.position.set(-45, 55, -38);
-moonLight.castShadow = false;
-moonLight.shadow.mapSize.width = 2048;
-moonLight.shadow.mapSize.height = 2048;
-moonLight.shadow.camera.near = 5;
-moonLight.shadow.camera.far = 180;
-moonLight.shadow.camera.left = -d;
-moonLight.shadow.camera.right = d;
-moonLight.shadow.camera.top = d;
-moonLight.shadow.camera.bottom = -d;
-moonLight.shadow.bias = -0.0005;
-scene.add(moonLight);
-window.moonLight = moonLight;
-
-const rimLight = new THREE.DirectionalLight(0x93c5fd, 0.45);
-rimLight.position.set(-35, 22, -30);
-scene.add(rimLight);
+// Moon color used by the shared directional light at night
+const MOON_LIGHT_COLOR = new THREE.Color(0x8ab4f8);
 
 // ============================================================================
 // SYSTEM INITIALIZATION
@@ -910,31 +882,28 @@ function updateSimulation(dt) {
     const sunDir = new THREE.Vector3(sunX, sunY, sunZ).normalize();
     const moonDir = new THREE.Vector3(-sunX, -sunY, -sunZ).normalize();
 
+    // Single directional light: sun by day, moon by night
     const lightDist = 95.0;
-    sunLight.position.set(tankState.x + sunDir.x * lightDist, tankState.y + sunDir.y * lightDist, tankState.z + sunDir.z * lightDist);
+    const isSunActive = (sunY > -0.05);
+    const celestialDir = isSunActive ? sunDir : moonDir;
+    sunLight.position.set(tankState.x + celestialDir.x * lightDist, tankState.y + celestialDir.y * lightDist, tankState.z + celestialDir.z * lightDist);
     sunLight.target.position.set(tankState.x, tankState.y, tankState.z);
     sunLight.target.updateMatrixWorld();
-
-    moonLight.position.set(tankState.x + moonDir.x * lightDist, tankState.y + moonDir.y * lightDist, tankState.z + moonDir.z * lightDist);
-    moonLight.target.position.set(tankState.x, tankState.y, tankState.z);
-    moonLight.target.updateMatrixWorld();
 
     // Maldive continuous atmospheric interpolation factors
     const dayFactor = THREE.MathUtils.smoothstep(sunY, -0.10, 0.28);
     const twilightFactor = THREE.MathUtils.smoothstep(sunY, -0.20, 0.06) * (1.0 - THREE.MathUtils.smoothstep(sunY, 0.04, 0.34));
     const nightFactor = 1.0 - THREE.MathUtils.smoothstep(sunY, -0.14, 0.04);
 
-    // Sun & Moon directional lighting (Calibrated for physically based ACESFilmic exposure)
+    // Sun & moon directional lighting (Calibrated for physically based ACESFilmic exposure)
     const sunCol = DAY_NIGHT_COLORS.noonSun.clone().lerp(DAY_NIGHT_COLORS.goldenHour, twilightFactor * 0.92);
-    sunLight.color.copy(sunCol);
-    sunLight.intensity = Math.max(0.0, THREE.MathUtils.smoothstep(sunY, -0.06, 0.28) * 1.48 + twilightFactor * 0.58);
+    const sunIntensity = Math.max(0.0, THREE.MathUtils.smoothstep(sunY, -0.06, 0.28) * 1.48 + twilightFactor * 0.58);
+    const moonIntensity = nightFactor * 0.65;
+    sunLight.color.copy(isSunActive ? sunCol : MOON_LIGHT_COLOR);
+    sunLight.intensity = isSunActive ? sunIntensity : moonIntensity;
 
-    moonLight.color.setHex(0x8ab4f8);
-    moonLight.intensity = nightFactor * 0.65;
-
-    // Toggle shadow casting dynamically so only active celestial light renders shadows
-    sunLight.castShadow = (sunLight.intensity > 0.15);
-    moonLight.castShadow = (moonLight.intensity > 0.15 && !sunLight.castShadow);
+    // Only the sun casts shadows
+    sunLight.castShadow = isSunActive && sunLight.intensity > 0.15;
 
     // Sky top & horizon colors calibrated from Maldive
     const skyHorizonColor = DAY_NIGHT_COLORS.nitHor.clone()
@@ -948,31 +917,7 @@ function updateSimulation(dt) {
     // Hemisphere natural bounce lighting (Earth meadow up + Sky down)
     hemiLight.color.copy(skyHorizonColor);
     hemiLight.groundColor.copy(DAY_NIGHT_COLORS.groundNight).lerp(DAY_NIGHT_COLORS.groundDay, dayFactor);
-    hemiLight.intensity = 0.32 + dayFactor * 0.30 + twilightFactor * 0.14;
-
-    // Omnidirectional sky ambient light to illuminate and unify tank flanks with the scene
-    ambientLight.color.copy(skyHorizonColor).lerp(new THREE.Color(0xfff8ee), 0.55);
-    ambientLight.intensity = 0.16 + dayFactor * 0.16 + twilightFactor * 0.10;
-
-    // Dynamic directional fill light pointing from opposite sun azimuth to soften shaded tank flank
-    const fillDir = new THREE.Vector3(-sunDir.x, 0.38, -sunDir.z).normalize();
-    fillLight.position.set(
-        tankState.x + fillDir.x * 60,
-        tankState.y + fillDir.y * 60,
-        tankState.z + fillDir.z * 60
-    );
-    fillLight.target.position.set(tankState.x, tankState.y + 0.5, tankState.z);
-    fillLight.target.updateMatrixWorld();
-    fillLight.color.copy(skyHorizonColor).lerp(new THREE.Color(0xcde2f2), 0.55);
-    fillLight.intensity = 0.18 + dayFactor * 0.22 + twilightFactor * 0.12;
-
-    // Upward grassy meadow bounce fill light following the tank
-    const meadowBounceColor = DAY_NIGHT_COLORS.groundDay.clone().lerp(new THREE.Color(0x6b8c48), 0.35);
-    rimLight.position.set(tankState.x - fillDir.x * 24, tankState.y - 12, tankState.z - fillDir.z * 24);
-    rimLight.target.position.set(tankState.x, tankState.y + 0.6, tankState.z);
-    rimLight.target.updateMatrixWorld();
-    rimLight.color.copy(meadowBounceColor);
-    rimLight.intensity = 0.08 + dayFactor * 0.18;
+    hemiLight.intensity = 0.16 + dayFactor * 0.10 + twilightFactor * 0.10;
 
     // Fog & Background synced with horizon atmosphere
     if (scene.fog) {
@@ -998,9 +943,8 @@ function updateSimulation(dt) {
 
     // Update shared shader lighting uniforms (Volumetric smoke, water ripples, grass tufts)
     if (window.celestialLighting) {
-        const isSunActive = (sunY > -0.05);
-        window.celestialLighting.sunDirection.value.copy(isSunActive ? sunDir : moonDir);
-        window.celestialLighting.sunColor.value.copy(isSunActive ? sunCol : moonLight.color);
+        window.celestialLighting.sunDirection.value.copy(celestialDir);
+        window.celestialLighting.sunColor.value.copy(sunLight.color);
         window.celestialLighting.skyColor.value.copy(skyHorizonColor);
         if (window.celestialLighting.groundColor) {
             window.celestialLighting.groundColor.value.copy(hemiLight.groundColor);

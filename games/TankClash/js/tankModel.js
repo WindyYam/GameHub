@@ -212,6 +212,16 @@ function buildTankById(tankId, scene, mats) {
         model = window.buildTigerTank(s, m);
     }
 
+    // Steel environment reflection shows on tanks even when the sun is behind them
+    const TANK_ENV_MAP_INTENSITY = 0.3;
+    model.tankRoot.traverse((obj) => {
+        if (!obj.isMesh) return;
+        const list = Array.isArray(obj.material) ? obj.material : [obj.material];
+        list.forEach((mat) => {
+            if (mat && mat.isMeshStandardMaterial) mat.envMapIntensity = TANK_ENV_MAP_INTENSITY;
+        });
+    });
+
     bindTankGlobals(model);
     return model;
 }

@@ -36,7 +36,7 @@ function buildT34Tank(scene, mats) {
         const bCtx = bumpCanvas.getContext('2d');
 
         // Base olive drab / weathered Soviet-Polish 4BO dark green-brown
-        dCtx.fillStyle = '#20281b';
+        dCtx.fillStyle = '#131a12';
         dCtx.fillRect(0, 0, size, size);
 
         bCtx.fillStyle = '#808080';
@@ -51,7 +51,7 @@ function buildT34Tank(scene, mats) {
             if (pick < 0.45) {
                 dCtx.fillStyle = `rgba(14, 18, 12, ${0.05 + sRand() * 0.08})`;
             } else if (pick < 0.8) {
-                dCtx.fillStyle = `rgba(38, 48, 32, ${0.04 + sRand() * 0.07})`;
+                dCtx.fillStyle = `rgba(24, 31, 20, ${0.04 + sRand() * 0.07})`;
             } else {
                 dCtx.fillStyle = `rgba(28, 22, 16, ${0.03 + sRand() * 0.06})`;
             }
@@ -136,7 +136,7 @@ function buildT34Tank(scene, mats) {
             const x1 = x0 + Math.cos(angle) * len;
             const y1 = y0 + Math.sin(angle) * len;
 
-            dCtx.strokeStyle = 'rgba(128, 136, 128, 0.70)';
+            dCtx.strokeStyle = 'rgba(92, 100, 92, 0.70)';
             dCtx.lineWidth = 0.8;
             dCtx.beginPath();
             dCtx.moveTo(x0, y0);

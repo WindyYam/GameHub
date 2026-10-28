@@ -210,16 +210,16 @@ function buildShermanTank(scene, mats) {
                 const h = rolledHF[i];
                 const p = i * 4;
 
-                // Weathered Slate-Grey Military Steel (grayer, cool desaturated olive-grey tone)
-                let r = 58 + (h - 0.5) * 18 - verticalTension * 0.35;
-                let g = 64 + (h - 0.5) * 20 - verticalTension * 0.28;
-                let b = 60 + (h - 0.5) * 18 - verticalTension * 0.22;
+                // Weathered dark green military steel
+                let r = 18 + (h - 0.5) * 18 - verticalTension * 0.35;
+                let g = 28 + (h - 0.5) * 20 - verticalTension * 0.28;
+                let b = 20 + (h - 0.5) * 18 - verticalTension * 0.22;
 
                 // Bare steel sheen on weld peaks
                 if (h > 0.64) {
-                    r = 82 + Math.random() * 12;
-                    g = 88 + Math.random() * 12;
-                    b = 85 + Math.random() * 10;
+                    r = 40 + Math.random() * 8;
+                    g = 52 + Math.random() * 8;
+                    b = 42 + Math.random() * 6;
                 }
 
                 // Subtle edge sheen
@@ -319,10 +319,10 @@ function buildShermanTank(scene, mats) {
             const h = castHF[i];
             const p = i * 4;
 
-            // Deep graphite-grey steel (cool, grayer cast armor tone)
-            const cr = Math.min(255, Math.max(25, Math.floor(52 + (h - 0.5) * 18)));
-            const cg = Math.min(255, Math.max(30, Math.floor(58 + (h - 0.5) * 20)));
-            const cb = Math.min(255, Math.max(25, Math.floor(54 + (h - 0.5) * 18)));
+            // Deep dark green cast armor
+            const cr = Math.min(255, Math.max(8, Math.floor(14 + (h - 0.5) * 18)));
+            const cg = Math.min(255, Math.max(12, Math.floor(26 + (h - 0.5) * 20)));
+            const cb = Math.min(255, Math.max(8, Math.floor(16 + (h - 0.5) * 18)));
 
             caImg.data[p + 0] = cr;
             caImg.data[p + 1] = cg;

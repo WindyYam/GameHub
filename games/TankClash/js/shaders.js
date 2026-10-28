@@ -2908,7 +2908,7 @@ function createMaterials(pbrMaps, decal3818Tex, grilleTex) {
         // --- German Pz.VI Tiger I PBR Materials ---
         // Authentic Rolled Homogeneous Armor (RHA) Steel — Uncolored, Raw Gunmetal Metallic Finish
         armor: new THREE.MeshStandardMaterial({
-            color: new THREE.Color(0x828b96).convertSRGBToLinear(),
+            color: new THREE.Color(0xa6afba).convertSRGBToLinear(),
             map: pbrMaps.albedo,
             normalMap: pbrMaps.normal,
             normalScale: new THREE.Vector2(0.75, 0.75),
@@ -2919,7 +2919,7 @@ function createMaterials(pbrMaps, decal3818Tex, grilleTex) {
             aoMapIntensity: 0.55
         }),
         armorDark: new THREE.MeshStandardMaterial({
-            color: new THREE.Color(0x666f7a).convertSRGBToLinear(),
+            color: new THREE.Color(0x8a94a0).convertSRGBToLinear(),
             map: pbrMaps.albedoFine,
             normalMap: pbrMaps.normalFine,
             normalScale: new THREE.Vector2(0.80, 0.80),

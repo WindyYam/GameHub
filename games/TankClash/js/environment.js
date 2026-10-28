@@ -345,10 +345,14 @@ const terrainUniforms = {
     uSkyColor: { value: new THREE.Color(0x82b6e5) }
 };
 
+// Non-metal ground & vegetation: reduced static steel IBL fill for stronger sun/shade contrast
+const GROUND_ENV_MAP_INTENSITY = 0.4;
+
 const terrainMat = new THREE.MeshStandardMaterial({
     vertexColors: true,
     roughness: 0.88,
-    metalness: 0.04
+    metalness: 0.04,
+    envMapIntensity: GROUND_ENV_MAP_INTENSITY
 });
 
 terrainMat.onBeforeCompile = (shader) => {
@@ -412,22 +416,13 @@ terrainMat.onBeforeCompile = (shader) => {
         // Convert vertex color from sRGB to linear space
         diffuseColor.rgb = pow(max(diffuseColor.rgb, vec3(0.001)), vec3(2.2));
 
-        // Rich meadow ground coloration matching coastal_countryside_3d_scene.html 3D grass clumps seamlessly
-        vec3 lushBlade = vec3(0.068, 0.145, 0.020);
-        vec3 sunlitBlade = vec3(0.145, 0.225, 0.032);
-        vec3 goldenPatch = vec3(0.215, 0.235, 0.042);
+        // Grass-area ground uses the same linear color as the grass root (groundRootCol)
+        vec3 rootGround = vec3(0.028, 0.070, 0.014);
         float macroPatch = valueNoise2D_gpu(vTerrainWorldPos.xz * 0.06) * 0.5 + 0.5;
-        vec3 farBladeTint = mix(lushBlade, sunlitBlade, microNoise * 0.55 + macroPatch * 0.45);
-        farBladeTint = mix(farBladeTint, goldenPatch, smoothstep(0.45, 0.85, macroPatch) * 0.55);
+        vec3 farBladeTint = rootGround * (0.92 + (microNoise * 0.5 + macroPatch * 0.5) * 0.16);
+        farBladeTint *= (0.96 + windWave * 0.08);
 
-        // Light-angle dependent subsurface glow & traveling wind-wave sheen on meadow ground
-        vec3 tViewDir = normalize(cameraPosition - vTerrainWorldPos);
-        vec3 tSunDir = normalize(uSunDir);
-        float tBacklight = pow(max(dot(-tViewDir, tSunDir), 0.0), 2.4);
-        farBladeTint += vec3(0.095, 0.125, 0.020) * tBacklight * 0.75;
-        farBladeTint *= (0.88 + windWave * 0.24);
-
-        diffuseColor.rgb = mix(diffuseColor.rgb, farBladeTint, grassSurfaceMask * 0.94);
+        diffuseColor.rgb = mix(diffuseColor.rgb, farBladeTint, grassSurfaceMask);
 
         // Country Dirt Road with compacted gravel, verge grass transition, and wet wheel ruts
         if (roadMask > 0.02) {
@@ -500,7 +495,8 @@ const treeMaterial = new THREE.MeshStandardMaterial({
     vertexColors: true,
     roughness: 0.76,
     metalness: 0.03,
-    side: THREE.DoubleSide
+    side: THREE.DoubleSide,
+    envMapIntensity: GROUND_ENV_MAP_INTENSITY
 });
 
 treeMaterial.onBeforeCompile = (shader) => {
@@ -629,13 +625,15 @@ function getVillageAtlas() {
 const villageMat = new THREE.MeshStandardMaterial({
     vertexColors: true,
     roughness: 0.85,
-    metalness: 0.04
+    metalness: 0.04,
+    envMapIntensity: GROUND_ENV_MAP_INTENSITY
 });
 
 const rockMat = new THREE.MeshStandardMaterial({
     color: new THREE.Color(0x6b6861).convertSRGBToLinear(),
     roughness: 0.92,
-    metalness: 0.04
+    metalness: 0.04,
+    envMapIntensity: GROUND_ENV_MAP_INTENSITY
 });
 
 // ============================================================================
@@ -1486,7 +1484,8 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
     const mat = new THREE.MeshStandardMaterial({
         roughness: 0.86,
         metalness: 0.0,
-        side: THREE.DoubleSide
+        side: THREE.DoubleSide,
+        envMapIntensity: GROUND_ENV_MAP_INTENSITY
     });
 
     mat.onBeforeCompile = (shader) => {
@@ -1521,6 +1520,7 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             varying vec3 vGrassWorldPos;
             varying float vGrassHeightFrac;
             varying vec3 vTerrainNormalUp;
+            varying vec3 vBladeNormal;
             ${SHARED_TERRAIN_GLSL}
         ` + shader.vertexShader;
 
@@ -1617,6 +1617,11 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
 
             transformed = rotP + vec3(worldXZ.x, groundY, worldXZ.y);
             vGrassWorldPos = transformed;
+
+            // Plane normal of this crossed blade, used only for edge-on translucency
+            vec2 bladeDir = normalize(localP.xz);
+            vec2 bladeN = vec2(-bladeDir.y, bladeDir.x);
+            vBladeNormal = vec3(bladeN.x * ca - bladeN.y * sa, 0.0, bladeN.x * sa + bladeN.y * ca);
             `
         );
 
@@ -1629,6 +1634,7 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             varying vec3 vGrassWorldPos;
             varying float vGrassHeightFrac;
             varying vec3 vTerrainNormalUp;
+            varying vec3 vBladeNormal;
         ` + shader.fragmentShader;
 
         // Keep grass normal aligned with terrain surface normal on both front and back faces!
@@ -1654,10 +1660,11 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             float rootBlend = smoothstep(0.02, 0.36, vGrassHeightFrac);
             bladeLinear = mix(groundRootCol, bladeLinear, rootBlend);
 
-            // Warm sunlight subsurface translucency on upper blade tips
+            // Warm sunlight translucency, limited to blade edges (edge-on to the view)
             vec3 viewDir = normalize(cameraPosition - vGrassWorldPos);
             float backLight = pow(max(dot(-viewDir, normalize(uSunDir)), 0.0), 2.2);
-            vec3 sss = uSunColor * backLight * vGrassHeightFrac * 0.25 * bladeLinear;
+            float bladeEdge = pow(max(1.0 - abs(dot(normalize(vBladeNormal), viewDir)), 0.0), 2.2);
+            vec3 sss = uSunColor * backLight * bladeEdge * vGrassHeightFrac * 0.25 * bladeLinear;
 
             diffuseColor.rgb = bladeLinear + sss;
             `
