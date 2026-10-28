@@ -96,6 +96,7 @@ composer.addPass(ssaoPass);
 window.ssaoPass = ssaoPass;
 
 const SSAO_FX_LAYER = 1;
+window.SSAO_FX_LAYER = SSAO_FX_LAYER;
 function excludeFromSSAO(object) {
     object.traverse(child => child.layers.set(SSAO_FX_LAYER));
 }
@@ -114,11 +115,6 @@ class FXCompositePass extends THREE.Pass {
             depthWrite: false
         });
         this.fullScreenQuad = new THREE.FullScreenQuad(this.copyMaterial);
-        this.depthMaterial = new THREE.MeshBasicMaterial({
-            colorWrite: false,
-            depthTest: true,
-            depthWrite: true
-        });
     }
 
     render(renderer, writeBuffer, readBuffer) {
@@ -131,20 +127,19 @@ class FXCompositePass extends THREE.Pass {
 
         try {
             renderer.autoClear = false;
-            renderer.setRenderTarget(this.renderToScreen ? null : writeBuffer);
-            renderer.clear(true, true, true);
+
+            // SSAOPass already rendered scene depth; retain it while replacing beauty with AO.
+            renderer.setRenderTarget(ssaoPass.beautyRenderTarget);
             this.copyMaterial.uniforms.tDiffuse.value = readBuffer.texture;
             this.fullScreenQuad.render(renderer);
 
-            renderer.clearDepth();
             this.scene.background = null;
-            camera.layers.set(0);
-            this.scene.overrideMaterial = this.depthMaterial;
-            renderer.render(this.scene, camera);
-
-            this.scene.overrideMaterial = oldOverrideMaterial;
             camera.layers.set(SSAO_FX_LAYER);
             renderer.render(this.scene, camera);
+
+            renderer.setRenderTarget(this.renderToScreen ? null : writeBuffer);
+            this.copyMaterial.uniforms.tDiffuse.value = ssaoPass.beautyRenderTarget.texture;
+            this.fullScreenQuad.render(renderer);
         } finally {
             this.scene.overrideMaterial = oldOverrideMaterial;
             this.scene.background = oldBackground;
@@ -156,7 +151,6 @@ class FXCompositePass extends THREE.Pass {
 
     dispose() {
         this.copyMaterial.dispose();
-        this.depthMaterial.dispose();
         this.fullScreenQuad.dispose();
     }
 }
@@ -264,6 +258,7 @@ window.mats = mats;
 initEnvironment(scene);
 buildEnvironment();
 prewarmParticlePools();
+prewarmParticleShaders(renderer, activeCamera);
 
 const tank = (typeof window.buildTankById === 'function') 
     ? window.buildTankById('tiger', scene, mats) 
@@ -642,11 +637,7 @@ function updateSimulation(dt) {
         raycaster.setFromCamera(aimCursorNDC, currentActiveCam);
         let foundHit = false;
 
-        const intersectables = [];
-        if (window.terrainMeshRef) intersectables.push(window.terrainMeshRef);
-        targets.forEach(tg => { if (tg.group) intersectables.push(tg.group); });
-
-        const hits = raycaster.intersectObjects(intersectables, true);
+        const hits = raycaster.intersectObjects(window.aimRaycastMeshes || [], false);
         for (let i = 0; i < hits.length; i++) {
             if (hits[i].distance > 3.0) {
                 worldAimPoint.copy(hits[i].point);
@@ -712,11 +703,7 @@ function updateSimulation(dt) {
 
     raycaster.set(muzzleWorldPos, boreDir);
     let boreDist = 250.0;
-    const boreIntersectables = [];
-    if (window.terrainMeshRef) boreIntersectables.push(window.terrainMeshRef);
-    targets.forEach(tg => { if (tg.group) boreIntersectables.push(tg.group); });
-
-    const boreHits = raycaster.intersectObjects(boreIntersectables, true);
+    const boreHits = raycaster.intersectObjects(window.aimRaycastMeshes || [], false);
     if (boreHits.length > 0) {
         actualGunHitPoint.copy(boreHits[0].point);
         boreDist = boreHits[0].distance;

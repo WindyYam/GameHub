@@ -19,6 +19,7 @@ var targets = [];
 var swayTrees = [];
 var worldBuildings = [];
 var terrainMeshRef = null;
+var aimRaycastMeshes = [];
 var waterMeshRef = null;
 var grassMeshRef = null;
 var grassLOD0Mesh = null;
@@ -30,6 +31,8 @@ var skyMat = null;
 
 // Active chunks streaming map
 var activeChunks = new Map();
+var activeChunkCenterX = null;
+var activeChunkCenterZ = null;
 var sessionFallenTrees = new Set();
 var sessionDestroyedTargets = new Set();
 
@@ -1528,6 +1531,7 @@ class TerrainChunk {
         this.group = new THREE.Group();
         this.trees = [];
         this.targets = [];
+        this.raycastMeshes = [];
         this.buildings = [];
         this.smokePuffs = [];
         this.fireSprites = [];
@@ -1606,6 +1610,8 @@ class TerrainChunk {
         this.terrainMesh.position.set(xMin + CHUNK_SIZE * 0.5, 0, zMin + CHUNK_SIZE * 0.5);
         this.terrainMesh.receiveShadow = true;
         this.group.add(this.terrainMesh);
+        this.raycastMeshes.push(this.terrainMesh);
+        aimRaycastMeshes.push(this.terrainMesh);
     }
 
     populateChunkContent() {
@@ -1651,6 +1657,8 @@ class TerrainChunk {
             treeMesh.receiveShadow = true;
             treeGroup.add(treeMesh);
             this.group.add(treeGroup);
+            this.raycastMeshes.push(treeMesh);
+            aimRaycastMeshes.push(treeMesh);
 
             const treeId = `${this.chunkKey}:t:${t}`;
             const wasFallen = sessionFallenTrees.has(treeId);
@@ -1751,7 +1759,7 @@ class TerrainChunk {
                 this.buildings.push(bldgObj);
                 worldBuildings.push(bldgObj);
 
-                // Smoldering fire sprite, orange point light and rising smoke plume
+                // Smoldering fire sprite and rising smoke plume
                 if (isRuin && sharedFireTex && sharedSmokeTex) {
                     const fireMat = new THREE.SpriteMaterial({
                         map: sharedFireTex,
@@ -1765,13 +1773,8 @@ class TerrainChunk {
                     if (window.excludeFromSSAO) window.excludeFromSSAO(fireSprite);
                     this.group.add(fireSprite);
 
-                    const fireLight = new THREE.PointLight(0xff6a1a, 1.8, 38);
-                    fireLight.position.set(hx, hy + 3.0, hz);
-                    this.group.add(fireLight);
-
                     const fireData = {
                         sprite: fireSprite,
-                        light: fireLight,
                         baseScale: 8.5 * bScale,
                         phase: rng() * 10
                     };
@@ -1839,6 +1842,8 @@ class TerrainChunk {
                 const crossH = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.18, 2.35), new THREE.MeshBasicMaterial({ color: 0xf8fafc }));
                 crossH.position.y = 0.42;
                 platePivot.add(crossH);
+                this.raycastMeshes.push(baseHull, turretBox, crossH);
+                aimRaycastMeshes.push(baseHull, turretBox, crossH);
 
                 tg.lookAt(0, ty, 0);
                 this.group.add(tg);
@@ -1866,6 +1871,11 @@ class TerrainChunk {
 
     dispose() {
         chunksGroup.remove(this.group);
+
+        this.raycastMeshes.forEach(mesh => {
+            const idx = aimRaycastMeshes.indexOf(mesh);
+            if (idx !== -1) aimRaycastMeshes.splice(idx, 1);
+        });
 
         this.trees.forEach(t => {
             const idx = swayTrees.indexOf(t);
@@ -1900,6 +1910,7 @@ class TerrainChunk {
 function updateTerrainChunks(playerX, playerZ) {
     const playerCX = Math.floor(playerX / CHUNK_SIZE);
     const playerCZ = Math.floor(playerZ / CHUNK_SIZE);
+    if (activeChunks.size > 0 && playerCX === activeChunkCenterX && playerCZ === activeChunkCenterZ) return;
 
     const neededKeys = new Set();
     for (let dx = -VIEW_RADIUS; dx <= VIEW_RADIUS; dx++) {
@@ -1920,6 +1931,8 @@ function updateTerrainChunks(playerX, playerZ) {
             activeChunks.delete(key);
         }
     }
+    activeChunkCenterX = playerCX;
+    activeChunkCenterZ = playerCZ;
 }
 
 // ============================================================================
@@ -2009,6 +2022,9 @@ function buildEnvironment(scene) {
         chunk.dispose();
     }
     activeChunks.clear();
+    activeChunkCenterX = null;
+    activeChunkCenterZ = null;
+    aimRaycastMeshes.length = 0;
     activeSmokePuffs.length = 0;
     activeFireSprites.length = 0;
     swayTrees.length = 0;
@@ -2027,6 +2043,7 @@ function buildEnvironment(scene) {
         const floor = new THREE.Mesh(studioGeo, new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.35 }));
         floor.receiveShadow = true;
         envGroup.add(floor);
+        aimRaycastMeshes.push(floor);
         terrainMeshRef = floor;
         window.terrainMeshRef = floor;
         return;
@@ -2211,9 +2228,10 @@ function updateEnvironment(dt, tankState) {
     // Animate active fire sprites and smoke plumes
     for (let i = 0; i < activeFireSprites.length; i++) {
         const f = activeFireSprites[i];
-        const s = f.baseScale * (1.0 + Math.sin(timeSec * 12.0 + f.phase) * 0.12);
+        const flicker = Math.sin(timeSec * 12.0 + f.phase);
+        const s = f.baseScale * (1.0 + flicker * 0.12);
         f.sprite.scale.set(s, s * 0.85, 1);
-        f.light.intensity = 1.8 + Math.sin(timeSec * 14.0 + f.phase) * 0.6;
+        f.sprite.material.opacity = 0.9 + flicker * 0.1;
     }
 
     for (let i = 0; i < activeSmokePuffs.length; i++) {
@@ -2300,6 +2318,7 @@ window.targets = targets;
 window.swayTrees = swayTrees;
 window.worldBuildings = worldBuildings;
 window.terrainMeshRef = terrainMeshRef;
+window.aimRaycastMeshes = aimRaycastMeshes;
 window.waterMeshRef = waterMeshRef;
 window.grassLOD0Mesh = grassLOD0Mesh;
 window.grassLOD0MidMesh = grassLOD0MidMesh;

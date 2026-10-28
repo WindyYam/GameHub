@@ -60,12 +60,28 @@ const dynamicFlashPool = [];
 const shockwavePool = [];
 const particleDirection = new THREE.Vector3();
 const PARTICLE_DIRECTION_AXIS = new THREE.Vector3(0, 0, 1);
+const DYNAMIC_FLASH_POOL_SIZE = 2;
+const DYNAMIC_FLASH_IDLE_INTENSITY = 0.00001;
 
 // Shared particle geometries for high performance
 const sphereParticleGeo = new THREE.DodecahedronGeometry(1, 1);
 const sparkParticleGeo  = new THREE.BoxGeometry(0.12, 0.12, 0.35);
 const shockwaveGeo      = new THREE.RingGeometry(0.2, 1.0, 32);
 shockwaveGeo.rotateX(-Math.PI / 2);
+const shellCoreGeo = new THREE.CylinderGeometry(0.048, 0.048, 1.4, 8);
+const shellFlameGeo = new THREE.CylinderGeometry(0.075, 0.02, 2.4, 8);
+const tracerGeo = new THREE.CylinderGeometry(0.024, 0.024, 1.8, 6);
+const shellCoreMaterial = new THREE.MeshBasicMaterial({ color: 0xfffbeb });
+const shellFlameMaterial = new THREE.MeshBasicMaterial({
+    color: 0xf59e0b,
+    transparent: true,
+    opacity: 0.9,
+    blending: THREE.AdditiveBlending
+});
+const tracerMaterial = new THREE.MeshBasicMaterial({ color: 0xfb923c });
+const shellPool = [];
+const tracerPool = [];
+const PROJECTILE_POOL_LIMIT = 64;
 
 // Reusable smoke particle pool for zero runtime garbage collection
 const smokePool = [];
@@ -97,6 +113,14 @@ function prewarmParticlePools() {
     if (particlePoolsPrewarmed || !window.scene) return;
     particlePoolsPrewarmed = true;
 
+    // Keep the scene's point-light count stable so firing does not trigger shader recompiles.
+    while (dynamicFlashPool.length < DYNAMIC_FLASH_POOL_SIZE) {
+        const light = new THREE.PointLight(0xffffff, DYNAMIC_FLASH_IDLE_INTENSITY, 1, 1.8);
+        light.position.set(1000000, 1000000, 1000000);
+        window.scene.add(light);
+        dynamicFlashPool.push(light);
+    }
+
     const smokeGeometry = window.createVolumetricSmokeGeometry
         ? window.createVolumetricSmokeGeometry()
         : sphereParticleGeo;
@@ -126,25 +150,128 @@ function prewarmParticlePools() {
 }
 window.prewarmParticlePools = prewarmParticlePools;
 
+function createShellObject() {
+    const group = new THREE.Group();
+    const core = new THREE.Mesh(shellCoreGeo, shellCoreMaterial);
+    core.rotation.x = Math.PI / 2;
+    group.add(core);
+
+    const flame = new THREE.Mesh(shellFlameGeo, shellFlameMaterial);
+    flame.rotation.x = Math.PI / 2;
+    flame.position.z = -0.7;
+    group.add(flame);
+
+    if (window.excludeFromSSAO) window.excludeFromSSAO(group);
+    return group;
+}
+
+function createTracerObject() {
+    const group = new THREE.Group();
+    const mesh = new THREE.Mesh(tracerGeo, tracerMaterial);
+    mesh.rotation.x = Math.PI / 2;
+    group.add(mesh);
+    if (window.excludeFromSSAO) window.excludeFromSSAO(group);
+    return group;
+}
+
+function prewarmParticleShaders(renderer, camera) {
+    if (!renderer || !camera) return;
+
+    const warmScene = new THREE.Scene();
+    warmScene.fog = window.scene && window.scene.fog;
+    const oldCameraMask = camera.layers.mask;
+    const warmedMeshes = [];
+    const includeMesh = (mesh) => {
+        mesh.traverse(child => {
+            warmedMeshes.push({
+                mesh: child,
+                visible: child.visible,
+                layerMask: child.layers.mask,
+                frustumCulled: child.frustumCulled
+            });
+            child.visible = true;
+            child.layers.set(window.SSAO_FX_LAYER);
+            child.frustumCulled = false;
+        });
+        warmScene.add(mesh);
+    };
+
+    if (smokePool.length > 0) includeMesh(smokePool[0].mesh);
+    for (const pool of reusableParticlePools.values()) {
+        if (pool.length > 0) includeMesh(pool[0].mesh);
+    }
+
+    const shockwaveMaterial = new THREE.MeshBasicMaterial({
+        color: 0xfde68a,
+        transparent: true,
+        opacity: 0.85,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending
+    });
+    const shockwaveMesh = new THREE.Mesh(shockwaveGeo, shockwaveMaterial);
+    includeMesh(shockwaveMesh);
+
+    const shell = createShellObject();
+    const tracer = createTracerObject();
+    includeMesh(shell);
+    includeMesh(tracer);
+
+    try {
+        camera.layers.set(window.SSAO_FX_LAYER);
+        renderer.compile(warmScene, camera);
+    } finally {
+        camera.layers.mask = oldCameraMask;
+    }
+
+    warmedMeshes.forEach(({ mesh, visible, layerMask, frustumCulled }) => {
+        mesh.visible = visible;
+        mesh.layers.mask = layerMask;
+        mesh.frustumCulled = frustumCulled;
+    });
+    warmedMeshes.forEach(({ mesh }) => {
+        if (mesh.parent === warmScene) warmScene.remove(mesh);
+    });
+    if (window.excludeFromSSAO) {
+        window.excludeFromSSAO(shockwaveMesh);
+        window.excludeFromSSAO(shell);
+        window.excludeFromSSAO(tracer);
+    }
+    shockwaveMesh.visible = false;
+    shell.visible = false;
+    tracer.visible = false;
+    shockwavePool.push({ mesh: shockwaveMesh, mat: shockwaveMaterial });
+    shellPool.push(shell);
+    tracerPool.push(tracer);
+}
+window.prewarmParticleShaders = prewarmParticleShaders;
+
 // Dynamic Point Light Flash Pool for Muzzle Blast & Explosions
 function spawnDynamicFlash(pos, colorHex, intensity, distance, lifeTime) {
     const currentScene = window.scene;
     if (!currentScene) return;
 
-    const light = dynamicFlashPool.pop() || new THREE.PointLight(colorHex, intensity, distance, 1.8);
+    let activeFlash = null;
+    let light = dynamicFlashPool.pop();
+    if (!light) {
+        activeFlash = dynamicFlashes.reduce((oldest, flash) =>
+            !oldest || flash.age / flash.life > oldest.age / oldest.life ? flash : oldest, null);
+        if (!activeFlash) return;
+        light = activeFlash.light;
+    }
     light.color.setHex(colorHex);
     light.intensity = intensity;
     light.distance = distance;
-    light.visible = true;
     light.position.copy(pos);
     if (light.parent !== currentScene) currentScene.add(light);
 
-    dynamicFlashes.push({
-        light,
-        maxIntensity: intensity,
-        age: 0,
-        life: lifeTime
-    });
+    if (activeFlash) {
+        activeFlash.maxIntensity = intensity;
+        activeFlash.age = 0;
+        activeFlash.life = lifeTime;
+    } else {
+        dynamicFlashes.push({ light, maxIntensity: intensity, age: 0, life: lifeTime });
+    }
 }
 
 // Expanding Ground Blast Shockwave Ring
@@ -371,27 +498,11 @@ function fireMainCannon(tankModel) {
     }
 
     // 8. Spawn High-Velocity Armor-Piercing Tracer Shell
-    const shellGroup = new THREE.Group();
+    const shellGroup = shellPool.pop() || createShellObject();
+    shellGroup.visible = true;
     shellGroup.position.copy(muzzlePos);
     shellGroup.quaternion.copy(barrelQuat);
-
-    const core = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.048, 0.048, 1.4, 8),
-        new THREE.MeshBasicMaterial({ color: 0xfffbeb })
-    );
-    core.rotation.x = Math.PI / 2;
-    shellGroup.add(core);
-
-    const tracerFlame = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.075, 0.02, 2.4, 8),
-        new THREE.MeshBasicMaterial({ color: 0xf59e0b, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending })
-    );
-    tracerFlame.rotation.x = Math.PI / 2;
-    tracerFlame.position.z = -0.7;
-    shellGroup.add(tracerFlame);
-
-    if (window.excludeFromSSAO) window.excludeFromSSAO(shellGroup);
-    window.scene.add(shellGroup);
+    if (shellGroup.parent !== window.scene) window.scene.add(shellGroup);
 
     const shellSpeed = tankState.SHELL_VELOCITY || 773;
     shells.push({
@@ -405,17 +516,11 @@ function fireMainCannon(tankModel) {
 function spawnTracerRound(pos, dir, quat) {
     spawnParticle(pos, dir.clone().multiplyScalar(6), 0xfde047, 0.12, 0.30, 0.06, true, 'fire');
 
-    const tracerMesh = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.024, 0.024, 1.8, 6),
-        new THREE.MeshBasicMaterial({ color: 0xfb923c })
-    );
-    tracerMesh.rotation.x = Math.PI / 2;
-    const wrap = new THREE.Group();
+    const wrap = tracerPool.pop() || createTracerObject();
+    wrap.visible = true;
     wrap.position.copy(pos);
     wrap.quaternion.copy(quat);
-    wrap.add(tracerMesh);
-    if (window.excludeFromSSAO) window.excludeFromSSAO(wrap);
-    window.scene.add(wrap);
+    if (wrap.parent !== window.scene) window.scene.add(wrap);
 
     tracers.push({
         mesh: wrap,
@@ -624,7 +729,9 @@ function updateProjectiles(dt) {
             if (hit || hitTerrain) {
                 triggerHeavyDetonation(impactPos);
             }
-            window.scene.remove(s.mesh);
+            s.mesh.visible = false;
+            if (shellPool.length < PROJECTILE_POOL_LIMIT) shellPool.push(s.mesh);
+            else window.scene.remove(s.mesh);
             shells.splice(i, 1);
         }
     }
@@ -700,7 +807,9 @@ function updateProjectiles(dt) {
                 }
                 spawnParticle(impactPos, new THREE.Vector3(0, 1.2, 0), 0x785e46, 0.22, 0.95, 0.65, false, 'smoke');
             }
-            window.scene.remove(tr.mesh);
+            tr.mesh.visible = false;
+            if (tracerPool.length < PROJECTILE_POOL_LIMIT) tracerPool.push(tr.mesh);
+            else window.scene.remove(tr.mesh);
             tracers.splice(i, 1);
         }
     }
@@ -822,10 +931,10 @@ function updateParticles(dt) {
         const fl = dynamicFlashes[i];
         fl.age += dt;
         if (fl.age >= fl.life) {
-            fl.light.visible = false;
-            fl.light.intensity = 0;
-            if (dynamicFlashPool.length < 16) dynamicFlashPool.push(fl.light);
-            else window.scene.remove(fl.light);
+            fl.light.intensity = DYNAMIC_FLASH_IDLE_INTENSITY;
+            fl.light.distance = 1;
+            fl.light.position.set(1000000, 1000000, 1000000);
+            if (dynamicFlashPool.length < DYNAMIC_FLASH_POOL_SIZE) dynamicFlashPool.push(fl.light);
             dynamicFlashes.splice(i, 1);
             continue;
         }
