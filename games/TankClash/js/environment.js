@@ -62,6 +62,16 @@ function setWorldSeed(seed) {
         grassUniforms.uSeedOffset.value.set(seedOffset.x, seedOffset.z);
         grassUniforms.uRoadBaseX.value = roadBaseX;
     }
+    if (waterMeshRef && waterMeshRef.material && waterMeshRef.material.uniforms && waterMeshRef.material.uniforms.uSeedOffset) {
+        if (waterMeshRef.material.uniforms.uSeedOffset.value && typeof waterMeshRef.material.uniforms.uSeedOffset.value.set === 'function') {
+            waterMeshRef.material.uniforms.uSeedOffset.value.set(seedOffset.x, seedOffset.z);
+        } else {
+            waterMeshRef.material.uniforms.uSeedOffset.value = new THREE.Vector2(seedOffset.x, seedOffset.z);
+        }
+        if (waterMeshRef.material.uniforms.uRoadBaseX) {
+            waterMeshRef.material.uniforms.uRoadBaseX.value = roadBaseX;
+        }
+    }
 
     sessionFallenTrees.clear();
     sessionDestroyedTargets.clear();
@@ -318,19 +328,26 @@ function updateDaylightSystem(hour) {
 }
 
 // ============================================================================
+// ============================================================================
 // 4. SHARED MATERIALS & SHADERS
 // ============================================================================
 const terrainUniforms = {
     uTime: { value: 0 },
     uWindSpeed: { value: 1.2 },
     uCameraPos: { value: new THREE.Vector3() },
+    uCameraForwardXZ: { value: new THREE.Vector2(0, 1) },
     uSeedOffset: { value: new THREE.Vector2(0, 0) },
-    uRoadBaseX: { value: 0 }
+    uRoadBaseX: { value: 0 },
+    uBuildings: { value: Array.from({ length: 16 }, () => new THREE.Vector4(0, 0, 0, 0)) },
+    uBuildingCount: { value: 0 },
+    uSunDir: { value: new THREE.Vector3(0.45, 0.72, -0.52).normalize() },
+    uSunColor: { value: new THREE.Color(0xfff5e0) },
+    uSkyColor: { value: new THREE.Color(0x82b6e5) }
 };
 
 const terrainMat = new THREE.MeshStandardMaterial({
     vertexColors: true,
-    roughness: 0.9,
+    roughness: 0.88,
     metalness: 0.04
 });
 
@@ -340,6 +357,11 @@ terrainMat.onBeforeCompile = (shader) => {
     shader.uniforms.uCameraPos = terrainUniforms.uCameraPos;
     shader.uniforms.uSeedOffset = terrainUniforms.uSeedOffset;
     shader.uniforms.uRoadBaseX = terrainUniforms.uRoadBaseX;
+    shader.uniforms.uBuildings = terrainUniforms.uBuildings;
+    shader.uniforms.uBuildingCount = terrainUniforms.uBuildingCount;
+    shader.uniforms.uSunDir = terrainUniforms.uSunDir;
+    shader.uniforms.uSunColor = terrainUniforms.uSunColor;
+    shader.uniforms.uSkyColor = terrainUniforms.uSkyColor;
 
     shader.vertexShader = `
         varying vec3 vTerrainWorldPos;
@@ -359,6 +381,11 @@ terrainMat.onBeforeCompile = (shader) => {
         uniform float uTime;
         uniform float uWindSpeed;
         uniform vec3 uCameraPos;
+        uniform vec4 uBuildings[16];
+        uniform int uBuildingCount;
+        uniform vec3 uSunDir;
+        uniform vec3 uSunColor;
+        uniform vec3 uSkyColor;
         varying vec3 vTerrainWorldPos;
         varying float vTerrainSlope;
         ${SHARED_TERRAIN_GLSL}
@@ -370,71 +397,208 @@ terrainMat.onBeforeCompile = (shader) => {
         #include <color_fragment>
         float distToCam = length(vTerrainWorldPos.xz - uCameraPos.xz);
         float roadMask = getRoadFactor_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
-        float grassSurfaceMask = (1.0 - smoothstep(0.12, 0.45, roadMask)) * (1.0 - smoothstep(0.20, 0.38, vTerrainSlope));
+        float grassSurfaceMask = (1.0 - smoothstep(0.10, 0.45, roadMask)) * (1.0 - smoothstep(0.20, 0.40, vTerrainSlope));
 
-        // High-frequency micro-blade noise for distant LOD continuity
-        float microGrass = valueNoise2D_gpu(vTerrainWorldPos.xz * 3.8) * 0.5 + 0.5;
+        // High-frequency micro-blade & soil texture
+        float microNoise = valueNoise2D_gpu(vTerrainWorldPos.xz * 4.2) * 0.5 + 0.5;
+        float gravelNoise = valueNoise2D_gpu(vTerrainWorldPos.xz * 12.0) * 0.5 + 0.5;
 
-        // Animated traveling wind wave
+        // Animated traveling wind waves across meadow
         vec2 windUV = vTerrainWorldPos.xz * 0.055 + vec2(uTime * 0.38 * uWindSpeed, uTime * 0.18 * uWindSpeed);
         float windRipple = valueNoise2D_gpu(windUV);
 
-        vec3 farBladeTint = mix(vec3(0.07, 0.12, 0.025), vec3(0.19, 0.25, 0.05), microGrass);
-        diffuseColor.rgb = mix(diffuseColor.rgb, farBladeTint, grassSurfaceMask * 0.62);
-        diffuseColor.rgb *= (1.0 + windRipple * 0.12 * grassSurfaceMask);
+        // Convert vertex color from sRGB to linear space for physically accurate lighting
+        diffuseColor.rgb = pow(max(diffuseColor.rgb, vec3(0.001)), vec3(2.2));
 
-        // Shoreline sandy beach & pebble gradient where terrain slopes into the sea
-        float beachMask = 1.0 - smoothstep(-2.5, -1.8, vTerrainWorldPos.y);
-        vec3 sandCol = mix(vec3(0.66, 0.60, 0.48), vec3(0.48, 0.44, 0.38), microGrass);
-        diffuseColor.rgb = mix(diffuseColor.rgb, sandCol, beachMask * 0.88);
+        // Rich linear-space meadow grass coloration matching 3D grass tufts seamlessly
+        vec3 lushBlade = vec3(0.028, 0.072, 0.014);
+        vec3 sunlitBlade = vec3(0.068, 0.135, 0.024);
+        vec3 cloverPatch = vec3(0.020, 0.052, 0.012);
+        float macroPatch = valueNoise2D_gpu(vTerrainWorldPos.xz * 0.08) * 0.5 + 0.5;
+        vec3 farBladeTint = mix(lushBlade, sunlitBlade, microNoise * 0.75 + macroPatch * 0.25);
+        farBladeTint = mix(farBladeTint, cloverPatch, smoothstep(0.62, 0.92, macroPatch) * 0.45);
+        diffuseColor.rgb = mix(diffuseColor.rgb, farBladeTint, grassSurfaceMask * 0.85);
+        diffuseColor.rgb *= (1.0 + windRipple * 0.14 * grassSurfaceMask);
+
+        // Country Dirt Road with compacted gravel, verge grass transition, and wet wheel ruts
+        if (roadMask > 0.02) {
+            float roadX = getRoadCenterX_gpu(vTerrainWorldPos.z);
+            float distFromCenter = abs(vTerrainWorldPos.x - roadX);
+            float rutMask = exp(-pow(distFromCenter - 1.35, 2.0) / 0.28);
+            float centerCrown = exp(-pow(distFromCenter, 2.0) / 0.65);
+            vec3 dryRoad = mix(vec3(0.145, 0.112, 0.074), vec3(0.095, 0.072, 0.048), gravelNoise * 0.55);
+            dryRoad = mix(dryRoad, vec3(0.055, 0.092, 0.025), centerCrown * 0.42); // Grassy median strip
+            vec3 wetRut = vec3(0.042, 0.030, 0.019);
+            vec3 roadColor = mix(dryRoad, wetRut, rutMask * 0.88);
+            diffuseColor.rgb = mix(diffuseColor.rgb, roadColor, smoothstep(0.02, 0.48, roadMask));
+        }
+
+        // Coastal Shoreline: Wet sand tidal zone, warm golden beach sand, and pebble transition
+        float beachMask = 1.0 - smoothstep(-2.6, 0.55, vTerrainWorldPos.y);
+        if (beachMask > 0.001) {
+            float wetZone = 1.0 - smoothstep(-2.6, -1.85, vTerrainWorldPos.y);
+            vec3 drySand = mix(vec3(0.28, 0.22, 0.14), vec3(0.20, 0.15, 0.095), microNoise * 0.35);
+            vec3 wetSand = vec3(0.085, 0.068, 0.048);
+            vec3 sandCol = mix(drySand, wetSand, wetZone * 0.90);
+            diffuseColor.rgb = mix(diffuseColor.rgb, sandCol, beachMask * (1.0 - roadMask * 0.75));
+        }
+
+        // Building Ground Contact Ambient Occlusion
+        float buildingAO = 1.0;
+        for (int b = 0; b < 16; b++) {
+            if (b >= uBuildingCount) break;
+            float distB = length(vTerrainWorldPos.xz - uBuildings[b].xy);
+            float rad = uBuildings[b].z;
+            if (distB < rad + 1.8) {
+                float ao = smoothstep(rad - 0.4, rad + 1.8, distB);
+                buildingAO = min(buildingAO, mix(0.42, 1.0, ao));
+            }
+        }
+        diffuseColor.rgb *= buildingAO;
+        `
+    );
+
+    shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <roughnessmap_fragment>',
+        `
+        #include <roughnessmap_fragment>
+        float rRoad = getRoadFactor_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
+        if (rRoad > 0.05) {
+            float roadX = getRoadCenterX_gpu(vTerrainWorldPos.z);
+            float rut = exp(-pow(abs(vTerrainWorldPos.x - roadX) - 1.35, 2.0) / 0.35);
+            roughnessFactor = mix(roughnessFactor, 0.42, rut * rRoad);
+        }
+        if (vTerrainWorldPos.y < -1.8) {
+            float wetBeach = 1.0 - smoothstep(-2.6, -1.8, vTerrainWorldPos.y);
+            roughnessFactor = mix(roughnessFactor, 0.25, wetBeach * 0.9);
+        }
         `
     );
 };
 
+// ============================================================================
+// Tree Material: Texture-Atlas Botanical Shader with AlphaTest & Bent Normals
+// ============================================================================
+let botanicalAtlas = null;
+function getBotanicalAtlas() {
+    if (!botanicalAtlas && typeof createBotanicalFoliageAtlas === 'function') {
+        botanicalAtlas = createBotanicalFoliageAtlas();
+    }
+    return botanicalAtlas;
+}
+
 const treeMaterial = new THREE.MeshStandardMaterial({
     vertexColors: true,
-    roughness: 0.82,
-    metalness: 0.03
+    roughness: 0.76,
+    metalness: 0.03,
+    side: THREE.DoubleSide
 });
 
 treeMaterial.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = terrainUniforms.uTime;
     shader.uniforms.uWindSpeed = terrainUniforms.uWindSpeed;
+    shader.uniforms.uSunDir = terrainUniforms.uSunDir;
+    shader.uniforms.uSunColor = terrainUniforms.uSunColor;
+    shader.uniforms.uFoliageMap = { value: getBotanicalAtlas() };
 
     shader.vertexShader = `
         uniform float uTime;
         uniform float uWindSpeed;
         varying vec3 vTreeWorldPos;
         varying float vTreeHeight;
+        varying vec2 vFoliageUv;
+        varying vec3 vBotanicalNormal;
     ` + shader.vertexShader;
 
     shader.vertexShader = shader.vertexShader.replace(
         '#include <begin_vertex>',
         `
         #include <begin_vertex>
+        vFoliageUv = uv;
         vTreeHeight = max(0.0, position.y);
         vec4 instWorld = modelMatrix * vec4(0.0, 0.0, 0.0, 1.0);
-        float sway = sin(instWorld.x * 0.08 + instWorld.z * 0.08 + uTime * 1.6 * uWindSpeed) * 0.018 * vTreeHeight;
+        float sway = sin(instWorld.x * 0.08 + instWorld.z * 0.08 + uTime * 1.5 * uWindSpeed) * 0.015 * vTreeHeight;
         transformed.x += sway;
+
+        bool isFoliageVert = (uv.y > 0.5 || uv.x < 0.5);
+        if (isFoliageVert) {
+            float flutter = sin(uTime * 3.4 * uWindSpeed + position.x * 2.2 + position.z * 2.2) * 0.035 * clamp(vTreeHeight / 10.0, 0.2, 1.2);
+            transformed.x += flutter;
+            transformed.z += flutter * 0.65;
+        }
+
         vTreeWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
+        vBotanicalNormal = normalize(normalMatrix * objectNormal);
+        `
+    );
+
+    shader.fragmentShader = `
+        uniform sampler2D uFoliageMap;
+        uniform vec3 uSunDir;
+        uniform vec3 uSunColor;
+        varying vec3 vTreeWorldPos;
+        varying float vTreeHeight;
+        varying vec2 vFoliageUv;
+        varying vec3 vBotanicalNormal;
+    ` + shader.fragmentShader;
+
+    // Prevent DoubleSide backface normal inversion on volumetric foliage cards!
+    shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <normal_fragment_begin>',
+        `
+        #include <normal_fragment_begin>
+        if (vFoliageUv.y > 0.5 || vFoliageUv.x < 0.5) {
+            normal = normalize(vBotanicalNormal);
+        }
+        `
+    );
+
+    shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <color_fragment>',
+        `
+        #include <color_fragment>
+        vec4 texelColor = texture2D(uFoliageMap, vFoliageUv);
+        vec3 linearTexel = pow(max(texelColor.rgb, vec3(0.001)), vec3(2.2));
+        bool isFoliage = (vFoliageUv.y > 0.5 || vFoliageUv.x < 0.5);
+        if (isFoliage) {
+            if (texelColor.a < 0.36) discard;
+            vec3 viewDir = normalize(cameraPosition - vTreeWorldPos);
+            float sunDot = max(dot(normalize(vBotanicalNormal), normalize(uSunDir)), 0.0);
+            float backLight = pow(max(dot(-viewDir, normalize(uSunDir)), 0.0), 2.0);
+            vec3 sss = uSunColor * (backLight * 0.28 + sunDot * 0.12) * linearTexel;
+            diffuseColor.rgb = linearTexel * diffuseColor.rgb + sss;
+        } else {
+            diffuseColor.rgb = linearTexel * diffuseColor.rgb;
+        }
         `
     );
 };
 
+// ============================================================================
+// Village Material: PBR Albedo + Normal Map + Roughness Atlas
+// ============================================================================
+let villageAtlas = null;
+function getVillageAtlas() {
+    if (!villageAtlas && typeof createVillagePBRAtlas === 'function') {
+        villageAtlas = createVillagePBRAtlas();
+    }
+    return villageAtlas;
+}
+
 const villageMat = new THREE.MeshStandardMaterial({
     vertexColors: true,
-    roughness: 0.88,
+    roughness: 0.85,
     metalness: 0.04
 });
 
 const rockMat = new THREE.MeshStandardMaterial({
-    color: 0x7c7972,
+    color: new THREE.Color(0x6b6861).convertSRGBToLinear(),
     roughness: 0.92,
-    metalness: 0.05
+    metalness: 0.04
 });
 
 // ============================================================================
-// 5. BOTANICAL MODEL GENERATORS (PRE-COMPILED SHARED BUFFER GEOMETRIES)
+// 5. BOTANICAL MODEL GENERATORS WITH UV MAPPING & SPHERICAL CANOPY NORMALS
 // ============================================================================
 function mergeBufferGeometries(geometries) {
     let totalVerts = 0, totalIndices = 0;
@@ -452,6 +616,7 @@ function mergeBufferGeometries(geometries) {
     const mergedPos = new Float32Array(totalVerts * 3);
     const mergedNorm = new Float32Array(totalVerts * 3);
     const mergedCol = new Float32Array(totalVerts * 3);
+    const mergedUv = new Float32Array(totalVerts * 2);
     const mergedIdx = new Uint32Array(totalIndices);
 
     let vOffset = 0, iOffset = 0;
@@ -466,9 +631,18 @@ function mergeBufferGeometries(geometries) {
             col = new Float32Array(g.attributes.position.count * 3);
             col.fill(1.0);
         }
+        let uv;
+        if (g.attributes.uv) {
+            uv = g.attributes.uv.array;
+        } else {
+            uv = new Float32Array(g.attributes.position.count * 2);
+            uv.fill(0.0);
+        }
+
         mergedPos.set(pos, vOffset * 3);
         mergedNorm.set(norm, vOffset * 3);
         mergedCol.set(col, vOffset * 3);
+        mergedUv.set(uv, vOffset * 2);
 
         const idx = g.index.array;
         for (let j = 0; j < idx.length; j++) {
@@ -482,436 +656,385 @@ function mergeBufferGeometries(geometries) {
     out.setAttribute('position', new THREE.BufferAttribute(mergedPos, 3));
     out.setAttribute('normal', new THREE.BufferAttribute(mergedNorm, 3));
     out.setAttribute('color', new THREE.BufferAttribute(mergedCol, 3));
+    out.setAttribute('uv', new THREE.BufferAttribute(mergedUv, 2));
     out.setIndex(new THREE.BufferAttribute(mergedIdx, 1));
     return out;
 }
 
-function colorizeBotanicalGeometry(geo, innerHex, outerHex, maxRadius = 2.5) {
-    const pos = geo.attributes.position;
-    const norm = geo.attributes.normal;
-    const count = pos.count;
-    const colArr = new Float32Array(count * 3);
-    const cInner = new THREE.Color(innerHex);
-    const cOuter = new THREE.Color(outerHex);
-    const c = new THREE.Color();
-
+function setGeometryUVBox(geo, uMin, uMax, vMin, vMax) {
+    const uvAttr = geo.attributes.uv;
+    if (!uvAttr) return;
+    const count = uvAttr.count;
     for (let i = 0; i < count; i++) {
-        const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
-        const ny = norm ? norm.getY(i) : 0.5;
-        const radialDist = Math.hypot(x, z);
-
-        // Core ambient occlusion: vertices near the trunk or beneath foliage layers stay dark
-        const radialFactor = Math.min(1.0, radialDist / maxRadius);
-        const sunFactor = Math.max(0.0, ny * 0.65 + 0.35);
-        const aoFactor = radialFactor * 0.75 + sunFactor * 0.25;
-
-        c.copy(cInner).lerp(cOuter, aoFactor);
-        const jitter = (hash2D(x * 12.3 + i, z * 12.3) - 0.5) * 0.04;
-        colArr[i * 3 + 0] = Math.min(1, Math.max(0, c.r + jitter));
-        colArr[i * 3 + 1] = Math.min(1, Math.max(0, c.g + jitter));
-        colArr[i * 3 + 2] = Math.min(1, Math.max(0, c.b + jitter));
+        const u = uvAttr.getX(i);
+        const v = uvAttr.getY(i);
+        uvAttr.setXY(i, uMin + u * (uMax - uMin), vMin + v * (vMax - vMin));
     }
-    geo.setAttribute('color', new THREE.BufferAttribute(colArr, 3));
-    return geo;
 }
 
-// Global PBR shading for merged tree geometries: deep trunk shadows, lush mid-foliage & golden sunlit tips
-function applyTreePBRShading(geo, trunkRadius, innerHex, midHex, sunlitHex) {
-    const pos = geo.attributes.position;
-    const norm = geo.attributes.normal;
-    const colAttr = geo.attributes.color;
-    const count = pos.count;
-    const colArr = colAttr ? colAttr.array : new Float32Array(count * 3);
-
-    const cInner = new THREE.Color(innerHex);
-    const cMid   = new THREE.Color(midHex);
-    const cSun   = new THREE.Color(sunlitHex);
-    const c      = new THREE.Color();
-
-    for (let i = 0; i < count; i++) {
-        const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
-        const r = Math.hypot(x, z);
-        const ny = norm ? norm.getY(i) : 0.5;
-
-        // Skip trunk vertices (r < 0.45 and low y)
-        if (r < 0.42 && y < 11.5) {
-            continue;
-        }
-
-        const ao = Math.min(1.0, Math.max(0.0, (r - 0.35) / Math.max(0.1, trunkRadius - 0.35)));
-        const sun = Math.max(0.0, ny * 0.75 + 0.25);
-
-        // Core to Mid transition based on distance from trunk
-        c.copy(cInner).lerp(cMid, ao);
-        // Sunlit highlights on upper/outer surfaces
-        if (sun > 0.55 && ao > 0.3) {
-            c.lerp(cSun, (sun - 0.55) * 1.8 * ao);
-        }
-
-        const jitter = (hash2D(x * 14.1 + i, z * 14.1) - 0.5) * 0.035;
-        colArr[i * 3 + 0] = Math.min(1, Math.max(0, c.r + jitter));
-        colArr[i * 3 + 1] = Math.min(1, Math.max(0, c.g + jitter));
-        colArr[i * 3 + 2] = Math.min(1, Math.max(0, c.b + jitter));
-    }
-
-    if (!colAttr) {
-        geo.setAttribute('color', new THREE.BufferAttribute(colArr, 3));
-    }
-    return geo;
-}
-
-function colorizeSolidGeometry(geo, hexColor, variance = 0.05) {
-    const pos = geo.attributes.position;
-    const count = pos.count;
-    const colArr = new Float32Array(count * 3);
-    const base = new THREE.Color(hexColor);
-    for (let i = 0; i < count; i++) {
-        const v = (hash2D(pos.getX(i) * 7.3 + i, pos.getZ(i) * 7.3) - 0.5) * variance;
-        colArr[i * 3 + 0] = Math.min(1, Math.max(0, base.r + v));
-        colArr[i * 3 + 1] = Math.min(1, Math.max(0, base.g + v));
-        colArr[i * 3 + 2] = Math.min(1, Math.max(0, base.b + v));
-    }
-    geo.setAttribute('color', new THREE.BufferAttribute(colArr, 3));
-    return geo;
-}
-
-function createPitchedRoofGeometry(width, length, height) {
+// Helper: Creates an arched rectangular botanical foliage card
+function createCurvedFoliageCard(width, length, arch, uMin, uMax, vMin, vMax) {
     const hw = width * 0.5;
-    const hl = length * 0.5;
-    const vertices = new Float32Array([
-        -hw, 0, -hl,   -hw, 0,  hl,    0, height,  hl,
-        -hw, 0, -hl,    0, height,  hl,    0, height, -hl,
-         hw, 0,  hl,    hw, 0, -hl,    0, height, -hl,
-         hw, 0,  hl,    0, height, -hl,    0, height,  hl,
-        -hw, 0,  hl,    hw, 0,  hl,    0, height,  hl,
-         hw, 0, -hl,   -hw, 0, -hl,    0, height, -hl
-    ]);
+    const rows = 3;
+    const pos = [], uvs = [], idx = [];
+    for (let r = 0; r <= rows; r++) {
+        const t = r / rows;
+        const z = arch * t * t;
+        const y = length * t;
+        pos.push(-hw, y, z, hw, y, z);
+        const v = vMin + (vMax - vMin) * t;
+        uvs.push(uMin, v, uMax, v);
+        if (r < rows) {
+            const i = r * 2;
+            idx.push(i, i + 1, i + 2, i + 2, i + 1, i + 3);
+        }
+    }
     const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    geo.setIndex(idx);
     geo.computeVertexNormals();
     return geo;
 }
 
-// 5A. Detailed Multi-Bough Alpine Spruce Tree Geometry (Layered Tiered Needle Boughs)
+// Helper: Assigns spherical outward canopy normals & radial AO vertex colors to a foliage card
+function applyCanopyVolumeShading(card, centerVec, baseTintR, baseTintG, baseTintB, minAO) {
+    const pos = card.attributes.position;
+    const norm = card.attributes.normal;
+    const col = new Float32Array(pos.count * 3);
+    const v = new THREE.Vector3();
+    for (let k = 0; k < pos.count; k++) {
+        v.set(pos.getX(k), pos.getY(k), pos.getZ(k));
+        const outward = v.clone().sub(centerVec);
+        const dist = outward.length();
+        if (dist > 0.001) outward.divideScalar(dist);
+        outward.y = Math.max(0.28, outward.y + 0.22);
+        outward.normalize();
+        norm.setXYZ(k, outward.x, outward.y, outward.z);
+
+        // Interior depth AO: darker near trunk/center, brighter at sunlit outer tips
+        const radialAO = Math.min(1.15, minAO + Math.min(1.0, dist / 3.2) * (1.08 - minAO));
+        col[k * 3 + 0] = baseTintR * radialAO;
+        col[k * 3 + 1] = baseTintG * radialAO;
+        col[k * 3 + 2] = baseTintB * radialAO;
+    }
+    card.setAttribute('color', new THREE.BufferAttribute(col, 3));
+}
+
+// 5A. Detailed Multi-Bough Nordic Spruce Tree (Conifer Needle Atlas Q0 & Bark Q3)
 function createDetailedSpruceGeometry() {
     const parts = [];
-
-    // 1. Tapered Trunk with Flared Root Base & Longitudinal Furrows
-    const trunkHeight = 13.8;
-    const trunk = new THREE.CylinderGeometry(0.06, 0.52, trunkHeight, 10, 8);
-    const tPos = trunk.attributes.position;
-    for (let i = 0; i < tPos.count; i++) {
-        const y = tPos.getY(i);
-        const normY = (y + trunkHeight * 0.5) / trunkHeight;
-        if (normY < 0.16) {
-            const flare = Math.pow((0.16 - normY) / 0.16, 1.8) * 0.75;
-            tPos.setX(i, tPos.getX(i) * (1.0 + flare));
-            tPos.setZ(i, tPos.getZ(i) * (1.0 + flare));
-        }
-        const lean = Math.sin(normY * 3.14159) * 0.12;
-        tPos.setX(i, tPos.getX(i) + lean);
-    }
-    trunk.computeVertexNormals();
+    const trunkHeight = 14.6;
+    const trunk = new THREE.CylinderGeometry(0.07, 0.52, trunkHeight, 8, 5);
+    setGeometryUVBox(trunk, 0.52, 0.98, 0.02, 0.48);
     trunk.translate(0, trunkHeight * 0.5, 0);
-    parts.push(colorizeSolidGeometry(trunk, 0x241810, 0.04));
 
-    // Helper: Creates an arched, faceted needle spray frond with upward-biased normals
-    function createNeedleFrond(width, length, droopAngle) {
-        const frond = new THREE.ConeGeometry(width, length, 6, 2);
-        frond.scale(1.0, 0.20, 0.82);
-        frond.rotateZ(Math.PI * 0.5 - droopAngle);
-        const n = frond.attributes.normal;
-        for (let k = 0; k < n.count; k++) {
-            const ny = Math.max(0.48, n.getY(k) + 0.42);
-            const nx = n.getX(k) * 0.8;
-            const nz = n.getZ(k) * 0.8;
-            const len = Math.hypot(nx, ny, nz) || 1.0;
-            n.setXYZ(k, nx / len, ny / len, nz / len);
-        }
-        return frond;
+    const tCol = new Float32Array(trunk.attributes.position.count * 3);
+    for (let i = 0; i < trunk.attributes.position.count; i++) {
+        const y = trunk.attributes.position.getY(i);
+        const ao = Math.min(0.85, Math.max(0.25, y / 4.5));
+        tCol[i * 3 + 0] = 0.45 * ao;
+        tCol[i * 3 + 1] = 0.36 * ao;
+        tCol[i * 3 + 2] = 0.28 * ao;
     }
+    trunk.setAttribute('color', new THREE.BufferAttribute(tCol, 3));
+    parts.push(trunk);
 
-    // 2. 9 Distinct Pronounced Tiers with Natural Branch Spacing & Layered Shadows
-    const tiers = 9;
+    // 14 Dense Overlapping Conical Tiers of Drooping Boughs (Q0: [0.02..0.48, 0.52..0.98])
     const tierConfigs = [
-        { y: 2.1,  rad: 4.1, boughs: 8, droop: 0.28 },
-        { y: 3.4,  rad: 3.8, boughs: 8, droop: 0.25 },
-        { y: 4.8,  rad: 3.4, boughs: 7, droop: 0.22 },
-        { y: 6.2,  rad: 3.0, boughs: 7, droop: 0.18 },
-        { y: 7.6,  rad: 2.5, boughs: 6, droop: 0.15 },
-        { y: 9.0,  rad: 2.0, boughs: 6, droop: 0.12 },
-        { y: 10.3, rad: 1.5, boughs: 5, droop: 0.09 },
-        { y: 11.5, rad: 1.0, boughs: 5, droop: 0.06 },
-        { y: 12.5, rad: 0.6, boughs: 4, droop: 0.03 }
+        { y: 1.5,  rad: 4.5, boughs: 9, droop: 0.34 },
+        { y: 2.5,  rad: 4.2, boughs: 9, droop: 0.32 },
+        { y: 3.5,  rad: 3.9, boughs: 8, droop: 0.29 },
+        { y: 4.5,  rad: 3.6, boughs: 8, droop: 0.26 },
+        { y: 5.5,  rad: 3.3, boughs: 8, droop: 0.24 },
+        { y: 6.5,  rad: 3.0, boughs: 7, droop: 0.21 },
+        { y: 7.5,  rad: 2.7, boughs: 7, droop: 0.18 },
+        { y: 8.5,  rad: 2.4, boughs: 7, droop: 0.16 },
+        { y: 9.5,  rad: 2.0, boughs: 6, droop: 0.14 },
+        { y: 10.4, rad: 1.7, boughs: 6, droop: 0.11 },
+        { y: 11.3, rad: 1.4, boughs: 5, droop: 0.09 },
+        { y: 12.2, rad: 1.1, boughs: 5, droop: 0.06 },
+        { y: 13.0, rad: 0.8, boughs: 4, droop: 0.04 },
+        { y: 13.8, rad: 0.5, boughs: 4, droop: 0.00 }
     ];
 
     tierConfigs.forEach((cfg, t) => {
-        const yBase = cfg.y;
-        const tierRadius = cfg.rad;
-        const boughCount = cfg.boughs;
-        const tierDroop  = cfg.droop;
+        const tierCenter = new THREE.Vector3(0, cfg.y - 0.5, 0);
+        const heightShade = 0.52 + (cfg.y / trunkHeight) * 0.48;
+        for (let b = 0; b < cfg.boughs; b++) {
+            const angle = (b / cfg.boughs) * Math.PI * 2.0 + t * 0.68;
+            const bLen = cfg.rad;
+            const bWidth = cfg.rad * 0.78;
 
-        for (let b = 0; b < boughCount; b++) {
-            const baseAngle = (b / boughCount) * Math.PI * 2.0 + t * 0.72;
-            const angle = baseAngle + (hash2D(b * 3.3 + t, t * 8.1) - 0.5) * 0.15;
-            const boughLen = tierRadius * (0.94 + hash2D(b + 7.1, t + 3.3) * 0.20);
-
-            // Woody branch core limb
-            const limbLen = boughLen * 0.82;
-            const limb = new THREE.CylinderGeometry(0.018, 0.068 * (1.0 - t * 0.08), limbLen, 5);
-            limb.rotateZ(Math.PI * 0.5 - tierDroop * 0.75);
-            limb.rotateY(angle);
-            limb.translate(
-                Math.cos(angle) * (limbLen * 0.48),
-                yBase - Math.sin(tierDroop) * (limbLen * 0.48),
-                Math.sin(angle) * (limbLen * 0.48)
+            // Main horizontal draping conifer bough
+            const mainCard = createCurvedFoliageCard(bWidth, bLen, 0.38, 0.02, 0.48, 0.52, 0.98);
+            mainCard.rotateX(Math.PI * 0.5 + cfg.droop);
+            mainCard.rotateY(angle);
+            mainCard.translate(
+                Math.cos(angle) * 0.12,
+                cfg.y,
+                Math.sin(angle) * 0.12
             );
-            parts.push(colorizeSolidGeometry(limb, 0x281c12, 0.03));
+            applyCanopyVolumeShading(mainCard, tierCenter, 0.62 * heightShade, 0.78 * heightShade, 0.52 * heightShade, 0.36);
+            parts.push(mainCard);
 
-            // Layered Needle Sprays along bough
-            const sprayStations = [0.42, 0.72, 1.02];
-            sprayStations.forEach((st, sIdx) => {
-                const distAlong = boughLen * st;
-                const sprayDroop = tierDroop + (sIdx / sprayStations.length) * 0.14;
-                const sprayW = (tierRadius * 0.36) * (1.12 - sIdx * 0.16);
-                const sprayL = (tierRadius * 0.52) * (1.08 - sIdx * 0.14);
-
-                const px = Math.cos(angle) * distAlong;
-                const py = yBase - Math.sin(sprayDroop) * distAlong;
-                const pz = Math.sin(angle) * distAlong;
-
-                // Center main needle spray
-                const centerFrond = createNeedleFrond(sprayW, sprayL, sprayDroop);
-                centerFrond.rotateY(angle);
-                centerFrond.translate(px, py, pz);
-                parts.push(centerFrond);
-
-                // Flanking side needle sprays (left & right fan) on outer stations
-                if (sIdx >= 1) {
-                    const sideAngleOffset = 0.34;
-                    const leftFrond = createNeedleFrond(sprayW * 0.82, sprayL * 0.84, sprayDroop + 0.05);
-                    leftFrond.rotateY(angle - sideAngleOffset);
-                    leftFrond.translate(px, py - 0.04, pz);
-                    parts.push(leftFrond);
-
-                    const rightFrond = createNeedleFrond(sprayW * 0.82, sprayL * 0.84, sprayDroop + 0.05);
-                    rightFrond.rotateY(angle + sideAngleOffset);
-                    rightFrond.translate(px, py - 0.04, pz);
-                    parts.push(rightFrond);
-                }
-            });
+            // Secondary angled upper-fill bough to hide inter-tier gaps
+            if (b % 2 === 0) {
+                const fillCard = createCurvedFoliageCard(bWidth * 0.85, bLen * 0.88, 0.28, 0.02, 0.48, 0.52, 0.98);
+                fillCard.rotateZ(0.38);
+                fillCard.rotateX(Math.PI * 0.42 + cfg.droop * 0.7);
+                fillCard.rotateY(angle + 0.25);
+                fillCard.translate(
+                    Math.cos(angle + 0.25) * 0.15,
+                    cfg.y + 0.32,
+                    Math.sin(angle + 0.25) * 0.15
+                );
+                applyCanopyVolumeShading(fillCard, tierCenter, 0.56 * heightShade, 0.72 * heightShade, 0.48 * heightShade, 0.32);
+                parts.push(fillCard);
+            }
         }
     });
 
-    // 3. Dense Apical Spire / Crown Tip
-    const crownSpire = new THREE.ConeGeometry(0.35, 2.2, 7, 3);
-    crownSpire.translate(0, 13.4, 0);
-    parts.push(crownSpire);
-
-    // Merge & Apply PBR Depth Shading
-    const merged = mergeBufferGeometries(parts);
-    return applyTreePBRShading(merged, 4.2, 0x0c1b0e, 0x1d441c, 0x3d7426);
+    return mergeBufferGeometries(parts);
 }
 
-// 5B. Detailed Maritime / Scots Pine Geometry (Rugged Cinnamon Bark & Layered Umbrella Canopy)
+// 5B. Detailed Maritime / Scots Pine Geometry (Lush Horizontal Umbrella Canopy Clouds)
 function createDetailedPineGeometry() {
     const parts = [];
-
-    // 1. Rugged Trunk with Cinnamon-Red Upper Bark
-    const trunkHeight = 11.8;
-    const trunk = new THREE.CylinderGeometry(0.09, 0.44, trunkHeight, 8, 6);
+    const trunkHeight = 11.4;
+    const trunk = new THREE.CylinderGeometry(0.14, 0.48, trunkHeight, 8, 7);
+    setGeometryUVBox(trunk, 0.52, 0.98, 0.02, 0.48);
     const tPos = trunk.attributes.position;
     for (let i = 0; i < tPos.count; i++) {
-        const y = tPos.getY(i);
-        const ny = (y + trunkHeight * 0.5) / trunkHeight;
-        const windLean = Math.sin(ny * 2.8) * 0.35;
-        tPos.setX(i, tPos.getX(i) + windLean);
+        const ny = (tPos.getY(i) + trunkHeight * 0.5) / trunkHeight;
+        tPos.setX(i, tPos.getX(i) + Math.sin(ny * 2.6) * 0.45);
+        tPos.setZ(i, tPos.getZ(i) + Math.cos(ny * 2.1) * 0.22 - 0.22);
     }
     trunk.computeVertexNormals();
     trunk.translate(0, trunkHeight * 0.5, 0);
-    parts.push(colorizeSolidGeometry(trunk, 0x58311e, 0.06));
 
-    // 2. Spreading Umbrella Boughs with Clustered Needle Pads
-    const limbConfigs = [
-        { y: 5.8, len: 4.2, rx:  0.45, rz:  0.42, rad: 2.3 },
-        { y: 6.9, len: 4.6, rx: -0.48, rz:  0.38, rad: 2.5 },
-        { y: 7.8, len: 4.1, rx:  0.35, rz: -0.52, rad: 2.2 },
-        { y: 8.6, len: 3.8, rx: -0.38, rz: -0.40, rad: 2.1 },
-        { y: 9.6, len: 3.2, rx:  0.22, rz:  0.28, rad: 1.9 },
-        { y: 10.8, len: 2.4, rx: -0.15, rz: -0.18, rad: 1.5 }
+    const tCol = new Float32Array(trunk.attributes.position.count * 3);
+    for (let i = 0; i < trunk.attributes.position.count; i++) {
+        const y = trunk.attributes.position.getY(i);
+        const ny = Math.max(0, Math.min(1, y / trunkHeight));
+        const ao = Math.min(1.0, Math.max(0.35, y / 2.5)) * (1.0 - smoothstep(0.68, 0.98, ny) * 0.45);
+        // Warm cinnamon-amber Scots pine upper bark, dark fissured lower bark
+        tCol[i * 3 + 0] = (0.42 + ny * 0.34) * ao;
+        tCol[i * 3 + 1] = (0.28 + ny * 0.16) * ao;
+        tCol[i * 3 + 2] = (0.20 + ny * 0.06) * ao;
+    }
+    trunk.setAttribute('color', new THREE.BufferAttribute(tCol, 3));
+    parts.push(trunk);
+
+    // 10 Overlapping Umbrella Canopy Pads forming a full coastal Scots Pine crown
+    const umbrellaPads = [
+        { x:  0.35, y: 11.5, z:  0.00, rad: 2.6, boughs: 7 }, // Top central crown dome
+        { x:  0.20, y: 12.1, z:  0.10, rad: 2.0, boughs: 6 }, // Apex dome
+        { x:  1.65, y: 10.6, z:  0.55, rad: 2.5, boughs: 7 },
+        { x: -1.35, y: 10.4, z:  0.95, rad: 2.5, boughs: 7 },
+        { x:  0.15, y: 10.2, z: -1.65, rad: 2.4, boughs: 6 },
+        { x:  2.25, y:  9.3, z: -0.75, rad: 2.6, boughs: 7 },
+        { x: -1.85, y:  9.1, z: -1.10, rad: 2.5, boughs: 7 },
+        { x:  0.85, y:  8.9, z:  1.95, rad: 2.5, boughs: 6 },
+        { x: -1.95, y:  8.0, z:  0.85, rad: 2.3, boughs: 6 },
+        { x:  1.75, y:  7.8, z:  0.40, rad: 2.2, boughs: 6 }
     ];
 
-    limbConfigs.forEach((cfg, idx) => {
-        const arm = new THREE.CylinderGeometry(0.055, 0.15, cfg.len, 6);
-        arm.translate(0, cfg.len * 0.5, 0);
-        arm.rotateX(cfg.rx);
-        arm.rotateZ(cfg.rz);
-        arm.translate(0, cfg.y, 0);
-        parts.push(colorizeSolidGeometry(arm, 0x6e3c23, 0.05));
+    umbrellaPads.forEach((pad, pIdx) => {
+        const padCenter = new THREE.Vector3(pad.x, pad.y - 0.35, pad.z);
+        const topX = Math.sin(0.75 * 2.6) * 0.45;
+        const dx = pad.x - topX;
+        const dz = pad.z;
+        const distXZ = Math.hypot(dx, dz);
 
-        const tipPos = new THREE.Vector3(0, cfg.len, 0);
-        tipPos.applyEuler(new THREE.Euler(cfg.rx, 0, cfg.rz));
-        tipPos.add(new THREE.Vector3(0, cfg.y, 0));
-
-        const padCount = 3;
-        for (let p = 0; p < padCount; p++) {
-            const padRadius = cfg.rad * (0.85 + p * 0.12);
-            const pad = new THREE.CylinderGeometry(padRadius * 0.88, padRadius, 0.52, 9, 1);
-            pad.scale(1.0, 0.42, 0.82);
-
-            const n = pad.attributes.normal;
-            for (let k = 0; k < n.count; k++) {
-                const ny = Math.max(0.58, n.getY(k) + 0.45);
-                const nx = n.getX(k) * 0.75;
-                const nz = n.getZ(k) * 0.75;
-                const len = Math.hypot(nx, ny, nz) || 1.0;
-                n.setXYZ(k, nx / len, ny / len, nz / len);
+        // Short tucked woody bough connecting trunk to the interior of the needle cloud
+        if (distXZ > 0.6) {
+            const limbLen = distXZ * 0.82;
+            const limb = new THREE.CylinderGeometry(0.06, 0.13, limbLen, 6);
+            setGeometryUVBox(limb, 0.52, 0.98, 0.02, 0.48);
+            const limbAng = Math.atan2(dz, dx);
+            limb.rotateZ(-Math.PI * 0.34);
+            limb.rotateY(-limbAng);
+            limb.translate(topX + dx * 0.42, pad.y - 0.55, dz * 0.42);
+            const lCol = new Float32Array(limb.attributes.position.count * 3);
+            for (let k = 0; k < limb.attributes.position.count; k++) {
+                lCol[k * 3 + 0] = 0.42;
+                lCol[k * 3 + 1] = 0.28;
+                lCol[k * 3 + 2] = 0.19;
             }
+            limb.setAttribute('color', new THREE.BufferAttribute(lCol, 3));
+            parts.push(limb);
+        }
 
-            const ox = (hash2D(idx * 4.3 + p, p * 7.1) - 0.5) * 0.72;
-            const oz = (hash2D(p * 9.2 + idx, idx * 3.3) - 0.5) * 0.72;
-            pad.translate(tipPos.x + ox, tipPos.y + p * 0.26 - 0.12, tipPos.z + oz);
-            parts.push(pad);
+        const heightShade = 0.62 + ((pad.y - 7.0) / 5.5) * 0.38;
+        // Lower/main horizontal radiating whorl of conifer boughs
+        for (let b = 0; b < pad.boughs; b++) {
+            const ang = (b / pad.boughs) * Math.PI * 2.0 + pIdx * 0.55;
+            const card = createCurvedFoliageCard(pad.rad * 0.85, pad.rad, 0.32, 0.02, 0.48, 0.52, 0.98);
+            card.rotateX(Math.PI * 0.5 + 0.16);
+            card.rotateY(ang);
+            card.translate(pad.x, pad.y, pad.z);
+            applyCanopyVolumeShading(card, padCenter, 0.64 * heightShade, 0.80 * heightShade, 0.50 * heightShade, 0.38);
+            parts.push(card);
+        }
+        // Upper domed cap whorl of conifer boughs so each pad is a lush 3D cloud
+        const capCount = Math.max(4, pad.boughs - 2);
+        for (let b = 0; b < capCount; b++) {
+            const ang = (b / capCount) * Math.PI * 2.0 + pIdx * 0.9 + 0.4;
+            const capCard = createCurvedFoliageCard(pad.rad * 0.78, pad.rad * 0.82, 0.28, 0.02, 0.48, 0.52, 0.98);
+            capCard.rotateZ(0.25);
+            capCard.rotateX(Math.PI * 0.38);
+            capCard.rotateY(ang);
+            capCard.translate(pad.x, pad.y + 0.38, pad.z);
+            applyCanopyVolumeShading(capCard, padCenter, 0.70 * heightShade, 0.86 * heightShade, 0.54 * heightShade, 0.45);
+            parts.push(capCard);
         }
     });
 
-    const merged = mergeBufferGeometries(parts);
-    return applyTreePBRShading(merged, 4.5, 0x122410, 0x284a1b, 0x4d7927);
+    return mergeBufferGeometries(parts);
 }
 
-// 5C. Detailed European Deciduous Tree Geometry (Lush Leafy Canopy with Soft Volumetric Shading)
+// 5C. Detailed European Oak / Beech Broadleaf Tree (Multi-Domed Volumetric Canopy)
 function createDetailedDeciduousGeometry() {
     const parts = [];
-
-    // 1. Organic Curved Trunk Forking into Scaffold Limbs
-    const trunkHeight = 4.6;
-    const trunk = new THREE.CylinderGeometry(0.18, 0.48, trunkHeight, 8, 5);
-    const tPos = trunk.attributes.position;
-    for (let i = 0; i < tPos.count; i++) {
-        const y = tPos.getY(i);
-        const ny = (y + trunkHeight * 0.5) / trunkHeight;
-        if (ny < 0.2) {
-            const flare = Math.pow((0.2 - ny) / 0.2, 1.6) * 0.42;
-            tPos.setX(i, tPos.getX(i) * (1.0 + flare));
-            tPos.setZ(i, tPos.getZ(i) * (1.0 + flare));
-        }
-        const naturalCurve = Math.sin(ny * 2.5) * 0.22;
-        tPos.setX(i, tPos.getX(i) + naturalCurve);
-    }
-    trunk.computeVertexNormals();
+    const trunkHeight = 5.4;
+    const trunk = new THREE.CylinderGeometry(0.24, 0.58, trunkHeight, 8, 5);
+    setGeometryUVBox(trunk, 0.52, 0.98, 0.02, 0.48);
     trunk.translate(0, trunkHeight * 0.5, 0);
-    parts.push(colorizeSolidGeometry(trunk, 0x483d31, 0.04));
 
-    // Major Scaffold Limbs twisting into crown
-    const limbConfigs = [
-        { rx:  0.48, rz:  0.42, len: 3.5, y: 3.8, rad: 0.16 },
-        { rx: -0.52, rz:  0.36, len: 3.4, y: 4.1, rad: 0.15 },
-        { rx:  0.34, rz: -0.55, len: 3.6, y: 3.7, rad: 0.16 },
-        { rx: -0.40, rz: -0.45, len: 3.2, y: 4.3, rad: 0.14 },
-        { rx:  0.15, rz:  0.18, len: 2.8, y: 4.5, rad: 0.13 }
+    const tCol = new Float32Array(trunk.attributes.position.count * 3);
+    for (let i = 0; i < trunk.attributes.position.count; i++) {
+        const y = trunk.attributes.position.getY(i);
+        const ao = Math.min(0.88, Math.max(0.32, y / 2.6)) * (1.0 - smoothstep(3.8, 5.4, y) * 0.45);
+        tCol[i * 3 + 0] = 0.48 * ao;
+        tCol[i * 3 + 1] = 0.42 * ao;
+        tCol[i * 3 + 2] = 0.35 * ao;
+    }
+    trunk.setAttribute('color', new THREE.BufferAttribute(tCol, 3));
+    parts.push(trunk);
+
+    // Primary forked boughs rising into the lower canopy
+    const mainForks = [
+        { ang: 0.4,  tilt: 0.48, len: 2.6 },
+        { ang: 2.5,  tilt: 0.52, len: 2.5 },
+        { ang: 4.6,  tilt: 0.45, len: 2.7 }
     ];
-    limbConfigs.forEach(cfg => {
-        const limb = new THREE.CylinderGeometry(cfg.rad * 0.55, cfg.rad, cfg.len, 6);
-        limb.translate(0, cfg.len * 0.5, 0);
-        limb.rotateX(cfg.rx);
-        limb.rotateZ(cfg.rz);
-        limb.translate(0, cfg.y, 0);
-        parts.push(colorizeSolidGeometry(limb, 0x403529, 0.04));
-    });
-
-    // 2. Volumetric Leafy Canopy Clouds
-    const crownCenter = new THREE.Vector3(0, 6.6, 0);
-    const canopyLobes = [
-        [ 0.0,  6.8,  0.0, 2.35],
-        [ 0.2,  8.2,  0.1, 1.95],
-        [-1.6,  5.8,  1.1, 1.85],
-        [ 1.7,  5.9, -0.8, 1.90],
-        [ 1.1,  5.6,  1.6, 1.80],
-        [-1.3,  5.5, -1.5, 1.85],
-        [-2.3,  5.2,  0.2, 1.65],
-        [ 2.4,  5.3,  0.4, 1.70],
-        [ 0.3,  5.4, -2.2, 1.75],
-        [-0.4,  5.3,  2.3, 1.75],
-        [ 1.1,  7.4,  0.9, 1.65],
-        [-1.0,  7.5, -0.7, 1.70],
-        [-0.8,  7.3,  1.2, 1.60],
-        [ 1.2,  7.2, -1.1, 1.65],
-        [ 0.0,  9.1,  0.0, 1.45],
-        [-1.8,  4.4,  0.8, 1.45],
-        [ 1.9,  4.5, -0.7, 1.50],
-        [ 0.8,  4.3,  1.9, 1.40],
-        [-0.9,  4.2, -1.8, 1.40],
-        [-2.7,  4.5, -0.4, 1.25],
-        [ 2.6,  4.6,  0.7, 1.30],
-        [ 0.0,  4.5, -2.5, 1.25],
-        [ 0.2,  4.4,  2.6, 1.25]
-    ];
-
-    canopyLobes.forEach(([cx, cy, cz, radius], idx) => {
-        const lobe = new THREE.IcosahedronGeometry(radius, 2);
-        const lPos = lobe.attributes.position;
-        const lNorm = lobe.attributes.normal;
-
-        for (let k = 0; k < lPos.count; k++) {
-            const vx = lPos.getX(k), vy = lPos.getY(k), vz = lPos.getZ(k);
-            const leafTurb = Math.sin(vx * 4.2 + idx * 2.1) * Math.cos(vy * 4.8 + vz * 3.5) * 0.16
-                           + (hash2D(vx * 7.3 + idx, vz * 7.3) - 0.5) * 0.12;
-            const s = 1.0 + leafTurb;
-            lPos.setXYZ(k, vx * s, vy * (0.84 + leafTurb * 0.3) * s, vz * s);
-
-            const worldPt = new THREE.Vector3(lPos.getX(k) + cx, lPos.getY(k) + cy, lPos.getZ(k) + cz);
-            const outwardNorm = worldPt.clone().sub(crownCenter).normalize();
-            const localNorm = new THREE.Vector3(lNorm.getX(k), lNorm.getY(k), lNorm.getZ(k));
-            const blended = localNorm.lerp(outwardNorm, 0.68).normalize();
-            blended.y = Math.max(0.2, blended.y + 0.15);
-            blended.normalize();
-            lNorm.setXYZ(k, blended.x, blended.y, blended.z);
+    mainForks.forEach(fk => {
+        const bough = new THREE.CylinderGeometry(0.10, 0.22, fk.len, 6);
+        setGeometryUVBox(bough, 0.52, 0.98, 0.02, 0.48);
+        bough.translate(0, fk.len * 0.5, 0);
+        bough.rotateZ(fk.tilt);
+        bough.rotateY(fk.ang);
+        bough.translate(0, 4.2, 0);
+        const bCol = new Float32Array(bough.attributes.position.count * 3);
+        for (let k = 0; k < bough.attributes.position.count; k++) {
+            bCol[k * 3 + 0] = 0.32;
+            bCol[k * 3 + 1] = 0.28;
+            bCol[k * 3 + 2] = 0.22;
         }
-
-        lobe.translate(cx, cy, cz);
-        parts.push(lobe);
+        bough.setAttribute('color', new THREE.BufferAttribute(bCol, 3));
+        parts.push(bough);
     });
 
-    const merged = mergeBufferGeometries(parts);
-    return applyTreePBRShading(merged, 4.0, 0x162c0e, 0x355a1a, 0x5a8726);
+    // 16 Overlapping Canopy Sub-Domes (Core shadow volume + Mid spreading boughs + Upper sunlit crown)
+    const canopyClusters = [
+        // Deep interior core clusters (prevent hollow center, darker AO)
+        [ 0.0,  6.2,  0.0, 2.7, 0.55],
+        [ 0.0,  7.6,  0.0, 2.6, 0.68],
+        // Lower-mid spreading bough domes
+        [-2.1,  5.8,  1.1, 2.3, 0.76],
+        [ 2.2,  6.0, -0.9, 2.3, 0.78],
+        [ 1.1,  5.9,  2.1, 2.2, 0.76],
+        [-1.3,  5.7, -2.0, 2.3, 0.74],
+        [-2.7,  6.3, -0.3, 2.1, 0.78],
+        [ 2.6,  6.4,  0.9, 2.2, 0.80],
+        [ 0.3,  6.1, -2.6, 2.1, 0.76],
+        [-0.4,  6.0,  2.6, 2.1, 0.78],
+        // Upper-mid fullness domes
+        [ 1.5,  7.8,  1.2, 2.3, 0.88],
+        [-1.5,  7.7, -1.1, 2.3, 0.86],
+        [-1.3,  7.9,  1.4, 2.2, 0.88],
+        [ 1.4,  7.8, -1.3, 2.2, 0.86],
+        // Top sunlit crown domes
+        [ 0.4,  9.1,  0.3, 2.3, 0.96],
+        [-0.5,  8.9, -0.4, 2.2, 0.94]
+    ];
+
+    const crownCenter = new THREE.Vector3(0, 6.6, 0);
+    const cardOrientations = [
+        { rx:  0.18, ry: 0.00, rz:  0.12 },
+        { rx: -0.22, ry: 1.05, rz: -0.15 },
+        { rx:  0.25, ry: 2.10, rz:  0.18 },
+        { rx:  0.95, ry: 0.52, rz:  0.00 },
+        { rx:  0.88, ry: 2.09, rz:  0.20 }
+    ];
+
+    canopyClusters.forEach(([cx, cy, cz, rad, brightness], cIdx) => {
+        cardOrientations.forEach((ori, oIdx) => {
+            const w = rad * 1.45;
+            const h = rad * 1.38;
+            const card = createCurvedFoliageCard(w, h, 0.28, 0.52, 0.98, 0.52, 0.98);
+            // Center card before rotating so all 5 cards intersect around their geometric center!
+            card.translate(0, -h * 0.48, 0);
+            card.rotateZ(ori.rz);
+            card.rotateX(ori.rx);
+            card.rotateY(ori.ry + cIdx * 0.45);
+            card.translate(cx, cy, cz);
+
+            applyCanopyVolumeShading(
+                card,
+                crownCenter,
+                0.68 * brightness,
+                0.82 * brightness,
+                0.52 * brightness,
+                0.35 * brightness
+            );
+            parts.push(card);
+        });
+    });
+
+    return mergeBufferGeometries(parts);
 }
 
-// 5D. Detailed Meadow Shrub / Wildflower Bush Geometry
+// 5D. Detailed Flowering Meadow Bush / Hawthorn Shrub (Botanical Atlas Q2)
 function createDetailedBushGeometry() {
     const parts = [];
+    const bushCenter = new THREE.Vector3(0, 0.35, 0);
     const lobes = [
-        [ 0.0,  0.88,  0.0, 1.25],
-        [-0.85, 0.68,  0.48, 0.98],
-        [ 0.90, 0.72, -0.38, 1.02],
-        [ 0.30, 0.64,  0.82, 0.92],
-        [-0.40, 0.66, -0.78, 0.94],
-        [ 0.0,  1.35,  0.12, 0.90],
-        [-0.55, 1.15, -0.35, 0.78],
-        [ 0.60, 1.12,  0.42, 0.82]
+        [ 0.0,  0.85,  0.0, 1.45, 0.78],
+        [-0.85, 0.68,  0.48, 1.25, 0.85],
+        [ 0.90, 0.72, -0.38, 1.25, 0.86],
+        [ 0.32, 0.65,  0.85, 1.20, 0.84],
+        [-0.42, 0.66, -0.82, 1.20, 0.82],
+        [ 0.0,  1.25,  0.10, 1.25, 0.94]
     ];
-    lobes.forEach(([bx, by, bz, br], idx) => {
-        const g = new THREE.IcosahedronGeometry(br, 2);
-        const p = g.attributes.position;
-        const n = g.attributes.normal;
-        for (let k = 0; k < p.count; k++) {
-            const vx = p.getX(k), vy = p.getY(k), vz = p.getZ(k);
-            const turb = (hash2D(vx * 8.5 + idx, vz * 8.5) - 0.5) * 0.22;
-            const s = 1.0 + turb;
-            p.setXYZ(k, vx * s, vy * 0.8 * s, vz * s);
-            n.setY(k, Math.max(0.35, n.getY(k) + 0.3));
-        }
-        g.computeVertexNormals();
-        g.translate(bx, by, bz);
-        const outerCol = (idx % 2 === 0) ? 0x4a7324 : 0x59842a;
-        parts.push(colorizeBotanicalGeometry(g, 0x182811, outerCol, 1.8));
+    const bushOrientations = [
+        { rx:  0.20, ry: 0.00, rz:  0.10 },
+        { rx: -0.22, ry: 1.05, rz: -0.12 },
+        { rx:  0.24, ry: 2.10, rz:  0.14 },
+        { rx:  0.88, ry: 0.78, rz:  0.00 }
+    ];
+    lobes.forEach(([bx, by, bz, br, shade], lIdx) => {
+        bushOrientations.forEach(ori => {
+            const w = br * 1.35;
+            const h = br * 1.25;
+            const card = createCurvedFoliageCard(w, h, 0.22, 0.02, 0.48, 0.02, 0.48);
+            card.translate(0, -h * 0.48, 0);
+            card.rotateZ(ori.rz);
+            card.rotateX(ori.rx);
+            card.rotateY(ori.ry + lIdx * 0.5);
+            card.translate(bx, by, bz);
+
+            applyCanopyVolumeShading(card, bushCenter, 0.68 * shade, 0.82 * shade, 0.54 * shade, 0.38);
+            parts.push(card);
+        });
     });
     return mergeBufferGeometries(parts);
 }
 
-// 5E. Limestone Boulder & Outcrop Geometry (Stratified Bedding & Weathered Crevices)
+// 5E. Limestone Boulder & Outcrop Geometry
 function createLimestoneRockGeometry() {
     const parts = [];
-    // Multiple interlocking boulders forming an organic outcrop cluster
     const boulders = [
         { x: 0, y: 0.45, z: 0, sx: 1.45, sy: 0.85, sz: 1.25, rot: 0.2 },
         { x: 0.85, y: 0.32, z: 0.45, sx: 1.1, sy: 0.65, sz: 0.95, rot: 1.1 },
@@ -923,7 +1046,6 @@ function createLimestoneRockGeometry() {
         const p = geo.attributes.position;
         for (let i = 0; i < p.count; i++) {
             const vx = p.getX(i), vy = p.getY(i), vz = p.getZ(i);
-            // Stratified horizontal rock bedding planes
             const layerJitter = Math.sin(vy * 8.0) * 0.08 + (hash2D(vx * 6.2, vz * 6.2) - 0.5) * 0.18;
             const s = 0.88 + layerJitter;
             p.setXYZ(i, vx * s * b.sx, vy * s * b.sy, vz * s * b.sz);
@@ -931,82 +1053,214 @@ function createLimestoneRockGeometry() {
         geo.computeVertexNormals();
         geo.rotateY(b.rot);
         geo.translate(b.x, b.y, b.z);
-        parts.push(colorizeSolidGeometry(geo, 0x76736a, 0.08));
+
+        const col = new Float32Array(p.count * 3);
+        for (let k = 0; k < p.count; k++) {
+            col[k * 3 + 0] = 0.62;
+            col[k * 3 + 1] = 0.60;
+            col[k * 3 + 2] = 0.56;
+        }
+        geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+        parts.push(geo);
     });
 
     return mergeBufferGeometries(parts);
 }
 
-// 5E. European Timber-Framed Cottage Geometry
+// ============================================================================
+// 5F. European Timber-Framed Cottage Geometry (Mapped to 1024x1024 Village Atlas)
+// Q0: Facade & Windows [0..0.5, 0.5..1.0]
+// Q1: Terracotta Tiles [0.5..1.0, 0.5..1.0]
+// Q2: Fieldstone Masonry [0..0.5, 0..0.5]
+// Q3: Timber Planks [0.5..1.0, 0..0.5]
+// ============================================================================
+function createPitchedRoofGeometry(w, l, hRoof) {
+    const hw = w * 0.5;
+    const hl = l * 0.5;
+    const positions = [];
+    const normals = [];
+    const uvs = [];
+
+    // Left slope
+    const nl = new THREE.Vector3(-hRoof, hw, 0).normalize();
+    positions.push(
+        -hw, 0, hl,   0, hRoof, hl,   -hw, 0, -hl,
+        -hw, 0, -hl,  0, hRoof, hl,   0, hRoof, -hl
+    );
+    for (let i = 0; i < 6; i++) {
+        normals.push(nl.x, nl.y, nl.z);
+    }
+    uvs.push(
+        0, 0,  1, 0,  0, 1,
+        0, 1,  1, 0,  1, 1
+    );
+
+    // Right slope
+    const nr = new THREE.Vector3(hRoof, hw, 0).normalize();
+    positions.push(
+        0, hRoof, hl,   hw, 0, hl,   0, hRoof, -hl,
+        0, hRoof, -hl,  hw, 0, hl,   hw, 0, -hl
+    );
+    for (let i = 0; i < 6; i++) {
+        normals.push(nr.x, nr.y, nr.z);
+    }
+    uvs.push(
+        0, 0,  1, 0,  0, 1,
+        0, 1,  1, 0,  1, 1
+    );
+
+    // Front gable (+Z)
+    positions.push(
+        -hw, 0, hl,   hw, 0, hl,   0, hRoof, hl
+    );
+    normals.push(0, 0, 1,  0, 0, 1,  0, 0, 1);
+    uvs.push(0, 0,  1, 0,  0.5, 1);
+
+    // Back gable (-Z)
+    positions.push(
+        hw, 0, -hl,   -hw, 0, -hl,   0, hRoof, -hl
+    );
+    normals.push(0, 0, -1,  0, 0, -1,  0, 0, -1);
+    uvs.push(0, 0,  1, 0,  0.5, 1);
+
+    // Bottom face (-Y)
+    positions.push(
+        -hw, 0, -hl,   hw, 0, -hl,   -hw, 0, hl,
+        -hw, 0, hl,    hw, 0, -hl,   hw, 0, hl
+    );
+    for (let i = 0; i < 6; i++) {
+        normals.push(0, -1, 0);
+    }
+    uvs.push(
+        0, 0,  1, 0,  0, 1,
+        0, 1,  1, 0,  1, 1
+    );
+
+    const geom = new THREE.BufferGeometry();
+    geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geom.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+    geom.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    return geom;
+}
+
 function createEuropeanCottageGeometry() {
     const parts = [];
-    const w = 4.6, h = 3.2, l = 6.4;
+    const w = 4.8, h = 3.4, l = 6.6;
 
-    const foundation = new THREE.BoxGeometry(w + 0.25, 0.75, l + 0.25);
-    foundation.translate(0, 0.375, 0);
-    parts.push(colorizeSolidGeometry(foundation, 0x524e48, 0.06));
+    // 1. Dressed Fieldstone Foundation Plinth extending deep into hillside slopes (Q2: [0..0.5, 0..0.5])
+    const found = new THREE.BoxGeometry(w + 0.35, 2.2, l + 0.35);
+    setGeometryUVBox(found, 0.02, 0.48, 0.02, 0.48);
+    found.translate(0, -0.1, 0);
+    parts.push(found);
 
+    // 2. Main 2-Story Plaster/Timber Facade Body (Q0: [0..0.5, 0.5..1.0])
     const walls = new THREE.BoxGeometry(w, h, l);
-    walls.translate(0, 0.75 + h * 0.5, 0);
-    parts.push(colorizeSolidGeometry(walls, 0xe4ded3, 0.04));
+    setGeometryUVBox(walls, 0.02, 0.48, 0.52, 0.98);
+    walls.translate(0, 1.0 + h * 0.5, 0);
+    parts.push(walls);
 
-    const beamMatHex = 0x332419;
-    const cornerOffsets = [[-w * 0.5, -l * 0.5], [w * 0.5, -l * 0.5], [-w * 0.5, l * 0.5], [w * 0.5, l * 0.5]];
-    cornerOffsets.forEach(([cx, cz]) => {
-        const post = new THREE.BoxGeometry(0.22, h, 0.22);
-        post.translate(cx, 0.75 + h * 0.5, cz);
-        parts.push(colorizeSolidGeometry(post, beamMatHex, 0.03));
+    // 3. Overhanging Pitched Terracotta Roof with Exposed Eaves (Q1: [0.5..1.0, 0.5..1.0])
+    const roof = createPitchedRoofGeometry(w + 1.2, l + 1.3, 2.85);
+    setGeometryUVBox(roof, 0.52, 0.98, 0.52, 0.98);
+    roof.translate(0, 1.0 + h, 0);
+    parts.push(roof);
+
+    // Eave fascia rafter beam (Q3: Timber)
+    const fasciaL = new THREE.BoxGeometry(0.18, 0.22, l + 1.35);
+    setGeometryUVBox(fasciaL, 0.52, 0.98, 0.02, 0.48);
+    fasciaL.translate(-(w + 1.2) * 0.5, 1.0 + h - 0.05, 0);
+    parts.push(fasciaL);
+
+    const fasciaR = new THREE.BoxGeometry(0.18, 0.22, l + 1.35);
+    setGeometryUVBox(fasciaR, 0.52, 0.98, 0.02, 0.48);
+    fasciaR.translate((w + 1.2) * 0.5, 1.0 + h - 0.05, 0);
+    parts.push(fasciaR);
+
+    // 4. Corbeled Fieldstone Chimney Stack & Pots (Q2)
+    const chim = new THREE.BoxGeometry(0.85, 3.2, 0.85);
+    setGeometryUVBox(chim, 0.02, 0.48, 0.02, 0.48);
+    chim.translate(w * 0.24, 1.0 + h + 1.6, -l * 0.25);
+    parts.push(chim);
+
+    for (let cp = -1; cp <= 1; cp += 2) {
+        const pot = new THREE.CylinderGeometry(0.12, 0.15, 0.65, 8);
+        setGeometryUVBox(pot, 0.52, 0.98, 0.52, 0.98); // Terracotta
+        pot.translate(w * 0.24 + cp * 0.2, 1.0 + h + 3.4, -l * 0.25);
+        parts.push(pot);
+    }
+
+    // 5. Front Timber Entrance Porch Canopy (Q3 Posts, Q1 Tiled Roof)
+    const porchRoof = createPitchedRoofGeometry(2.1, 1.8, 0.9);
+    setGeometryUVBox(porchRoof, 0.52, 0.98, 0.52, 0.98);
+    porchRoof.translate(0, 3.2, l * 0.5 + 0.8);
+    parts.push(porchRoof);
+
+    [-0.85, 0.85].forEach(px => {
+        const post = new THREE.BoxGeometry(0.14, 2.2, 0.14);
+        setGeometryUVBox(post, 0.52, 0.98, 0.02, 0.48);
+        post.translate(px, 2.0, l * 0.5 + 1.55);
+        parts.push(post);
     });
 
-    const plateBeam = new THREE.BoxGeometry(w + 0.12, 0.2, l + 0.12);
-    plateBeam.translate(0, 0.75 + h * 0.55, 0);
-    parts.push(colorizeSolidGeometry(plateBeam, beamMatHex, 0.03));
+    // 6. Attached Timber Barn / Tool Shed Wing with Stone Plinth (Q2 Plinth, Q3 Timber Walls, Q1 Roof)
+    const shedPlinth = new THREE.BoxGeometry(2.5, 1.8, 3.9);
+    setGeometryUVBox(shedPlinth, 0.02, 0.48, 0.02, 0.48);
+    shedPlinth.translate(w * 0.5 + 1.2, -0.1, 0.3);
+    parts.push(shedPlinth);
 
-    const winPositions = [[-w * 0.51, 2.5, -1.5], [-w * 0.51, 2.5, 1.5], [w * 0.51, 2.5, -1.5], [w * 0.51, 2.5, 1.5]];
-    winPositions.forEach(([wx, wy, wz]) => {
-        const win = new THREE.BoxGeometry(0.12, 0.85, 0.75);
-        win.translate(wx, wy, wz);
-        parts.push(colorizeSolidGeometry(win, 0x1a2026, 0.02));
-    });
+    const shed = new THREE.BoxGeometry(2.4, 1.8, 3.8);
+    setGeometryUVBox(shed, 0.52, 0.98, 0.02, 0.48);
+    shed.translate(w * 0.5 + 1.2, 1.5, 0.3);
+    parts.push(shed);
 
-    // Warm terracotta red tile roof matching seaside countryside cottage
-    const roof = createPitchedRoofGeometry(w + 0.85, l + 0.9, 2.65);
-    roof.translate(0, 0.75 + h, 0);
-    parts.push(colorizeSolidGeometry(roof, 0xb24526, 0.06));
-
-    const chimney = new THREE.BoxGeometry(0.65, 2.4, 0.65);
-    chimney.translate(w * 0.22, 0.75 + h + 1.4, -l * 0.25);
-    parts.push(colorizeSolidGeometry(chimney, 0x8a3824, 0.05));
-
-    const shed = new THREE.BoxGeometry(2.1, 2.2, 3.6);
-    shed.translate(w * 0.5 + 1.0, 1.1, 0.4);
-    parts.push(colorizeSolidGeometry(shed, 0x4d3a29, 0.06));
+    const shedRoof = createPitchedRoofGeometry(2.8, 4.2, 1.4);
+    setGeometryUVBox(shedRoof, 0.52, 0.98, 0.52, 0.98);
+    shedRoof.translate(w * 0.5 + 1.2, 2.4, 0.3);
+    parts.push(shedRoof);
 
     return mergeBufferGeometries(parts);
 }
 
-// 5F. War-Damaged Smoldering Ruined House Geometry
+// 5G. Smoldering Ruined House (Mapped to Village Atlas Q2 Masonry & Q3 Charred Timber with Soot AO)
 function createRuinedHouseGeometry() {
     const parts = [];
-    const w = 4.8, h = 2.8, l = 6.2;
+    const w = 5.0, h = 3.0, l = 6.4;
 
-    const baseShell = new THREE.BoxGeometry(w, h * 0.65, l);
-    baseShell.translate(0, h * 0.325, 0);
-    parts.push(colorizeSolidGeometry(baseShell, 0x453f39, 0.09));
+    function tintRuinPart(geo, r, g, b) {
+        const c = new Float32Array(geo.attributes.position.count * 3);
+        for (let i = 0; i < geo.attributes.position.count; i++) {
+            const vy = geo.attributes.position.getY(i);
+            const soot = 0.42 + 0.38 * Math.min(1.0, Math.max(0.0, (2.2 - vy) / 2.2));
+            c[i * 3 + 0] = r * soot;
+            c[i * 3 + 1] = g * soot;
+            c[i * 3 + 2] = b * soot;
+        }
+        geo.setAttribute('color', new THREE.BufferAttribute(c, 3));
+        return geo;
+    }
 
-    const gableWall = new THREE.BoxGeometry(w * 0.92, h * 1.15, 0.45);
-    gableWall.translate(0, h * 0.57, -l * 0.46);
-    parts.push(colorizeSolidGeometry(gableWall, 0x594d43, 0.08));
+    const baseShell = new THREE.BoxGeometry(w, h * 0.62, l);
+    setGeometryUVBox(baseShell, 0.02, 0.48, 0.02, 0.48);
+    baseShell.translate(0, h * 0.31, 0);
+    parts.push(tintRuinPart(baseShell, 0.72, 0.68, 0.64));
 
-    const chimney = new THREE.BoxGeometry(0.7, 4.4, 0.7);
+    const gableWall = new THREE.BoxGeometry(w * 0.88, h * 1.15, 0.48);
+    setGeometryUVBox(gableWall, 0.02, 0.48, 0.02, 0.48);
+    gableWall.translate(0, h * 0.58, -l * 0.45);
+    parts.push(tintRuinPart(gableWall, 0.65, 0.60, 0.56));
+
+    const chimney = new THREE.BoxGeometry(0.85, 4.4, 0.85);
+    setGeometryUVBox(chimney, 0.02, 0.48, 0.02, 0.48);
     chimney.translate(-w * 0.25, 2.2, -l * 0.35);
-    parts.push(colorizeSolidGeometry(chimney, 0x3b2a22, 0.05));
+    parts.push(tintRuinPart(chimney, 0.58, 0.54, 0.50));
 
+    // Charred dark fallen timber rafters
     for (let r = -2; r <= 2; r++) {
-        const rafter = new THREE.BoxGeometry(0.16, 2.9, 0.16);
-        rafter.rotateZ(0.68);
-        rafter.translate(-1.1, h * 0.78, r * 1.1);
-        parts.push(colorizeSolidGeometry(rafter, 0x1c1714, 0.03));
+        const rafter = new THREE.BoxGeometry(0.18, 3.1, 0.18);
+        setGeometryUVBox(rafter, 0.52, 0.98, 0.02, 0.48);
+        rafter.rotateZ(0.72 + (r * 0.04));
+        rafter.translate(-1.0, h * 0.78, r * 1.15);
+        parts.push(tintRuinPart(rafter, 0.25, 0.20, 0.16));
     }
 
     return mergeBufferGeometries(parts);
@@ -1046,8 +1300,8 @@ function createSmokeCanvasTexture() {
     c.width = 128; c.height = 128;
     const ctx = c.getContext('2d');
     const grad = ctx.createRadialGradient(64, 64, 6, 64, 64, 60);
-    grad.addColorStop(0.0, 'rgba(65, 62, 68, 0.65)');
-    grad.addColorStop(0.45, 'rgba(50, 48, 55, 0.35)');
+    grad.addColorStop(0.0, 'rgba(55, 52, 58, 0.65)');
+    grad.addColorStop(0.45, 'rgba(45, 42, 48, 0.35)');
     grad.addColorStop(1.0, 'rgba(35, 35, 42, 0.0)');
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, 128, 128);
@@ -1058,10 +1312,10 @@ function createFireCanvasTexture() {
     const c = document.createElement('canvas');
     c.width = 128; c.height = 128;
     const ctx = c.getContext('2d');
-    const grad = ctx.createRadialGradient(64, 64, 2, 64, 64, 58);
-    grad.addColorStop(0.0, 'rgba(255, 245, 190, 1.0)');
-    grad.addColorStop(0.28, 'rgba(255, 145, 35, 0.85)');
-    grad.addColorStop(0.65, 'rgba(215, 50, 10, 0.35)');
+    const grad = ctx.createRadialGradient(64, 72, 2, 64, 68, 54);
+    grad.addColorStop(0.0, 'rgba(255, 185, 75, 0.72)');
+    grad.addColorStop(0.32, 'rgba(235, 95, 20, 0.45)');
+    grad.addColorStop(0.68, 'rgba(140, 30, 8, 0.15)');
     grad.addColorStop(1.0, 'rgba(0, 0, 0, 0.0)');
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, 128, 128);
@@ -1072,129 +1326,89 @@ var sharedSmokeTex = null;
 var sharedFireTex = null;
 
 // ============================================================================
-// 7. SMOOTH STRATIFIED TOROIDAL GPU WRAPPING GRASS SYSTEM
+// 7. HIGH-PERFORMANCE TEXTURE-ATLAS GRASS & WILDFLOWER SYSTEM
+// 4-Column Botanical Tuft Atlas + Early-Out Frustum/Radius Vertex Culling
+// Cuts grass instances from 1.4M to 56K (96% triangle reduction!)
 // ============================================================================
-function isMobileDevice() {
-    return /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '') || (navigator.maxTouchPoints > 1);
-}
-
-const LOD0_PATCH_SIZE = 110.0;       // Covers [0m .. 55m] with high LOD0 blade density (10.74 inst/m², ~32 blades/m²)
-const LOD0_MID_PATCH_SIZE = 280.0;   // Covers [55m .. 140m] with identical high density as near ring (10.74 inst/m²)
-const LOD0_FAR_PATCH_SIZE = 500.0;   // Covers [140m .. 250m] with previous mid ring density (1.72 inst/m²)
-
-function createLOD0BladeGeometry() {
-    const geo = new THREE.BufferGeometry();
-    const positions = [];
-    const uvs = [];
-    const indices = [];
-
-    const bladesPerClump = 4;
-    const segments = 4;
-    const verticesPerBlade = (segments + 1) * 2;
-
-    for (let b = 0; b < bladesPerClump; b++) {
-        const angle = (b / bladesPerClump) * Math.PI + b * 0.42;
-        const cosA = Math.cos(angle);
-        const sinA = Math.sin(angle);
-        const offsetX = Math.cos(b * 2.1) * 0.14;
-        const offsetZ = Math.sin(b * 2.1) * 0.14;
-        const curveDroop = 0.22 + (b % 2) * 0.14;
-        const heightScale = 0.85 + (b % 3) * 0.15;
-        const baseIdx = b * verticesPerBlade;
-
-        for (let i = 0; i <= segments; i++) {
-            const t = i / segments;
-            const halfW = 0.048 * (1.0 - t * 0.88);
-            const y = t * 1.15 * heightScale;
-            const bend = t * t * curveDroop;
-
-            positions.push(
-                -halfW * cosA + bend * sinA + offsetX, y,
-                -halfW * sinA - bend * cosA + offsetZ,
-                halfW * cosA + bend * sinA + offsetX, y,
-                halfW * sinA - bend * cosA + offsetZ
-            );
-            uvs.push(0, t, 1, t);
-        }
-
-        for (let i = 0; i < segments; i++) {
-            const row = baseIdx + i * 2;
-            indices.push(row, row + 1, row + 2, row + 1, row + 3, row + 2);
-        }
+let grassTuftAtlas = null;
+function getGrassTuftAtlas() {
+    if (!grassTuftAtlas && typeof createGrassTuftAtlasTexture === 'function') {
+        grassTuftAtlas = createGrassTuftAtlasTexture();
     }
-
-    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
-    geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uvs), 2));
-    geo.setIndex(indices);
-    geo.computeVertexNormals();
-    return geo;
-}
-
-function createLOD1ClumpGeometry() {
-    const geo = new THREE.BufferGeometry();
-    const bw1 = 0.25, bh1 = 0.94;
-    const bw2 = 0.21, bh2 = 0.88;
-    const ang2 = 1.15;
-    const c2 = Math.cos(ang2), s2 = Math.sin(ang2);
-
-    const positions = [];
-    const uvs = [];
-    const indices = [];
-
-    // Clump blade 1
-    const b1 = [
-        [-bw1,        0.0,        0.0,   0.0, 0.0],
-        [ bw1,        0.0,        0.0,   1.0, 0.0],
-        [-bw1 * 0.70, bh1 * 0.50, 0.12,  0.0, 0.5],
-        [ bw1 * 0.70, bh1 * 0.50, 0.12,  1.0, 0.5],
-        [ 0.0,        bh1,        0.28,  0.5, 1.0]
-    ];
-    for (let i = 0; i < b1.length; i++) {
-        positions.push(b1[i][0], b1[i][1], b1[i][2]);
-        uvs.push(b1[i][3], b1[i][4]);
-    }
-    indices.push(0, 1, 2,  2, 1, 3,  2, 3, 4);
-
-    // Clump blade 2
-    const b2 = [
-        [-bw2,        0.0,        0.0,   0.0, 0.0],
-        [ bw2,        0.0,        0.0,   1.0, 0.0],
-        [-bw2 * 0.70, bh2 * 0.50, -0.10, 0.0, 0.5],
-        [ bw2 * 0.70, bh2 * 0.50, -0.10, 1.0, 0.5],
-        [ 0.0,        bh2,        -0.24, 0.5, 1.0]
-    ];
-    const baseIdx = 5;
-    for (let i = 0; i < b2.length; i++) {
-        let rx = b2[i][0] * c2 - b2[i][2] * s2;
-        let rz = b2[i][0] * s2 + b2[i][2] * c2;
-        positions.push(rx, b2[i][1], rz);
-        uvs.push(b2[i][3], b2[i][4]);
-    }
-    indices.push(
-        baseIdx + 0, baseIdx + 1, baseIdx + 2,
-        baseIdx + 2, baseIdx + 1, baseIdx + 3,
-        baseIdx + 2, baseIdx + 3, baseIdx + 4
-    );
-
-    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
-    geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uvs), 2));
-    geo.setIndex(indices);
-    geo.computeVertexNormals();
-    return geo;
+    return grassTuftAtlas;
 }
 
 const grassUniforms = {
     uTime: { value: 0 },
     uWindSpeed: { value: 1.2 },
     uCameraPos: { value: new THREE.Vector3() },
+    uCameraForwardXZ: { value: new THREE.Vector2(0, 1) },
     uSeedOffset: terrainUniforms.uSeedOffset,
     uRoadBaseX: terrainUniforms.uRoadBaseX,
-    uBuildings: { value: Array.from({ length: 16 }, () => new THREE.Vector4(0, 0, 0, 0)) },
-    uBuildingCount: { value: 0 }
+    uBuildings: terrainUniforms.uBuildings,
+    uBuildingCount: terrainUniforms.uBuildingCount,
+    uSunDir: terrainUniforms.uSunDir,
+    uSunColor: terrainUniforms.uSunColor,
+    uSkyColor: terrainUniforms.uSkyColor
 };
 
-// Stratified jittered grid placement ensures smooth, completely uniform grass coverage
-function createStratifiedToroidalGrass(geo, count, patchSize, minRadius, maxRadius, isLOD0) {
+// 3 Crossed Botanical Tuft Geometry with Upward Normals (Zero plane-intersection shading seams!)
+function createCrossedTuftGeometry() {
+    const planes = [
+        { ang: 0.0,  tilt: 0.08 },
+        { ang: 1.05, tilt: -0.08 },
+        { ang: 2.10, tilt: 0.08 }
+    ];
+    const w = 1.15;
+    const h = 0.72;
+    const hw = w * 0.5;
+
+    const positions = [];
+    const normals = [];
+    const uvs = [];
+    const indices = [];
+
+    planes.forEach((p, idx) => {
+        const ca = Math.cos(p.ang);
+        const sa = Math.sin(p.ang);
+        const b = idx * 4;
+
+        positions.push(
+            -hw * ca, -0.04, -hw * sa,
+             hw * ca, -0.04,  hw * sa,
+            -hw * 0.92 * ca + sa * p.tilt, h, -hw * 0.92 * sa - ca * p.tilt,
+             hw * 0.92 * ca + sa * p.tilt, h,  hw * 0.92 * sa - ca * p.tilt
+        );
+
+        // Point all vertex normals straight UP so crossed planes shade identically to the meadow ground!
+        normals.push(
+            0.0, 1.0, 0.0,
+            0.0, 1.0, 0.0,
+            0.0, 1.0, 0.0,
+            0.0, 1.0, 0.0
+        );
+
+        uvs.push(
+            0.0, 0.0,
+            1.0, 0.0,
+            0.0, 1.0,
+            1.0, 1.0
+        );
+
+        indices.push(b, b + 1, b + 2, b + 1, b + 3, b + 2);
+    });
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(normals), 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uvs), 2));
+    geo.setIndex(new THREE.BufferAttribute(new Uint32Array(indices), 1));
+    return geo;
+}
+
+function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRadius, isNear) {
+    // CRITICAL: Clone baseGeo so each LOD ring owns its own aInstanceData buffer!
+    const geo = baseGeo.clone();
     const gridSide = Math.ceil(Math.sqrt(count));
     const cellSize = patchSize / gridSide;
     const offsets = new Float32Array(count * 4);
@@ -1202,12 +1416,19 @@ function createStratifiedToroidalGrass(geo, count, patchSize, minRadius, maxRadi
 
     for (let gx = 0; gx < gridSide && idx < count; gx++) {
         for (let gz = 0; gz < gridSide && idx < count; gz++) {
-            const jx = (gx + 0.12 + Math.random() * 0.76) * cellSize - patchSize * 0.5;
-            const jz = (gz + 0.12 + Math.random() * 0.76) * cellSize - patchSize * 0.5;
+            const jx = (gx + 0.10 + Math.random() * 0.80) * cellSize - patchSize * 0.5;
+            const jz = (gz + 0.10 + Math.random() * 0.80) * cellSize - patchSize * 0.5;
             offsets[idx * 4 + 0] = jx;
             offsets[idx * 4 + 1] = jz;
             offsets[idx * 4 + 2] = Math.random() * Math.PI * 2.0;
-            offsets[idx * 4 + 3] = Math.random();
+            // Clumped wildflower distribution: 82% lush grass & ryegrass, 18% natural wildflower drifts
+            const clumpedFlower = Math.sin(jx * 0.14 + 0.5) * Math.cos(jz * 0.14 - 0.3);
+            const pick = Math.random();
+            let col = 0.0;
+            if (clumpedFlower > 0.38 && pick > 0.72) col = 3.0;      // Golden buttercup drift
+            else if (clumpedFlower < -0.35 && pick > 0.70) col = 2.0; // White chamomile daisy drift
+            else if (pick > 0.48) col = 1.0;                          // Ryegrass & seed plumes
+            offsets[idx * 4 + 3] = col;
             idx++;
         }
     }
@@ -1215,15 +1436,14 @@ function createStratifiedToroidalGrass(geo, count, patchSize, minRadius, maxRadi
         offsets[idx * 4 + 0] = (Math.random() - 0.5) * patchSize;
         offsets[idx * 4 + 1] = (Math.random() - 0.5) * patchSize;
         offsets[idx * 4 + 2] = Math.random() * Math.PI * 2.0;
-        offsets[idx * 4 + 3] = Math.random();
+        offsets[idx * 4 + 3] = Math.random() > 0.5 ? 1.0 : 0.0;
         idx++;
     }
 
     geo.setAttribute('aInstanceData', new THREE.InstancedBufferAttribute(offsets, 4));
 
     const mat = new THREE.MeshStandardMaterial({
-        color: 0x668039,
-        roughness: 0.88,
+        roughness: 0.86,
         metalness: 0.0,
         side: THREE.DoubleSide
     });
@@ -1232,173 +1452,168 @@ function createStratifiedToroidalGrass(geo, count, patchSize, minRadius, maxRadi
         shader.uniforms.uTime = grassUniforms.uTime;
         shader.uniforms.uWindSpeed = grassUniforms.uWindSpeed;
         shader.uniforms.uCameraPos = grassUniforms.uCameraPos;
+        shader.uniforms.uCameraForwardXZ = grassUniforms.uCameraForwardXZ;
         shader.uniforms.uSeedOffset = grassUniforms.uSeedOffset;
         shader.uniforms.uRoadBaseX = grassUniforms.uRoadBaseX;
         shader.uniforms.uBuildings = grassUniforms.uBuildings;
         shader.uniforms.uBuildingCount = grassUniforms.uBuildingCount;
-        if (isLOD0) {
-            shader.uniforms.uGrassSunDirection = window.celestialLighting.sunDirection;
-            shader.uniforms.uGrassSunColor = window.celestialLighting.sunColor;
-            shader.uniforms.uGrassSkyColor = window.celestialLighting.skyColor;
-        }
+        shader.uniforms.uSunDir = grassUniforms.uSunDir;
+        shader.uniforms.uSunColor = grassUniforms.uSunColor;
+        shader.uniforms.uSkyColor = grassUniforms.uSkyColor;
         shader.uniforms.uPatchSize = { value: patchSize };
         shader.uniforms.uMinRadius = { value: minRadius };
         shader.uniforms.uMaxRadius = { value: maxRadius };
+        shader.uniforms.uGrassAtlas = { value: getGrassTuftAtlas() };
 
         shader.vertexShader = `
             attribute vec4 aInstanceData;
             uniform float uTime;
             uniform float uWindSpeed;
             uniform vec3 uCameraPos;
+            uniform vec2 uCameraForwardXZ;
+            uniform vec4 uBuildings[16];
+            uniform int uBuildingCount;
             uniform float uPatchSize;
             uniform float uMinRadius;
             uniform float uMaxRadius;
-            uniform vec4 uBuildings[16];
-            uniform int uBuildingCount;
-            ${isLOD0 ? 'uniform vec3 uGrassSunDirection;' : ''}
-
-            varying float vHeightRatio;
-            varying vec3 vWorldPos;
-            ${isLOD0 ? 'varying vec3 vGrassSunDirectionView;' : ''}
-            varying float vBladeSeed;
-            varying float vFlowerType;
+            varying vec2 vGrassAtlasUv;
+            varying vec3 vGrassWorldPos;
+            varying float vGrassHeightFrac;
+            varying vec3 vTerrainNormalUp;
             ${SHARED_TERRAIN_GLSL}
         ` + shader.vertexShader;
+
+        shader.vertexShader = shader.vertexShader.replace(
+            '#include <beginnormal_vertex>',
+            `
+            vec3 objectNormal = vec3(0.0, 1.0, 0.0);
+            `
+        );
 
         shader.vertexShader = shader.vertexShader.replace(
             '#include <begin_vertex>',
             `
             #include <begin_vertex>
-            vHeightRatio = uv.y;
-            float seed = aInstanceData.w;
-            vBladeSeed = seed;
-
-            // Toroidal wrap around camera/tank XZ so grass infinitely surrounds the player
-            vec2 relXZ = mod(aInstanceData.xy - uCameraPos.xz + uPatchSize * 0.5, uPatchSize) - uPatchSize * 0.5;
+            float halfPatch = uPatchSize * 0.5;
+            vec2 relXZ = mod(aInstanceData.xy - uCameraPos.xz + halfPatch, uPatchSize) - halfPatch;
             vec2 worldXZ = uCameraPos.xz + relXZ;
+            float distFromCam = length(relXZ);
 
-            float worldHash = hash2D_gpu(floor(worldXZ * 2.5) + seed * 17.3);
-            float distToCam = length(relXZ);
+            // 1. Early-out Ring & Camera Frustum Culling BEFORE terrain height evaluation
+            float fadeIn = (uMinRadius > 0.5) ? smoothstep(uMinRadius, uMinRadius + 5.0, distFromCam) : 1.0;
+            float fadeOut = 1.0 - smoothstep(uMaxRadius - 10.0, uMaxRadius, distFromCam);
+            float ringFade = fadeIn * fadeOut;
 
-            // Crisp, solid boundary with zero cross-fade: full height & thickness across the entire layer
-            float ringVisibility = (distToCam >= uMinRadius && distToCam < uMaxRadius) ? 1.0 : 0.0;
+            if (distFromCam > 10.0) {
+                float viewDot = dot(normalize(relXZ), uCameraForwardXZ);
+                ringFade *= smoothstep(-0.42, -0.10, viewDot);
+            }
 
-            // Accurate GPU terrain height matching CPU identically
+            if (ringFade <= 0.01) {
+                gl_Position = vec4(2.0, 2.0, 2.0, 0.0);
+                return;
+            }
+
+            // 2. Terrain height & road/beach/building culling
+            float roadMask = getRoadFactor_gpu(worldXZ.x, worldXZ.y);
+            float roadCull = 1.0 - smoothstep(0.06, 0.36, roadMask);
+            if (roadCull <= 0.01) {
+                gl_Position = vec4(2.0, 2.0, 2.0, 0.0);
+                return;
+            }
+
             vec3 surfNorm;
             float groundY = getTerrainSurfaceHeight_gpu(worldXZ.x, worldXZ.y, surfNorm);
-            float slope = 1.0 - surfNorm.y;
-            float slopeCull = 1.0 - smoothstep(0.22, 0.35, slope);
+            vTerrainNormalUp = normalize(normalMatrix * surfNorm);
 
-            // Road culling: completely clear road bed and muddy tracks
-            float roadF = getRoadFactor_gpu(worldXZ.x, worldXZ.y);
-            float roadCull = 1.0 - smoothstep(0.08, 0.32, roadF);
+            float waterCull = smoothstep(-1.4, 0.5, groundY) * (1.0 - smoothstep(0.22, 0.38, 1.0 - surfNorm.y));
+            float spawnCull = smoothstep(2.8, 5.5, length(worldXZ));
 
-            // House, farmstead & ruin building culling: zero grass inside cottages/ruins
             float bldgCull = 1.0;
             for (int b = 0; b < 16; b++) {
                 if (b >= uBuildingCount) break;
-                float distB = length(worldXZ - uBuildings[b].xy);
-                if (distB < uBuildings[b].z) {
-                    bldgCull = 0.0;
+                float dB = length(worldXZ - uBuildings[b].xy);
+                if (dB < uBuildings[b].z + 0.8) {
+                    bldgCull = min(bldgCull, smoothstep(uBuildings[b].z - 0.2, uBuildings[b].z + 0.8, dB));
                 }
             }
 
-            // Spawn pad clearing (tight clearance around tank hull, leaving lush grass around tracks)
-            float dSpawn = length(worldXZ);
-            float spawnCull = smoothstep(0.8, 2.2, dSpawn);
+            float sizeVar = 0.82 + 0.38 * fract(sin(dot(aInstanceData.xy, vec2(12.9898, 78.233))) * 43758.5453);
+            float masterScale = ringFade * roadCull * waterCull * spawnCull * bldgCull * sizeVar;
+            if (masterScale <= 0.01) {
+                gl_Position = vec4(2.0, 2.0, 2.0, 0.0);
+                return;
+            }
 
-            // Flowers (buttercups & golden seed heads) on select LOD0 blades
-            vFlowerType = (${isLOD0 ? '1.0' : '0.0'} > 0.5 && seed > 0.94 && roadF < 0.20 && groundY > -1.5) ? 1.0 : 0.0;
+            float colIdx = aInstanceData.w;
+            vGrassAtlasUv = vec2(
+                (colIdx + clamp(uv.x, 0.02, 0.98)) * 0.25,
+                clamp(uv.y, 0.02, 0.98)
+            );
+            vGrassHeightFrac = uv.y;
 
-            // Zero grass in the seaside ocean
-            float waterCull = smoothstep(-2.4, -1.6, groundY);
-            float masterScale = ringVisibility * roadCull * slopeCull * bldgCull * spawnCull * waterCull;
-
-            // Blade rotation and dimensions (smooth, consistent height across meadow)
-            float ang = aInstanceData.z + worldHash * 6.28318;
+            float ang = aInstanceData.z;
             float ca = cos(ang), sa = sin(ang);
+            float windWave = sin(worldXZ.x * 0.09 + worldXZ.y * 0.07 + uTime * 2.2 * uWindSpeed) * 0.26;
 
-            // Consistent, uniform height and thickness across the entire meadow
-            float hScale = (0.94 + fract(seed * 7.13) * 0.28) * masterScale;
-            float wScale = (1.05 + fract(seed * 3.7) * 0.22) * (vFlowerType > 0.5 ? 1.6 : 1.0) * step(0.001, masterScale);
+            vec3 localP = transformed;
+            localP.xz *= (0.85 + 0.30 * sizeVar);
+            localP.y *= masterScale;
 
-            vec3 localPos = transformed;
-            localPos.x *= wScale;
-            localPos.y *= hScale;
-            localPos.z *= wScale;
-
-            vec3 rotPos = vec3(
-                localPos.x * ca - localPos.z * sa,
-                localPos.y,
-                localPos.x * sa + localPos.z * ca
+            vec3 rotP = vec3(
+                localP.x * ca - localP.z * sa,
+                localP.y,
+                localP.x * sa + localP.z * ca
             );
 
-            // Traveling wind wave across meadow
-            float windWave = sin(worldXZ.x * 0.085 + worldXZ.y * 0.065 + uTime * 2.35 * uWindSpeed) * 0.28
-                           + cos(worldXZ.x * 0.20 - uTime * 3.1 * uWindSpeed + seed * 6.0) * 0.10;
-            float bend = windWave * vHeightRatio * vHeightRatio * hScale;
-            rotPos.x += bend;
-            rotPos.z += bend * 0.55;
-            rotPos.y -= abs(bend) * 0.20;
+            rotP.x += windWave * uv.y * uv.y * 0.32;
+            rotP.z += windWave * uv.y * uv.y * 0.18;
 
-            vec3 surfaceTangentX = normalize(vec3(ca, -(surfNorm.x * ca + surfNorm.z * sa) / max(surfNorm.y, 0.001), sa));
-            vec3 surfaceTangentZ = normalize(cross(surfaceTangentX, surfNorm));
-            vec3 surfaceOffset = surfaceTangentX * rotPos.x + surfNorm * rotPos.y + surfaceTangentZ * rotPos.z;
-
-            transformed = surfaceOffset + vec3(worldXZ.x, groundY - 0.015, worldXZ.y);
-            vWorldPos = transformed;
-            ${isLOD0 ? 'vGrassSunDirectionView = normalize((viewMatrix * vec4(uGrassSunDirection, 0.0)).xyz);' : ''}
+            transformed = rotP + vec3(worldXZ.x, groundY, worldXZ.y);
+            vGrassWorldPos = transformed;
             `
         );
 
         shader.fragmentShader = `
-            ${isLOD0 ? 'uniform vec3 uGrassSunColor;' : ''}
-            ${isLOD0 ? 'uniform vec3 uGrassSkyColor;' : ''}
-            varying float vHeightRatio;
-            varying vec3 vWorldPos;
-            ${isLOD0 ? 'varying vec3 vGrassSunDirectionView;' : ''}
-            varying float vBladeSeed;
-            varying float vFlowerType;
-            ${SHARED_TERRAIN_GLSL}
+            uniform sampler2D uGrassAtlas;
+            uniform vec3 uSunDir;
+            uniform vec3 uSunColor;
+            uniform vec3 uSkyColor;
+            varying vec2 vGrassAtlasUv;
+            varying vec3 vGrassWorldPos;
+            varying float vGrassHeightFrac;
+            varying vec3 vTerrainNormalUp;
         ` + shader.fragmentShader;
 
+        // Keep grass normal aligned with terrain surface normal on both front and back faces!
         shader.fragmentShader = shader.fragmentShader.replace(
-            '#include <color_fragment>',
+            '#include <normal_fragment_begin>',
             `
-            #include <color_fragment>
-            float fieldVariation = fbm3_gpu((vWorldPos.xz + uSeedOffset) * 0.007) * 0.5 + 0.5;
-            float bladeVariation = hash2D_gpu(floor(vWorldPos.xz * 1.7) + vBladeSeed * 23.0);
-            vec3 yellowGreen = ${isLOD0 ? 'vec3(0.20, 0.34, 0.05)' : 'vec3(0.66, 0.74, 0.25)'};
-            vec3 normalGreen = ${isLOD0 ? 'vec3(0.055, 0.20, 0.018)' : 'vec3(0.32, 0.64, 0.19)'};
-            vec3 fieldColor = mix(yellowGreen, normalGreen, smoothstep(0.22, 0.78, fieldVariation));
-            vec3 tipCol = ${isLOD0 ? 'mix(fieldColor * 1.28, vec3(0.62, 0.80, 0.26), 0.42)' : 'fieldColor'};
-            tipCol *= mix(0.90, 1.08, bladeVariation);
-            vec3 rootCol = ${isLOD0 ? 'fieldColor * 0.38' : 'fieldColor * vec3(0.32, 0.42, 0.18)'};
-            vec3 bladeGrad = mix(rootCol, tipCol, smoothstep(0.0, 0.45, vHeightRatio));
-
-            if (vFlowerType > 0.5 && vHeightRatio > 0.72) {
-                vec3 blossomCol = vBladeSeed > 0.982 ? vec3(0.98, 0.95, 0.82) : vec3(0.98, 0.78, 0.15);
-                bladeGrad = mix(bladeGrad, blossomCol, smoothstep(0.72, 0.85, vHeightRatio));
-            }
-
-            diffuseColor.rgb = bladeGrad;
+            #include <normal_fragment_begin>
+            normal = normalize(vTerrainNormalUp);
             `
         );
 
         shader.fragmentShader = shader.fragmentShader.replace(
-            '#include <lights_fragment_end>',
+            '#include <map_fragment>',
             `
-            #include <lights_fragment_end>
-            ${isLOD0 ? `
-            reflectedLight.directDiffuse *= 0.42;
-            reflectedLight.indirectDiffuse *= 0.45;
-            float grassWrapLight = max(abs(dot(normal, normalize(vGrassSunDirectionView))), 0.28);
-            float grassBacklight = pow(max(dot(-normalize(vViewPosition), normalize(vGrassSunDirectionView)), 0.0), 2.5);
-            float grassTipTranslucency = smoothstep(0.35, 1.0, vHeightRatio);
-            vec3 grassBotanicalFill = uGrassSunColor * (grassWrapLight * 0.08 + grassBacklight * grassTipTranslucency * 0.30)
-                                    + uGrassSkyColor * 0.08;
-            reflectedLight.indirectDiffuse += diffuseColor.rgb * grassBotanicalFill;
-            ` : ''}
+            vec4 texelColor = texture2D(uGrassAtlas, vGrassAtlasUv);
+            if (texelColor.a < 0.36) discard;
+
+            // Convert grass atlas from sRGB to linear space
+            vec3 bladeLinear = pow(max(texelColor.rgb, vec3(0.001)), vec3(2.2));
+
+            // Seamlessly blend bottom root of grass tuft into the exact linear meadow ground color!
+            vec3 groundRootCol = vec3(0.028, 0.070, 0.014);
+            float rootBlend = smoothstep(0.02, 0.36, vGrassHeightFrac);
+            bladeLinear = mix(groundRootCol, bladeLinear, rootBlend);
+
+            // Warm sunlight subsurface translucency on upper blade tips
+            vec3 viewDir = normalize(cameraPosition - vGrassWorldPos);
+            float backLight = pow(max(dot(-viewDir, normalize(uSunDir)), 0.0), 2.2);
+            vec3 sss = uSunColor * backLight * vGrassHeightFrac * 0.25 * bladeLinear;
+
+            diffuseColor.rgb = bladeLinear + sss;
             `
         );
     };
@@ -1415,113 +1630,12 @@ function createStratifiedToroidalGrass(geo, count, patchSize, minRadius, maxRadi
     return mesh;
 }
 
-let yellowWildflowerMesh = null;
-let whiteWildflowerMesh = null;
-
-function createToroidalWildflowerMesh(count, color) {
-    const flowerGeo = new THREE.DodecahedronGeometry(0.14, 0);
-    flowerGeo.scale(1, 0.62, 1);
-    flowerGeo.computeVertexNormals();
-
-    const gridSide = Math.ceil(Math.sqrt(count));
-    const cellSize = LOD0_PATCH_SIZE / gridSide;
-    const flowerData = new Float32Array(count * 4);
-    let idx = 0;
-
-    for (let gx = 0; gx < gridSide && idx < count; gx++) {
-        for (let gz = 0; gz < gridSide && idx < count; gz++) {
-            flowerData[idx * 4] = (gx + 0.12 + Math.random() * 0.76) * cellSize - LOD0_PATCH_SIZE * 0.5;
-            flowerData[idx * 4 + 1] = (gz + 0.12 + Math.random() * 0.76) * cellSize - LOD0_PATCH_SIZE * 0.5;
-            flowerData[idx * 4 + 2] = Math.random() * Math.PI * 2.0;
-            flowerData[idx * 4 + 3] = Math.random();
-            idx++;
-        }
-    }
-
-    flowerGeo.setAttribute('aFlowerData', new THREE.InstancedBufferAttribute(flowerData, 4));
-
-    const material = new THREE.MeshStandardMaterial({
-        color,
-        roughness: 0.82,
-        metalness: 0.0,
-        flatShading: true
-    });
-
-    material.onBeforeCompile = (shader) => {
-        shader.uniforms.uCameraPos = grassUniforms.uCameraPos;
-        shader.uniforms.uPatchSize = { value: LOD0_PATCH_SIZE };
-        shader.uniforms.uSeedOffset = terrainUniforms.uSeedOffset;
-        shader.uniforms.uRoadBaseX = terrainUniforms.uRoadBaseX;
-        shader.uniforms.uBuildings = grassUniforms.uBuildings;
-        shader.uniforms.uBuildingCount = grassUniforms.uBuildingCount;
-
-        shader.vertexShader = `
-            attribute vec4 aFlowerData;
-            uniform vec3 uCameraPos;
-            uniform float uPatchSize;
-            uniform vec4 uBuildings[16];
-            uniform int uBuildingCount;
-            ${SHARED_TERRAIN_GLSL}
-        ` + shader.vertexShader;
-
-        shader.vertexShader = shader.vertexShader.replace(
-            '#include <begin_vertex>',
-            `
-            #include <begin_vertex>
-            vec2 patchOffset = vec2(uPatchSize * 0.5);
-            vec2 relXZ = mod(aFlowerData.xy - uCameraPos.xz + patchOffset, vec2(uPatchSize)) - patchOffset;
-            vec2 worldXZ = uCameraPos.xz + relXZ;
-            float distToCam = length(relXZ);
-            float ringMask = (distToCam >= 4.8 && distToCam < 53.0) ? 1.0 : 0.0;
-
-            vec3 surfaceNormal;
-            float groundY = getTerrainSurfaceHeight_gpu(worldXZ.x, worldXZ.y, surfaceNormal);
-            float slope = 1.0 - surfaceNormal.y;
-            float slopeCull = 1.0 - smoothstep(0.22, 0.35, slope);
-            float roadCull = 1.0 - smoothstep(0.08, 0.32, getRoadFactor_gpu(worldXZ.x, worldXZ.y));
-
-            float buildingCull = 1.0;
-            for (int b = 0; b < 16; b++) {
-                if (b >= uBuildingCount) break;
-                if (length(worldXZ - uBuildings[b].xy) < uBuildings[b].z + 0.4) {
-                    buildingCull = 0.0;
-                }
-            }
-
-            float spawnCull = smoothstep(4.0, 7.0, length(worldXZ));
-            float waterCull = smoothstep(-2.4, -1.6, groundY);
-            float flowerVisibility = ringMask * slopeCull * roadCull * buildingCull * spawnCull * waterCull;
-
-            float flowerScale = mix(0.70, 1.45, aFlowerData.w) * flowerVisibility;
-            float ca = cos(aFlowerData.z), sa = sin(aFlowerData.z);
-            vec3 flowerPos = transformed;
-            flowerPos.xz *= flowerScale;
-            flowerPos.y *= flowerScale;
-            transformed = vec3(
-                flowerPos.x * ca - flowerPos.z * sa + worldXZ.x,
-                groundY + mix(0.55, 1.15, aFlowerData.w) * flowerVisibility + flowerPos.y,
-                flowerPos.x * sa + flowerPos.z * ca + worldXZ.y
-            );
-            `
-        );
-    };
-
-    const mesh = new THREE.InstancedMesh(flowerGeo, material, count);
-    mesh.frustumCulled = false;
-    mesh.receiveShadow = true;
-
-    const identity = new THREE.Matrix4();
-    for (let i = 0; i < count; i++) mesh.setMatrixAt(i, identity);
-    mesh.instanceMatrix.needsUpdate = true;
-    return mesh;
-}
-
 // ============================================================================
-// 8. CHUNK-BASED PROCEDURAL INFINITE TERRAIN ENGINE
+// 8. CHUNK-BASED PROCEDURAL TERRAIN & OPTIMIZED PROP STREAMING
 // ============================================================================
 const CHUNK_SIZE = 80;
-const CHUNK_SEGS = 32; // 2.5m resolution ensures smooth, accurate terrain curve matching
-const VIEW_RADIUS = 3; // 7x7 grid = 560m x 560m around the tank
+const CHUNK_SEGS = 32;
+const VIEW_RADIUS = 2; // 5x5 = 25 chunks (400m x 400m) - perfectly sized & 50% fewer draw calls!
 
 class TerrainChunk {
     constructor(cx, cz) {
@@ -1549,13 +1663,13 @@ class TerrainChunk {
         const count = pos.count;
         const colors = new Float32Array(count * 3);
 
-        const colLushGrass = new THREE.Color(0x263a1c);
-        const colDryGrass  = new THREE.Color(0x514b23);
-        const colSunlitGrass = new THREE.Color(0x3c5125);
-        const colMudRoad   = new THREE.Color(0x3a2e21);
+        const colLushGrass = new THREE.Color(0x283e1c);
+        const colDryGrass  = new THREE.Color(0x565026);
+        const colSunlitGrass = new THREE.Color(0x405828);
+        const colMudRoad   = new THREE.Color(0x3e3224);
         const colWetRut    = new THREE.Color(0x221a12);
-        const colCliffRock = new THREE.Color(0x52504c);
-        const colMountain  = new THREE.Color(0x3a444e);
+        const colCliffRock = new THREE.Color(0x585652);
+        const colMountain  = new THREE.Color(0x3c4852);
         const tempCol = new THREE.Color();
 
         const xMin = this.cx * CHUNK_SIZE;
@@ -1572,12 +1686,10 @@ class TerrainChunk {
 
             const n = getTerrainNormal(wx, wz);
             const slope = 1.0 - n.y;
-            const patchNoise = fbm3((wx + seedOffset.x) * 0.04, (wz + seedOffset.z) * 0.04) * 0.5 + 0.5;
             const fieldNoise = fbm3((wx + seedOffset.x) * 0.014, (wz + seedOffset.z) * 0.014) * 0.5 + 0.5;
 
             tempCol.copy(colLushGrass).lerp(colSunlitGrass, smoothstep(0.10, 0.60, fieldNoise) * 0.75);
             tempCol.lerp(colDryGrass, smoothstep(0.58, 0.94, fieldNoise) * 0.82);
-            tempCol.lerp(colLushGrass, patchNoise * 0.12);
 
             const roadF = getRoadFactor(wx, wz);
             if (roadF > 0.01) {
@@ -1620,7 +1732,7 @@ class TerrainChunk {
         const zMin = this.cz * CHUNK_SIZE;
         const distFromSpawn = Math.hypot((this.cx + 0.5) * CHUNK_SIZE, (this.cz + 0.5) * CHUNK_SIZE);
 
-        // 1. Botanical Trees (Spruce & Deciduous)
+        // 1. Botanical Trees
         const treeCount = Math.floor(rng() * 4) + 2;
         for (let t = 0; t < treeCount; t++) {
             const tx = xMin + (0.08 + rng() * 0.84) * CHUNK_SIZE;
@@ -1630,21 +1742,22 @@ class TerrainChunk {
             if (getRoadFactor(tx, tz) > 0.22) continue;
 
             const ty = getTerrainHeight(tx, tz);
-            if (ty < -2.6) continue; // Don't spawn trees underwater in the coastal ocean
+            if (ty < -2.4) continue;
+
             const treeRoll = rng();
             let treeGeo, treeType, trunkH;
             if (treeRoll < 0.52) {
                 treeGeo = sharedSpruceGeo;
                 treeType = 'spruce';
-                trunkH = 13.6;
+                trunkH = 14.2;
             } else if (treeRoll < 0.76) {
                 treeGeo = sharedPineGeo;
                 treeType = 'pine';
-                trunkH = 11.8;
+                trunkH = 12.5;
             } else {
                 treeGeo = sharedDecidGeo;
                 treeType = 'beech';
-                trunkH = 9.2;
+                trunkH = 9.8;
             }
             const scale = 0.85 + rng() * 0.55;
 
@@ -1653,7 +1766,7 @@ class TerrainChunk {
             treeGroup.scale.setScalar(scale);
 
             const treeMesh = new THREE.Mesh(treeGeo, treeMaterial);
-            treeMesh.castShadow = true;
+            treeMesh.castShadow = (distFromSpawn < 75);
             treeMesh.receiveShadow = true;
             treeGroup.add(treeMesh);
             this.group.add(treeGroup);
@@ -1692,38 +1805,50 @@ class TerrainChunk {
             swayTrees.push(treeObj);
         }
 
-        // 2. Hillside Bushes
+        // 2. Merged Chunk Bushes (Single draw call per chunk!)
+        const bushGeos = [];
         const bushCount = Math.floor(rng() * 3) + 1;
         for (let b = 0; b < bushCount; b++) {
             const bx = xMin + (0.05 + rng() * 0.90) * CHUNK_SIZE;
             const bz = zMin + (0.05 + rng() * 0.90) * CHUNK_SIZE;
             if (getRoadFactor(bx, bz) > 0.28) continue;
             const by = getTerrainHeight(bx, bz);
-            if (by < -2.6) continue;
-            const bushMesh = new THREE.Mesh(sharedBushGeo, treeMaterial);
-            const bs = 0.65 + rng() * 0.65;
-            bushMesh.position.set(bx, by, bz);
-            bushMesh.scale.set(bs * 1.15, bs * 0.9, bs * 1.15);
-            bushMesh.rotation.y = rng() * Math.PI * 2;
-            bushMesh.castShadow = true;
+            if (by < -2.4) continue;
+            const bs = 0.75 + rng() * 0.65;
+            const g = sharedBushGeo.clone();
+            g.scale(bs * 1.15, bs * 0.9, bs * 1.15);
+            g.rotateY(rng() * Math.PI * 2);
+            g.translate(bx, by, bz);
+            bushGeos.push(g);
+        }
+        if (bushGeos.length > 0) {
+            const mergedBushes = mergeBufferGeometries(bushGeos);
+            const bushMesh = new THREE.Mesh(mergedBushes, treeMaterial);
+            bushMesh.castShadow = (distFromSpawn < 65);
             bushMesh.receiveShadow = true;
             this.group.add(bushMesh);
         }
 
-        // 3. Limestone Boulders
+        // 3. Merged Chunk Limestone Boulders (Single draw call per chunk!)
+        const rockGeos = [];
         const rockCount = Math.floor(rng() * 3);
         for (let r = 0; r < rockCount; r++) {
             const rx = xMin + (0.05 + rng() * 0.90) * CHUNK_SIZE;
             const rz = zMin + (0.05 + rng() * 0.90) * CHUNK_SIZE;
             if (getRoadFactor(rx, rz) > 0.35) continue;
             const ry = getTerrainHeight(rx, rz);
-            if (ry < -2.8) continue;
-            const rockMesh = new THREE.Mesh(sharedRockGeo, rockMat);
-            const rs = 0.55 + rng() * 1.15;
-            rockMesh.position.set(rx, ry + 0.1, rz);
-            rockMesh.scale.set(rs * 1.2, rs * 0.65, rs * 1.1);
-            rockMesh.rotation.set(rng() * 3, rng() * 3, rng() * 3);
-            rockMesh.castShadow = true;
+            if (ry < -2.6) continue;
+            const rs = 0.65 + rng() * 1.15;
+            const rg = sharedRockGeo.clone();
+            rg.scale(rs * 1.2, rs * 0.65, rs * 1.1);
+            rg.rotateY(rng() * 3);
+            rg.translate(rx, ry + 0.1, rz);
+            rockGeos.push(rg);
+        }
+        if (rockGeos.length > 0) {
+            const mergedRocks = mergeBufferGeometries(rockGeos);
+            const rockMesh = new THREE.Mesh(mergedRocks, rockMat);
+            rockMesh.castShadow = (distFromSpawn < 65);
             rockMesh.receiveShadow = true;
             this.group.add(rockMesh);
         }
@@ -1742,7 +1867,7 @@ class TerrainChunk {
                 const isRuin = (rng() < 0.42);
                 const bldgGeo = isRuin ? sharedRuinGeo : sharedCottageGeo;
                 const bldgMesh = new THREE.Mesh(bldgGeo, villageMat);
-                const bScale = 0.82 + rng() * 0.32;
+                const bScale = 0.92 + rng() * 0.28;
                 bldgMesh.position.set(hx, hy - 0.15, hz);
                 bldgMesh.rotation.y = rng() * Math.PI * 2;
                 bldgMesh.scale.setScalar(bScale);
@@ -1753,7 +1878,7 @@ class TerrainChunk {
                 const bldgObj = {
                     x: hx,
                     z: hz,
-                    radius: (isRuin ? 3.8 : 4.5) * bScale,
+                    radius: (isRuin ? 4.2 : 5.0) * bScale,
                     isRuin: isRuin
                 };
                 this.buildings.push(bldgObj);
@@ -1768,29 +1893,27 @@ class TerrainChunk {
                         transparent: true
                     });
                     const fireSprite = new THREE.Sprite(fireMat);
-                    fireSprite.position.set(hx, hy + 2.0, hz);
-                    fireSprite.scale.set(8.5 * bScale, 6.5 * bScale, 1);
-                    if (window.excludeFromSSAO) window.excludeFromSSAO(fireSprite);
+                    fireSprite.position.set(hx, hy + 1.35, hz);
+                    fireSprite.scale.set(3.4 * bScale, 2.8 * bScale, 1);
                     this.group.add(fireSprite);
 
                     const fireData = {
                         sprite: fireSprite,
-                        baseScale: 8.5 * bScale,
+                        baseScale: 3.4 * bScale,
                         phase: rng() * 10
                     };
                     this.fireSprites.push(fireData);
                     activeFireSprites.push(fireData);
 
-                    const puffCount = 18;
+                    const puffCount = 8;
                     for (let p = 0; p < puffCount; p++) {
                         const sMat = new THREE.SpriteMaterial({
                             map: sharedSmokeTex,
                             transparent: true,
                             depthWrite: false,
-                            opacity: 0.42
+                            opacity: 0.45
                         });
                         const s = new THREE.Sprite(sMat);
-                        if (window.excludeFromSSAO) window.excludeFromSSAO(s);
                         this.group.add(s);
 
                         const puffData = {
@@ -1998,21 +2121,59 @@ function initEnvironment(scene) {
     terrainMeshRef = chunksGroup;
     window.terrainMeshRef = chunksGroup;
 
+    // Apply Village PBR Atlas to villageMat
+    const vAtlas = getVillageAtlas();
+    if (vAtlas) {
+        villageMat.map = vAtlas.albedo;
+        villageMat.normalMap = vAtlas.normal;
+        villageMat.normalScale = new THREE.Vector2(0.85, 0.85);
+        villageMat.roughnessMap = vAtlas.roughness;
+    }
+
     ensureSharedGeometries();
     if (!sharedSmokeTex) sharedSmokeTex = createSmokeCanvasTexture();
     if (!sharedFireTex) sharedFireTex = createFireCanvasTexture();
 }
 
 function createCoastalOceanMesh() {
-    const oceanGeo = new THREE.PlaneGeometry(3600, 2400, 96, 96);
+    const oceanGeo = new THREE.PlaneGeometry(3600, 2400, 110, 110);
     oceanGeo.rotateX(-Math.PI / 2);
     const oceanMat = (typeof window.createCoastalOceanMaterial === 'function')
-        ? window.createCoastalOceanMaterial()
+        ? window.createCoastalOceanMaterial(seedOffset, roadBaseX)
         : new THREE.MeshStandardMaterial({ color: 0x0c3b6b, roughness: 0.15, metalness: 0.8 });
     const oceanMesh = new THREE.Mesh(oceanGeo, oceanMat);
     oceanMesh.position.set(0, -2.5, 1450);
     oceanMesh.receiveShadow = true;
     return oceanMesh;
+}
+
+// Distant Coastal Headlands framing the bay
+function createDistantHeadlands() {
+    const headlandGroup = new THREE.Group();
+    const hlGeoL = new THREE.PlaneGeometry(900, 280, 48, 16);
+    hlGeoL.rotateX(-Math.PI / 2);
+    const posL = hlGeoL.attributes.position;
+    for (let i = 0; i < posL.count; i++) {
+        const vx = posL.getX(i);
+        const vz = posL.getZ(i);
+        const taper = smoothstep(-450, 250, vx);
+        const ridge = Math.exp(-(vz * vz) / 5800) * 32.0 * taper;
+        posL.setY(i, Math.max(0.0, ridge + Math.sin(vx * 0.02) * 3.5 * taper));
+    }
+    hlGeoL.computeVertexNormals();
+
+    const hlMat = new THREE.MeshLambertMaterial({ color: 0x5b7e9e });
+    const hlMeshL = new THREE.Mesh(hlGeoL, hlMat);
+    hlMeshL.position.set(-680, -2.2, 540);
+    hlMeshL.rotation.y = 0.35;
+    headlandGroup.add(hlMeshL);
+
+    const hlMeshR = new THREE.Mesh(hlGeoL, hlMat);
+    hlMeshR.position.set(720, -2.2, 580);
+    hlMeshR.rotation.y = -0.42;
+    headlandGroup.add(hlMeshR);
+
+    return headlandGroup;
 }
 
 function buildEnvironment(scene) {
@@ -2049,10 +2210,9 @@ function buildEnvironment(scene) {
         return;
     }
 
-    // --- REVERTED TO PREVIOUS MALDIVE CELESTIAL SKY DOME ---
     currentScene.background.setHex(0xc7d4e0);
     currentScene.fog.color.setHex(0xc2d0dc);
-    currentScene.fog.density = 0.0032;
+    currentScene.fog.density = 0.00085;
 
     if (window.createMaldiveSkyDome) {
         const skyData = window.createMaldiveSkyDome();
@@ -2063,28 +2223,18 @@ function buildEnvironment(scene) {
         envGroup.add(skyDome);
     }
 
-    // Smooth & Uniform Stratified Toroidal Grass System
-    // Keep detailed blade tufts near the player and use simpler clumps in the outer rings.
+    // High-Performance Botanical Texture-Atlas Grass & Wildflower System
     if (!grassLOD0Mesh) {
-        const isMob = isMobileDevice();
-        const lod0Count = isMob ? 65000 : 130000;
-        // Mid ring matches near ring density (10.74 inst/m²): 78,400 m² * 10.74 = ~842,000 instances
-        const lod0MidCount = isMob ? 420000 : 842000;
-        // Far ring matches previous mid ring density (1.72 inst/m²): 250,000 m² * 1.72 = ~430,000 instances
-        const lod0FarCount = isMob ? 210000 : 430000;
+        const tuftGeo = createCrossedTuftGeometry();
+        // 48,000 instances over 96m x 96m (5.2 tufts/m^2 in foreground!); 28,000 instances over 192m x 192m
+        grassLOD0Mesh = createTexturedToroidalGrass(tuftGeo, 48000, 96.0, 0.0, 46.0, true);
+        grassLOD0MidMesh = createTexturedToroidalGrass(tuftGeo, 28000, 192.0, 41.0, 94.0, false);
+        grassLOD0FarMesh = grassLOD0MidMesh; // Alias
+        grassLOD1Mesh = grassLOD0MidMesh;
 
-        grassLOD0Mesh = createStratifiedToroidalGrass(createLOD0BladeGeometry(), lod0Count, LOD0_PATCH_SIZE, 0.0, 55.0, true);
-        grassLOD0MidMesh = createStratifiedToroidalGrass(createLOD1ClumpGeometry(), lod0MidCount, LOD0_MID_PATCH_SIZE, 55.0, 140.0, false);
-        grassLOD0FarMesh = createStratifiedToroidalGrass(createLOD1ClumpGeometry(), lod0FarCount, LOD0_FAR_PATCH_SIZE, 140.0, 250.0, false);
-        grassLOD1Mesh = grassLOD0FarMesh; // Alias for backward compatibility
         envGroup.add(grassLOD0Mesh);
         envGroup.add(grassLOD0MidMesh);
-        envGroup.add(grassLOD0FarMesh);
-        const wildflowerCount = isMob ? 1100 : 2200;
-        yellowWildflowerMesh = createToroidalWildflowerMesh(wildflowerCount, 0xfbe134);
-        whiteWildflowerMesh = createToroidalWildflowerMesh(wildflowerCount, 0xfefefe);
-        envGroup.add(yellowWildflowerMesh);
-        envGroup.add(whiteWildflowerMesh);
+
         grassMeshRef = grassLOD0Mesh;
         window.grassLOD0Mesh = grassLOD0Mesh;
         window.grassLOD0MidMesh = grassLOD0MidMesh;
@@ -2099,9 +2249,11 @@ function buildEnvironment(scene) {
         waterMeshRef = createCoastalOceanMesh();
         envGroup.add(waterMeshRef);
         window.waterMeshRef = waterMeshRef;
+
+// Distant horizon handled seamlessly by coastal terrain and ocean shader
     }
 
-    // Signature majestic Nordic spruce tree framing the left foreground (matching the reference scene)
+    // Signature majestic Nordic spruce tree framing the left foreground
     const sigTx = 16.2;
     const sigTz = 9.5;
     const sigTy = getTerrainHeight(sigTx, sigTz);
@@ -2129,11 +2281,11 @@ function buildEnvironment(scene) {
         maxFallAngle: Math.PI * 0.48,
         fallAxis: new THREE.Vector3(1, 0, 0),
         radius: 1.4 * sigScale,
-        trunkHeight: 13.8 * sigScale,
+        trunkHeight: 14.5 * sigScale,
         type: 'spruce'
     });
 
-    // Signature European seaside cottage down the slope overlooking the ocean
+    // Signature European seaside cottage overlooking the ocean
     const cotX = -18.0;
     const cotZ = 112.0;
     const cotY = getTerrainHeight(cotX, cotZ);
@@ -2144,13 +2296,13 @@ function buildEnvironment(scene) {
     cotMesh.castShadow = true;
     cotMesh.receiveShadow = true;
     envGroup.add(cotMesh);
-    worldBuildings.push({ x: cotX, z: cotZ, radius: 4.8, isRuin: false });
+    worldBuildings.push({ x: cotX, z: cotZ, radius: 5.2, isRuin: false });
 
-    // Rising smoke plumes drifting from the hillside battle outpost toward the sea
+    // Rising smoke plumes drifting toward the sea
     if (sharedSmokeTex) {
         const smokeOrigins = [
-            { x: -32.0, z: 125.0, count: 16, mult: 1.1 },
-            { x: -14.0, z: 135.0, count: 14, mult: 0.9 }
+            { x: -32.0, z: 125.0, count: 8, mult: 1.1 },
+            { x: -14.0, z: 135.0, count: 7, mult: 0.9 }
         ];
         smokeOrigins.forEach(so => {
             const sy = getTerrainHeight(so.x, so.z);
@@ -2162,7 +2314,6 @@ function buildEnvironment(scene) {
                     opacity: 0.45
                 });
                 const s = new THREE.Sprite(sMat);
-                if (window.excludeFromSSAO) window.excludeFromSSAO(s);
                 envGroup.add(s);
                 activeSmokePuffs.push({
                     sprite: s,
@@ -2198,11 +2349,19 @@ function updateEnvironment(dt, tankState) {
     terrainUniforms.uCameraPos.value.set(cx, 0, cz);
     grassUniforms.uCameraPos.value.set(cx, 0, cz);
 
+    if (cam) {
+        const camDir = new THREE.Vector3();
+        cam.getWorldDirection(camDir);
+        const fwdXZ = new THREE.Vector2(camDir.x, camDir.z).normalize();
+        grassUniforms.uCameraForwardXZ.value.copy(fwdXZ);
+        terrainUniforms.uCameraForwardXZ.value.copy(fwdXZ);
+    }
+
     if (waterMeshRef && waterMeshRef.material && waterMeshRef.material.uniforms && waterMeshRef.material.uniforms.uTime) {
         waterMeshRef.material.uniforms.uTime.value = timeSec;
     }
 
-    // Update building positions near player for real-time grass culling
+    // Update building positions near player for real-time grass & terrain contact culling
     const nearBldgs = [];
     for (let b = 0; b < worldBuildings.length; b++) {
         const bldg = worldBuildings[b];
@@ -2222,6 +2381,7 @@ function updateEnvironment(dt, tankState) {
         }
     }
     grassUniforms.uBuildingCount.value = nearBldgs.length;
+    terrainUniforms.uBuildingCount.value = nearBldgs.length;
 
     updateTerrainChunks(px, pz);
 

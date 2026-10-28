@@ -45,11 +45,21 @@ function buildTigerTank(scene, mats) {
     addPart(hullGroup, new THREE.BoxGeometry(2.16, 0.36, 0.20), mats.armorDark, 0, -0.26, 2.98, 0.45, 0, 0);
 
     // --- 2. FRONT GLACIS DETAILS: SPARE TRACKS, SHOVEL, KUGELBLENDE MG34 & DRIVER VISOR ---
-    // Lower Front Spare Track Bracket + 14 Track Links
+    // Lower Front Spare Track Bracket + Merged 13 Spare Track Links (1 draw call instead of 26!)
     addPart(hullGroup, new THREE.BoxGeometry(1.78, 0.06, 0.08), mats.armor, 0, -0.06, 3.21);
+    const spareGeos = [];
     for (let i = -6; i <= 6; i++) {
-        addPart(hullGroup, new THREE.BoxGeometry(0.11, 0.32, 0.08), mats.trackSteel, i * 0.13, -0.05, 3.17, -0.40, 0, 0);
-        addPart(hullGroup, new THREE.BoxGeometry(0.04, 0.06, 0.12), mats.trackSteel, i * 0.13, 0.04, 3.21, -0.40, 0, 0);
+        const g1 = new THREE.BoxGeometry(0.11, 0.32, 0.08);
+        g1.rotateX(-0.40);
+        g1.translate(i * 0.13, -0.05, 3.17);
+        spareGeos.push(g1);
+        const g2 = new THREE.BoxGeometry(0.04, 0.06, 0.12);
+        g2.rotateX(-0.40);
+        g2.translate(i * 0.13, 0.04, 3.21);
+        spareGeos.push(g2);
+    }
+    if (typeof mergeBufferGeometries === 'function') {
+        addPart(hullGroup, mergeBufferGeometries(spareGeos), mats.trackSteel, 0, 0, 0);
     }
 
     // Front Glacis Pioneer Shovel
@@ -298,18 +308,27 @@ function buildTigerTank(scene, mats) {
         addPart(group, new THREE.CylinderGeometry(0.28, 0.28, 0.56, 20), mats.muzzleBlack, 0, 0, 0, 0, 0, Math.PI / 2);
         addPart(group, new THREE.CylinderGeometry(0.14, 0.14, 0.60, 16), mats.armor, sideSign * 0.02, 0, 0, 0, 0, Math.PI / 2);
 
+        const spokeGeos = [];
         for (let i = 0; i < 10; i++) {
             const ang = (i / 10) * Math.PI * 2;
-            const spoke = new THREE.Mesh(new THREE.BoxGeometry(0.57, 0.045, 0.24), mats.armor);
-            spoke.rotation.x = ang;
-            group.add(spoke);
+            const sg = new THREE.BoxGeometry(0.57, 0.045, 0.24);
+            sg.rotateX(ang);
+            spokeGeos.push(sg);
         }
+        if (typeof mergeBufferGeometries === 'function') {
+            group.add(new THREE.Mesh(mergeBufferGeometries(spokeGeos), mats.armor));
+        }
+
+        const toothGeos = [];
         for (let t = 0; t < 18; t++) {
             const ang = (t / 18) * Math.PI * 2;
-            const tooth = new THREE.Mesh(new THREE.BoxGeometry(0.54, 0.05, 0.08), mats.trackSteel);
-            tooth.position.set(0, Math.sin(ang) * 0.42, Math.cos(ang) * 0.42);
-            tooth.rotation.x = ang;
-            group.add(tooth);
+            const tg = new THREE.BoxGeometry(0.54, 0.05, 0.08);
+            tg.rotateX(ang);
+            tg.translate(0, Math.sin(ang) * 0.42, Math.cos(ang) * 0.42);
+            toothGeos.push(tg);
+        }
+        if (typeof mergeBufferGeometries === 'function') {
+            group.add(new THREE.Mesh(mergeBufferGeometries(toothGeos), mats.trackSteel));
         }
         return group;
     }
@@ -323,6 +342,10 @@ function buildTigerTank(scene, mats) {
 
     const trackLinkGeo = new THREE.BoxGeometry(0.68, 0.045, 0.14);
     const trackGrouserGeo = new THREE.BoxGeometry(0.69, 0.028, 0.035);
+    trackGrouserGeo.translate(0, -0.032, 0);
+    const mergedTrackLinkGeo = (typeof mergeBufferGeometries === 'function')
+        ? mergeBufferGeometries([trackLinkGeo, trackGrouserGeo])
+        : trackLinkGeo;
 
     // Continuous closed 2D track loop in (Z, Y) plane
     // Calibrated to run below upper hull sponsons (Y = 0.14) and mudguards (Y = 0.16)
@@ -388,19 +411,12 @@ function buildTigerTank(scene, mats) {
 
         const numLinks = 74;
         for (let k = 0; k < numLinks; k++) {
-            const linkGroup = new THREE.Group();
-            const plate = new THREE.Mesh(trackLinkGeo, mats.trackSteel);
-            plate.castShadow = true;
-            plate.receiveShadow = true;
-            linkGroup.add(plate);
-
-            const cleat = new THREE.Mesh(trackGrouserGeo, mats.muzzleBlack);
-            cleat.position.y = -0.032;
-            linkGroup.add(cleat);
-
-            linkGroup.position.x = trackX;
-            hullGroup.add(linkGroup);
-            trackChains[sideKey].push(linkGroup);
+            const linkMesh = new THREE.Mesh(mergedTrackLinkGeo, mats.trackSteel);
+            linkMesh.castShadow = (k % 2 === 0);
+            linkMesh.receiveShadow = true;
+            linkMesh.position.x = trackX;
+            hullGroup.add(linkMesh);
+            trackChains[sideKey].push(linkMesh);
         }
     });
 

@@ -262,20 +262,21 @@ function generateTankPBRMaps() {
     }
     nCtx.putImageData(nImg, 0, 0);
 
-    const makeTex = (canvas, repeat = 3) => {
+    const makeTex = (canvas, repeat = 3, isSRGB = false) => {
         const t = new THREE.CanvasTexture(canvas);
         t.wrapS = t.wrapT = THREE.RepeatWrapping;
         t.repeat.set(repeat, repeat);
+        if (isSRGB) t.encoding = THREE.sRGBEncoding;
         return t;
     };
 
     return {
-        albedo: makeTex(albedoCanvas, 2),
-        normal: makeTex(normalCanvas, 2.5),
-        roughness: makeTex(roughCanvas, 2),
-        ao: makeTex(aoCanvas, 1),
-        albedoFine: makeTex(albedoCanvas, 4),
-        normalFine: makeTex(normalCanvas, 5)
+        albedo: makeTex(albedoCanvas, 2, true),
+        normal: makeTex(normalCanvas, 2.5, false),
+        roughness: makeTex(roughCanvas, 2, false),
+        ao: makeTex(aoCanvas, 1, false),
+        albedoFine: makeTex(albedoCanvas, 4, true),
+        normalFine: makeTex(normalCanvas, 5, false)
     };
 }
 
@@ -905,19 +906,8 @@ function createHaltonSmokeMaterial(colorHex = 0x94a3b8) {
                 float lifeFactor = 1.0 - smoothstep(0.45, 1.0, uAgeProgress);
                 float finalDensity = clamp(turbulentDensity * opacity * lifeFactor * 1.5, 0.0, 1.0);
 
-                // 2. Band-Limited Void-and-Cluster Blue Noise Sampling:
-                // Core of the cloud (finalDensity >= 0.82) is completely SOLID (Zero grain / Zero noise!)
-                // Only the feathered outer ~18% perimeter and late evaporative wisps use Blue Noise!
-                if (finalDensity < 0.82) {
-                    vec2 ditherCoord = (floor(gl_FragCoord.xy) + floor(ditherOffset) + 0.5) / 64.0;
-                    float blueNoiseThreshold = texture2D(blueNoiseMap, ditherCoord).r;
-
-                    // Normalize edge band [0.0, 0.82] to [0.0, 1.0] for optimal high-frequency dispersion
-                    float edgeFactor = finalDensity / 0.82;
-                    if (edgeFactor < blueNoiseThreshold) {
-                        discard;
-                    }
-                }
+                // 2. Smooth Volumetric Alpha Feathering (Zero stipple dots!)
+                if (finalDensity < 0.015) discard;
 
                 // 3. Maldive Henyey-Greenstein Dual-Lobe Scattering on Surviving Fragments
                 float cosTheta = dot(-vViewDir, sunDirection);
@@ -946,14 +936,15 @@ function createHaltonSmokeMaterial(colorHex = 0x94a3b8) {
                 vec3 rimGlow = sunColor * rim * (hgPhase * 0.65 + 0.25);
 
                 vec3 finalColor = diffuse * (directLight + ambientLight) + rimGlow;
+                float smoothAlpha = clamp(smoothstep(0.015, 0.65, finalDensity) * 0.85, 0.0, 0.88);
 
-                gl_FragColor = vec4(finalColor, 1.0);
+                gl_FragColor = vec4(finalColor, smoothAlpha);
             }
         `,
-        transparent: false,
-        depthWrite: true,
+        transparent: true,
+        depthWrite: false,
         depthTest: true,
-        blending: THREE.NoBlending
+        blending: THREE.NormalBlending
     });
 
     Object.defineProperty(mat, 'opacity', {
@@ -1189,35 +1180,80 @@ function createRiverWaterMaterial() {
     });
 }
 
-// Photorealistic Coastal Seaside Ocean Shader (Gerstner Waves & Sun Glade Sparkle)
-function createCoastalOceanMaterial() {
+// ============================================================================
+// Photorealistic Coastal Seaside Ocean Shader
+// Features:
+// - Exact GPU Bathymetry Depth (1:1 terrain height evaluation for contour surf)
+// - Multi-Directional Gerstner Swells + Rotated Multi-Octave Capillary Normals
+// - Subsurface Wave Crest Scattering, Turquoise Shallows & Deep Sapphire Sea
+// - Rhythmic Contour-Following Shore Breakers, Cellular Foam Lace & Sun Glitter
+// ============================================================================
+function createCoastalOceanMaterial(seedOffsetVec, roadBaseXVal) {
     return new THREE.ShaderMaterial({
         uniforms: {
             uTime:        celestialLighting.time,
             sunDirection: celestialLighting.sunDirection,
             sunColor:     celestialLighting.sunColor,
-            skyColor:     celestialLighting.skyColor
+            skyColor:     celestialLighting.skyColor,
+            uSeedOffset:  { value: seedOffsetVec || new THREE.Vector2(0, 0) },
+            uRoadBaseX:   { value: roadBaseXVal || 0.0 }
         },
         vertexShader: `
             uniform float uTime;
+            uniform vec2 uSeedOffset;
+            uniform float uRoadBaseX;
+
             varying vec3 vWorldPos;
             varying vec3 vNormal;
             varying vec3 vViewDir;
+            varying float vWaveHeight;
+            varying float vCrestFactor;
+
+            void addGerstnerWave(vec2 dir, float steepness, float wavelength, float speed, vec2 xz, float t, inout vec3 disp, inout vec3 tangent, inout vec3 binormal, inout float crest) {
+                float k = 6.2831853 / wavelength;
+                float c = sqrt(9.81 / k) * speed;
+                float theta = k * (dot(dir, xz) - c * t);
+                float a = steepness / k;
+                float s = sin(theta);
+                float cs = cos(theta);
+
+                disp.x += dir.x * (a * cs);
+                disp.y += a * s;
+                disp.z += dir.y * (a * cs);
+
+                float wa = k * a;
+                tangent.y  += dir.x * wa * cs;
+                binormal.y += dir.y * wa * cs;
+                crest += wa * max(0.0, s);
+            }
 
             void main() {
-                vec3 p = position;
-                // Animated Gerstner ocean waves rolling toward coast
-                float w1 = sin((p.x * 0.035 + p.z * 0.055) + uTime * 1.6) * 0.32;
-                float w2 = cos((-p.x * 0.065 + p.z * 0.085) - uTime * 2.1) * 0.18;
-                float w3 = sin((p.x * 0.12 - p.z * 0.045) + uTime * 2.8) * 0.08;
-                p.y += w1 + w2 + w3;
+                vec4 wp = modelMatrix * vec4(position, 1.0);
+                vec2 xz = wp.xz;
+                float t = uTime;
 
-                vec4 worldPos = modelMatrix * vec4(p, 1.0);
-                vWorldPos = worldPos.xyz;
-                vNormal = normalize((modelMatrix * vec4(normal, 0.0)).xyz);
-                vViewDir = normalize(cameraPosition - worldPos.xyz);
+                vec3 disp = vec3(0.0);
+                vec3 tangent = vec3(1.0, 0.0, 0.0);
+                vec3 binormal = vec3(0.0, 0.0, 1.0);
+                float crest = 0.0;
 
-                gl_Position = projectionMatrix * viewMatrix * worldPos;
+                // Multi-directional coastal swell rolling in from the open sea (+Z toward -Z coast)
+                addGerstnerWave(normalize(vec2( 0.24, -0.97)), 0.14, 68.0, 1.05, xz, t, disp, tangent, binormal, crest);
+                addGerstnerWave(normalize(vec2(-0.35, -0.94)), 0.11, 42.0, 1.15, xz, t + 1.7, disp, tangent, binormal, crest);
+                addGerstnerWave(normalize(vec2( 0.52, -0.85)), 0.09, 26.0, 1.25, xz, t + 3.1, disp, tangent, binormal, crest);
+                addGerstnerWave(normalize(vec2(-0.61, -0.79)), 0.07, 22.0, 1.38, xz, t + 4.8, disp, tangent, binormal, crest);
+
+                // Smoothly attenuate vertical wave displacement near the shoreline so waves kiss the beach cleanly
+                float shoreDamp = smoothstep(175.0, 255.0, wp.z);
+                wp.xyz += disp * (0.18 + 0.82 * shoreDamp);
+
+                vWorldPos = wp.xyz;
+                vNormal = normalize(cross(binormal, tangent));
+                vViewDir = normalize(cameraPosition - wp.xyz);
+                vWaveHeight = disp.y * shoreDamp;
+                vCrestFactor = crest * shoreDamp;
+
+                gl_Position = projectionMatrix * viewMatrix * wp;
             }
         `,
         fragmentShader: `
@@ -1225,57 +1261,1009 @@ function createCoastalOceanMaterial() {
             uniform vec3 sunDirection;
             uniform vec3 sunColor;
             uniform vec3 skyColor;
+            uniform vec2 uSeedOffset;
+            uniform float uRoadBaseX;
 
             varying vec3 vWorldPos;
             varying vec3 vNormal;
             varying vec3 vViewDir;
+            varying float vWaveHeight;
+            varying float vCrestFactor;
+
+            float mod289_o(float x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+            vec2 mod289_o(vec2 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+            float permute_o(float x) { return mod289_o(((x * 34.0) + 1.0) * x); }
+
+            float hash2D_o(vec2 p) {
+                vec2 ip = floor(p);
+                return permute_o(permute_o(ip.x) + ip.y) * (1.0 / 288.0);
+            }
+
+            float valueNoise2D_o(vec2 p) {
+                vec2 i = floor(p);
+                vec2 f = fract(p);
+                vec2 u = f * f * (3.0 - 2.0 * f);
+                float a = hash2D_o(i);
+                float b = hash2D_o(i + vec2(1.0, 0.0));
+                float c = hash2D_o(i + vec2(0.0, 1.0));
+                float d = hash2D_o(i + vec2(1.0, 1.0));
+                return mix(mix(a, b, u.x), mix(c, d, u.x), u.y) * 2.0 - 1.0;
+            }
+
+            float fbm3_o(vec2 p) {
+                float total = 0.0, freq = 1.0, amp = 1.0, maxVal = 0.0;
+                for (int i = 0; i < 3; i++) {
+                    total += valueNoise2D_o(p * freq) * amp;
+                    maxVal += amp;
+                    amp *= 0.45;
+                    freq *= 2.1;
+                }
+                return total / maxVal;
+            }
+
+            float fbm4_o(vec2 p) {
+                float total = 0.0, freq = 1.0, amp = 1.0, maxVal = 0.0;
+                for (int i = 0; i < 4; i++) {
+                    total += valueNoise2D_o(p * freq) * amp;
+                    maxVal += amp;
+                    amp *= 0.48;
+                    freq *= 2.02;
+                }
+                return total / maxVal;
+            }
+
+            // Evaluate exact coastal seabed height matching terrain 1:1
+            float getSeabedHeight(float x, float z) {
+                vec2 s = vec2(x, z) + uSeedOffset;
+                float rollingHills = fbm4_o(s * 0.0042) * 4.5;
+                float mediumUndulation = fbm3_o(s * 0.016) * 1.8;
+                float h = 6.8 + rollingHills + mediumUndulation;
+                float coastalDist = z + (fbm3_o(s * 0.009) * 28.0);
+                float coastalSlope = smoothstep(110.0, 360.0, coastalDist) * 12.8;
+                float headland = smoothstep(60.0, 200.0, abs(x)) * smoothstep(60.0, 420.0, coastalDist) * 6.5;
+                return h - coastalSlope + headland;
+            }
+
+            // Isotropic rotated multi-octave capillary wave heightfield (zero grid artifacts)
+            const mat2 waveRot1 = mat2(0.80, -0.60, 0.60, 0.80);
+            const mat2 waveRot2 = mat2(0.60,  0.80, -0.80, 0.60);
+
+            float capillaryWaveField(vec2 xz, float t) {
+                vec2 p1 = waveRot1 * (xz * 0.14) + vec2(t * 0.42, -t * 0.68);
+                vec2 p2 = waveRot2 * (xz * 0.34) + vec2(-t * 0.55, -t * 0.48);
+                vec2 p3 = waveRot1 * (xz * 0.82) + vec2(t * 0.95, t * 0.62);
+                vec2 p4 = waveRot2 * (xz * 1.95) - vec2(t * 1.35, -t * 1.10);
+
+                float w1 = valueNoise2D_o(p1);
+                float w2 = valueNoise2D_o(p2);
+                float w3 = valueNoise2D_o(p3);
+                float w4 = valueNoise2D_o(p4);
+
+                // Sharpen wave crests slightly
+                return (w1 - 0.22 * abs(w1)) * 0.48
+                     + (w2 - 0.20 * abs(w2)) * 0.28
+                     + w3 * 0.16
+                     + w4 * 0.08;
+            }
 
             void main() {
-                // High-frequency animated micro-wave normals
-                vec2 uv1 = vWorldPos.xz * 0.085 + vec2(uTime * 0.06, uTime * 0.035);
-                vec2 uv2 = vWorldPos.xz * 0.19  - vec2(uTime * 0.09, -uTime * 0.055);
-                vec2 uv3 = vWorldPos.xz * 0.42  + vec2(uTime * 0.14, -uTime * 0.11);
+                float seabedY = getSeabedHeight(vWorldPos.x, vWorldPos.z);
+                float waterDepth = (-2.5) - seabedY;
+                if (waterDepth < -0.25) discard;
 
-                vec3 n1 = vec3(sin(uv1.x * 12.0) * 0.22, 1.0, cos(uv1.y * 12.0) * 0.22);
-                vec3 n2 = vec3(cos(uv2.x * 16.0) * 0.18, 1.0, sin(uv2.y * 16.0) * 0.18);
-                vec3 n3 = vec3(sin(uv3.x * 24.0) * 0.12, 1.0, cos(uv3.y * 24.0) * 0.12);
-                vec3 waveNormal = normalize(vNormal + (n1 + n2 + n3) * 0.38);
+                float distToCam = length(cameraPosition - vWorldPos);
+                float detailFade = 1.0 - smoothstep(180.0, 1400.0, distToCam);
 
-                float NdotV = max(dot(waveNormal, vViewDir), 0.0);
-                float fresnel = clamp(pow(1.0 - NdotV, 3.8), 0.07, 0.98);
+                // Compute finite-difference capillary normal
+                float eps = mix(0.28, 1.2, 1.0 - detailFade);
+                float h0 = capillaryWaveField(vWorldPos.xz, uTime);
+                float hx = capillaryWaveField(vWorldPos.xz + vec2(eps, 0.0), uTime);
+                float hz = capillaryWaveField(vWorldPos.xz + vec2(0.0, eps), uTime);
 
-                // Authentic Coastal Mediterranean / Seaside Ocean Colors
-                // Shallows near shoreline vs deep royal navy open sea
-                float coastalDepth = smoothstep(120.0, 320.0, vWorldPos.z);
-                vec3 shallowsColor = vec3(0.04, 0.26, 0.44);
-                vec3 deepSeaColor  = vec3(0.015, 0.10, 0.28);
-                vec3 oceanBase     = mix(shallowsColor, deepSeaColor, coastalDepth);
+                vec3 microNorm = normalize(vec3((h0 - hx) / eps * 0.42, 1.0, (h0 - hz) / eps * 0.42));
+                vec3 waveNormal = normalize(vec3(
+                    vNormal.x + microNorm.x * (0.45 + 0.55 * detailFade),
+                    vNormal.y * microNorm.y,
+                    vNormal.z + microNorm.z * (0.45 + 0.55 * detailFade)
+                ));
 
-                // Sky mirror reflection with subtle warm sunlit tint
-                vec3 reflectSky = mix(skyColor * 0.94, vec3(0.96, 0.98, 1.0), fresnel);
+                vec3 viewDir = normalize(vViewDir);
+                vec3 lightDir = normalize(sunDirection);
+                float NdotV = max(dot(waveNormal, viewDir), 0.001);
+                float NdotL = max(dot(waveNormal, lightDir), 0.0);
 
-                // Dazzling Sun Glade Specular Glisten (Broad shimmer + sparkling wave crests)
-                vec3 halfVec = normalize(sunDirection + vViewDir);
-                float HdotN = max(dot(waveNormal, halfVec), 0.0);
-                float specGlade   = pow(HdotN, 38.0) * 2.8;
-                float specSparkle = pow(HdotN, 320.0) * 8.5;
-                vec3 sunGlitter   = sunColor * (specGlade + specSparkle);
+                // Physically-based Schlick Fresnel (water IOR = 1.333 -> F0 = 0.02)
+                float F0 = 0.0204;
+                float fresnel = F0 + (1.0 - F0) * pow(clamp(1.0 - NdotV, 0.0, 1.0), 4.2);
 
-                // Shoreline gentle foam surf along the coastal edge
-                float surfNoise = sin(vWorldPos.x * 0.45 + uTime * 1.8) * cos(vWorldPos.z * 0.55);
-                float shoreFade = smoothstep(100.0, 140.0, vWorldPos.z);
-                float shoreFoam = (1.0 - shoreFade) * clamp(0.4 + 0.6 * surfNoise, 0.0, 1.0) * 0.45;
-                vec3 foamColor = vec3(0.95, 0.98, 1.0);
+                // Multi-zone coastal bathymetry color palette
+                float dShallow = smoothstep(0.0, 2.2, max(0.0, waterDepth));
+                float dDeep    = smoothstep(1.8, 7.5, max(0.0, waterDepth));
 
-                vec3 finalOcean = mix(oceanBase, reflectSky, fresnel) + sunGlitter;
-                finalOcean = mix(finalOcean, foamColor, shoreFoam);
+                vec3 shoreSandTint = vec3(0.42, 0.48, 0.40);
+                vec3 turquoiseCol  = vec3(0.05, 0.40, 0.48);
+                vec3 azureMidCol   = vec3(0.04, 0.24, 0.44);
+                vec3 navyDeepCol   = vec3(0.015, 0.09, 0.24);
 
-                gl_FragColor = vec4(finalOcean, 0.94);
+                vec3 waterBody = mix(shoreSandTint, turquoiseCol, smoothstep(0.0, 0.85, max(0.0, waterDepth)));
+                waterBody = mix(waterBody, azureMidCol, dShallow);
+                waterBody = mix(waterBody, navyDeepCol, dDeep);
+
+                // Subtle wind-streak bands across the open sea
+                float windStreak = valueNoise2D_o(vec2(vWorldPos.x * 0.018 + vWorldPos.z * 0.008, vWorldPos.z * 0.032 - uTime * 0.05)) * 0.5 + 0.5;
+                waterBody = mix(waterBody, waterBody * 1.18, windStreak * 0.35 * dShallow);
+                waterBody *= (0.78 + 0.32 * NdotL);
+
+                // Subsurface Scattering (SSS) emerald-turquoise glow in sunlit wave crests
+                float crestThickness = clamp(vCrestFactor * 1.2 + max(0.0, h0) * 0.45, 0.0, 1.0);
+                float backLight = pow(clamp(dot(viewDir, -lightDir) * 0.5 + 0.5, 0.0, 1.0), 2.2);
+                vec3 sssCol = vec3(0.08, 0.56, 0.58) * sunColor;
+                waterBody = mix(waterBody, sssCol, crestThickness * (0.25 + 0.45 * backLight) * dShallow);
+
+                // Sky reflection with horizon gradient
+                vec3 reflDir = reflect(-viewDir, waveNormal);
+                float reflElev = clamp(reflDir.y, 0.0, 1.0);
+                vec3 skyRefl = mix(skyColor * 1.05, skyColor * 0.62, pow(reflElev, 0.55));
+                vec3 oceanColor = mix(waterBody, skyRefl, clamp(fresnel * 0.85, 0.0, 0.82));
+
+                // Dual-lobe Sun Glitter Path (Broad warm glade + crisp diamond micro-sparkles)
+                vec3 halfVec = normalize(lightDir + viewDir);
+                float NdotH = max(dot(waveNormal, halfVec), 0.0);
+                float specBroad = pow(NdotH, 42.0) * 0.55;
+                float specCore  = pow(NdotH, 380.0) * 4.2;
+                float sparkleFacet = valueNoise2D_o(waveRot1 * vWorldPos.xz * 2.2 + vec2(uTime * 1.8, -uTime * 1.4));
+                float specSparkle = pow(NdotH, 95.0) * smoothstep(0.45, 0.82, sparkleFacet) * 3.8 * detailFade;
+                oceanColor += sunColor * (specBroad + specCore + specSparkle) * (0.35 + 0.65 * fresnel);
+
+                // Contour-Following Rhythmic Shoreline Surf & Cellular Foam Lace
+                float foamNoise = valueNoise2D_o(vWorldPos.xz * 0.38 + vec2(uTime * 0.25, -uTime * 0.35)) * 0.5 + 0.5;
+                float laceDetail = 1.0 - abs(valueNoise2D_o(waveRot2 * vWorldPos.xz * 1.15 - vec2(0.0, uTime * 0.45)));
+                float shoreZone = 1.0 - smoothstep(0.0, 2.4, max(0.0, waterDepth));
+                float surfWave = sin(max(0.0, waterDepth) * 6.2 + uTime * 2.6 + foamNoise * 2.8);
+                float surfLine = smoothstep(0.42, 0.88, surfWave) * shoreZone * (0.45 + 0.55 * laceDetail);
+                float beachEdgeFoam = (1.0 - smoothstep(-0.05, 0.38, waterDepth)) * (0.65 + 0.35 * laceDetail);
+
+                // Open-water breaking whitecaps on steep wave crests
+                float openWhitecap = smoothstep(0.52, 0.92, vCrestFactor + h0 * 0.38 + (foamNoise - 0.5) * 0.25)
+                                   * smoothstep(0.45, 0.85, laceDetail) * dShallow * 0.55;
+
+                float totalFoam = clamp(max(surfLine * 0.82, beachEdgeFoam * 0.92) + openWhitecap, 0.0, 1.0);
+                vec3 foamCol = mix(vec3(0.88, 0.94, 0.98), vec3(1.0, 0.99, 0.97), clamp(sunDirection.y * 1.5, 0.2, 1.0));
+                oceanColor = mix(oceanColor, foamCol, totalFoam);
+
+                // Atmospheric distance fog blend toward horizon
+                float fogFactor = 1.0 - exp(-distToCam * 0.00055);
+                oceanColor = mix(oceanColor, skyColor, clamp(fogFactor * 0.85, 0.0, 0.88));
+
+                // Smooth alpha feathering at the very edge of the wet beach sand
+                float shoreAlpha = smoothstep(-0.18, 0.22, waterDepth);
+                gl_FragColor = vec4(oceanColor, clamp(max(shoreAlpha, totalFoam), 0.0, 0.97));
             }
         `,
         transparent: true,
-        depthWrite: false
+        depthWrite: true
     });
+}
+
+// ============================================================================
+// High-Resolution Procedural Botanical Foliage & Bark Atlas (512x512, 2x2 UV)
+// Quadrant 0 [0.0..0.5, 0.5..1.0] (Top-Left):     Conifer Spruce/Pine Needle Bough Frond
+// Quadrant 1 [0.5..1.0, 0.5..1.0] (Top-Right):    Broadleaf Deciduous Leaf Cluster
+// Quadrant 2 [0.0..0.5, 0.0..0.5] (Bottom-Left):  Flowering Hawthorn / Meadow Bush Cluster
+// Quadrant 3 [0.5..1.0, 0.0..0.5] (Bottom-Right): Fissured Forest Bark with Moss & Knots
+// ============================================================================
+let _botanicalAtlasTex = null;
+
+function createBotanicalFoliageAtlas() {
+    if (_botanicalAtlasTex) return _botanicalAtlasTex;
+
+    const size = 512;
+    const half = 256;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, size, size);
+
+    let bSeed = 4099;
+    function bRand() {
+        bSeed = (bSeed * 16807) % 2147483647;
+        return (bSeed - 1) / 2147483646;
+    }
+
+    // ------------------------------------------------------------------------
+    // Q0: Top-Left (0..256, 0..256 in canvas = UV [0..0.5, 0.5..1.0])
+    // Conifer Needle Bough Spray (Radiating woody twigs + dense pine/spruce needles)
+    // ------------------------------------------------------------------------
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(2, 2, half - 4, half - 4);
+    ctx.clip();
+
+    // Central woody branch stem and lateral sub-twigs
+    const subTwigs = [
+        { x0: 128, y0: 244, x1: 128, y1: 22, w: 6.5 },
+        { x0: 128, y0: 215, x1: 42,  y1: 125, w: 4.0 },
+        { x0: 128, y0: 215, x1: 214, y1: 125, w: 4.0 },
+        { x0: 128, y0: 175, x1: 28,  y1: 75,  w: 3.5 },
+        { x0: 128, y0: 175, x1: 228, y1: 75,  w: 3.5 },
+        { x0: 128, y0: 130, x1: 48,  y1: 38,  w: 3.0 },
+        { x0: 128, y0: 130, x1: 208, y1: 38,  w: 3.0 },
+        { x0: 128, y0: 85,  x1: 78,  y1: 20,  w: 2.4 },
+        { x0: 128, y0: 85,  x1: 178, y1: 20,  w: 2.4 }
+    ];
+
+    // Pass 1: Deep interior shadow needles (AO base)
+    subTwigs.forEach(tw => {
+        const steps = 38;
+        const dx = tw.x1 - tw.x0;
+        const dy = tw.y1 - tw.y0;
+        const twigAng = Math.atan2(dy, dx);
+
+        for (let s = 0; s <= steps; s++) {
+            const t = s / steps;
+            const bx = tw.x0 + dx * t;
+            const by = tw.y0 + dy * t;
+            const needleLen = (22 + (1.0 - t * 0.45) * 18) * (tw.w / 4.5);
+
+            for (let side = -1; side <= 1; side += 2) {
+                for (let n = 0; n < 4; n++) {
+                    const spread = (0.32 + bRand() * 0.65) * side;
+                    const ang = twigAng + spread;
+                    const len = needleLen * (0.65 + bRand() * 0.45);
+                    ctx.strokeStyle = `rgba(${18 + Math.floor(bRand() * 14)}, ${38 + Math.floor(bRand() * 20)}, ${16 + Math.floor(bRand() * 12)}, 0.95)`;
+                    ctx.lineWidth = 2.4;
+                    ctx.beginPath();
+                    ctx.moveTo(bx, by);
+                    ctx.lineTo(bx + Math.cos(ang) * len, by + Math.sin(ang) * len);
+                    ctx.stroke();
+                }
+            }
+        }
+    });
+
+    // Draw woody stems over base shadow needles
+    subTwigs.forEach(tw => {
+        ctx.strokeStyle = '#3d281a';
+        ctx.lineWidth = tw.w;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(tw.x0, tw.y0);
+        ctx.lineTo(tw.x1, tw.y1);
+        ctx.stroke();
+    });
+
+    // Pass 2: Lush mid-tone and sunlit outer conifer needles
+    subTwigs.forEach(tw => {
+        const steps = 46;
+        const dx = tw.x1 - tw.x0;
+        const dy = tw.y1 - tw.y0;
+        const twigAng = Math.atan2(dy, dx);
+
+        for (let s = 0; s <= steps; s++) {
+            const t = s / steps;
+            const bx = tw.x0 + dx * t;
+            const by = tw.y0 + dy * t;
+            const needleLen = (20 + (1.0 - t * 0.4) * 16) * (tw.w / 4.5);
+
+            for (let side = -1; side <= 1; side += 2) {
+                for (let n = 0; n < 5; n++) {
+                    const spread = (0.22 + bRand() * 0.72) * side;
+                    const ang = twigAng + spread;
+                    const len = needleLen * (0.6 + bRand() * 0.5);
+                    const isSunTip = (t > 0.45 && n >= 3) || bRand() > 0.68;
+                    const r = isSunTip ? (68 + Math.floor(bRand() * 35)) : (36 + Math.floor(bRand() * 22));
+                    const g = isSunTip ? (118 + Math.floor(bRand() * 38)) : (72 + Math.floor(bRand() * 28));
+                    const b = isSunTip ? (34 + Math.floor(bRand() * 20)) : (24 + Math.floor(bRand() * 16));
+                    ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.96)`;
+                    ctx.lineWidth = isSunTip ? 1.6 : 2.0;
+                    ctx.beginPath();
+                    ctx.moveTo(bx, by);
+                    ctx.lineTo(bx + Math.cos(ang) * len, by + Math.sin(ang) * len);
+                    ctx.stroke();
+                }
+            }
+        }
+    });
+    ctx.restore();
+
+    // ------------------------------------------------------------------------
+    // Q1: Top-Right (256..512, 0..256 in canvas = UV [0.5..1.0, 0.5..1.0])
+    // Broadleaf Deciduous Leaf Cluster (Oak/Beech/Birch overlapping leaves)
+    // ------------------------------------------------------------------------
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(half + 2, 2, half - 4, half - 4);
+    ctx.clip();
+
+    function drawLeaf(cx, cy, radius, angle, rCol, gCol, bCol) {
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(angle);
+        ctx.fillStyle = `rgba(${rCol}, ${gCol}, ${bCol}, 0.98)`;
+        ctx.beginPath();
+        ctx.moveTo(0, -radius);
+        ctx.bezierCurveTo(radius * 0.82, -radius * 0.55, radius * 0.88, radius * 0.45, 0, radius);
+        ctx.bezierCurveTo(-radius * 0.88, radius * 0.45, -radius * 0.82, -radius * 0.55, 0, -radius);
+        ctx.closePath();
+        ctx.fill();
+
+        // Subtle leaf midrib vein highlight
+        ctx.strokeStyle = `rgba(${Math.min(255, rCol + 28)}, ${Math.min(255, gCol + 32)}, ${Math.min(255, bCol + 14)}, 0.55)`;
+        ctx.lineWidth = 1.0;
+        ctx.beginPath();
+        ctx.moveTo(0, -radius * 0.75);
+        ctx.lineTo(0, radius * 0.85);
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    // Multi-lobed botanical branchlet (5 distinct leaf sub-clusters with natural sky gaps)
+    const q1Cx = half + 128;
+    const q1Cy = 128;
+    const subLobes = [
+        { x: q1Cx,      y: 148, r: 58 }, // Central lower-mid lobe
+        { x: q1Cx - 52, y: 136, r: 52 }, // Left spreading lobe
+        { x: q1Cx + 52, y: 134, r: 52 }, // Right spreading lobe
+        { x: q1Cx - 26, y: 80,  r: 48 }, // Upper-left crown lobe
+        { x: q1Cx + 28, y: 78,  r: 48 }  // Upper-right crown lobe
+    ];
+
+    ctx.strokeStyle = '#38291d';
+    ctx.lineWidth = 3.2;
+    subLobes.forEach(lb => {
+        ctx.beginPath();
+        ctx.moveTo(q1Cx, 224);
+        ctx.lineTo(lb.x, lb.y);
+        ctx.stroke();
+    });
+
+    // 340 layered leaves distributed across the 5 organic sub-lobes
+    const leafCount = 340;
+    for (let i = 0; i < leafCount; i++) {
+        const layerFrac = i / leafCount;
+        const lb = subLobes[i % subLobes.length];
+        const ang = bRand() * Math.PI * 2;
+        const dist = Math.pow(bRand(), 0.62) * lb.r;
+        const lx = lb.x + Math.cos(ang) * dist;
+        const ly = lb.y + Math.sin(ang) * dist;
+        const heightNorm = Math.max(0, Math.min(1, (220 - ly) / 180));
+
+        const leafRad = 10 + bRand() * 10 * (1.0 - (dist / lb.r) * 0.2);
+        const shade = layerFrac * 0.55 + heightNorm * 0.30 + (dist / lb.r) * 0.15;
+        const r = Math.floor(24 + shade * 68 + (bRand() - 0.5) * 14);
+        const g = Math.floor(48 + shade * 92 + (bRand() - 0.5) * 18);
+        const b = Math.floor(15 + shade * 26 + (bRand() - 0.5) * 8);
+        drawLeaf(lx, ly, leafRad, ang + Math.PI * 0.5 + (bRand() - 0.5) * 0.7, r, g, b);
+    }
+    ctx.restore();
+
+    // ------------------------------------------------------------------------
+    // Q2: Bottom-Left (0..256, 256..512 in canvas = UV [0.0..0.5, 0.0..0.5])
+    // Flowering Meadow Shrub / Hawthorn Bush Cluster
+    // ------------------------------------------------------------------------
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(2, half + 2, half - 4, half - 4);
+    ctx.clip();
+
+    const q2Cx = 128;
+    const q2Cy = half + 128;
+    for (let i = 0; i < 290; i++) {
+        const layerFrac = i / 290;
+        const ang = bRand() * Math.PI * 2;
+        const dist = Math.pow(bRand(), 0.55) * 104;
+        const lx = q2Cx + Math.cos(ang) * dist;
+        const ly = q2Cy + Math.sin(ang) * dist;
+        const shade = layerFrac * 0.65 + (dist / 104) * 0.35;
+        const r = Math.floor(32 + shade * 82 + (bRand() - 0.5) * 15);
+        const g = Math.floor(58 + shade * 98 + (bRand() - 0.5) * 18);
+        const b = Math.floor(20 + shade * 28 + (bRand() - 0.5) * 10);
+        drawLeaf(lx, ly, 10 + bRand() * 10, ang + Math.PI * 0.5, r, g, b);
+    }
+    // Delicate white/cream hawthorn blossom clusters on outer bush tips
+    for (let f = 0; f < 34; f++) {
+        const ang = bRand() * Math.PI * 2;
+        const dist = 30 + bRand() * 68;
+        const fx = q2Cx + Math.cos(ang) * dist;
+        const fy = q2Cy + Math.sin(ang) * dist;
+        const isYellow = (f % 3 === 0);
+        ctx.fillStyle = isYellow ? 'rgba(252, 224, 72, 0.95)' : 'rgba(248, 250, 242, 0.94)';
+        for (let p = 0; p < 5; p++) {
+            const pa = (p / 5) * Math.PI * 2;
+            ctx.beginPath();
+            ctx.arc(fx + Math.cos(pa) * 3.2, fy + Math.sin(pa) * 3.2, 2.4, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.fillStyle = '#d97706';
+        ctx.beginPath();
+        ctx.arc(fx, fy, 1.8, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    ctx.restore();
+
+    // ------------------------------------------------------------------------
+    // Q3: Bottom-Right (256..512, 256..512 in canvas = UV [0.5..1.0, 0.0..0.5])
+    // Fissured Tree Trunk Bark with Vertical Ridges & Lichen/Moss
+    // ------------------------------------------------------------------------
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(half, half, half, half);
+    ctx.clip();
+
+    ctx.fillStyle = '#463527';
+    ctx.fillRect(half, half, half, half);
+
+    // Vertical bark ridges & deep crevices
+    for (let x = 0; x < half; x += 4) {
+        const ridge = Math.sin(x * 0.25) * 14 + (bRand() - 0.5) * 18;
+        const r = Math.min(255, Math.max(20, Math.floor(72 + ridge)));
+        const g = Math.min(255, Math.max(15, Math.floor(54 + ridge * 0.8)));
+        const b = Math.min(255, Math.max(10, Math.floor(40 + ridge * 0.65)));
+        ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+        ctx.fillRect(half + x, half, 4, half);
+    }
+    // Deep vertical bark fissures
+    for (let i = 0; i < 140; i++) {
+        const fx = half + bRand() * half;
+        const fy = half + bRand() * (half - 30);
+        const fh = 18 + bRand() * 48;
+        ctx.fillStyle = (i % 3 === 0) ? 'rgba(24, 16, 11, 0.78)' : 'rgba(98, 76, 58, 0.55)';
+        ctx.fillRect(fx, fy, 2 + bRand() * 3, fh);
+    }
+    // Subtle mossy green tint near bottom of bark
+    const mossGrad = ctx.createLinearGradient(0, size - 65, 0, size);
+    mossGrad.addColorStop(0, 'rgba(42, 62, 28, 0.0)');
+    mossGrad.addColorStop(1, 'rgba(34, 52, 22, 0.55)');
+    ctx.fillStyle = mossGrad;
+    ctx.fillRect(half, size - 65, half, 65);
+    ctx.restore();
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.encoding = THREE.sRGBEncoding;
+    tex.wrapS = THREE.ClampToEdgeWrapping;
+    tex.wrapT = THREE.ClampToEdgeWrapping;
+    tex.anisotropy = 4;
+    _botanicalAtlasTex = tex;
+    return tex;
+}
+
+// ============================================================================
+// High-Resolution Meadow Grass & Wildflower Tuft Texture Atlas (512x256, 4 Columns)
+// Col 0 [0.00..0.25]: Lush Dense Meadow Grass Tuft (22 overlapping blades)
+// Col 1 [0.25..0.50]: Sunlit Ryegrass & Golden Seed-Head Plumes
+// Col 2 [0.50..0.75]: Meadow Grass with White Chamomile / Daisy Wildflowers
+// Col 3 [0.75..1.00]: Meadow Grass with Golden Buttercup / Dandelion Wildflowers
+// ============================================================================
+let _grassTuftAtlasTex = null;
+
+function createGrassTuftAtlasTexture() {
+    if (_grassTuftAtlasTex) return _grassTuftAtlasTex;
+
+    const width = 512;
+    const height = 256;
+    const colW = 128;
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, width, height);
+
+    let gSeed = 8191;
+    function gRand() {
+        gSeed = (gSeed * 16807) % 2147483647;
+        return (gSeed - 1) / 2147483646;
+    }
+
+    for (let col = 0; col < 4; col++) {
+        const xOffset = col * colW;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(xOffset + 2, 0, colW - 4, height);
+        ctx.clip();
+
+        // Draw 52 dense overlapping grass blades spanning full column width
+        const numBlades = 52;
+        for (let b = 0; b < numBlades; b++) {
+            const depthFrac = b / (numBlades - 1);
+            const rootX = xOffset + 6 + (b / (numBlades - 1)) * (colW - 12) + (gRand() - 0.5) * 6;
+            const rootY = height + 4;
+            const edgeFactor = 1.0 - Math.pow(Math.abs((b / (numBlades - 1)) - 0.5) * 1.85, 2.0) * 0.35;
+            const bladeH = height * (0.50 + gRand() * 0.42) * edgeFactor;
+            const lean = ((rootX - (xOffset + colW * 0.5)) / (colW * 0.5)) * 18 + (gRand() - 0.5) * 20;
+            const tipX = Math.max(xOffset + 4, Math.min(xOffset + colW - 4, rootX + lean));
+            const tipY = height - bladeH;
+            const ctrlX = (rootX + tipX) * 0.5 + (gRand() - 0.5) * 6;
+            const ctrlY = height - bladeH * 0.55;
+            const baseHalfW = 3.8 + gRand() * 2.4;
+
+            const grad = ctx.createLinearGradient(rootX, rootY, tipX, tipY);
+            const brightness = 0.52 + depthFrac * 0.52;
+            const rRoot = Math.floor(28 * brightness);
+            const gRoot = Math.floor(54 * brightness);
+            const bRoot = Math.floor(16 * brightness);
+
+            const isGolden = (col === 1 && b % 3 === 0) || gRand() > 0.80;
+            const rTip = Math.min(255, Math.floor((isGolden ? 132 : 86) * brightness));
+            const gTip = Math.min(255, Math.floor((isGolden ? 152 : 134) * brightness));
+            const bTip = Math.min(255, Math.floor((isGolden ? 44  : 32)  * brightness));
+
+            grad.addColorStop(0.0, `rgb(${rRoot}, ${gRoot}, ${bRoot})`);
+            grad.addColorStop(0.45, `rgb(${Math.floor((rRoot + rTip) * 0.48)}, ${Math.floor((gRoot + gTip) * 0.52)}, ${Math.floor((bRoot + bTip) * 0.45)})`);
+            grad.addColorStop(1.0, `rgb(${rTip}, ${gTip}, ${bTip})`);
+
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.moveTo(rootX - baseHalfW, rootY);
+            ctx.quadraticCurveTo(ctrlX - baseHalfW * 0.48, ctrlY, tipX, tipY);
+            ctx.quadraticCurveTo(ctrlX + baseHalfW * 0.48, ctrlY, rootX + baseHalfW, rootY);
+            ctx.closePath();
+            ctx.fill();
+
+            // Seed head plumes in Column 1
+            if (col === 1 && depthFrac > 0.5 && b % 4 === 0) {
+                ctx.fillStyle = 'rgba(218, 198, 112, 0.95)';
+                ctx.save();
+                ctx.translate(tipX, tipY + 8);
+                ctx.rotate(lean * 0.015);
+                ctx.beginPath();
+                ctx.ellipse(0, 0, 3.2, 12.0, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        // Column 2: White Chamomile / Daisy Blossoms
+        if (col === 2) {
+            const daisyPositions = [
+                { x: xOffset + 36, y: 68, r: 10.5 },
+                { x: xOffset + 68, y: 52, r: 12.0 },
+                { x: xOffset + 94, y: 78, r: 9.5 },
+                { x: xOffset + 52, y: 96, r: 8.5 }
+            ];
+            daisyPositions.forEach(fl => {
+                // Petals
+                ctx.fillStyle = '#fdfefc';
+                for (let p = 0; p < 10; p++) {
+                    const pa = (p / 10) * Math.PI * 2;
+                    ctx.save();
+                    ctx.translate(fl.x + Math.cos(pa) * (fl.r * 0.55), fl.y + Math.sin(pa) * (fl.r * 0.55));
+                    ctx.rotate(pa);
+                    ctx.beginPath();
+                    ctx.ellipse(0, 0, fl.r * 0.48, fl.r * 0.22, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.restore();
+                }
+                // Golden disc center
+                ctx.fillStyle = '#f59e0b';
+                ctx.beginPath();
+                ctx.arc(fl.x, fl.y, fl.r * 0.34, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
+
+        // Column 3: Golden Buttercup Wildflowers
+        if (col === 3) {
+            const buttercupPositions = [
+                { x: xOffset + 34, y: 64, r: 10.0 },
+                { x: xOffset + 64, y: 48, r: 11.5 },
+                { x: xOffset + 92, y: 72, r: 9.5 },
+                { x: xOffset + 48, y: 94, r: 8.5 },
+                { x: xOffset + 80, y: 98, r: 8.0 }
+            ];
+            buttercupPositions.forEach(fl => {
+                ctx.fillStyle = '#facc15';
+                for (let p = 0; p < 5; p++) {
+                    const pa = (p / 5) * Math.PI * 2;
+                    ctx.beginPath();
+                    ctx.arc(fl.x + Math.cos(pa) * (fl.r * 0.42), fl.y + Math.sin(pa) * (fl.r * 0.42), fl.r * 0.44, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.fillStyle = '#ca8a04';
+                ctx.beginPath();
+                ctx.arc(fl.x, fl.y, fl.r * 0.25, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
+
+        ctx.restore();
+    }
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.encoding = THREE.sRGBEncoding;
+    tex.wrapS = THREE.ClampToEdgeWrapping;
+    tex.wrapT = THREE.ClampToEdgeWrapping;
+    tex.anisotropy = 4;
+    _grassTuftAtlasTex = tex;
+    return tex;
+}
+
+// ============================================================================
+// High-Resolution European Architectural PBR Atlas (1024x1024, 2x2 Quadrant UV)
+// Generates synchronized Albedo + Tangent-Space Normal Map + Roughness Map:
+// Q0 [0.0..0.5, 0.5..1.0] (Top-Left):     Half-Timbered Limewashed Stucco Facade,
+//                                         Casement Windows, Shutters, Stone Plinth & Door
+// Q1 [0.5..1.0, 0.5..1.0] (Top-Right):    Scalloped Terracotta Barrel Clay Roof Tiles
+// Q2 [0.0..0.5, 0.0..0.5] (Bottom-Left):  Coursed Fieldstone Masonry & Chimney Brickwork
+// Q3 [0.5..1.0, 0.0..0.5] (Bottom-Right): Weathered Barn Timber Planks & Stone Slate
+// ============================================================================
+let _villagePBRAtlas = null;
+
+function createVillagePBRAtlas() {
+    if (_villagePBRAtlas) return _villagePBRAtlas;
+
+    const size = 1024;
+    const half = 512;
+    const albedoCanvas = document.createElement('canvas');
+    const normalCanvas = document.createElement('canvas');
+    const roughCanvas  = document.createElement('canvas');
+    albedoCanvas.width = normalCanvas.width = roughCanvas.width = size;
+    albedoCanvas.height = normalCanvas.height = roughCanvas.height = size;
+
+    const aCtx = albedoCanvas.getContext('2d');
+    const nCtx = normalCanvas.getContext('2d');
+    const rCtx = roughCanvas.getContext('2d');
+
+    let vSeed = 3187;
+    function vRand() {
+        vSeed = (vSeed * 16807) % 2147483647;
+        return (vSeed - 1) / 2147483646;
+    }
+
+    // ------------------------------------------------------------------------
+    // Q0: Top-Left (0..512, 0..512 in canvas = UV [0.0..0.5, 0.5..1.0])
+    // Half-Timbered Stucco Wall + Stone Plinth + Casement Windows + Oak Door
+    // ------------------------------------------------------------------------
+    aCtx.save();
+    aCtx.beginPath();
+    aCtx.rect(0, 0, half, half);
+    aCtx.clip();
+
+    // Warm aged limewashed stucco plaster background
+    const stuccoGrad = aCtx.createLinearGradient(0, 0, 0, half);
+    stuccoGrad.addColorStop(0.0, '#d8d0c2'); // Under-eave shadow AO
+    stuccoGrad.addColorStop(0.12, '#ede6d8');
+    stuccoGrad.addColorStop(0.74, '#e5decb');
+    stuccoGrad.addColorStop(1.0, '#c6bda8');
+    aCtx.fillStyle = stuccoGrad;
+    aCtx.fillRect(0, 0, half, half);
+
+    // Subtle plaster trowel mottling & vertical rain stains
+    for (let i = 0; i < 900; i++) {
+        const px = vRand() * half;
+        const py = vRand() * 390;
+        const pr = 4 + vRand() * 18;
+        aCtx.fillStyle = (i % 2 === 0) ? 'rgba(165, 152, 132, 0.14)' : 'rgba(255, 252, 245, 0.14)';
+        aCtx.beginPath();
+        aCtx.arc(px, py, pr, 0, Math.PI * 2);
+        aCtx.fill();
+    }
+
+    // Lower Stone Plinth Course (y = 392..512)
+    aCtx.fillStyle = '#5a554c';
+    aCtx.fillRect(0, 392, half, 120);
+    for (let row = 0; row < 4; row++) {
+        const ry = 394 + row * 29;
+        let rx = (row % 2) * -24;
+        while (rx < half) {
+            const bw = 38 + Math.floor(vRand() * 28);
+            const shade = 92 + Math.floor((vRand() - 0.5) * 34);
+            aCtx.fillStyle = `rgb(${shade + 6}, ${shade + 2}, ${shade - 4})`;
+            aCtx.fillRect(rx + 2, ry + 2, bw - 4, 25);
+            rx += bw;
+        }
+    }
+    // Ground contact damp moss AO at bottom of plinth
+    const plinthAO = aCtx.createLinearGradient(0, 465, 0, 512);
+    plinthAO.addColorStop(0, 'rgba(30, 36, 24, 0.0)');
+    plinthAO.addColorStop(1, 'rgba(22, 28, 18, 0.65)');
+    aCtx.fillStyle = plinthAO;
+    aCtx.fillRect(0, 465, half, 47);
+
+    // Authentic Dark Oak Half-Timbering Framework (Fachwerk)
+    function drawTimberBeam(x, y, w, h) {
+        aCtx.fillStyle = '#38281c';
+        aCtx.fillRect(x, y, w, h);
+        aCtx.strokeStyle = 'rgba(22, 15, 10, 0.65)';
+        aCtx.lineWidth = 2;
+        aCtx.strokeRect(x, y, w, h);
+    }
+    // Horizontal sill, mid-plate, and top-plate beams
+    drawTimberBeam(0, 0, half, 16);
+    drawTimberBeam(0, 188, half, 16);
+    drawTimberBeam(0, 378, half, 16);
+    // Vertical posts
+    [0, 166, 334, 496].forEach(vx => drawTimberBeam(vx, 0, 16, 392));
+
+    // Diagonal corner braces
+    aCtx.strokeStyle = '#38281c';
+    aCtx.lineWidth = 13;
+    [[12, 188, 72, 16], [498, 188, 438, 16], [12, 204, 72, 378], [498, 204, 438, 378]].forEach(([x0, y0, x1, y1]) => {
+        aCtx.beginPath();
+        aCtx.moveTo(x0, y0);
+        aCtx.lineTo(x1, y1);
+        aCtx.stroke();
+    });
+
+    // Recessed Multi-Pane Casement Windows with Wooden Shutters & Stone Sills
+    function drawCasementWindow(wx, wy, ww, wh) {
+        // Louvered wooden shutters on left and right
+        const shutW = Math.floor(ww * 0.34);
+        [-shutW - 4, ww + 4].forEach(sxOff => {
+            const sx = wx + sxOff;
+            aCtx.fillStyle = '#2d4a34'; // Classic European forest-green shutter
+            aCtx.fillRect(sx, wy + 2, shutW, wh - 4);
+            aCtx.strokeStyle = '#1b2e20';
+            aCtx.lineWidth = 2;
+            aCtx.strokeRect(sx, wy + 2, shutW, wh - 4);
+            for (let ly = wy + 8; ly < wy + wh - 6; ly += 6) {
+                aCtx.fillStyle = 'rgba(18, 32, 22, 0.65)';
+                aCtx.fillRect(sx + 3, ly, shutW - 6, 2);
+            }
+        });
+
+        // Heavy oak outer window frame
+        aCtx.fillStyle = '#322216';
+        aCtx.fillRect(wx - 4, wy - 4, ww + 8, wh + 8);
+
+        // Dark reflective glass interior with subtle sky reflection gradient
+        const glassGrad = aCtx.createLinearGradient(wx, wy, wx + ww, wy + wh);
+        glassGrad.addColorStop(0.0, '#1e2c3a');
+        glassGrad.addColorStop(0.45, '#2b3e50');
+        glassGrad.addColorStop(0.55, '#16202a');
+        glassGrad.addColorStop(1.0, '#22303e');
+        aCtx.fillStyle = glassGrad;
+        aCtx.fillRect(wx, wy, ww, wh);
+
+        // Warm interior curtain/candlelight hint
+        aCtx.fillStyle = 'rgba(215, 175, 110, 0.16)';
+        aCtx.fillRect(wx + 4, wy + wh * 0.45, ww - 8, wh * 0.5);
+
+        // Whitewashed wooden casement muntin bars (6-pane grid)
+        aCtx.fillStyle = '#dfd8c8';
+        aCtx.fillRect(wx + ww * 0.5 - 2, wy, 4, wh);
+        aCtx.fillRect(wx, wy + wh * 0.34 - 1.5, ww, 3);
+        aCtx.fillRect(wx, wy + wh * 0.67 - 1.5, ww, 3);
+
+        // Protruding stone window sill & lintel shadow
+        aCtx.fillStyle = '#8c8578';
+        aCtx.fillRect(wx - 8, wy + wh + 3, ww + 16, 8);
+        aCtx.fillStyle = 'rgba(0, 0, 0, 0.35)';
+        aCtx.fillRect(wx - 6, wy + wh + 11, ww + 12, 4);
+    }
+
+    // Upper floor windows (3 bays)
+    drawCasementWindow(62, 54, 56, 82);
+    drawCasementWindow(228, 54, 56, 82);
+    drawCasementWindow(394, 54, 56, 82);
+
+    // Lower floor windows (left & right bays)
+    drawCasementWindow(62, 242, 56, 86);
+    drawCasementWindow(394, 242, 56, 86);
+
+    // Center Bay: Heavy Planked Oak Cottage Door with Stone Arch Surround
+    const dx = 216, dy = 236, dw = 80, dh = 154;
+    aCtx.fillStyle = '#787166';
+    aCtx.fillRect(dx - 10, dy - 10, dw + 20, dh + 12);
+    aCtx.fillStyle = '#4e3422';
+    aCtx.fillRect(dx, dy, dw, dh);
+    for (let px = dx + 10; px < dx + dw; px += 12) {
+        aCtx.fillStyle = 'rgba(24, 15, 9, 0.55)';
+        aCtx.fillRect(px, dy, 2, dh);
+    }
+    // Wrought-iron strap hinges & ring handle
+    aCtx.fillStyle = '#1e2226';
+    aCtx.fillRect(dx + 2, dy + 28, 42, 6);
+    aCtx.fillRect(dx + 2, dy + 112, 42, 6);
+    aCtx.beginPath();
+    aCtx.arc(dx + dw - 14, dy + 76, 5, 0, Math.PI * 2);
+    aCtx.fill();
+    // Small glazed transom window in door top
+    aCtx.fillStyle = '#243442';
+    aCtx.fillRect(dx + 16, dy + 14, dw - 32, 28);
+    aCtx.strokeStyle = '#322216';
+    aCtx.lineWidth = 3;
+    aCtx.strokeRect(dx + 16, dy + 14, dw - 32, 28);
+    aCtx.restore();
+
+    // ------------------------------------------------------------------------
+    // Q1: Top-Right (512..1024, 0..512 in canvas = UV [0.5..1.0, 0.5..1.0])
+    // Authentic Scalloped Terracotta Barrel Clay Roof Tiles (Imbrex & Tegula)
+    // ------------------------------------------------------------------------
+    aCtx.save();
+    aCtx.beginPath();
+    aCtx.rect(half, 0, half, half);
+    aCtx.clip();
+
+    aCtx.fillStyle = '#8c3820';
+    aCtx.fillRect(half, 0, half, half);
+
+    const tileRows = 16;
+    const tileCols = 20;
+    const rowH = half / tileRows;
+    const colW = half / tileCols;
+
+    for (let r = 0; r < tileRows; r++) {
+        const ty = r * rowH;
+        for (let c = 0; c < tileCols; c++) {
+            const tx = half + c * colW;
+            const hueJitter = (vRand() - 0.5) * 28;
+            const isWeathered = vRand() > 0.82;
+            const baseR = isWeathered ? (112 + hueJitter) : (164 + hueJitter);
+            const baseG = isWeathered ? (68 + hueJitter * 0.6) : (72 + hueJitter * 0.6);
+            const baseB = isWeathered ? (48 + hueJitter * 0.4) : (42 + hueJitter * 0.4);
+
+            // Curved barrel tile gradient (lit crest, shaded trough)
+            const tGrad = aCtx.createLinearGradient(tx, ty, tx + colW, ty);
+            tGrad.addColorStop(0.0, `rgb(${Math.floor(baseR * 0.68)}, ${Math.floor(baseG * 0.68)}, ${Math.floor(baseB * 0.68)})`);
+            tGrad.addColorStop(0.42, `rgb(${Math.min(255, Math.floor(baseR * 1.15))}, ${Math.min(255, Math.floor(baseG * 1.12))}, ${Math.min(255, Math.floor(baseB * 1.08))})`);
+            tGrad.addColorStop(1.0, `rgb(${Math.floor(baseR * 0.58)}, ${Math.floor(baseG * 0.58)}, ${Math.floor(baseB * 0.58)})`);
+
+            aCtx.fillStyle = tGrad;
+            aCtx.fillRect(tx, ty, colW + 1, rowH + 1);
+
+            // Scalloped bottom overlap shadow under each tile course
+            aCtx.fillStyle = 'rgba(28, 12, 8, 0.52)';
+            aCtx.beginPath();
+            aCtx.arc(tx + colW * 0.5, ty + rowH, colW * 0.52, 0, Math.PI);
+            aCtx.fill();
+        }
+    }
+    // Subtle golden-green roof moss patches
+    for (let m = 0; m < 45; m++) {
+        const mx = half + vRand() * half;
+        const my = vRand() * half;
+        const mr = 8 + vRand() * 24;
+        const mGrad = aCtx.createRadialGradient(mx, my, 1, mx, my, mr);
+        mGrad.addColorStop(0, 'rgba(78, 92, 38, 0.38)');
+        mGrad.addColorStop(1, 'rgba(78, 92, 38, 0.0)');
+        aCtx.fillStyle = mGrad;
+        aCtx.beginPath();
+        aCtx.arc(mx, my, mr, 0, Math.PI * 2);
+        aCtx.fill();
+    }
+    aCtx.restore();
+
+    // ------------------------------------------------------------------------
+    // Q2: Bottom-Left (0..512, 512..1024 in canvas = UV [0.0..0.5, 0.0..0.5])
+    // Coursed European Fieldstone & Weathered Chimney Brick Masonry
+    // ------------------------------------------------------------------------
+    aCtx.save();
+    aCtx.beginPath();
+    aCtx.rect(0, half, half, half);
+    aCtx.clip();
+
+    // Mortar base
+    aCtx.fillStyle = '#48433c';
+    aCtx.fillRect(0, half, half, half);
+
+    const stoneRows = 14;
+    const sRowH = half / stoneRows;
+    for (let r = 0; r < stoneRows; r++) {
+        const sy = half + r * sRowH;
+        let sx = (r % 2) * -28;
+        while (sx < half) {
+            const sw = 44 + Math.floor(vRand() * 38);
+            const isBrickTone = vRand() > 0.65;
+            const shade = 95 + Math.floor((vRand() - 0.5) * 42);
+            const sr = isBrickTone ? Math.min(255, shade + 26) : (shade + 6);
+            const sg = isBrickTone ? (shade - 6) : (shade + 3);
+            const sb = isBrickTone ? (shade - 16) : (shade - 3);
+
+            aCtx.fillStyle = `rgb(${sr}, ${sg}, ${sb})`;
+            aCtx.fillRect(sx + 3, sy + 3, sw - 5, sRowH - 5);
+
+            // Top bevel highlight & bottom shadow for 3D relief
+            aCtx.fillStyle = 'rgba(255, 250, 240, 0.16)';
+            aCtx.fillRect(sx + 3, sy + 3, sw - 5, 3);
+            aCtx.fillStyle = 'rgba(15, 12, 10, 0.35)';
+            aCtx.fillRect(sx + 3, sy + sRowH - 5, sw - 5, 3);
+            sx += sw;
+        }
+    }
+    aCtx.restore();
+
+    // ------------------------------------------------------------------------
+    // Q3: Bottom-Right (512..1024, 512..1024 in canvas = UV [0.5..1.0, 0.0..0.5])
+    // Weathered Barn Timber Planks & Beams
+    // ------------------------------------------------------------------------
+    aCtx.save();
+    aCtx.beginPath();
+    aCtx.rect(half, half, half, half);
+    aCtx.clip();
+
+    aCtx.fillStyle = '#523b28';
+    aCtx.fillRect(half, half, half, half);
+
+    const plankCols = 16;
+    const pColW = half / plankCols;
+    for (let c = 0; c < plankCols; c++) {
+        const px = half + c * pColW;
+        const delta = Math.floor((vRand() - 0.5) * 24);
+        aCtx.fillStyle = `rgb(${84 + delta}, ${60 + Math.floor(delta * 0.75)}, ${42 + Math.floor(delta * 0.55)})`;
+        aCtx.fillRect(px + 2, half, pColW - 3, half);
+
+        // Vertical wood grain streaks
+        for (let g = 0; g < 12; g++) {
+            const gx = px + 3 + vRand() * (pColW - 6);
+            const gy = half + vRand() * (half - 60);
+            aCtx.fillStyle = (g % 2 === 0) ? 'rgba(32, 20, 12, 0.28)' : 'rgba(135, 102, 72, 0.18)';
+            aCtx.fillRect(gx, gy, 1.5, 45 + vRand() * 80);
+        }
+        // Dark seam gap between boards
+        aCtx.fillStyle = '#1e140c';
+        aCtx.fillRect(px, half, 2, half);
+    }
+    // Horizontal barn battens
+    [half + 90, half + 256, half + 420].forEach(by => {
+        aCtx.fillStyle = '#3b2819';
+        aCtx.fillRect(half, by, half, 18);
+    });
+    aCtx.restore();
+
+    // ------------------------------------------------------------------------
+    // Compute Sobel Normal Map & Roughness Map from Albedo Luminance
+    // ------------------------------------------------------------------------
+    const aData = aCtx.getImageData(0, 0, size, size).data;
+    const nImg = nCtx.createImageData(size, size);
+    const rImg = rCtx.createImageData(size, size);
+    const lum = new Float32Array(size * size);
+
+    for (let i = 0; i < size * size; i++) {
+        const p = i * 4;
+        lum[i] = (aData[p] * 0.299 + aData[p + 1] * 0.587 + aData[p + 2] * 0.114) / 255.0;
+    }
+
+    const bumpScale = 3.2;
+    for (let y = 0; y < size; y++) {
+        const ym = Math.max(0, y - 1);
+        const yp = Math.min(size - 1, y + 1);
+        for (let x = 0; x < size; x++) {
+            const xm = Math.max(0, x - 1);
+            const xp = Math.min(size - 1, x + 1);
+
+            const tl = lum[ym * size + xm], t = lum[ym * size + x], tr = lum[ym * size + xp];
+            const l  = lum[y  * size + xm],                         r  = lum[y  * size + xp];
+            const bl = lum[yp * size + xm], b = lum[yp * size + x], br = lum[yp * size + xp];
+
+            const dX = (tr + 2.0 * r + br) - (tl + 2.0 * l + bl);
+            const dY = (bl + 2.0 * b + br) - (tl + 2.0 * t + tr);
+
+            let nx = -dX * bumpScale;
+            let ny = -dY * bumpScale;
+            let nz = 1.0;
+            const invLen = 1.0 / Math.hypot(nx, ny, nz);
+            nx *= invLen; ny *= invLen; nz *= invLen;
+
+            const idx = (y * size + x) * 4;
+            nImg.data[idx]     = Math.floor((nx * 0.5 + 0.5) * 255);
+            nImg.data[idx + 1] = Math.floor((ny * 0.5 + 0.5) * 255);
+            nImg.data[idx + 2] = Math.floor((nz * 0.5 + 0.5) * 255);
+            nImg.data[idx + 3] = 255;
+
+            // Window glass panes in Q0 have low roughness (shiny reflection)
+            const val = lum[y * size + x];
+            let rough = Math.floor(185 + (1.0 - val) * 55);
+            if (x < half && y < half && aData[idx + 2] > aData[idx] + 10) {
+                rough = 45; // Glass pane specular glint
+            }
+            rImg.data[idx] = rImg.data[idx + 1] = rImg.data[idx + 2] = Math.min(255, rough);
+            rImg.data[idx + 3] = 255;
+        }
+    }
+
+    nCtx.putImageData(nImg, 0, 0);
+    rCtx.putImageData(rImg, 0, 0);
+
+    const albedoTex = new THREE.CanvasTexture(albedoCanvas);
+    albedoTex.encoding = THREE.sRGBEncoding;
+    albedoTex.anisotropy = 4;
+
+    const normalTex = new THREE.CanvasTexture(normalCanvas);
+    const roughTex  = new THREE.CanvasTexture(roughCanvas);
+
+    _villagePBRAtlas = { albedo: albedoTex, normal: normalTex, roughness: roughTex };
+    return _villagePBRAtlas;
 }
 
 // ============================================================================
@@ -1910,25 +2898,25 @@ function createMaterials(pbrMaps, decal3818Tex, grilleTex) {
         // --- German Pz.VI Tiger I PBR Materials ---
         // Authentic Rolled Homogeneous Armor (RHA) Steel — Uncolored, Raw Gunmetal Metallic Finish
         armor: new THREE.MeshStandardMaterial({
-            color: 0x767b84,
+            color: new THREE.Color(0x828b96).convertSRGBToLinear(),
             map: pbrMaps.albedo,
             normalMap: pbrMaps.normal,
-            normalScale: new THREE.Vector2(0.48, 0.48),
+            normalScale: new THREE.Vector2(0.75, 0.75),
             roughnessMap: pbrMaps.roughness,
-            roughness: 0.42,
-            metalness: 0.58,
+            roughness: 0.46,
+            metalness: 0.22,
             aoMap: pbrMaps.ao,
-            aoMapIntensity: 0.35
+            aoMapIntensity: 0.55
         }),
         armorDark: new THREE.MeshStandardMaterial({
-            color: 0x545860,
+            color: new THREE.Color(0x666f7a).convertSRGBToLinear(),
             map: pbrMaps.albedoFine,
             normalMap: pbrMaps.normalFine,
-            normalScale: new THREE.Vector2(0.55, 0.55),
-            roughness: 0.46,
-            metalness: 0.65,
+            normalScale: new THREE.Vector2(0.80, 0.80),
+            roughness: 0.50,
+            metalness: 0.25,
             aoMap: pbrMaps.ao,
-            aoMapIntensity: 0.38
+            aoMapIntensity: 0.58
         }),
         barrelSteel: new THREE.MeshStandardMaterial({
             color: 0x646972,
@@ -2138,3 +3126,6 @@ window.createGrassMaterial = createGrassMaterial;
 window.createRiverWaterMaterial = createRiverWaterMaterial;
 window.createCoastalOceanMaterial = createCoastalOceanMaterial;
 window.createMaldiveSkyDome = createMaldiveSkyDome;
+window.createBotanicalFoliageAtlas = createBotanicalFoliageAtlas;
+window.createGrassTuftAtlasTexture = createGrassTuftAtlasTexture;
+window.createVillagePBRAtlas = createVillagePBRAtlas;

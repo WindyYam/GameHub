@@ -39,7 +39,7 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.05;
+renderer.toneMappingExposure = 0.95;
 renderer.outputEncoding = THREE.sRGBEncoding;
 container.appendChild(renderer.domElement);
 window.renderer = renderer;
@@ -924,13 +924,13 @@ function updateSimulation(dt) {
     const twilightFactor = THREE.MathUtils.smoothstep(sunY, -0.20, 0.06) * (1.0 - THREE.MathUtils.smoothstep(sunY, 0.04, 0.34));
     const nightFactor = 1.0 - THREE.MathUtils.smoothstep(sunY, -0.14, 0.04);
 
-    // Sun & Moon directional lighting
+    // Sun & Moon directional lighting (Calibrated for physically based ACESFilmic exposure)
     const sunCol = DAY_NIGHT_COLORS.noonSun.clone().lerp(DAY_NIGHT_COLORS.goldenHour, twilightFactor * 0.92);
     sunLight.color.copy(sunCol);
-    sunLight.intensity = Math.max(0.0, THREE.MathUtils.smoothstep(sunY, -0.06, 0.28) * 2.1 + twilightFactor * 0.75);
+    sunLight.intensity = Math.max(0.0, THREE.MathUtils.smoothstep(sunY, -0.06, 0.28) * 1.48 + twilightFactor * 0.58);
 
     moonLight.color.setHex(0x8ab4f8);
-    moonLight.intensity = nightFactor * 0.85;
+    moonLight.intensity = nightFactor * 0.65;
 
     // Toggle shadow casting dynamically so only active celestial light renders shadows
     sunLight.castShadow = (sunLight.intensity > 0.15);
@@ -948,11 +948,11 @@ function updateSimulation(dt) {
     // Hemisphere natural bounce lighting (Earth meadow up + Sky down)
     hemiLight.color.copy(skyHorizonColor);
     hemiLight.groundColor.copy(DAY_NIGHT_COLORS.groundNight).lerp(DAY_NIGHT_COLORS.groundDay, dayFactor);
-    hemiLight.intensity = 0.50 + dayFactor * 0.35 + twilightFactor * 0.18;
+    hemiLight.intensity = 0.32 + dayFactor * 0.30 + twilightFactor * 0.14;
 
     // Omnidirectional sky ambient light to illuminate and unify tank flanks with the scene
     ambientLight.color.copy(skyHorizonColor).lerp(new THREE.Color(0xfff8ee), 0.55);
-    ambientLight.intensity = 0.18 + dayFactor * 0.20 + twilightFactor * 0.12;
+    ambientLight.intensity = 0.16 + dayFactor * 0.16 + twilightFactor * 0.10;
 
     // Dynamic directional fill light pointing from opposite sun azimuth to soften shaded tank flank
     const fillDir = new THREE.Vector3(-sunDir.x, 0.38, -sunDir.z).normalize();
@@ -964,7 +964,7 @@ function updateSimulation(dt) {
     fillLight.target.position.set(tankState.x, tankState.y + 0.5, tankState.z);
     fillLight.target.updateMatrixWorld();
     fillLight.color.copy(skyHorizonColor).lerp(new THREE.Color(0xcde2f2), 0.55);
-    fillLight.intensity = 0.16 + dayFactor * 0.22 + twilightFactor * 0.14;
+    fillLight.intensity = 0.18 + dayFactor * 0.22 + twilightFactor * 0.12;
 
     // Upward grassy meadow bounce fill light following the tank
     const meadowBounceColor = DAY_NIGHT_COLORS.groundDay.clone().lerp(new THREE.Color(0x6b8c48), 0.35);
@@ -1130,14 +1130,43 @@ function updateSimulation(dt) {
     if (mgBar) mgBar.style.width = `${100 - tankState.mgHeat}%`;
 }
 
+// SSAO re-renders the whole scene (normals + depth + FX layer) every frame and was the main GPU bottleneck.
+// It is now opt-in via ?ssao=1; the default path renders the scene once with hardware MSAA.
+const useSSAO = /[?&]ssao=1/.test(window.location.search);
+window.useSSAO = useSSAO;
+
+// Adaptive resolution: trade pixel density for a stable frame rate
+const adaptiveRes = { ratio: Math.min(window.devicePixelRatio, 1.5), max: Math.min(window.devicePixelRatio, 1.5), min: 0.7, avgMs: 16.7, cooldown: 0 };
+function updateAdaptiveResolution(frameMs) {
+    adaptiveRes.avgMs = adaptiveRes.avgMs * 0.95 + Math.min(frameMs, 100) * 0.05;
+    if (adaptiveRes.cooldown-- > 0) return;
+    let next = adaptiveRes.ratio;
+    if (adaptiveRes.avgMs > 22 && next > adaptiveRes.min) next = Math.max(adaptiveRes.min, next - 0.15);
+    else if (adaptiveRes.avgMs < 14 && next < adaptiveRes.max) next = Math.min(adaptiveRes.max, next + 0.1);
+    if (Math.abs(next - adaptiveRes.ratio) > 0.01) {
+        adaptiveRes.ratio = next;
+        renderer.setPixelRatio(next);
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        adaptiveRes.cooldown = 90;
+    }
+}
+
 function animate(now) {
     requestAnimationFrame(animate);
     const dt = Math.min((now - lastTime) / 1000, 0.05);
+    updateAdaptiveResolution((now - lastTime));
     lastTime = now;
 
     updateSimulation(dt);
     const renderCamera = window.activeCamera || activeCamera;
     const renderCameraLayers = renderCamera.layers.mask;
+    if (!useSSAO) {
+        // Layers 0 (world) + 1 (FX particles) in a single pass
+        renderCamera.layers.mask = 3;
+        renderer.render(scene, renderCamera);
+        renderCamera.layers.mask = renderCameraLayers;
+        return;
+    }
     renderCamera.layers.set(0);
     ssaoPass.camera = renderCamera;
     ssaoPass.ssaoMaterial.uniforms.cameraNear.value = renderCamera.near;
@@ -1161,7 +1190,7 @@ function onWindowResize() {
     }
     if (window.renderer) {
         window.renderer.setSize(w, h);
-        window.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+        window.renderer.setPixelRatio(adaptiveRes.ratio);
     }
     if (composer) composer.setSize(w, h);
 }

@@ -38,6 +38,14 @@
             width: 100% !important;
             height: 100% !important;
             display: block;
+            filter: saturate(1.14) contrast(1.07) brightness(0.98);
+        }
+        #canvas-container::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            background: radial-gradient(ellipse at center, rgba(0,0,0,0) 58%, rgba(8,14,24,0.38) 100%);
         }
         .mono {
             font-family: 'JetBrains Mono', monospace;
