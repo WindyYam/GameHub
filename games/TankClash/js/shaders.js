@@ -777,8 +777,19 @@ function createVolumetricSmokeGeometry() {
         indices.push(faces[i][0], faces[i][1], faces[i][2]);
     }
 
+    const uvs = new Float32Array(vertices.length * 2);
+    for (let i = 0; i < vertices.length; i++) {
+        const v = vertices[i];
+        const nx = v[0];
+        const ny = v[1];
+        const nz = v[2];
+        uvs[i * 2]     = Math.atan2(nz, nx) / (2.0 * Math.PI) + 0.5;
+        uvs[i * 2 + 1] = Math.asin(Math.max(-1.0, Math.min(1.0, ny))) / Math.PI + 0.5;
+    }
+
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
     geo.setIndex(indices);
     geo.computeVertexNormals();
 
@@ -787,28 +798,233 @@ function createVolumetricSmokeGeometry() {
 }
 
 // ============================================================================
+// ============================================================================
+// Procedural Seamless Smoke Normal Map & Diffuse Texture Generators
+// Multi-octave convective turbulence, billow folds, soot mottling & micro-ridges
+// ============================================================================
+
+let _smokeDiffuseTex = null;
+let _smokeNormalTex = null;
+
+function _createSmokeNoisePermutation() {
+    const perm = new Uint8Array(512);
+    for (let i = 0; i < 256; i++) perm[i] = i;
+    for (let i = 255; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        const t = perm[i]; perm[i] = perm[j]; perm[j] = t;
+    }
+    for (let i = 0; i < 256; i++) perm[i + 256] = perm[i];
+
+    const gradsX = new Float32Array(256);
+    const gradsY = new Float32Array(256);
+    for (let i = 0; i < 256; i++) {
+        const angle = (i / 256.0) * Math.PI * 2.0;
+        gradsX[i] = Math.cos(angle);
+        gradsY[i] = Math.sin(angle);
+    }
+
+    function periodicNoise(x, y, period) {
+        const xi = Math.floor(x) % period;
+        const yi = Math.floor(y) % period;
+        const xf = x - Math.floor(x);
+        const yf = y - Math.floor(y);
+
+        const u = xf * xf * xf * (xf * (xf * 6.0 - 15.0) + 10.0);
+        const v = yf * yf * yf * (yf * (yf * 6.0 - 15.0) + 10.0);
+
+        const aa = perm[perm[xi] + yi] % 256;
+        const ab = perm[perm[xi] + ((yi + 1) % period)] % 256;
+        const ba = perm[perm[((xi + 1) % period)] + yi] % 256;
+        const bb = perm[perm[((xi + 1) % period)] + ((yi + 1) % period)] % 256;
+
+        const dAA = gradsX[aa] * xf + gradsY[aa] * yf;
+        const dBA = gradsX[ba] * (xf - 1.0) + gradsY[ba] * yf;
+        const dAB = gradsX[ab] * xf + gradsY[ab] * (yf - 1.0);
+        const dBB = gradsX[bb] * (xf - 1.0) + gradsY[bb] * (yf - 1.0);
+
+        const lerp1 = dAA + u * (dBA - dAA);
+        const lerp2 = dAB + u * (dBB - dAB);
+        return lerp1 + v * (lerp2 - lerp1);
+    }
+
+    function periodicFBM(x, y, basePeriod, octaves = 4, persistence = 0.52) {
+        let total = 0.0;
+        let freq = 1.0;
+        let amp = 1.0;
+        let maxAmp = 0.0;
+        let p = basePeriod;
+        for (let o = 0; o < octaves; o++) {
+            total += periodicNoise(x * freq, y * freq, p) * amp;
+            maxAmp += amp;
+            freq *= 2.0;
+            p *= 2;
+            amp *= persistence;
+        }
+        return total / maxAmp;
+    }
+
+    return { periodicFBM };
+}
+
+function createSmokeDiffuseTexture() {
+    if (_smokeDiffuseTex) return _smokeDiffuseTex;
+
+    const size = 256;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    const imgData = ctx.createImageData(size, size);
+    const data = imgData.data;
+
+    const { periodicFBM } = _createSmokeNoisePermutation();
+
+    for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+            const u = x / size;
+            const v = y / size;
+
+            // Inverted abs(FBM) gives puffy cloud lobes and sharp crevice creases
+            const n1 = periodicFBM(u * 4.0, v * 4.0, 4, 4);
+            const billow = 1.0 - Math.abs(n1);
+
+            // Wispy filament turbulence
+            const n2 = periodicFBM(u * 8.0 + 0.37, v * 8.0 + 0.61, 8, 3);
+            const wisp = Math.max(0.0, Math.min(1.0, n2 * 0.5 + 0.5));
+
+            // Soot swirl mottling
+            const n3 = periodicFBM(u * 6.0 + 1.15, v * 6.0 + 2.33, 6, 3);
+            const soot = Math.max(0.0, Math.min(1.0, n3 * 0.5 + 0.5));
+
+            const rVal = Math.floor(Math.min(255, Math.max(0, (billow * 0.70 + wisp * 0.30) * 255)));
+            const gVal = Math.floor(wisp * 255);
+            const bVal = Math.floor(soot * 255);
+            const aVal = Math.floor(Math.min(255, Math.max(0, (billow * 0.52 + wisp * 0.32 + soot * 0.16) * 255)));
+
+            const idx = (y * size + x) * 4;
+            data[idx]     = rVal; // R: Billow luminance
+            data[idx + 1] = gVal; // G: Wisp filament
+            data[idx + 2] = bVal; // B: Soot swirl
+            data[idx + 3] = aVal; // A: Porosity mask
+        }
+    }
+
+    ctx.putImageData(imgData, 0, 0);
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.anisotropy = 4;
+    _smokeDiffuseTex = tex;
+    return tex;
+}
+
+function getSmokeDiffuseTexture() {
+    return _smokeDiffuseTex || createSmokeDiffuseTexture();
+}
+
+function createSmokeNormalTexture() {
+    if (_smokeNormalTex) return _smokeNormalTex;
+
+    const size = 256;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    const imgData = ctx.createImageData(size, size);
+    const data = imgData.data;
+
+    const { periodicFBM } = _createSmokeNoisePermutation();
+    const height = new Float32Array(size * size);
+
+    for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+            const u = x / size;
+            const v = y / size;
+
+            const n1 = periodicFBM(u * 4.0, v * 4.0, 4, 4);
+            const billow = 1.0 - Math.abs(n1);
+
+            const n2 = periodicFBM(u * 9.0 + 0.44, v * 9.0 + 0.73, 9, 3);
+            const micro = n2 * 0.5 + 0.5;
+
+            height[y * size + x] = billow * 0.75 + micro * 0.25;
+        }
+    }
+
+    const normalStrength = 2.8;
+    for (let y = 0; y < size; y++) {
+        const yPrev = (y - 1 + size) % size;
+        const yNext = (y + 1) % size;
+        for (let x = 0; x < size; x++) {
+            const xPrev = (x - 1 + size) % size;
+            const xNext = (x + 1) % size;
+
+            const dhdx = (
+                (height[yPrev * size + xNext] + 2.0 * height[y * size + xNext] + height[yNext * size + xNext]) -
+                (height[yPrev * size + xPrev] + 2.0 * height[y * size + xPrev] + height[yNext * size + xPrev])
+            ) / 8.0;
+
+            const dhdy = (
+                (height[yNext * size + xPrev] + 2.0 * height[yNext * size + x] + height[yNext * size + xNext]) -
+                (height[yPrev * size + xPrev] + 2.0 * height[yPrev * size + x] + height[yPrev * size + xNext])
+            ) / 8.0;
+
+            let nx = -dhdx * normalStrength;
+            let ny = -dhdy * normalStrength;
+            let nz = 1.0;
+            const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+            nx /= len; ny /= len; nz /= len;
+
+            const idx = (y * size + x) * 4;
+            data[idx]     = Math.floor((nx * 0.5 + 0.5) * 255);
+            data[idx + 1] = Math.floor((ny * 0.5 + 0.5) * 255);
+            data[idx + 2] = Math.floor((nz * 0.5 + 0.5) * 255);
+            data[idx + 3] = 255;
+        }
+    }
+
+    ctx.putImageData(imgData, 0, 0);
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.anisotropy = 4;
+    _smokeNormalTex = tex;
+    return tex;
+}
+
+function getSmokeNormalTexture() {
+    return _smokeNormalTex || createSmokeNormalTexture();
+}
+
+// ============================================================================
 // Band-Limited 64x64 Void-and-Cluster Blue Noise Volumetric Smoke Material
 // Solid Opaque Core (Zero Grain) + Feathered Blue Noise Perimeter (Zero Hard Edge)
-// Zero GPU alpha-overdraw, zero framebuffer read-modify-write, full Early-Z.
+// Enhanced with Procedural Normal Map & Diffuse Mottling for Noisy Billowing
 // ============================================================================
 
 function createHaltonSmokeMaterial(colorHex = 0x94a3b8) {
     const blueNoiseTex = createBlueNoiseTexture();
+    const diffuseTex = getSmokeDiffuseTexture();
+    const normalTex = getSmokeNormalTexture();
     const color = (colorHex && colorHex.isColor) ? colorHex.clone() : new THREE.Color(colorHex);
 
     const mat = new THREE.ShaderMaterial({
         uniforms: {
-            diffuse:      { value: color },
-            opacity:      { value: 0.88 },
-            uAgeProgress: { value: 0.0 },
-            ditherOffset: { value: new THREE.Vector2(0, 0) },
-            blueNoiseMap: { value: blueNoiseTex },
-            haltonMap:    { value: blueNoiseTex },
-            uTime:        celestialLighting.time,
-            sunDirection: celestialLighting.sunDirection,
-            sunColor:     celestialLighting.sunColor,
-            skyColor:     celestialLighting.skyColor,
-            groundColor:  celestialLighting.groundColor
+            diffuse:            { value: color },
+            opacity:            { value: 0.88 },
+            uAgeProgress:       { value: 0.0 },
+            ditherOffset:       { value: new THREE.Vector2(0, 0) },
+            blueNoiseMap:       { value: blueNoiseTex },
+            haltonMap:          { value: blueNoiseTex },
+            smokeDiffuseMap:    { value: diffuseTex },
+            smokeNormalMap:     { value: normalTex },
+            uNormalScale:       { value: 0.95 },
+            uDiffuseNoiseScale: { value: 1.35 },
+            uTime:              celestialLighting.time,
+            sunDirection:       celestialLighting.sunDirection,
+            sunColor:           celestialLighting.sunColor,
+            skyColor:           celestialLighting.skyColor,
+            groundColor:        celestialLighting.groundColor
         },
         vertexShader: `
             uniform float uAgeProgress;
@@ -816,7 +1032,11 @@ function createHaltonSmokeMaterial(colorHex = 0x94a3b8) {
             varying vec3 vNormal;
             varying vec3 vViewDir;
             varying vec3 vLocalPos;
+            varying vec3 vLocalNormal;
+            varying vec3 vWorldViewDir;
+            varying mat3 vLocalToWorld;
             varying float vLobeDisplacement;
+            varying vec2 vUv;
 
             void main() {
                 vec3 pos = position;
@@ -826,10 +1046,17 @@ function createHaltonSmokeMaterial(colorHex = 0x94a3b8) {
                 float swell = sin(clamp(uAgeProgress / 0.7, 0.0, 1.0) * 3.14159);
                 pos.xyz += normal * (verticalExpand * 0.16 * swell);
 
+                vLocalPos = pos;
+                vLocalNormal = normalize(normal);
+                vUv = uv;
+
+                vec4 worldPos = modelMatrix * vec4(pos, 1.0);
+                vWorldViewDir = normalize(cameraPosition - worldPos.xyz);
+                vLocalToWorld = mat3(modelMatrix);
+
                 vNormal = normalize(normalMatrix * normal);
                 vec4 mvPos = modelViewMatrix * vec4(pos, 1.0);
                 vViewDir = -normalize(mvPos.xyz);
-                vLocalPos = pos;
                 vLobeDisplacement = length(pos);
 
                 gl_Position = projectionMatrix * mvPos;
@@ -841,6 +1068,10 @@ function createHaltonSmokeMaterial(colorHex = 0x94a3b8) {
             uniform float uAgeProgress;
             uniform vec2 ditherOffset;
             uniform sampler2D blueNoiseMap;
+            uniform sampler2D smokeDiffuseMap;
+            uniform sampler2D smokeNormalMap;
+            uniform float uNormalScale;
+            uniform float uDiffuseNoiseScale;
             uniform float uTime;
             uniform vec3 sunDirection;
             uniform vec3 sunColor;
@@ -850,7 +1081,11 @@ function createHaltonSmokeMaterial(colorHex = 0x94a3b8) {
             varying vec3 vNormal;
             varying vec3 vViewDir;
             varying vec3 vLocalPos;
+            varying vec3 vLocalNormal;
+            varying vec3 vWorldViewDir;
+            varying mat3 vLocalToWorld;
             varying float vLobeDisplacement;
+            varying vec2 vUv;
 
             float hash(vec3 p) {
                 p = fract(p * 0.1031);
@@ -891,51 +1126,87 @@ function createHaltonSmokeMaterial(colorHex = 0x94a3b8) {
             }
 
             void main() {
-                // 1. True Volumetric Ray Path Thickness (Eliminates the "solid object" look)
+                // 1. Triplanar Sampling for Diffuse and Normal Map (Noisy billows & creases)
+                vec3 smokeCoord = vLocalPos * uDiffuseNoiseScale + vec3(uTime * 0.025, uTime * 0.045 + uAgeProgress * 0.35, uTime * 0.015);
+                vec3 blendWeights = pow(abs(vLocalNormal), vec3(3.5));
+                blendWeights = max(blendWeights, vec3(0.001));
+                blendWeights /= (blendWeights.x + blendWeights.y + blendWeights.z);
+
+                vec2 uvX = smokeCoord.yz;
+                vec2 uvY = smokeCoord.zx;
+                vec2 uvZ = smokeCoord.xy;
+
+                vec4 diffSampleX = texture2D(smokeDiffuseMap, uvX);
+                vec4 diffSampleY = texture2D(smokeDiffuseMap, uvY);
+                vec4 diffSampleZ = texture2D(smokeDiffuseMap, uvZ);
+                vec4 smokeDiff = diffSampleX * blendWeights.x + diffSampleY * blendWeights.y + diffSampleZ * blendWeights.z;
+
+                vec3 normSampleX = texture2D(smokeNormalMap, uvX).xyz * 2.0 - 1.0;
+                vec3 normSampleY = texture2D(smokeNormalMap, uvY).xyz * 2.0 - 1.0;
+                vec3 normSampleZ = texture2D(smokeNormalMap, uvZ).xyz * 2.0 - 1.0;
+
+                vec3 localNormX = vec3(normSampleX.z * sign(vLocalNormal.x), normSampleX.y, -normSampleX.x * sign(vLocalNormal.x));
+                vec3 localNormY = vec3(normSampleY.x, normSampleY.z * sign(vLocalNormal.y), -normSampleY.y * sign(vLocalNormal.y));
+                vec3 localNormZ = vec3(normSampleZ.x, normSampleZ.y, normSampleZ.z * sign(vLocalNormal.z));
+
+                vec3 perturbedLocal = normalize(localNormX * blendWeights.x + localNormY * blendWeights.y + localNormZ * blendWeights.z);
+                vec3 finalLocalNormal = normalize(mix(vLocalNormal, perturbedLocal, clamp(uNormalScale, 0.0, 1.0)));
+                vec3 worldNormal = normalize(vLocalToWorld * finalLocalNormal);
+
+                // 2. True Volumetric Ray Path Thickness (Eliminates the "solid object" look)
                 float r = length(vLocalPos);
-                float NdotV = clamp(dot(vNormal, vViewDir), 0.0, 1.0);
+                float NdotV = clamp(dot(worldNormal, vWorldViewDir), 0.0, 1.0);
                 
                 // Path length through the cloud volume: thickest in center, fading smoothly to 0 at perimeter
                 float pathThickness = sqrt(clamp(1.0 - pow(r / 1.72, 2.0), 0.0, 1.0)) * pow(NdotV, 0.55);
 
                 // Multi-scale 3D fractal noise (convective billowing turbulence)
                 float billowNoise = fbmSmoke(vLocalPos * 2.0 + vec3(0.0, uTime * 0.12, 0.0));
-                float turbulentDensity = pathThickness * (0.65 + billowNoise * 0.55);
+
+                // Modulate density by the diffuse texture's micro-density porosity channel (Channel A)
+                float microPorosity = mix(0.55, 1.45, smokeDiff.a);
+                float turbulentDensity = pathThickness * (0.60 + billowNoise * 0.50) * microPorosity;
 
                 // Dissipation decay as smoke ages over its lifecycle
                 float lifeFactor = 1.0 - smoothstep(0.45, 1.0, uAgeProgress);
                 float finalDensity = clamp(turbulentDensity * opacity * lifeFactor * 1.5, 0.0, 1.0);
 
-                // 2. Smooth Volumetric Alpha Feathering (Zero stipple dots!)
+                // Smooth Volumetric Alpha Feathering (Zero stipple dots!)
                 if (finalDensity < 0.015) discard;
 
                 // 3. Maldive Henyey-Greenstein Dual-Lobe Scattering on Surviving Fragments
-                float cosTheta = dot(-vViewDir, sunDirection);
+                float cosTheta = dot(-vWorldViewDir, sunDirection);
                 float g1 = 0.65;
                 float hgForward = (1.0 - g1 * g1) / pow(1.0 + g1 * g1 - 2.0 * g1 * cosTheta, 1.5) / 12.56637;
                 float g2 = -0.22;
                 float hgBack = (1.0 - g2 * g2) / pow(1.0 + g2 * g2 - 2.0 * g2 * cosTheta, 1.5) / 12.56637;
                 float hgPhase = mix(hgForward, hgBack, 0.28) * 3.14159;
 
-                // 4. Half-Lambert Wrap Lighting
-                float NdotL = dot(vNormal, sunDirection);
+                // 4. Half-Lambert Wrap Lighting (now using the perturbed normal map!)
+                float NdotL = dot(worldNormal, sunDirection);
                 float wrapL = clamp((NdotL + 0.52) / 1.52, 0.0, 1.0);
 
-                // Crevice self-shadowing
+                // Crevice self-shadowing (perturbed ridges & crevices catch realistic self-shadows)
                 float creviceAO = clamp((vLobeDisplacement - 0.72) / 0.58, 0.0, 1.0);
-                float selfShadow = mix(0.45, 1.0, creviceAO);
+                float microAO = mix(0.60, 1.20, smokeDiff.g);
+                float selfShadow = mix(0.40, 1.0, creviceAO) * microAO;
 
                 vec3 directLight = sunColor * (wrapL * 0.82 + hgPhase * 0.45) * selfShadow;
 
                 // 5. Multi-Hemisphere Ambient Lighting (Sky above, Ground below)
-                float upFactor = clamp(vNormal.y * 0.5 + 0.5, 0.0, 1.0);
+                float upFactor = clamp(worldNormal.y * 0.5 + 0.5, 0.0, 1.0);
                 vec3 ambientLight = mix(groundColor * 0.65, skyColor * 0.75, upFactor);
 
                 // 6. Backlight Forward Scattering Rim Glow
                 float rim = pow(1.0 - NdotV, 2.5);
-                vec3 rimGlow = sunColor * rim * (hgPhase * 0.65 + 0.25);
+                vec3 rimGlow = sunColor * rim * (hgPhase * 0.65 + 0.25) * (0.8 + 0.4 * smokeDiff.r);
 
-                vec3 finalColor = diffuse * (directLight + ambientLight) + rimGlow;
+                // Apply Diffuse Texture to base color
+                // R: billow contrast, G: wisp filaments, B: soot swirl
+                vec3 noisyDiffuse = diffuse * mix(vec3(0.68), vec3(1.32), smokeDiff.r);
+                noisyDiffuse = mix(noisyDiffuse, noisyDiffuse * 0.75, smokeDiff.b * 0.4);
+
+                vec3 finalColor = noisyDiffuse * (directLight + ambientLight) + rimGlow;
                 float smoothAlpha = clamp(smoothstep(0.015, 0.65, finalDensity) * 0.85, 0.0, 0.88);
 
                 gl_FragColor = vec4(finalColor, smoothAlpha);
@@ -960,8 +1231,14 @@ function createHaltonSmokeMaterial(colorHex = 0x94a3b8) {
         }
     });
 
+    Object.defineProperty(mat, 'normalScale', {
+        get() { return this.uniforms.uNormalScale.value; },
+        set(v) { this.uniforms.uNormalScale.value = v; }
+    });
+
     return mat;
 }
+
 
 const createMaldiveSmokeMaterial = createHaltonSmokeMaterial;
 const createOpaqueVolumetricSmokeMaterial = createHaltonSmokeMaterial;
@@ -3197,6 +3474,10 @@ window.createHaltonSmokeMaterial = createHaltonSmokeMaterial;
 window.createMaldiveSmokeMaterial = createMaldiveSmokeMaterial;
 window.createOpaqueVolumetricSmokeMaterial = createOpaqueVolumetricSmokeMaterial;
 window.createBlueNoiseSmokeMaterial = createBlueNoiseSmokeMaterial;
+window.createSmokeDiffuseTexture = createSmokeDiffuseTexture;
+window.getSmokeDiffuseTexture = getSmokeDiffuseTexture;
+window.createSmokeNormalTexture = createSmokeNormalTexture;
+window.getSmokeNormalTexture = getSmokeNormalTexture;
 window.createVolumetricSmokeGeometry = createVolumetricSmokeGeometry;
 window.createGrassTuftGeometry = createGrassTuftGeometry;
 window.createGrassMaterial = createGrassMaterial;

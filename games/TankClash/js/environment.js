@@ -1468,15 +1468,50 @@ function ensureSharedGeometries() {
 // ============================================================================
 function createSmokeCanvasTexture() {
     const c = document.createElement('canvas');
-    c.width = 128; c.height = 128;
+    const size = 256;
+    c.width = size; c.height = size;
     const ctx = c.getContext('2d');
-    const grad = ctx.createRadialGradient(64, 64, 6, 64, 64, 60);
-    grad.addColorStop(0.0, 'rgba(55, 52, 58, 0.65)');
-    grad.addColorStop(0.45, 'rgba(45, 42, 48, 0.35)');
-    grad.addColorStop(1.0, 'rgba(35, 35, 42, 0.0)');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, 128, 128);
-    return new THREE.CanvasTexture(c);
+    const imgData = ctx.createImageData(size, size);
+    const data = imgData.data;
+
+    // Organic procedural noisy smoke puff with billowing lobes & wispy perimeter
+    const half = size / 2;
+    for (let y = 0; y < size; y++) {
+        const ny = (y - half) / (half * 0.92);
+        for (let x = 0; x < size; x++) {
+            const nx = (x - half) / (half * 0.92);
+            const dist = Math.hypot(nx, ny);
+            if (dist >= 1.0) continue;
+
+            const angle = Math.atan2(ny, nx);
+            const lobes = (
+                Math.sin(angle * 5.0) * 0.09 +
+                Math.cos(angle * 8.0 + 1.2) * 0.06 +
+                Math.sin(angle * 13.0 - 0.7) * 0.03
+            );
+            const rDist = dist / (0.88 + lobes);
+            if (rDist >= 1.0) continue;
+
+            const n1 = Math.sin(nx * 8.0 + ny * 6.0) * Math.cos(ny * 9.0 - nx * 4.0) * 0.5 + 0.5;
+            const n2 = Math.sin(nx * 18.0 - ny * 14.0) * Math.cos(nx * 12.0 + ny * 16.0) * 0.5 + 0.5;
+            const turb = n1 * 0.65 + n2 * 0.35;
+
+            const edgeFade = 1.0 - Math.pow(rDist, 1.8);
+            const density = edgeFade * (0.65 + turb * 0.65);
+            const alpha = Math.min(1.0, Math.max(0.0, density)) * 0.72;
+
+            const soot = Math.floor(45 + turb * 25);
+            const idx = (y * size + x) * 4;
+            data[idx]     = soot;
+            data[idx + 1] = soot + 2;
+            data[idx + 2] = soot + 5;
+            data[idx + 3] = Math.floor(alpha * 255);
+        }
+    }
+    ctx.putImageData(imgData, 0, 0);
+    const tex = new THREE.CanvasTexture(c);
+    tex.anisotropy = 4;
+    return tex;
 }
 
 function createFireCanvasTexture() {
