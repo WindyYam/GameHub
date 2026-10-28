@@ -1941,6 +1941,7 @@ class TerrainChunk {
         this.group = new THREE.Group();
         this.trees = [];
         this.targets = [];
+        this.enemyTanks = [];
         this.raycastMeshes = [];
         this.buildings = [];
         this.rocks = [];
@@ -2378,63 +2379,20 @@ class TerrainChunk {
         }
 
         // ---------------------------------------------------------------------
-        // 5. REACTIVE ARMORED TARGET HULLS FOR GUNNERY PRACTICE
+        // 5. OPPOSING CAMPAIGN COMBAT ENEMY TANKS (Real 3D Models)
         // ---------------------------------------------------------------------
-        if (distFromSpawn > 45 && !isVillage && rng() < 0.16) {
+        if (distFromSpawn > 45 && !isVillage && rng() < 0.18) {
             const tx = xMin + (0.15 + rng() * 0.70) * CHUNK_SIZE;
             const tz = zMin + (0.15 + rng() * 0.70) * CHUNK_SIZE;
-            if (getRoadFactor(tx, tz) < 0.35) {
+            if (getRoadFactor(tx, tz) < 0.40) {
                 const ty = getTerrainHeight(tx, tz);
-                const targetId = `${this.chunkKey}:tgt`;
-                const isDestroyed = sessionDestroyedTargets.has(targetId);
-
-                const tg = new THREE.Group();
-                tg.position.set(tx, ty, tz);
-
-                const hullMat = new THREE.MeshStandardMaterial({ color: 0x4b5338, roughness: 0.65, metalness: 0.35 });
-                const baseHull = new THREE.Mesh(new THREE.BoxGeometry(2.9, 1.05, 4.4), hullMat);
-                baseHull.position.y = 0.52;
-                baseHull.castShadow = true;
-                baseHull.receiveShadow = true;
-                tg.add(baseHull);
-
-                const platePivot = new THREE.Group();
-                platePivot.position.y = 1.05;
-                tg.add(platePivot);
-
-                const plateMat = new THREE.MeshStandardMaterial({ color: 0xb91c1c, roughness: 0.5, metalness: 0.4 });
-                const turretBox = new THREE.Mesh(new THREE.CylinderGeometry(0.95, 1.15, 0.85, 12), plateMat);
-                turretBox.position.y = 0.42;
-                turretBox.castShadow = true;
-                platePivot.add(turretBox);
-
-                const crossH = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.18, 2.35), new THREE.MeshBasicMaterial({ color: 0xf8fafc }));
-                crossH.position.y = 0.42;
-                platePivot.add(crossH);
-                this.raycastMeshes.push(baseHull, turretBox, crossH);
-                aimRaycastMeshes.push(baseHull, turretBox, crossH);
-
-                tg.lookAt(0, ty, 0);
-                this.group.add(tg);
-
-                if (isDestroyed) {
-                    platePivot.rotation.x = Math.PI * 0.45;
+                const targetId = `${this.chunkKey}:enemyTank`;
+                if (typeof window.spawnEnemyCombatTank === 'function') {
+                    const enemyTank = window.spawnEnemyCombatTank(targetId, tx, ty, tz, this.group);
+                    if (enemyTank) {
+                        this.enemyTanks.push(enemyTank);
+                    }
                 }
-
-                const tgtObj = {
-                    id: targetId,
-                    group: tg,
-                    pivot: platePivot,
-                    x: tx,
-                    y: ty,
-                    z: tz,
-                    radius: 2.4,
-                    height: 2.1,
-                    isDestroyed: isDestroyed,
-                    hitAngle: isDestroyed ? Math.PI * 0.45 : 0
-                };
-                this.targets.push(tgtObj);
-                targets.push(tgtObj);
             }
         }
     }
@@ -2450,6 +2408,13 @@ class TerrainChunk {
             const idx = swayTrees.indexOf(t);
             if (idx !== -1) swayTrees.splice(idx, 1);
         });
+
+        if (this.enemyTanks) {
+            this.enemyTanks.forEach(tank => {
+                if (typeof tank.dispose === 'function') tank.dispose();
+            });
+            this.enemyTanks.length = 0;
+        }
 
         this.targets.forEach(tg => {
             const idx = targets.indexOf(tg);
@@ -2820,6 +2785,9 @@ function buildEnvironment(scene) {
     }
 
     updateTerrainChunks(0, 0);
+    if (typeof window.spawnInitialFieldEnemies === 'function') {
+        window.spawnInitialFieldEnemies();
+    }
 }
 
 function updateEnvironment(dt, tankState) {
@@ -2958,6 +2926,8 @@ function restartGame(customSeed) {
     activeChunkCenterX = null;
     activeChunkCenterZ = null;
     updateTerrainChunks(0, 0);
+    if (typeof window.resetEnemyTanks === 'function') window.resetEnemyTanks();
+    if (typeof window.resetPlayerHealth === 'function') window.resetPlayerHealth();
 
     const seedEl = document.getElementById('hud-seed-display');
     if (seedEl) seedEl.textContent = `Seed: ${seed}`;

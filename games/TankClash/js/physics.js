@@ -47,7 +47,8 @@ var tankState = {
     bowMgCooldown: 0,
     mgHeat: 0,
     headlightsOn: false,
-    hitsCount: 0
+    hitsCount: 0,
+    isKnockedOut: false
 };
 
 // Active projectiles, VFX particles, shockwaves and dynamic lights
@@ -414,7 +415,8 @@ function spawnParticle(pos, vel, colorHex, startSize, endSize, life, isAdditive 
 
 // Fire Main Tank Cannon (KwK 36 / 75mm M3 / 85mm ZiS-S-53)
 function fireMainCannon(tankModel) {
-    if (tankState.reloadTimer > 0) return;
+    if (tankState.reloadTimer > 0 || tankState.isKnockedOut) return;
+    if (typeof window.notifyPlayerFired === 'function') window.notifyPlayerFired();
     tankState.reloadTimer = tankState.RELOAD_TIME;
     tankState.reloadStage = 1;
 
@@ -532,7 +534,7 @@ function spawnTracerRound(pos, dir, quat) {
 
 // Fire Coaxial MG34 (Turret Mantlet)
 function fireCoaxMG(tankModel) {
-    if (tankState.coaxMgCooldown > 0 || tankState.mgHeat >= 100) return;
+    if (tankState.coaxMgCooldown > 0 || tankState.mgHeat >= 100 || tankState.isKnockedOut) return;
     tankState.coaxMgCooldown = 0.075;
     tankState.mgHeat = Math.min(100, tankState.mgHeat + 1.8);
 
@@ -556,7 +558,7 @@ function fireCoaxMG(tankModel) {
 
 // Fire Front Hull Kugelblende 50 Bow MG34
 function fireBowMG(tankModel) {
-    if (tankState.bowMgCooldown > 0 || tankState.mgHeat >= 100) return;
+    if (tankState.bowMgCooldown > 0 || tankState.mgHeat >= 100 || tankState.isKnockedOut) return;
     tankState.bowMgCooldown = 0.075;
     tankState.mgHeat = Math.min(100, tankState.mgHeat + 1.8);
 

@@ -173,6 +173,8 @@
 
     <!-- Combat Status HUD Pill (Minimal translucent 1-line bar on top of screen) -->
     <div id="combat-mini-hud" class="fixed top-2.5 left-1/2 -translate-x-1/2 z-20 pointer-events-none flex items-center gap-2.5 px-3.5 py-1 rounded-full bg-black/40 backdrop-blur-md border border-white/10 text-[11px] mono text-slate-200 shadow-md whitespace-nowrap">
+        <span>🛡️ <strong id="hud-armor" class="text-emerald-400 font-bold">ARMOR: 3/3</strong></span>
+        <span class="text-slate-600">|</span>
         <span>⚡ <strong id="mob-speed" class="text-white font-bold">0.0</strong> km/h</span>
         <span class="text-slate-600">|</span>
         <span>💥 <strong id="mob-reload" class="text-emerald-400 font-bold">READY</strong></span>
@@ -295,9 +297,10 @@
     <script src="js/tankTiger.js"></script>
     <script src="js/tankSherman.js"></script>
     <script src="js/tankT34.js"></script>
-    <script src="js/tankModel.js"></script>
-    <script src="js/physics.js"></script>
+    <script src="js/tankModel.js?v=ai1"></script>
+    <script src="js/physics.js?v=ai1"></script>
+    <script src="js/enemyAI.js?v=ai1"></script>
     <script src="js/controls.js"></script>
-    <script src="js/main.js"></script>
+    <script src="js/main.js?v=ai1"></script>
 </body>
 </html>

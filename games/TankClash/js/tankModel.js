@@ -293,6 +293,11 @@ function switchTank(newTankId) {
         window.soundFX.setTankSoundProfile(spec);
     }
 
+    // Notify Enemy AI of Player Campaign Change
+    if (typeof window.onPlayerTankChanged === 'function') {
+        window.onPlayerTankChanged(newTankId);
+    }
+
     return newModel;
 }
 

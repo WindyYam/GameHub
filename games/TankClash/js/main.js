@@ -271,8 +271,9 @@ function updateSimulation(dt) {
     const currentActiveCam = window.activeCamera || activeCamera;
 
     // --- 1. DRIVING & TRACTOR FORCE DYNAMICS (Mass, Engine Power, Slope Gravity, Rolling Resistance) ---
-    const forwardInput = ((keys['w'] ? 1 : 0) - (keys['s'] ? 1 : 0)) || touchDrive.forward;
-    const turnInput    = ((keys['a'] ? 1 : 0) - (keys['d'] ? 1 : 0)) || touchDrive.turn;
+    const isKO = !!tankState.isKnockedOut;
+    const forwardInput = isKO ? 0 : (((keys['w'] ? 1 : 0) - (keys['s'] ? 1 : 0)) || touchDrive.forward);
+    const turnInput    = isKO ? 0 : (((keys['a'] ? 1 : 0) - (keys['d'] ? 1 : 0)) || touchDrive.turn);
 
     const currentSpec = tankState.currentTankSpec || (window.TANK_SPECS && window.TANK_SPECS[window.currentTankId || 'tiger']) || {
         massKg: 57000,
@@ -866,6 +867,9 @@ function updateSimulation(dt) {
     // --- 7. BALLISTIC PROJECTILES & PARTICLES ---
     updateProjectiles(dt);
     updateParticles(dt);
+    if (typeof window.updateEnemyTanks === 'function') {
+        window.updateEnemyTanks(dt);
+    }
 
     // --- 8. PROCEDURAL CHUNK STREAMING, GRASS & DAYLIGHT ATMOSPHERE ---
     if (typeof updateEnvironment === 'function') {
