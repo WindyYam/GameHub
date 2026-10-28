@@ -35,7 +35,7 @@ window.activeCamera = activeCamera;
 // 3. WebGL High-Performance Renderer
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -89,7 +89,7 @@ composer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1));
 if (composer.renderTarget1) composer.renderTarget1.texture.encoding = THREE.sRGBEncoding;
 if (composer.renderTarget2) composer.renderTarget2.texture.encoding = THREE.sRGBEncoding;
 const ssaoPass = new THREE.SSAOPass(scene, perspCamera, window.innerWidth, window.innerHeight);
-ssaoPass.kernelRadius = 10;
+ssaoPass.kernelRadius = 8;
 ssaoPass.minDistance = 0.005;
 ssaoPass.maxDistance = 0.12;
 composer.addPass(ssaoPass);
@@ -1174,7 +1174,7 @@ function onWindowResize() {
     }
     if (window.renderer) {
         window.renderer.setSize(w, h);
-        window.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        window.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     }
     if (composer) composer.setSize(w, h);
 }

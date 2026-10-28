@@ -56,6 +56,10 @@ var tracers = [];
 var particles = [];
 var dynamicFlashes = [];
 var shockwaves = [];
+const dynamicFlashPool = [];
+const shockwavePool = [];
+const particleDirection = new THREE.Vector3();
+const PARTICLE_DIRECTION_AXIS = new THREE.Vector3(0, 0, 1);
 
 // Shared particle geometries for high performance
 const sphereParticleGeo = new THREE.DodecahedronGeometry(1, 1);
@@ -127,9 +131,13 @@ function spawnDynamicFlash(pos, colorHex, intensity, distance, lifeTime) {
     const currentScene = window.scene;
     if (!currentScene) return;
 
-    const light = new THREE.PointLight(colorHex, intensity, distance, 1.8);
+    const light = dynamicFlashPool.pop() || new THREE.PointLight(colorHex, intensity, distance, 1.8);
+    light.color.setHex(colorHex);
+    light.intensity = intensity;
+    light.distance = distance;
+    light.visible = true;
     light.position.copy(pos);
-    currentScene.add(light);
+    if (light.parent !== currentScene) currentScene.add(light);
 
     dynamicFlashes.push({
         light,
@@ -144,7 +152,8 @@ function spawnShockwave(pos, maxRadius, duration, colorHex = 0xfde68a) {
     const currentScene = window.scene;
     if (!currentScene) return;
 
-    const mat = new THREE.MeshBasicMaterial({
+    const pooled = shockwavePool.pop();
+    const mat = pooled ? pooled.mat : new THREE.MeshBasicMaterial({
         color: colorHex,
         transparent: true,
         opacity: 0.85,
@@ -152,10 +161,14 @@ function spawnShockwave(pos, maxRadius, duration, colorHex = 0xfde68a) {
         depthWrite: false,
         blending: THREE.AdditiveBlending
     });
-    const mesh = new THREE.Mesh(shockwaveGeo, mat);
+    const mesh = pooled ? pooled.mesh : new THREE.Mesh(shockwaveGeo, mat);
+    mat.color.setHex(colorHex);
+    mat.opacity = 0.85;
+    mesh.visible = true;
     mesh.position.set(pos.x, pos.y + 0.08, pos.z);
+    mesh.scale.setScalar(0.3);
     if (window.excludeFromSSAO) window.excludeFromSSAO(mesh);
-    currentScene.add(mesh);
+    if (mesh.parent !== currentScene) currentScene.add(mesh);
 
     shockwaves.push({
         mesh,
@@ -493,7 +506,7 @@ function triggerHeavyDetonation(pos) {
     spawnShockwave(pos, 8.5, 0.45, 0xfef08a);
 
     // 3. Central White-Hot to Fiery Orange Fireball Plume
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 7; i++) {
         const fireVel = new THREE.Vector3(
             (Math.random() - 0.5) * 8.0,
             3.5 + Math.random() * 8.5,
@@ -504,7 +517,7 @@ function triggerHeavyDetonation(pos) {
     }
 
     // 4. Giant Billowing Charcoal/Black Smoke Plume that rises into sky
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 8; i++) {
         const smokeVel = new THREE.Vector3(
             (Math.random() - 0.5) * 9.5,
             2.5 + Math.random() * 7.5,
@@ -515,7 +528,7 @@ function triggerHeavyDetonation(pos) {
     }
 
     // 5. Fountain of Incandescent Shrapnel Sparks
-    for (let i = 0; i < 24; i++) {
+    for (let i = 0; i < 16; i++) {
         const sparkVel = new THREE.Vector3(
             (Math.random() - 0.5) * 26.0,
             6.0 + Math.random() * 22.0,
@@ -525,7 +538,7 @@ function triggerHeavyDetonation(pos) {
     }
 
     // 6. Heavy Clods of Earth & Shrapnel Debris
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 7; i++) {
         const dirtVel = new THREE.Vector3(
             (Math.random() - 0.5) * 16.0,
             4.0 + Math.random() * 14.0,
@@ -763,7 +776,8 @@ function updateParticles(dt) {
         // Rotation
         if (p.type === 'spark') {
             if (p.vel.lengthSq() > 0.05) {
-                p.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), p.vel.clone().normalize());
+                particleDirection.copy(p.vel).normalize();
+                p.mesh.quaternion.setFromUnitVectors(PARTICLE_DIRECTION_AXIS, particleDirection);
             }
         } else {
             p.mesh.rotation.x += p.rotVel.x * dt;
@@ -808,7 +822,10 @@ function updateParticles(dt) {
         const fl = dynamicFlashes[i];
         fl.age += dt;
         if (fl.age >= fl.life) {
-            window.scene.remove(fl.light);
+            fl.light.visible = false;
+            fl.light.intensity = 0;
+            if (dynamicFlashPool.length < 16) dynamicFlashPool.push(fl.light);
+            else window.scene.remove(fl.light);
             dynamicFlashes.splice(i, 1);
             continue;
         }
@@ -821,7 +838,12 @@ function updateParticles(dt) {
         const sw = shockwaves[i];
         sw.age += dt;
         if (sw.age >= sw.life) {
-            window.scene.remove(sw.mesh);
+            sw.mesh.visible = false;
+            if (shockwavePool.length < 16) shockwavePool.push({ mesh: sw.mesh, mat: sw.mat });
+            else {
+                window.scene.remove(sw.mesh);
+                sw.mat.dispose();
+            }
             shockwaves.splice(i, 1);
             continue;
         }
