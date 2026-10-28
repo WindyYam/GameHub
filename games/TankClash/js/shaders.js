@@ -1049,6 +1049,7 @@ function createGrassMaterial() {
             varying vec2 vUv;
             varying vec3 vNormal;
             varying vec3 vWorldPos;
+            varying vec3 vViewDir;
 
             void main() {
                 vUv = uv;
@@ -1056,6 +1057,7 @@ function createGrassMaterial() {
 
                 vec4 worldPos = modelMatrix * instanceMatrix * vec4(position, 1.0);
                 vWorldPos = worldPos.xyz;
+                vViewDir = cameraPosition - vWorldPos;
 
                 // Natural wind sway on upper blade (scaled by uv.y)
                 float swayH = pow(uv.y, 1.4);
@@ -1080,14 +1082,22 @@ function createGrassMaterial() {
             varying vec2 vUv;
             varying vec3 vNormal;
             varying vec3 vWorldPos;
+            varying vec3 vViewDir;
 
             void main() {
                 // Vertical botanical gradient from damp roots to golden sunlit tips
                 vec3 bladeColor = mix(rootColor, mix(midColor, tipColor, smoothstep(0.35, 1.0, vUv.y)), smoothstep(0.0, 0.35, vUv.y));
 
-                // Natural wrap lighting for foliage translucency
+                // Fresnel edge effect: bright at silhouette, dim when facing camera directly
+                vec3 viewNorm = normalize(vViewDir);
+                float fresnel = pow(1.0 - abs(dot(vNormal, viewNorm)), 2.2);
+
+                // Sun direction lighting on blade
                 float NdotL = max(abs(dot(vNormal, sunDirection)), 0.28);
-                vec3 finalColor = bladeColor * (sunColor * NdotL + skyColor * 0.38);
+                
+                // Apply sun color enhancement mainly to edges via Fresnel
+                vec3 sunEnhance = sunColor * NdotL * fresnel * 0.6;
+                vec3 finalColor = bladeColor * (sunEnhance + skyColor * 0.38);
 
                 gl_FragColor = vec4(finalColor, 1.0);
             }
@@ -2565,7 +2575,7 @@ function createMaldiveSkyDome() {
             uSkyHorizonColor: { value: new THREE.Color(0x397cca) },
             uSkyRotation:     { value: 0 },
             uTime:            { value: 0 },
-            uCloudCoverage:   { value: 0.42 }
+            uCloudCoverage:   { value: 0.02 }
         },
         side: THREE.BackSide,
         depthWrite: false,

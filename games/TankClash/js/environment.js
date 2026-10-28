@@ -403,22 +403,31 @@ terrainMat.onBeforeCompile = (shader) => {
         float microNoise = valueNoise2D_gpu(vTerrainWorldPos.xz * 4.2) * 0.5 + 0.5;
         float gravelNoise = valueNoise2D_gpu(vTerrainWorldPos.xz * 12.0) * 0.5 + 0.5;
 
-        // Animated traveling wind waves across meadow
-        vec2 windUV = vTerrainWorldPos.xz * 0.055 + vec2(uTime * 0.38 * uWindSpeed, uTime * 0.18 * uWindSpeed);
-        float windRipple = valueNoise2D_gpu(windUV);
+        // Synchronized rolling wind waves matching coastal_countryside_3d_scene.html
+        float tWind = uTime * uWindSpeed;
+        float wave1 = sin(vTerrainWorldPos.x * 0.14 + vTerrainWorldPos.z * 0.12 + tWind * 2.4);
+        float wave2 = cos(vTerrainWorldPos.x * 0.35 - vTerrainWorldPos.z * 0.28 + tWind * 3.6) * 0.45;
+        float windWave = (wave1 + wave2 * 0.7) * 0.5 + 0.5;
 
-        // Convert vertex color from sRGB to linear space for physically accurate lighting
+        // Convert vertex color from sRGB to linear space
         diffuseColor.rgb = pow(max(diffuseColor.rgb, vec3(0.001)), vec3(2.2));
 
-        // Rich linear-space meadow grass coloration matching 3D grass tufts seamlessly
-        vec3 lushBlade = vec3(0.028, 0.072, 0.014);
-        vec3 sunlitBlade = vec3(0.068, 0.135, 0.024);
-        vec3 cloverPatch = vec3(0.020, 0.052, 0.012);
-        float macroPatch = valueNoise2D_gpu(vTerrainWorldPos.xz * 0.08) * 0.5 + 0.5;
-        vec3 farBladeTint = mix(lushBlade, sunlitBlade, microNoise * 0.75 + macroPatch * 0.25);
-        farBladeTint = mix(farBladeTint, cloverPatch, smoothstep(0.62, 0.92, macroPatch) * 0.45);
-        diffuseColor.rgb = mix(diffuseColor.rgb, farBladeTint, grassSurfaceMask * 0.85);
-        diffuseColor.rgb *= (1.0 + windRipple * 0.14 * grassSurfaceMask);
+        // Rich meadow ground coloration matching coastal_countryside_3d_scene.html 3D grass clumps seamlessly
+        vec3 lushBlade = vec3(0.068, 0.145, 0.020);
+        vec3 sunlitBlade = vec3(0.145, 0.225, 0.032);
+        vec3 goldenPatch = vec3(0.215, 0.235, 0.042);
+        float macroPatch = valueNoise2D_gpu(vTerrainWorldPos.xz * 0.06) * 0.5 + 0.5;
+        vec3 farBladeTint = mix(lushBlade, sunlitBlade, microNoise * 0.55 + macroPatch * 0.45);
+        farBladeTint = mix(farBladeTint, goldenPatch, smoothstep(0.45, 0.85, macroPatch) * 0.55);
+
+        // Light-angle dependent subsurface glow & traveling wind-wave sheen on meadow ground
+        vec3 tViewDir = normalize(cameraPosition - vTerrainWorldPos);
+        vec3 tSunDir = normalize(uSunDir);
+        float tBacklight = pow(max(dot(-tViewDir, tSunDir), 0.0), 2.4);
+        farBladeTint += vec3(0.095, 0.125, 0.020) * tBacklight * 0.75;
+        farBladeTint *= (0.88 + windWave * 0.24);
+
+        diffuseColor.rgb = mix(diffuseColor.rgb, farBladeTint, grassSurfaceMask * 0.94);
 
         // Country Dirt Road with compacted gravel, verge grass transition, and wet wheel ruts
         if (roadMask > 0.02) {
@@ -426,21 +435,21 @@ terrainMat.onBeforeCompile = (shader) => {
             float distFromCenter = abs(vTerrainWorldPos.x - roadX);
             float rutMask = exp(-pow(distFromCenter - 1.35, 2.0) / 0.28);
             float centerCrown = exp(-pow(distFromCenter, 2.0) / 0.65);
-            vec3 dryRoad = mix(vec3(0.145, 0.112, 0.074), vec3(0.095, 0.072, 0.048), gravelNoise * 0.55);
-            dryRoad = mix(dryRoad, vec3(0.055, 0.092, 0.025), centerCrown * 0.42); // Grassy median strip
-            vec3 wetRut = vec3(0.042, 0.030, 0.019);
+            vec3 dryRoad = mix(vec3(0.165, 0.128, 0.085), vec3(0.110, 0.085, 0.056), gravelNoise * 0.55);
+            dryRoad = mix(dryRoad, vec3(0.065, 0.110, 0.028), centerCrown * 0.42);
+            vec3 wetRut = vec3(0.048, 0.035, 0.022);
             vec3 roadColor = mix(dryRoad, wetRut, rutMask * 0.88);
             diffuseColor.rgb = mix(diffuseColor.rgb, roadColor, smoothstep(0.02, 0.48, roadMask));
         }
 
-        // Coastal Shoreline: Wet sand tidal zone, warm golden beach sand, and pebble transition
-        float beachMask = 1.0 - smoothstep(-2.6, 0.55, vTerrainWorldPos.y);
+        // Coastal Shoreline: Golden beach sand right along the water edge (-2.6m to -1.35m)
+        float beachMask = 1.0 - smoothstep(-2.55, -1.35, vTerrainWorldPos.y);
         if (beachMask > 0.001) {
-            float wetZone = 1.0 - smoothstep(-2.6, -1.85, vTerrainWorldPos.y);
-            vec3 drySand = mix(vec3(0.28, 0.22, 0.14), vec3(0.20, 0.15, 0.095), microNoise * 0.35);
-            vec3 wetSand = vec3(0.085, 0.068, 0.048);
+            float wetZone = 1.0 - smoothstep(-2.65, -2.05, vTerrainWorldPos.y);
+            vec3 drySand = mix(vec3(0.28, 0.23, 0.15), vec3(0.21, 0.17, 0.11), microNoise * 0.25);
+            vec3 wetSand = vec3(0.08, 0.09, 0.08);
             vec3 sandCol = mix(drySand, wetSand, wetZone * 0.90);
-            diffuseColor.rgb = mix(diffuseColor.rgb, sandCol, beachMask * (1.0 - roadMask * 0.75));
+            diffuseColor.rgb = mix(diffuseColor.rgb, sandCol, beachMask * (1.0 - roadMask * 0.8));
         }
 
         // Building Ground Contact Ambient Occlusion
@@ -505,9 +514,12 @@ treeMaterial.onBeforeCompile = (shader) => {
         uniform float uTime;
         uniform float uWindSpeed;
         varying vec3 vTreeWorldPos;
-        varying float vTreeHeight;
-        varying vec2 vFoliageUv;
+        varying vec3 vTreeWorldNormal;
         varying vec3 vBotanicalNormal;
+        varying float vTreeHeight;
+        varying float vCanopyOuter;
+        varying float vTreeWindWave;
+        varying vec2 vFoliageUv;
     ` + shader.vertexShader;
 
     shader.vertexShader = shader.vertexShader.replace(
@@ -516,19 +528,38 @@ treeMaterial.onBeforeCompile = (shader) => {
         #include <begin_vertex>
         vFoliageUv = uv;
         vTreeHeight = max(0.0, position.y);
-        vec4 instWorld = modelMatrix * vec4(0.0, 0.0, 0.0, 1.0);
-        float sway = sin(instWorld.x * 0.08 + instWorld.z * 0.08 + uTime * 1.5 * uWindSpeed) * 0.015 * vTreeHeight;
-        transformed.x += sway;
+        vCanopyOuter = clamp(length(position.xz) / 3.2, 0.0, 1.0);
+
+        vec4 baseWorld = modelMatrix * vec4(transformed, 1.0);
+        float tW = uTime * uWindSpeed;
+
+        // Synchronized rolling wind waves across trees & grass (matching coastal_countryside_3d_scene.html)
+        float wave1 = sin(baseWorld.x * 0.14 + baseWorld.z * 0.12 + tW * 2.4);
+        float wave2 = cos(baseWorld.x * 0.35 - baseWorld.z * 0.28 + tW * 3.6) * 0.45;
+        float heightFactor = pow(clamp(vTreeHeight / 12.0, 0.0, 1.2), 1.35);
+        float trunkSway = (wave1 + wave2 * 0.5) * 0.22 * heightFactor;
+        transformed.x += trunkSway;
+        transformed.z += trunkSway * 0.60;
 
         bool isFoliageVert = (uv.y > 0.5 || uv.x < 0.5);
         if (isFoliageVert) {
-            float flutter = sin(uTime * 3.4 * uWindSpeed + position.x * 2.2 + position.z * 2.2) * 0.035 * clamp(vTreeHeight / 10.0, 0.2, 1.2);
-            transformed.x += flutter;
-            transformed.z += flutter * 0.65;
+            float boughWave = (wave1 + wave2) * 0.15 * (0.30 + 0.70 * vCanopyOuter);
+            float leafFlutter = sin(tW * 4.2 + position.x * 2.6 + position.y * 1.8 + position.z * 2.6) * 0.045 * (0.3 + 0.7 * vCanopyOuter);
+            transformed.x += boughWave + leafFlutter;
+            transformed.z += (boughWave + leafFlutter) * 0.65;
+            transformed.y -= abs(boughWave) * 0.10;
         }
 
+        vTreeWindWave = wave1 * 0.5 + 0.5;
         vTreeWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
-        vBotanicalNormal = normalize(normalMatrix * objectNormal);
+
+        // True world-space & view-space outward canopy normals tilted by wind waves for light-angle illumination
+        vec3 tiltedObjNorm = objectNormal;
+        if (isFoliageVert) {
+            tiltedObjNorm = normalize(objectNormal + vec3(-trunkSway * 0.55, 0.0, -trunkSway * 0.35));
+        }
+        vTreeWorldNormal = normalize((modelMatrix * vec4(tiltedObjNorm, 0.0)).xyz);
+        vBotanicalNormal = normalize(normalMatrix * tiltedObjNorm);
         `
     );
 
@@ -537,12 +568,15 @@ treeMaterial.onBeforeCompile = (shader) => {
         uniform vec3 uSunDir;
         uniform vec3 uSunColor;
         varying vec3 vTreeWorldPos;
-        varying float vTreeHeight;
-        varying vec2 vFoliageUv;
+        varying vec3 vTreeWorldNormal;
         varying vec3 vBotanicalNormal;
+        varying float vTreeHeight;
+        varying float vCanopyOuter;
+        varying float vTreeWindWave;
+        varying vec2 vFoliageUv;
     ` + shader.fragmentShader;
 
-    // Prevent DoubleSide backface normal inversion on volumetric foliage cards!
+    // Prevent DoubleSide backface normal inversion on volumetric foliage cards while preserving 3D view-space lighting!
     shader.fragmentShader = shader.fragmentShader.replace(
         '#include <normal_fragment_begin>',
         `
@@ -563,10 +597,17 @@ treeMaterial.onBeforeCompile = (shader) => {
         if (isFoliage) {
             if (texelColor.a < 0.36) discard;
             vec3 viewDir = normalize(cameraPosition - vTreeWorldPos);
-            float sunDot = max(dot(normalize(vBotanicalNormal), normalize(uSunDir)), 0.0);
-            float backLight = pow(max(dot(-viewDir, normalize(uSunDir)), 0.0), 2.0);
-            vec3 sss = uSunColor * (backLight * 0.28 + sunDot * 0.12) * linearTexel;
-            diffuseColor.rgb = linearTexel * diffuseColor.rgb + sss;
+            vec3 sunDir = normalize(uSunDir);
+            vec3 worldNorm = normalize(vTreeWorldNormal);
+
+            // Light-angle-dependent sun & subsurface backlit illumination + rolling wind-wave flow sheen
+            float sunDot = max(dot(worldNorm, sunDir), 0.0);
+            float backLight = pow(max(dot(-viewDir, sunDir), 0.0), 2.2);
+            float outerTip = 0.35 + 0.65 * vCanopyOuter;
+            vec3 sss = uSunColor * (backLight * 0.34 + sunDot * 0.18) * linearTexel * outerTip;
+            vec3 halfVec = normalize(sunDir + viewDir);
+            float specSheen = pow(max(dot(worldNorm, halfVec), 0.0), 14.0) * sunDot * vCanopyOuter;
+            diffuseColor.rgb = (linearTexel * diffuseColor.rgb + sss + uSunColor * specSheen * 0.08) * (0.90 + vTreeWindWave * 0.20 * vCanopyOuter);
         } else {
             diffuseColor.rgb = linearTexel * diffuseColor.rgb;
         }
@@ -1554,7 +1595,11 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
 
             float ang = aInstanceData.z;
             float ca = cos(ang), sa = sin(ang);
-            float windWave = sin(worldXZ.x * 0.09 + worldXZ.y * 0.07 + uTime * 2.2 * uWindSpeed) * 0.26;
+            float windT = uTime * uWindSpeed;
+            // Rolling wind waves shared with terrain & trees (coastal_countryside_3d_scene.html formula)
+            float wave1 = sin(worldXZ.x * 0.14 + worldXZ.y * 0.12 + windT * 2.4);
+            float wave2 = cos(worldXZ.x * 0.35 - worldXZ.y * 0.28 + windT * 3.6) * 0.45;
+            float windWave = (wave1 + wave2) * pow(max(uv.y, 0.0), 1.65) * 0.38;
 
             vec3 localP = transformed;
             localP.xz *= (0.85 + 0.30 * sizeVar);
@@ -1566,8 +1611,9 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
                 localP.x * sa + localP.z * ca
             );
 
-            rotP.x += windWave * uv.y * uv.y * 0.32;
-            rotP.z += windWave * uv.y * uv.y * 0.18;
+            rotP.x += windWave;
+            rotP.z += windWave * 0.65;
+            rotP.y -= abs(windWave) * 0.18;
 
             transformed = rotP + vec3(worldXZ.x, groundY, worldXZ.y);
             vGrassWorldPos = transformed;
@@ -1681,8 +1727,13 @@ class TerrainChunk {
             const wx = xMin + lx + CHUNK_SIZE * 0.5;
             const wz = zMin + lz + CHUNK_SIZE * 0.5;
             const wy = getTerrainHeight(wx, wz);
+            let meshY = wy;
+            if (wy < -2.25) {
+                const submergeDepth = smoothstep(-2.25, -2.85, wy);
+                meshY -= submergeDepth * 2.5;
+            }
 
-            pos.setXYZ(i, lx, wy, lz);
+            pos.setXYZ(i, lx, meshY, lz);
 
             const n = getTerrainNormal(wx, wz);
             const slope = 1.0 - n.y;
@@ -1893,13 +1944,13 @@ class TerrainChunk {
                         transparent: true
                     });
                     const fireSprite = new THREE.Sprite(fireMat);
-                    fireSprite.position.set(hx, hy + 1.35, hz);
-                    fireSprite.scale.set(3.4 * bScale, 2.8 * bScale, 1);
+                    fireSprite.position.set(hx, hy + 2.0, hz);
+                    fireSprite.scale.set(8.5 * bScale, 6.5 * bScale, 1);
                     this.group.add(fireSprite);
 
                     const fireData = {
                         sprite: fireSprite,
-                        baseScale: 3.4 * bScale,
+                        baseScale: 8.5 * bScale,
                         phase: rng() * 10
                     };
                     this.fireSprites.push(fireData);
@@ -2136,13 +2187,14 @@ function initEnvironment(scene) {
 }
 
 function createCoastalOceanMesh() {
-    const oceanGeo = new THREE.PlaneGeometry(3600, 2400, 110, 110);
+    const oceanGeo = new THREE.PlaneGeometry(3600, 2800, 128, 128);
     oceanGeo.rotateX(-Math.PI / 2);
+    const seedVec = new THREE.Vector2(seedOffset.x, seedOffset.z);
     const oceanMat = (typeof window.createCoastalOceanMaterial === 'function')
-        ? window.createCoastalOceanMaterial(seedOffset, roadBaseX)
+        ? window.createCoastalOceanMaterial(seedVec, roadBaseX)
         : new THREE.MeshStandardMaterial({ color: 0x0c3b6b, roughness: 0.15, metalness: 0.8 });
     const oceanMesh = new THREE.Mesh(oceanGeo, oceanMat);
-    oceanMesh.position.set(0, -2.5, 1450);
+    oceanMesh.position.set(0, -2.5, 1500);
     oceanMesh.receiveShadow = true;
     return oceanMesh;
 }
@@ -2243,15 +2295,13 @@ function buildEnvironment(scene) {
         window.grassMeshRef = grassMeshRef;
     }
 
-    setWorldSeed(currentSeed);
-
     if (!waterMeshRef) {
         waterMeshRef = createCoastalOceanMesh();
         envGroup.add(waterMeshRef);
         window.waterMeshRef = waterMeshRef;
-
-// Distant horizon handled seamlessly by coastal terrain and ocean shader
     }
+
+    setWorldSeed(currentSeed);
 
     // Signature majestic Nordic spruce tree framing the left foreground
     const sigTx = 16.2;
@@ -2338,6 +2388,12 @@ function updateEnvironment(dt, tankState) {
     const timeSec = performance.now() * 0.001;
     terrainUniforms.uTime.value = timeSec;
     grassUniforms.uTime.value = timeSec;
+
+    if (window.celestialLighting) {
+        terrainUniforms.uSunDir.value.copy(window.celestialLighting.sunDirection.value);
+        terrainUniforms.uSunColor.value.copy(window.celestialLighting.sunColor.value);
+        terrainUniforms.uSkyColor.value.copy(window.celestialLighting.skyColor.value);
+    }
 
     const px = (tankState && tankState.x !== undefined) ? tankState.x : 0;
     const pz = (tankState && tankState.z !== undefined) ? tankState.z : 0;
