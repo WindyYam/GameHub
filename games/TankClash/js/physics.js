@@ -651,6 +651,26 @@ function triggerHeavyDetonation(pos) {
         );
         spawnParticle(pos, dirtVel, 0x3d3126, 0.32, 0.95, 1.2 + Math.random() * 0.8, false, 'dirt');
     }
+
+    // 7. Powerful Blast Wave Topples Nearby Trees Radially Along Explosion Force
+    const blastTrees = window.swayTrees || [];
+    const blastRadius = 12.0;
+    const blastRadiusSq = blastRadius * blastRadius;
+    for (let tr = 0; tr < blastTrees.length; tr++) {
+        const tree = blastTrees[tr];
+        if (tree.isFallen) continue;
+        const dx = tree.x - pos.x;
+        const dz = tree.z - pos.z;
+        const dSq = dx * dx + dz * dz;
+        if (dSq < blastRadiusSq) {
+            const dist = Math.sqrt(dSq);
+            const blastDir = (dist > 0.1) ? new THREE.Vector3(dx / dist, 0, dz / dist) : new THREE.Vector3(0, 0, 1);
+            const blastForce = (1.0 - dist / blastRadius) * 4.5;
+            if (window.hitTree) {
+                window.hitTree(tree, blastDir, blastForce);
+            }
+        }
+    }
 }
 
 // Continuous Collision Detection (CCD) and Ballistic Trajectory Updates
@@ -708,6 +728,33 @@ function updateProjectiles(dt) {
                     hit = true;
                     impactPos = closestPt;
                     if (window.hitTree) window.hitTree(tree, s.vel.clone().normalize(), 7.5);
+                    break;
+                }
+            }
+        }
+
+        // Check collision against tactical cover obstacles: Massive Rocks, Houses, Ruins
+        if (!hit) {
+            const obstacles = window.worldObstacles || [];
+            for (let ob = 0; ob < obstacles.length; ob++) {
+                const obs = obstacles[ob];
+                const obsCenterY = obs.y + (obs.height ? obs.height * 0.45 : 2.0);
+                const toObs = new THREE.Vector3(obs.x - prevPos.x, obsCenterY - prevPos.y, obs.z - prevPos.z);
+                const projT = (segLenSq > 0.0001) ? THREE.MathUtils.clamp(toObs.dot(seg) / segLenSq, 0, 1) : 0;
+                const closestPt = prevPos.clone().addScaledVector(seg, projT);
+                const dSqXZ = (closestPt.x - obs.x) ** 2 + (closestPt.z - obs.z) ** 2;
+                const rSq = obs.radius * obs.radius;
+                const obsTop = obs.y + (obs.height || 4.5);
+                const obsBottom = obs.y - 0.5;
+
+                if (dSqXZ < rSq && closestPt.y >= obsBottom && closestPt.y <= obsTop) {
+                    hit = true;
+                    const hitDirXZ = new THREE.Vector2(closestPt.x - obs.x, closestPt.z - obs.z).normalize();
+                    impactPos.set(
+                        obs.x + hitDirXZ.x * (obs.radius * 0.95),
+                        closestPt.y,
+                        obs.z + hitDirXZ.y * (obs.radius * 0.95)
+                    );
                     break;
                 }
             }
@@ -785,6 +832,22 @@ function updateProjectiles(dt) {
                     if (tree.bulletHits >= 4 && window.hitTree) {
                         window.hitTree(tree, tr.vel.clone().normalize(), 3.5);
                     }
+                    break;
+                }
+            }
+        }
+
+        // Check MG burst against cover obstacles (Rocks, Houses, Ruins)
+        if (!hit) {
+            const obstacles = window.worldObstacles || [];
+            for (let ob = 0; ob < obstacles.length; ob++) {
+                const obs = obstacles[ob];
+                const dSqXZ = (tr.pos.x - obs.x) ** 2 + (tr.pos.z - obs.z) ** 2;
+                const obsTop = obs.y + (obs.height || 4.5);
+                const obsBottom = obs.y - 0.5;
+                if (dSqXZ < obs.radius * obs.radius && tr.pos.y >= obsBottom && tr.pos.y <= obsTop) {
+                    hit = true;
+                    impactPos.copy(tr.pos);
                     break;
                 }
             }

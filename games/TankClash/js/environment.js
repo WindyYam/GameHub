@@ -18,6 +18,7 @@ var obstacles = [];
 var targets = [];
 var swayTrees = [];
 var worldBuildings = [];
+var worldObstacles = [];
 var terrainMeshRef = null;
 var aimRaycastMeshes = [];
 var waterMeshRef = null;
@@ -46,6 +47,9 @@ var activeFireSprites = [];
 var currentSeed = Math.floor(Math.random() * 900000) + 100000;
 var seedOffset = { x: 0, z: 0 };
 var roadBaseX = 0;
+var road2BaseZ = 0;
+var road3BaseX = 0;
+var road4BaseX = 0;
 
 function setWorldSeed(seed) {
     currentSeed = seed;
@@ -53,14 +57,23 @@ function setWorldSeed(seed) {
     seedOffset.x = (currentSeed % 289);
     seedOffset.z = ((Math.floor(currentSeed / 289)) % 289);
     roadBaseX = Math.sin(seedOffset.z * 0.009) * 32.0 + Math.cos(seedOffset.z * 0.021) * 12.0 + Math.sin(seedOffset.z * 0.0035) * 20.0;
+    road2BaseZ = Math.sin(seedOffset.x * 0.010) * 22.0 + Math.cos(seedOffset.x * 0.022) * 8.0;
+    road3BaseX = Math.sin(seedOffset.z * 0.014) * 20.0 + Math.cos(seedOffset.z * 0.028) * 7.0;
+    road4BaseX = Math.sin(seedOffset.z * 0.012) * 18.0 + Math.cos(seedOffset.z * 0.025) * 6.0;
 
     if (terrainUniforms && terrainUniforms.uSeedOffset) {
         terrainUniforms.uSeedOffset.value.set(seedOffset.x, seedOffset.z);
         terrainUniforms.uRoadBaseX.value = roadBaseX;
+        terrainUniforms.uRoad2BaseZ.value = road2BaseZ;
+        terrainUniforms.uRoad3BaseX.value = road3BaseX;
+        terrainUniforms.uRoad4BaseX.value = road4BaseX;
     }
     if (grassUniforms && grassUniforms.uSeedOffset) {
         grassUniforms.uSeedOffset.value.set(seedOffset.x, seedOffset.z);
         grassUniforms.uRoadBaseX.value = roadBaseX;
+        grassUniforms.uRoad2BaseZ.value = road2BaseZ;
+        grassUniforms.uRoad3BaseX.value = road3BaseX;
+        grassUniforms.uRoad4BaseX.value = road4BaseX;
     }
     if (waterMeshRef && waterMeshRef.material && waterMeshRef.material.uniforms && waterMeshRef.material.uniforms.uSeedOffset) {
         if (waterMeshRef.material.uniforms.uSeedOffset.value && typeof waterMeshRef.material.uniforms.uSeedOffset.value.set === 'function') {
@@ -188,13 +201,36 @@ const SHARED_TERRAIN_GLSL = `
         return total / maxVal;
     }
 
+    uniform float uRoad2BaseZ;
+    uniform float uRoad3BaseX;
+    uniform float uRoad4BaseX;
+
+    float getRoadDistance_gpu(float x, float z) {
+        // Road 1: Main North-South Highway (through x ~ 0)
+        float r1X = (sin((z + uSeedOffset.y) * 0.009) * 32.0 + cos((z + uSeedOffset.y) * 0.021) * 12.0 + sin((z + uSeedOffset.y) * 0.0035) * 20.0) - uRoadBaseX;
+        float d1 = abs(x - r1X);
+
+        // Road 2: East-West Valley Crossroad (through z ~ -28)
+        float r2Z = -28.0 + (sin((x + uSeedOffset.x) * 0.010) * 22.0 + cos((x + uSeedOffset.x) * 0.022) * 8.0) - uRoad2BaseZ;
+        float d2 = abs(z - r2Z);
+
+        // Road 3: Northeast Village Ridge Byway (through x ~ 64)
+        float r3X = 64.0 + (sin((z + uSeedOffset.y) * 0.014) * 20.0 + cos((z + uSeedOffset.y) * 0.028) * 7.0) - uRoad3BaseX;
+        float d3 = abs(x - r3X);
+
+        // Road 4: Northwest Coastal Byway (through x ~ -68)
+        float r4X = -68.0 + (sin((z + uSeedOffset.y) * 0.012) * 18.0 + cos((z + uSeedOffset.y) * 0.025) * 6.0) - uRoad4BaseX;
+        float d4 = abs(x - r4X);
+
+        return min(min(d1, d2), min(d3, d4));
+    }
+
     float getRoadCenterX_gpu(float z) {
         return (sin((z + uSeedOffset.y) * 0.009) * 32.0 + cos((z + uSeedOffset.y) * 0.021) * 12.0 + sin((z + uSeedOffset.y) * 0.0035) * 20.0) - uRoadBaseX;
     }
 
     float getRoadFactor_gpu(float x, float z) {
-        float roadX = getRoadCenterX_gpu(z);
-        float dist = abs(x - roadX);
+        float dist = getRoadDistance_gpu(x, z);
         float halfWidth = 4.6;
         if (dist > halfWidth) return 0.0;
         float t = 1.0 - (dist / halfWidth);
@@ -229,8 +265,7 @@ const SHARED_TERRAIN_GLSL = `
 
         float roadF = getRoadFactor_gpu(x, z);
         if (roadF > 0.01) {
-            float roadX = getRoadCenterX_gpu(z);
-            float offset = abs(x - roadX);
+            float offset = getRoadDistance_gpu(x, z);
             float rut = exp(-pow(offset - 1.35, 2.0) / 0.35) * 0.38;
             h -= (roadF * 0.35 + rut * roadF);
         }
@@ -255,13 +290,32 @@ const SHARED_TERRAIN_GLSL = `
     }
 `;
 
+function getRoadDistance(x, z) {
+    // Road 1: Main North-South Highway (through x ~ 0)
+    const r1X = (Math.sin((z + seedOffset.z) * 0.009) * 32.0 + Math.cos((z + seedOffset.z) * 0.021) * 12.0 + Math.sin((z + seedOffset.z) * 0.0035) * 20.0) - roadBaseX;
+    const d1 = Math.abs(x - r1X);
+
+    // Road 2: East-West Valley Crossroad (through z ~ -28)
+    const r2Z = -28.0 + (Math.sin((x + seedOffset.x) * 0.010) * 22.0 + Math.cos((x + seedOffset.x) * 0.022) * 8.0) - road2BaseZ;
+    const d2 = Math.abs(z - r2Z);
+
+    // Road 3: Northeast Village Ridge Byway (through x ~ 64)
+    const r3X = 64.0 + (Math.sin((z + seedOffset.z) * 0.014) * 20.0 + Math.cos((z + seedOffset.z) * 0.028) * 7.0) - road3BaseX;
+    const d3 = Math.abs(x - r3X);
+
+    // Road 4: Northwest Coastal Byway (through x ~ -68)
+    const r4X = -68.0 + (Math.sin((z + seedOffset.z) * 0.012) * 18.0 + Math.cos((z + seedOffset.z) * 0.025) * 6.0) - road4BaseX;
+    const d4 = Math.abs(x - r4X);
+
+    return Math.min(Math.min(d1, d2), Math.min(d3, d4));
+}
+
 function getRoadCenterX(z) {
     return (Math.sin((z + seedOffset.z) * 0.009) * 32.0 + Math.cos((z + seedOffset.z) * 0.021) * 12.0 + Math.sin((z + seedOffset.z) * 0.0035) * 20.0) - roadBaseX;
 }
 
 function getRoadFactor(x, z) {
-    const roadX = getRoadCenterX(z);
-    const dist = Math.abs(x - roadX);
+    const dist = getRoadDistance(x, z);
     const halfWidth = 4.6;
     if (dist > halfWidth) return 0.0;
     const t = 1.0 - (dist / halfWidth);
@@ -297,8 +351,7 @@ function getTerrainHeight(x, z) {
 
     const roadF = getRoadFactor(x, z);
     if (roadF > 0.01) {
-        const roadX = getRoadCenterX(z);
-        const offset = Math.abs(x - roadX);
+        const offset = getRoadDistance(x, z);
         const rut = Math.exp(-Math.pow(offset - 1.35, 2.0) / 0.35) * 0.38;
         h -= (roadF * 0.35 + rut * roadF);
     }
@@ -338,7 +391,10 @@ const terrainUniforms = {
     uCameraForwardXZ: { value: new THREE.Vector2(0, 1) },
     uSeedOffset: { value: new THREE.Vector2(0, 0) },
     uRoadBaseX: { value: 0 },
-    uBuildings: { value: Array.from({ length: 16 }, () => new THREE.Vector4(0, 0, 0, 0)) },
+    uRoad2BaseZ: { value: 0 },
+    uRoad3BaseX: { value: 0 },
+    uRoad4BaseX: { value: 0 },
+    uBuildings: { value: Array.from({ length: 32 }, () => new THREE.Vector4(0, 0, 0, 0)) },
     uBuildingCount: { value: 0 },
     uSunDir: { value: new THREE.Vector3(0.45, 0.72, -0.52).normalize() },
     uSunColor: { value: new THREE.Color(0xfff5e0) },
@@ -361,6 +417,9 @@ terrainMat.onBeforeCompile = (shader) => {
     shader.uniforms.uCameraPos = terrainUniforms.uCameraPos;
     shader.uniforms.uSeedOffset = terrainUniforms.uSeedOffset;
     shader.uniforms.uRoadBaseX = terrainUniforms.uRoadBaseX;
+    shader.uniforms.uRoad2BaseZ = terrainUniforms.uRoad2BaseZ;
+    shader.uniforms.uRoad3BaseX = terrainUniforms.uRoad3BaseX;
+    shader.uniforms.uRoad4BaseX = terrainUniforms.uRoad4BaseX;
     shader.uniforms.uBuildings = terrainUniforms.uBuildings;
     shader.uniforms.uBuildingCount = terrainUniforms.uBuildingCount;
     shader.uniforms.uSunDir = terrainUniforms.uSunDir;
@@ -385,7 +444,7 @@ terrainMat.onBeforeCompile = (shader) => {
         uniform float uTime;
         uniform float uWindSpeed;
         uniform vec3 uCameraPos;
-        uniform vec4 uBuildings[16];
+        uniform vec4 uBuildings[32];
         uniform int uBuildingCount;
         uniform vec3 uSunDir;
         uniform vec3 uSunColor;
@@ -426,8 +485,7 @@ terrainMat.onBeforeCompile = (shader) => {
 
         // Country Dirt Road with compacted gravel, verge grass transition, and wet wheel ruts
         if (roadMask > 0.02) {
-            float roadX = getRoadCenterX_gpu(vTerrainWorldPos.z);
-            float distFromCenter = abs(vTerrainWorldPos.x - roadX);
+            float distFromCenter = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
             float rutMask = exp(-pow(distFromCenter - 1.35, 2.0) / 0.28);
             float centerCrown = exp(-pow(distFromCenter, 2.0) / 0.65);
             vec3 dryRoad = mix(vec3(0.165, 0.128, 0.085), vec3(0.110, 0.085, 0.056), gravelNoise * 0.55);
@@ -449,7 +507,7 @@ terrainMat.onBeforeCompile = (shader) => {
 
         // Building Ground Contact Ambient Occlusion
         float buildingAO = 1.0;
-        for (int b = 0; b < 16; b++) {
+        for (int b = 0; b < 32; b++) {
             if (b >= uBuildingCount) break;
             float distB = length(vTerrainWorldPos.xz - uBuildings[b].xy);
             float rad = uBuildings[b].z;
@@ -468,8 +526,8 @@ terrainMat.onBeforeCompile = (shader) => {
         #include <roughnessmap_fragment>
         float rRoad = getRoadFactor_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
         if (rRoad > 0.05) {
-            float roadX = getRoadCenterX_gpu(vTerrainWorldPos.z);
-            float rut = exp(-pow(abs(vTerrainWorldPos.x - roadX) - 1.35, 2.0) / 0.35);
+            float distFromCenter = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
+            float rut = exp(-pow(distFromCenter - 1.35, 2.0) / 0.35);
             roughnessFactor = mix(roughnessFactor, 0.42, rut * rRoad);
         }
         if (vTerrainWorldPos.y < -1.8) {
@@ -1071,13 +1129,18 @@ function createDetailedBushGeometry() {
     return mergeBufferGeometries(parts);
 }
 
-// 5E. Limestone Boulder & Outcrop Geometry
+// 5E. Massive Limestone Boulder & Defensive Outcrop Geometry (Sized for Tank Hull-Down & Full Cover)
 function createLimestoneRockGeometry() {
     const parts = [];
     const boulders = [
-        { x: 0, y: 0.45, z: 0, sx: 1.45, sy: 0.85, sz: 1.25, rot: 0.2 },
-        { x: 0.85, y: 0.32, z: 0.45, sx: 1.1, sy: 0.65, sz: 0.95, rot: 1.1 },
-        { x: -0.75, y: 0.28, z: -0.35, sx: 1.0, sy: 0.55, sz: 0.85, rot: 2.3 }
+        // Main central defensive crag (3.8m tall, 6.2m wide, 5.0m deep)
+        { x: 0,     y: 1.85, z: 0,     sx: 3.2, sy: 1.95, sz: 2.6, rot: 0.2 },
+        // Left flanking shoulder boulder
+        { x: -2.4,  y: 1.45, z: 0.4,   sx: 2.2, sy: 1.55, sz: 2.0, rot: 1.1 },
+        // Right buttress boulder
+        { x: 2.2,   y: 1.35, z: -0.5,  sx: 2.1, sy: 1.45, sz: 1.9, rot: 2.3 },
+        // Top cap stone & craggy parapet
+        { x: 0.4,   y: 2.65, z: -0.3,  sx: 1.9, sy: 1.35, sz: 1.7, rot: 0.7 }
     ];
 
     boulders.forEach(b => {
@@ -1085,8 +1148,8 @@ function createLimestoneRockGeometry() {
         const p = geo.attributes.position;
         for (let i = 0; i < p.count; i++) {
             const vx = p.getX(i), vy = p.getY(i), vz = p.getZ(i);
-            const layerJitter = Math.sin(vy * 8.0) * 0.08 + (hash2D(vx * 6.2, vz * 6.2) - 0.5) * 0.18;
-            const s = 0.88 + layerJitter;
+            const layerJitter = Math.sin(vy * 4.0) * 0.10 + (hash2D(vx * 3.2, vz * 3.2) - 0.5) * 0.20;
+            const s = 0.92 + layerJitter;
             p.setXYZ(i, vx * s * b.sx, vy * s * b.sy, vz * s * b.sz);
         }
         geo.computeVertexNormals();
@@ -1095,9 +1158,11 @@ function createLimestoneRockGeometry() {
 
         const col = new Float32Array(p.count * 3);
         for (let k = 0; k < p.count; k++) {
-            col[k * 3 + 0] = 0.62;
-            col[k * 3 + 1] = 0.60;
-            col[k * 3 + 2] = 0.56;
+            const vy = p.getY(k);
+            const shade = 0.50 + 0.26 * Math.min(1.0, Math.max(0.0, vy / 3.8));
+            col[k * 3 + 0] = 0.64 * shade;
+            col[k * 3 + 1] = 0.62 * shade;
+            col[k * 3 + 2] = 0.58 * shade;
         }
         geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
         parts.push(geo);
@@ -1312,6 +1377,71 @@ var sharedBushGeo = null;
 var sharedRockGeo = null;
 var sharedCottageGeo = null;
 var sharedRuinGeo = null;
+var sharedBarnGeo = null;
+var sharedStoneWallGeo = null;
+
+// 5H. European Farm Barn (Mapped to Village Atlas Q2 Foundation, Q3 Timber Siding, Q1 Roof, Q0 Doors)
+function createBarnGeometry() {
+    const parts = [];
+    const w = 6.4, h = 4.2, l = 10.2;
+
+    // Fieldstone Foundation Plinth (Q2: Masonry)
+    const found = new THREE.BoxGeometry(w + 0.35, 1.8, l + 0.35);
+    setGeometryUVBox(found, 0.02, 0.48, 0.02, 0.48);
+    found.translate(0, -0.1, 0);
+    parts.push(found);
+
+    // Main Dark Timber Barn Walls (Q3: Timber Planks)
+    const walls = new THREE.BoxGeometry(w, h, l);
+    setGeometryUVBox(walls, 0.52, 0.98, 0.02, 0.48);
+    walls.translate(0, 0.8 + h * 0.5, 0);
+    parts.push(walls);
+
+    // Front Double Wagon Barn Doors (+Z) (Q0)
+    const doorF = new THREE.BoxGeometry(2.8, 3.4, 0.15);
+    setGeometryUVBox(doorF, 0.02, 0.48, 0.52, 0.98);
+    doorF.translate(0, 2.5, l * 0.5 + 0.05);
+    parts.push(doorF);
+
+    // Back Hayloft Doors (-Z) (Q0)
+    const doorB = new THREE.BoxGeometry(2.2, 2.6, 0.15);
+    setGeometryUVBox(doorB, 0.02, 0.48, 0.52, 0.98);
+    doorB.translate(0, 2.1, -l * 0.5 - 0.05);
+    parts.push(doorB);
+
+    // High Terracotta Gambrel Barn Roof (Q1: Terracotta Tiles)
+    const roof = createPitchedRoofGeometry(w + 1.2, l + 1.3, 3.5);
+    setGeometryUVBox(roof, 0.52, 0.98, 0.52, 0.98);
+    roof.translate(0, 0.8 + h, 0);
+    parts.push(roof);
+
+    // Overhanging Hayloft Crane Timber Awning (Q3)
+    const loftAwning = new THREE.BoxGeometry(1.6, 0.22, 1.4);
+    setGeometryUVBox(loftAwning, 0.52, 0.98, 0.02, 0.48);
+    loftAwning.translate(0, 0.8 + h + 1.6, l * 0.5 + 0.8);
+    parts.push(loftAwning);
+
+    return mergeBufferGeometries(parts);
+}
+
+// 5I. European Fieldstone Perimeter Boundary Wall (Tactical Low Hull-Down Cover)
+function createStoneWallGeometry() {
+    const parts = [];
+    // Dry-stack stone masonry wall body (Q2: Masonry)
+    const wall = new THREE.BoxGeometry(0.7, 1.35, 6.2);
+    setGeometryUVBox(wall, 0.02, 0.48, 0.02, 0.48);
+    wall.translate(0, 0.6, 0);
+    parts.push(wall);
+
+    // Chiseled capstone coping slab (Q2: Masonry)
+    const cap = new THREE.BoxGeometry(0.88, 0.20, 6.3);
+    setGeometryUVBox(cap, 0.02, 0.48, 0.02, 0.48);
+    cap.translate(0, 1.35, 0);
+    parts.push(cap);
+
+    return mergeBufferGeometries(parts);
+}
+
 
 function ensureSharedGeometries() {
     if (!sharedSpruceGeo) sharedSpruceGeo = createDetailedSpruceGeometry();
@@ -1321,6 +1451,8 @@ function ensureSharedGeometries() {
     if (!sharedRockGeo) sharedRockGeo = createLimestoneRockGeometry();
     if (!sharedCottageGeo) sharedCottageGeo = createEuropeanCottageGeometry();
     if (!sharedRuinGeo) sharedRuinGeo = createRuinedHouseGeometry();
+    if (!sharedBarnGeo) sharedBarnGeo = createBarnGeometry();
+    if (!sharedStoneWallGeo) sharedStoneWallGeo = createStoneWallGeometry();
 
     window.sharedSpruceGeo = sharedSpruceGeo;
     window.sharedPineGeo = sharedPineGeo;
@@ -1377,6 +1509,14 @@ function getGrassTuftAtlas() {
     return grassTuftAtlas;
 }
 
+let grassTuftEdgeAtlas = null;
+function getGrassTuftEdgeAtlas() {
+    if (!grassTuftEdgeAtlas && typeof window.getGrassTuftEdgeTexture === 'function') {
+        grassTuftEdgeAtlas = window.getGrassTuftEdgeTexture();
+    }
+    return grassTuftEdgeAtlas;
+}
+
 const grassUniforms = {
     uTime: { value: 0 },
     uWindSpeed: { value: 1.2 },
@@ -1384,6 +1524,9 @@ const grassUniforms = {
     uCameraForwardXZ: { value: new THREE.Vector2(0, 1) },
     uSeedOffset: terrainUniforms.uSeedOffset,
     uRoadBaseX: terrainUniforms.uRoadBaseX,
+    uRoad2BaseZ: terrainUniforms.uRoad2BaseZ,
+    uRoad3BaseX: terrainUniforms.uRoad3BaseX,
+    uRoad4BaseX: terrainUniforms.uRoad4BaseX,
     uBuildings: terrainUniforms.uBuildings,
     uBuildingCount: terrainUniforms.uBuildingCount,
     uSunDir: terrainUniforms.uSunDir,
@@ -1398,8 +1541,9 @@ function createCrossedTuftGeometry() {
         { ang: 1.05, tilt: -0.08 },
         { ang: 2.10, tilt: 0.08 }
     ];
-    const w = 1.15;
-    const h = 0.72;
+    // Taller, lush WW2 meadow grass geometry
+    const w = 1.42;
+    const h = 1.15;
     const hw = w * 0.5;
 
     const positions = [];
@@ -1445,7 +1589,42 @@ function createCrossedTuftGeometry() {
     return geo;
 }
 
-function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRadius, isNear) {
+// Single camera-facing billboard quad for distant grass (2 triangles per instance)
+function createBillboardTuftGeometry() {
+    // Taller distant billboard grass geometry
+    const w = 1.52;
+    const h = 1.22;
+    const hw = w * 0.5;
+
+    const positions = [
+        -hw, -0.04, 0.0,
+         hw, -0.04, 0.0,
+        -hw,  h,    0.0,
+         hw,  h,    0.0
+    ];
+    const normals = [
+        0.0, 1.0, 0.0,
+        0.0, 1.0, 0.0,
+        0.0, 1.0, 0.0,
+        0.0, 1.0, 0.0
+    ];
+    const uvs = [
+        0.0, 0.0,
+        1.0, 0.0,
+        0.0, 1.0,
+        1.0, 1.0
+    ];
+    const indices = [0, 1, 2, 1, 3, 2];
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(normals), 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(uvs), 2));
+    geo.setIndex(new THREE.BufferAttribute(new Uint32Array(indices), 1));
+    return geo;
+}
+
+function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRadius, isBillboard) {
     // CRITICAL: Clone baseGeo so each LOD ring owns its own aInstanceData buffer!
     const geo = baseGeo.clone();
     const gridSide = Math.ceil(Math.sqrt(count));
@@ -1495,6 +1674,9 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
         shader.uniforms.uCameraForwardXZ = grassUniforms.uCameraForwardXZ;
         shader.uniforms.uSeedOffset = grassUniforms.uSeedOffset;
         shader.uniforms.uRoadBaseX = grassUniforms.uRoadBaseX;
+        shader.uniforms.uRoad2BaseZ = grassUniforms.uRoad2BaseZ;
+        shader.uniforms.uRoad3BaseX = grassUniforms.uRoad3BaseX;
+        shader.uniforms.uRoad4BaseX = grassUniforms.uRoad4BaseX;
         shader.uniforms.uBuildings = grassUniforms.uBuildings;
         shader.uniforms.uBuildingCount = grassUniforms.uBuildingCount;
         shader.uniforms.uSunDir = grassUniforms.uSunDir;
@@ -1504,6 +1686,7 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
         shader.uniforms.uMinRadius = { value: minRadius };
         shader.uniforms.uMaxRadius = { value: maxRadius };
         shader.uniforms.uGrassAtlas = { value: getGrassTuftAtlas() };
+        shader.uniforms.uGrassEdgeAtlas = { value: getGrassTuftEdgeAtlas() };
 
         shader.vertexShader = `
             attribute vec4 aInstanceData;
@@ -1511,7 +1694,7 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             uniform float uWindSpeed;
             uniform vec3 uCameraPos;
             uniform vec2 uCameraForwardXZ;
-            uniform vec4 uBuildings[16];
+            uniform vec4 uBuildings[32];
             uniform int uBuildingCount;
             uniform float uPatchSize;
             uniform float uMinRadius;
@@ -1520,7 +1703,6 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             varying vec3 vGrassWorldPos;
             varying float vGrassHeightFrac;
             varying vec3 vTerrainNormalUp;
-            varying vec3 vBladeNormal;
             ${SHARED_TERRAIN_GLSL}
         ` + shader.vertexShader;
 
@@ -1540,19 +1722,19 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             vec2 worldXZ = uCameraPos.xz + relXZ;
             float distFromCam = length(relXZ);
 
-            // 1. Early-out Ring & Camera Frustum Culling BEFORE terrain height evaluation
-            float fadeIn = (uMinRadius > 0.5) ? smoothstep(uMinRadius, uMinRadius + 5.0, distFromCam) : 1.0;
-            float fadeOut = 1.0 - smoothstep(uMaxRadius - 10.0, uMaxRadius, distFromCam);
-            float ringFade = fadeIn * fadeOut;
-
-            if (distFromCam > 10.0) {
-                float viewDot = dot(normalize(relXZ), uCameraForwardXZ);
-                ringFade *= smoothstep(-0.42, -0.10, viewDot);
-            }
-
-            if (ringFade <= 0.01) {
+            // 1. Discrete radius check: NO height squashing / shrinking transition
+            if (distFromCam < uMinRadius || distFromCam >= uMaxRadius) {
                 gl_Position = vec4(2.0, 2.0, 2.0, 0.0);
                 return;
+            }
+
+            // Camera Frustum Culling
+            if (distFromCam > 12.0) {
+                float viewDot = dot(normalize(relXZ), uCameraForwardXZ);
+                if (viewDot < -0.34) {
+                    gl_Position = vec4(2.0, 2.0, 2.0, 0.0);
+                    return;
+                }
             }
 
             // 2. Terrain height & road/beach/building culling
@@ -1571,7 +1753,7 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             float spawnCull = smoothstep(2.8, 5.5, length(worldXZ));
 
             float bldgCull = 1.0;
-            for (int b = 0; b < 16; b++) {
+            for (int b = 0; b < 32; b++) {
                 if (b >= uBuildingCount) break;
                 float dB = length(worldXZ - uBuildings[b].xy);
                 if (dB < uBuildings[b].z + 0.8) {
@@ -1579,13 +1761,12 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
                 }
             }
 
-            float sizeVar = 0.82 + 0.38 * fract(sin(dot(aInstanceData.xy, vec2(12.9898, 78.233))) * 43758.5453);
-            float masterScale = ringFade * roadCull * waterCull * spawnCull * bldgCull * sizeVar;
-            if (masterScale <= 0.01) {
+            if (waterCull <= 0.01 || spawnCull <= 0.01 || bldgCull <= 0.01) {
                 gl_Position = vec4(2.0, 2.0, 2.0, 0.0);
                 return;
             }
 
+            float sizeVar = 0.92 + 0.38 * fract(sin(dot(aInstanceData.xy, vec2(12.9898, 78.233))) * 43758.5453);
             float colIdx = aInstanceData.w;
             vGrassAtlasUv = vec2(
                 (colIdx + clamp(uv.x, 0.02, 0.98)) * 0.25,
@@ -1593,23 +1774,36 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             );
             vGrassHeightFrac = uv.y;
 
-            float ang = aInstanceData.z;
-            float ca = cos(ang), sa = sin(ang);
             float windT = uTime * uWindSpeed;
-            // Rolling wind waves shared with terrain & trees (coastal_countryside_3d_scene.html formula)
+            // Rolling wind waves shared with terrain & trees
             float wave1 = sin(worldXZ.x * 0.14 + worldXZ.y * 0.12 + windT * 2.4);
             float wave2 = cos(worldXZ.x * 0.35 - worldXZ.y * 0.28 + windT * 3.6) * 0.45;
             float windWave = (wave1 + wave2) * pow(max(uv.y, 0.0), 1.65) * 0.38;
 
             vec3 localP = transformed;
             localP.xz *= (0.85 + 0.30 * sizeVar);
-            localP.y *= masterScale;
+            localP.y *= (sizeVar * roadCull * waterCull * spawnCull * bldgCull); // Full natural height, zero ringFade squashing!
 
-            vec3 rotP = vec3(
+            vec3 rotP;
+` + (isBillboard ? `
+            // Billboard cylindrical rotation: always faces camera horizontally on XZ plane
+            vec2 toCam = normalize(-relXZ);
+            vec2 tangent = vec2(-toCam.y, toCam.x);
+            rotP = vec3(
+                tangent.x * localP.x,
+                localP.y,
+                tangent.y * localP.x
+            );
+` : `
+            // 3D crossed tuft rotation
+            float ang = aInstanceData.z;
+            float ca = cos(ang), sa = sin(ang);
+            rotP = vec3(
                 localP.x * ca - localP.z * sa,
                 localP.y,
                 localP.x * sa + localP.z * ca
             );
+`) + `
 
             rotP.x += windWave;
             rotP.z += windWave * 0.65;
@@ -1617,16 +1811,12 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
 
             transformed = rotP + vec3(worldXZ.x, groundY, worldXZ.y);
             vGrassWorldPos = transformed;
-
-            // Plane normal of this crossed blade, used only for edge-on translucency
-            vec2 bladeDir = normalize(localP.xz);
-            vec2 bladeN = vec2(-bladeDir.y, bladeDir.x);
-            vBladeNormal = vec3(bladeN.x * ca - bladeN.y * sa, 0.0, bladeN.x * sa + bladeN.y * ca);
             `
         );
 
         shader.fragmentShader = `
             uniform sampler2D uGrassAtlas;
+            uniform sampler2D uGrassEdgeAtlas;
             uniform vec3 uSunDir;
             uniform vec3 uSunColor;
             uniform vec3 uSkyColor;
@@ -1634,7 +1824,6 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             varying vec3 vGrassWorldPos;
             varying float vGrassHeightFrac;
             varying vec3 vTerrainNormalUp;
-            varying vec3 vBladeNormal;
         ` + shader.fragmentShader;
 
         // Keep grass normal aligned with terrain surface normal on both front and back faces!
@@ -1655,16 +1844,34 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             // Convert grass atlas from sRGB to linear space
             vec3 bladeLinear = pow(max(texelColor.rgb, vec3(0.001)), vec3(2.2));
 
-            // Seamlessly blend bottom root of grass tuft into the exact linear meadow ground color!
+            // Seamlessly blend bottom root of grass tuft into the exact linear meadow ground color
             vec3 groundRootCol = vec3(0.028, 0.070, 0.014);
             float rootBlend = smoothstep(0.02, 0.36, vGrassHeightFrac);
             bladeLinear = mix(groundRootCol, bladeLinear, rootBlend);
 
-            // Warm sunlight translucency, limited to blade edges (edge-on to the view)
+            // Subsurface scattering from sunlight strictly on blade edges & tips with natural variety
             vec3 viewDir = normalize(cameraPosition - vGrassWorldPos);
-            float backLight = pow(max(dot(-viewDir, normalize(uSunDir)), 0.0), 2.2);
-            float bladeEdge = pow(max(1.0 - abs(dot(normalize(vBladeNormal), viewDir)), 0.0), 2.2);
-            vec3 sss = uSunColor * backLight * bladeEdge * vGrassHeightFrac * 0.25 * bladeLinear;
+            vec3 sunDir = normalize(uSunDir);
+            float backLight = pow(max(dot(-viewDir, sunDir), 0.0), 2.8);
+
+            // Razor-thin silhouette contour rim + fine edge atlas mask (interior body stays strictly dark)
+            float edgeMask = texture2D(uGrassEdgeAtlas, vGrassAtlasUv).r;
+            float alphaRim = smoothstep(0.38, 0.48, texelColor.a) * (1.0 - smoothstep(0.56, 0.80, texelColor.a));
+            float bladeInterior = smoothstep(0.80, 0.96, texelColor.a);
+            float edgeFactor = clamp((edgeMask * 1.6 + alphaRim * 1.2) * (1.0 - bladeInterior * 0.92), 0.0, 1.0);
+
+            // Backlight strictly on blade edges and tips (bottom 45% of tuft has zero backlight)
+            float tipLight = smoothstep(0.70, 0.98, vGrassHeightFrac);
+            float heightWeight = smoothstep(0.45, 0.92, vGrassHeightFrac);
+            float edgeAndTip = clamp(edgeFactor * heightWeight + tipLight * 0.65, 0.0, 1.0);
+
+            // Multi-scale natural variety across meadow tufts so glints sparkle organically without dullness
+            float macroWave = sin(vGrassWorldPos.x * 0.08 + vGrassWorldPos.z * 0.07) * cos(vGrassWorldPos.x * 0.05 - vGrassWorldPos.z * 0.09) * 0.5 + 0.5;
+            float microRand = fract(sin(dot(floor(vGrassWorldPos.xz * 2.8), vec2(12.9898, 78.233))) * 43758.5453);
+            float sssVariety = mix(0.25, 1.35, macroWave * 0.65 + microRand * 0.35);
+
+            vec3 sssColor = mix(bladeLinear * 2.0, uSunColor * 1.5, 0.40);
+            vec3 sss = sssColor * backLight * edgeAndTip * sssVariety * 0.90;
 
             diffuseColor.rgb = bladeLinear + sss;
             `
@@ -1700,6 +1907,7 @@ class TerrainChunk {
         this.targets = [];
         this.raycastMeshes = [];
         this.buildings = [];
+        this.rocks = [];
         this.smokePuffs = [];
         this.fireSprites = [];
 
@@ -1751,8 +1959,8 @@ class TerrainChunk {
 
             const roadF = getRoadFactor(wx, wz);
             if (roadF > 0.01) {
-                const roadX = getRoadCenterX(wz);
-                const rutDist = Math.abs(Math.abs(wx - roadX) - 1.35);
+                const distFromCenter = getRoadDistance(wx, wz);
+                const rutDist = Math.abs(distFromCenter - 1.35);
                 const isRut = rutDist < 0.55 ? 0.75 : 0.0;
                 const dirtCol = colMudRoad.clone().lerp(colWetRut, isRut);
                 tempCol.lerp(dirtCol, Math.min(1.0, roadF * 1.1));
@@ -1788,43 +1996,274 @@ class TerrainChunk {
         const rng = createChunkRNG(this.cx, this.cz, currentSeed);
         const xMin = this.cx * CHUNK_SIZE;
         const zMin = this.cz * CHUNK_SIZE;
-        const distFromSpawn = Math.hypot((this.cx + 0.5) * CHUNK_SIZE, (this.cz + 0.5) * CHUNK_SIZE);
+        const chunkCenterX = xMin + CHUNK_SIZE * 0.5;
+        const chunkCenterZ = zMin + CHUNK_SIZE * 0.5;
+        const distFromSpawn = Math.hypot(chunkCenterX, chunkCenterZ);
 
-        // 1. Botanical Trees
-        const treeCount = Math.floor(rng() * 4) + 2;
-        for (let t = 0; t < treeCount; t++) {
-            const tx = xMin + (0.08 + rng() * 0.84) * CHUNK_SIZE;
-            const tz = zMin + (0.08 + rng() * 0.84) * CHUNK_SIZE;
+        // ---------------------------------------------------------------------
+        // 1. EUROPEAN VILLAGES, HAMLETS & TACTICAL RURAL STRUCTURES
+        // ---------------------------------------------------------------------
+        const isCrossroadsVillage = (this.cx === 0 && this.cz === -1);
+        const isEastVillage = (this.cx === 1 && this.cz === 1);
+        const isWestVillage = (this.cx === -1 && this.cz === 1);
+        const isProceduralVillage = (Math.abs(this.cx) + Math.abs(this.cz) >= 3) && ((Math.abs(this.cx * 11 + this.cz * 17) % 5) === 0);
+        const isVillage = isCrossroadsVillage || isEastVillage || isWestVillage || isProceduralVillage;
+
+        if (isVillage) {
+            // Village cluster of cottages, barns, ruins, and stone perimeter walls
+            const villageTemplates = [
+                { rx: -16, rz: -14, type: 'cottage', rot: 0.35, scale: 1.05 },
+                { rx: 16, rz: -16, type: 'barn', rot: -0.42, scale: 1.10 },
+                { rx: -15, rz: 15, type: isWestVillage ? 'ruin' : 'cottage', rot: 1.25, scale: 0.98 },
+                { rx: 18, rz: 16, type: isWestVillage ? 'ruin' : 'barn', rot: -1.15, scale: 1.02 },
+                { rx: -1, rz: -26, type: 'wall', rot: 0.05, scale: 1.0 },
+                { rx: 1, rz: 26, type: 'wall', rot: 0.08, scale: 1.0 }
+            ];
+
+            villageTemplates.forEach((struct, sIdx) => {
+                const bx = chunkCenterX + struct.rx + (rng() - 0.5) * 5.0;
+                const bz = chunkCenterZ + struct.rz + (rng() - 0.5) * 5.0;
+                if (Math.hypot(bx, bz) < 18) return; // Keep spawn pad clear
+
+                const by = getTerrainHeight(bx, bz);
+                const norm = getTerrainNormal(bx, bz);
+                if (by < -1.8 || norm.y < 0.85) return;
+
+                let bldgGeo, radius, height, isRuin = false, isWall = false;
+                if (struct.type === 'cottage') {
+                    bldgGeo = sharedCottageGeo;
+                    radius = 5.6 * struct.scale;
+                    height = 6.6 * struct.scale;
+                } else if (struct.type === 'barn') {
+                    bldgGeo = sharedBarnGeo;
+                    radius = 6.2 * struct.scale;
+                    height = 7.5 * struct.scale;
+                } else if (struct.type === 'ruin') {
+                    bldgGeo = sharedRuinGeo;
+                    radius = 4.8 * struct.scale;
+                    height = 4.2 * struct.scale;
+                    isRuin = true;
+                } else {
+                    bldgGeo = sharedStoneWallGeo;
+                    radius = 3.2 * struct.scale;
+                    height = 1.4 * struct.scale;
+                    isWall = true;
+                }
+
+                const bMesh = new THREE.Mesh(bldgGeo, villageMat);
+                bMesh.position.set(bx, by - 0.15, bz);
+                bMesh.rotation.y = struct.rot + (rng() - 0.5) * 0.25;
+                bMesh.scale.setScalar(struct.scale);
+                bMesh.castShadow = true;
+                bMesh.receiveShadow = true;
+                this.group.add(bMesh);
+
+                this.raycastMeshes.push(bMesh);
+                aimRaycastMeshes.push(bMesh);
+
+                const bldgObj = {
+                    mesh: bMesh,
+                    x: bx,
+                    y: by,
+                    z: bz,
+                    radius: radius,
+                    height: height,
+                    isRuin: isRuin,
+                    isWall: isWall,
+                    type: struct.type
+                };
+                this.buildings.push(bldgObj);
+                worldBuildings.push(bldgObj);
+                worldObstacles.push(bldgObj);
+            });
+        } else if (distFromSpawn > 35 && rng() < 0.28) {
+            // Rural Farmstead, Barn, or Battlefield Ruin along road verges
+            const roadDistCenter = getRoadDistance(chunkCenterX, chunkCenterZ);
+            if (roadDistCenter < 35) {
+                const sideSign = (rng() > 0.5) ? 1 : -1;
+                const hx = chunkCenterX + sideSign * (14.0 + rng() * 10.0);
+                const hz = chunkCenterZ + (rng() - 0.5) * 22.0;
+                const hy = getTerrainHeight(hx, hz);
+                const norm = getTerrainNormal(hx, hz);
+
+                if (hy > -1.8 && norm.y > 0.88) {
+                    const bType = (rng() < 0.35) ? 'ruin' : ((rng() < 0.70) ? 'cottage' : 'barn');
+                    const bldgGeo = (bType === 'ruin') ? sharedRuinGeo : ((bType === 'cottage') ? sharedCottageGeo : sharedBarnGeo);
+                    const bScale = 0.95 + rng() * 0.25;
+                    const bMesh = new THREE.Mesh(bldgGeo, villageMat);
+                    bMesh.position.set(hx, hy - 0.15, hz);
+                    bMesh.rotation.y = rng() * Math.PI * 2;
+                    bMesh.scale.setScalar(bScale);
+                    bMesh.castShadow = true;
+                    bMesh.receiveShadow = true;
+                    this.group.add(bMesh);
+
+                    this.raycastMeshes.push(bMesh);
+                    aimRaycastMeshes.push(bMesh);
+
+                    const bldgObj = {
+                        mesh: bMesh,
+                        x: hx,
+                        y: hy,
+                        z: hz,
+                        radius: (bType === 'ruin' ? 4.8 : (bType === 'barn' ? 6.2 : 5.6)) * bScale,
+                        height: (bType === 'ruin' ? 4.2 : (bType === 'barn' ? 7.5 : 6.6)) * bScale,
+                        isRuin: (bType === 'ruin'),
+                        type: bType
+                    };
+                    this.buildings.push(bldgObj);
+                    worldBuildings.push(bldgObj);
+                    worldObstacles.push(bldgObj);
+
+                    // Add an attached stone wall border
+                    if (rng() < 0.60) {
+                        const wx = hx + (rng() > 0.5 ? 7.2 : -7.2);
+                        const wz = hz + (rng() - 0.5) * 4.0;
+                        const wy = getTerrainHeight(wx, wz);
+                        const wMesh = new THREE.Mesh(sharedStoneWallGeo, villageMat);
+                        wMesh.position.set(wx, wy - 0.15, wz);
+                        wMesh.rotation.y = bMesh.rotation.y + 0.3;
+                        wMesh.scale.setScalar(bScale);
+                        wMesh.castShadow = true;
+                        wMesh.receiveShadow = true;
+                        this.group.add(wMesh);
+                        this.raycastMeshes.push(wMesh);
+                        aimRaycastMeshes.push(wMesh);
+                        const wallObj = { mesh: wMesh, x: wx, y: wy, z: wz, radius: 3.2 * bScale, height: 1.4 * bScale, isRuin: false, isWall: true, type: 'wall' };
+                        this.buildings.push(wallObj);
+                        worldBuildings.push(wallObj);
+                        worldObstacles.push(wallObj);
+                    }
+                }
+            }
+        }
+
+        // ---------------------------------------------------------------------
+        // 2. MASSIVE LIMESTONE CRAGS & ROCK COVER
+        // ---------------------------------------------------------------------
+        this.rocks = [];
+        const rockCount = (distFromSpawn > 20 && !isVillage && rng() < 0.70) ? (1 + Math.floor(rng() * 2)) : 0;
+        for (let r = 0; r < rockCount; r++) {
+            const rx = xMin + (0.12 + rng() * 0.76) * CHUNK_SIZE;
+            const rz = zMin + (0.12 + rng() * 0.76) * CHUNK_SIZE;
+            if (getRoadFactor(rx, rz) > 0.25) continue;
+            const ry = getTerrainHeight(rx, rz);
+            if (ry < -2.0) continue;
+
+            const rs = 1.0 + rng() * 0.45;
+            const rockMesh = new THREE.Mesh(sharedRockGeo, rockMat);
+            rockMesh.position.set(rx, ry - 0.2, rz);
+            rockMesh.rotation.y = rng() * Math.PI * 2;
+            rockMesh.scale.set(rs, rs, rs);
+            rockMesh.castShadow = true;
+            rockMesh.receiveShadow = true;
+            this.group.add(rockMesh);
+
+            this.raycastMeshes.push(rockMesh);
+            aimRaycastMeshes.push(rockMesh);
+
+            const rockObj = {
+                mesh: rockMesh,
+                x: rx,
+                y: ry,
+                z: rz,
+                radius: 4.8 * rs,
+                height: 4.2 * rs,
+                type: 'rock'
+            };
+            this.rocks.push(rockObj);
+            worldObstacles.push(rockObj);
+            worldBuildings.push({ x: rx, z: rz, radius: 4.8 * rs, isRuin: false, isRock: true });
+        }
+
+        // ---------------------------------------------------------------------
+        // 3. BOTANICAL TREES & DENSE FOREST BIOMES
+        // ---------------------------------------------------------------------
+        const forestNoise = fbm3((chunkCenterX + seedOffset.x) * 0.007, (chunkCenterZ + seedOffset.z) * 0.007) * 0.5 + 0.5;
+
+        let targetTreeCount = 0;
+        if (isVillage) {
+            targetTreeCount = 3 + Math.floor(rng() * 3); // Village orchard & garden trees
+        } else if (forestNoise > 0.52) {
+            targetTreeCount = 14 + Math.floor(rng() * 9); // Dense Forest Stand (14 to 22 trees!)
+        } else if (forestNoise > 0.32) {
+            targetTreeCount = 5 + Math.floor(rng() * 5); // Woodland Copse (5 to 9 trees)
+        } else {
+            targetTreeCount = Math.floor(rng() * 3); // Open Meadow / Pasture (0 to 2 trees)
+        }
+
+        for (let t = 0; t < targetTreeCount; t++) {
+            const tx = xMin + (0.06 + rng() * 0.88) * CHUNK_SIZE;
+            const tz = zMin + (0.06 + rng() * 0.88) * CHUNK_SIZE;
 
             if (Math.hypot(tx, tz) < 14) continue;
-            if (getRoadFactor(tx, tz) > 0.22) continue;
+            if (getRoadFactor(tx, tz) > 0.20) continue; // Keep roads clear
+
+            // Don't collide into buildings
+            let collidesBuilding = false;
+            for (let b = 0; b < this.buildings.length; b++) {
+                const bldg = this.buildings[b];
+                if (Math.hypot(tx - bldg.x, tz - bldg.z) < bldg.radius + 1.8) {
+                    collidesBuilding = true;
+                    break;
+                }
+            }
+            if (collidesBuilding) continue;
 
             const ty = getTerrainHeight(tx, tz);
             if (ty < -2.4) continue;
 
             const treeRoll = rng();
             let treeGeo, treeType, trunkH;
-            if (treeRoll < 0.52) {
-                treeGeo = sharedSpruceGeo;
-                treeType = 'spruce';
-                trunkH = 14.2;
-            } else if (treeRoll < 0.76) {
-                treeGeo = sharedPineGeo;
-                treeType = 'pine';
-                trunkH = 12.5;
+            if (isVillage) {
+                // In villages, mostly deciduous fruit / shade trees and ornamental pines
+                if (treeRoll < 0.65) {
+                    treeGeo = sharedDecidGeo;
+                    treeType = 'beech';
+                    trunkH = 10.2;
+                } else {
+                    treeGeo = sharedPineGeo;
+                    treeType = 'pine';
+                    trunkH = 12.5;
+                }
+            } else if (forestNoise > 0.52) {
+                // In dense forests, tall spruces and pines dominate with occasional beech
+                if (treeRoll < 0.58) {
+                    treeGeo = sharedSpruceGeo;
+                    treeType = 'spruce';
+                    trunkH = 14.2;
+                } else if (treeRoll < 0.85) {
+                    treeGeo = sharedPineGeo;
+                    treeType = 'pine';
+                    trunkH = 12.8;
+                } else {
+                    treeGeo = sharedDecidGeo;
+                    treeType = 'beech';
+                    trunkH = 10.5;
+                }
             } else {
-                treeGeo = sharedDecidGeo;
-                treeType = 'beech';
-                trunkH = 9.8;
+                if (treeRoll < 0.48) {
+                    treeGeo = sharedSpruceGeo;
+                    treeType = 'spruce';
+                    trunkH = 14.2;
+                } else if (treeRoll < 0.74) {
+                    treeGeo = sharedPineGeo;
+                    treeType = 'pine';
+                    trunkH = 12.5;
+                } else {
+                    treeGeo = sharedDecidGeo;
+                    treeType = 'beech';
+                    trunkH = 9.8;
+                }
             }
-            const scale = 0.85 + rng() * 0.55;
 
+            const scale = 0.85 + rng() * 0.55;
             const treeGroup = new THREE.Group();
             treeGroup.position.set(tx, ty, tz);
             treeGroup.scale.setScalar(scale);
 
             const treeMesh = new THREE.Mesh(treeGeo, treeMaterial);
-            treeMesh.castShadow = (distFromSpawn < 75);
+            treeMesh.castShadow = (distFromSpawn < 85);
             treeMesh.receiveShadow = true;
             treeGroup.add(treeMesh);
             this.group.add(treeGroup);
@@ -1863,9 +2302,11 @@ class TerrainChunk {
             swayTrees.push(treeObj);
         }
 
-        // 2. Merged Chunk Bushes (Single draw call per chunk!)
+        // ---------------------------------------------------------------------
+        // 4. UNDERGROWTH BUSHES (DENSER IN FORESTS)
+        // ---------------------------------------------------------------------
         const bushGeos = [];
-        const bushCount = Math.floor(rng() * 3) + 1;
+        const bushCount = (forestNoise > 0.52) ? (5 + Math.floor(rng() * 5)) : (Math.floor(rng() * 3) + 1);
         for (let b = 0; b < bushCount; b++) {
             const bx = xMin + (0.05 + rng() * 0.90) * CHUNK_SIZE;
             const bz = zMin + (0.05 + rng() * 0.90) * CHUNK_SIZE;
@@ -1887,112 +2328,10 @@ class TerrainChunk {
             this.group.add(bushMesh);
         }
 
-        // 3. Merged Chunk Limestone Boulders (Single draw call per chunk!)
-        const rockGeos = [];
-        const rockCount = Math.floor(rng() * 3);
-        for (let r = 0; r < rockCount; r++) {
-            const rx = xMin + (0.05 + rng() * 0.90) * CHUNK_SIZE;
-            const rz = zMin + (0.05 + rng() * 0.90) * CHUNK_SIZE;
-            if (getRoadFactor(rx, rz) > 0.35) continue;
-            const ry = getTerrainHeight(rx, rz);
-            if (ry < -2.6) continue;
-            const rs = 0.65 + rng() * 1.15;
-            const rg = sharedRockGeo.clone();
-            rg.scale(rs * 1.2, rs * 0.65, rs * 1.1);
-            rg.rotateY(rng() * 3);
-            rg.translate(rx, ry + 0.1, rz);
-            rockGeos.push(rg);
-        }
-        if (rockGeos.length > 0) {
-            const mergedRocks = mergeBufferGeometries(rockGeos);
-            const rockMesh = new THREE.Mesh(mergedRocks, rockMat);
-            rockMesh.castShadow = (distFromSpawn < 65);
-            rockMesh.receiveShadow = true;
-            this.group.add(rockMesh);
-        }
-
-        // 4. European Cottages, Farmsteads or Smoldering Battlefield Ruins
-        if (distFromSpawn > 35 && rng() < 0.22) {
-            const centerZ = zMin + CHUNK_SIZE * 0.5;
-            const roadX = getRoadCenterX(centerZ);
-            const sideSign = (rng() > 0.5) ? 1 : -1;
-            const hx = roadX + sideSign * (14.0 + rng() * 10.0);
-            const hz = centerZ + (rng() - 0.5) * 20.0;
-            const hy = getTerrainHeight(hx, hz);
-            const norm = getTerrainNormal(hx, hz);
-
-            if (hy > -1.8 && norm.y > 0.88) {
-                const isRuin = (rng() < 0.42);
-                const bldgGeo = isRuin ? sharedRuinGeo : sharedCottageGeo;
-                const bldgMesh = new THREE.Mesh(bldgGeo, villageMat);
-                const bScale = 0.92 + rng() * 0.28;
-                bldgMesh.position.set(hx, hy - 0.15, hz);
-                bldgMesh.rotation.y = rng() * Math.PI * 2;
-                bldgMesh.scale.setScalar(bScale);
-                bldgMesh.castShadow = true;
-                bldgMesh.receiveShadow = true;
-                this.group.add(bldgMesh);
-
-                const bldgObj = {
-                    x: hx,
-                    z: hz,
-                    radius: (isRuin ? 4.2 : 5.0) * bScale,
-                    isRuin: isRuin
-                };
-                this.buildings.push(bldgObj);
-                worldBuildings.push(bldgObj);
-
-                // Smoldering fire sprite and rising smoke plume
-                if (isRuin && sharedFireTex && sharedSmokeTex) {
-                    const fireMat = new THREE.SpriteMaterial({
-                        map: sharedFireTex,
-                        blending: THREE.AdditiveBlending,
-                        depthWrite: false,
-                        transparent: true
-                    });
-                    const fireSprite = new THREE.Sprite(fireMat);
-                    fireSprite.position.set(hx, hy + 2.0, hz);
-                    fireSprite.scale.set(8.5 * bScale, 6.5 * bScale, 1);
-                    this.group.add(fireSprite);
-
-                    const fireData = {
-                        sprite: fireSprite,
-                        baseScale: 8.5 * bScale,
-                        phase: rng() * 10
-                    };
-                    this.fireSprites.push(fireData);
-                    activeFireSprites.push(fireData);
-
-                    const puffCount = 8;
-                    for (let p = 0; p < puffCount; p++) {
-                        const sMat = new THREE.SpriteMaterial({
-                            map: sharedSmokeTex,
-                            transparent: true,
-                            depthWrite: false,
-                            opacity: 0.45
-                        });
-                        const s = new THREE.Sprite(sMat);
-                        this.group.add(s);
-
-                        const puffData = {
-                            sprite: s,
-                            originX: hx + (rng() - 0.5) * 3,
-                            originY: hy + 1.2,
-                            originZ: hz + (rng() - 0.5) * 3,
-                            age: p / puffCount,
-                            speed: (0.040 + rng() * 0.015) / bScale,
-                            scaleMult: bScale,
-                            seed: rng() * 100
-                        };
-                        this.smokePuffs.push(puffData);
-                        activeSmokePuffs.push(puffData);
-                    }
-                }
-            }
-        }
-
-        // 5. Reactive Armored Target Hulls for Gunnery Practice
-        if (distFromSpawn > 45 && rng() < 0.16) {
+        // ---------------------------------------------------------------------
+        // 5. REACTIVE ARMORED TARGET HULLS FOR GUNNERY PRACTICE
+        // ---------------------------------------------------------------------
+        if (distFromSpawn > 45 && !isVillage && rng() < 0.16) {
             const tx = xMin + (0.15 + rng() * 0.70) * CHUNK_SIZE;
             const tz = zMin + (0.15 + rng() * 0.70) * CHUNK_SIZE;
             if (getRoadFactor(tx, tz) < 0.35) {
@@ -2037,19 +2376,19 @@ class TerrainChunk {
                     id: targetId,
                     group: tg,
                     pivot: platePivot,
-                    plateMat: plateMat,
                     x: tx,
-                    y: ty + 1.25,
+                    y: ty,
                     z: tz,
-                    hitAngle: isDestroyed ? Math.PI * 0.45 : 0,
-                    recoverTimer: 0
+                    radius: 2.4,
+                    height: 2.1,
+                    isDestroyed: isDestroyed,
+                    hitAngle: isDestroyed ? Math.PI * 0.45 : 0
                 };
                 this.targets.push(tgtObj);
                 targets.push(tgtObj);
             }
         }
     }
-
     dispose() {
         chunksGroup.remove(this.group);
 
@@ -2071,7 +2410,21 @@ class TerrainChunk {
         this.buildings.forEach(b => {
             const idx = worldBuildings.indexOf(b);
             if (idx !== -1) worldBuildings.splice(idx, 1);
+            const oIdx = worldObstacles.indexOf(b);
+            if (oIdx !== -1) worldObstacles.splice(oIdx, 1);
         });
+
+        if (this.rocks) {
+            this.rocks.forEach(r => {
+                const oIdx = worldObstacles.indexOf(r);
+                if (oIdx !== -1) worldObstacles.splice(oIdx, 1);
+                for (let k = worldBuildings.length - 1; k >= 0; k--) {
+                    if (worldBuildings[k].isRock && Math.hypot(worldBuildings[k].x - r.x, worldBuildings[k].z - r.z) < 0.1) {
+                        worldBuildings.splice(k, 1);
+                    }
+                }
+            });
+        }
 
         this.smokePuffs.forEach(p => {
             const idx = activeSmokePuffs.indexOf(p);
@@ -2122,7 +2475,8 @@ function updateTerrainChunks(playerX, playerZ) {
 function hitTree(tree, hitDir, force = 3.5) {
     if (!tree || tree.isFallen) return;
     tree.isFallen = true;
-    tree.angularVel = Math.max(2.2, force);
+    // Gentle initial impulse so tree starts tipping slowly, not snapping down
+    tree.angularVel = Math.min(0.35, Math.max(0.12, (force || 1.0) * 0.05));
 
     if (tree.id) {
         sessionFallenTrees.add(tree.id);
@@ -2130,7 +2484,9 @@ function hitTree(tree, hitDir, force = 3.5) {
 
     const hDir = new THREE.Vector3(hitDir ? hitDir.x : 0, 0, hitDir ? hitDir.z : 1).normalize();
     if (hDir.lengthSq() < 0.001) hDir.set(0, 0, 1);
-    tree.fallAxis = new THREE.Vector3(-hDir.z, 0, hDir.x).normalize();
+    // Rotating around (hDir.z, 0, -hDir.x) tilts vector (0, 1, 0) directly towards (hDir.x, 0, hDir.z)
+    tree.fallAxis = new THREE.Vector3(hDir.z, 0, -hDir.x).normalize();
+    tree.fallDir = hDir.clone();
 
     const impactY = tree.y + 0.9 * tree.scale;
     const impactPos = new THREE.Vector3(tree.x, impactY, tree.z);
@@ -2250,6 +2606,7 @@ function buildEnvironment(scene) {
     swayTrees.length = 0;
     targets.length = 0;
     worldBuildings.length = 0;
+    worldObstacles.length = 0;
 
     const currentScene = scene || window.scene;
 
@@ -2283,16 +2640,21 @@ function buildEnvironment(scene) {
     }
 
     // High-Performance Botanical Texture-Atlas Grass & Wildflower System
+    // Area 1 (Close): 48,000 crossed tuft instances over 96m x 96m (0m to 48m radius)
+    // Area 2 (Mid range): 28,000 crossed tuft instances over 192m x 192m (48m to 98m radius) - No height-based transition!
+    // Area 3 (Far): 24,000 billboard grass instances over 384m x 384m (98m to 195m radius) with edge subsurface scattering
     if (!grassLOD0Mesh) {
         const tuftGeo = createCrossedTuftGeometry();
-        // 48,000 instances over 96m x 96m (5.2 tufts/m^2 in foreground!); 28,000 instances over 192m x 192m
-        grassLOD0Mesh = createTexturedToroidalGrass(tuftGeo, 48000, 96.0, 0.0, 46.0, true);
-        grassLOD0MidMesh = createTexturedToroidalGrass(tuftGeo, 28000, 192.0, 41.0, 94.0, false);
-        grassLOD0FarMesh = grassLOD0MidMesh; // Alias
+        const billboardGeo = createBillboardTuftGeometry();
+
+        grassLOD0Mesh = createTexturedToroidalGrass(tuftGeo, 48000, 96.0, 0.0, 48.0, false);
+        grassLOD0MidMesh = createTexturedToroidalGrass(tuftGeo, 28000, 192.0, 48.0, 98.0, false);
+        grassLOD0FarMesh = createTexturedToroidalGrass(billboardGeo, 24000, 384.0, 98.0, 195.0, true);
         grassLOD1Mesh = grassLOD0MidMesh;
 
         envGroup.add(grassLOD0Mesh);
         envGroup.add(grassLOD0MidMesh);
+        envGroup.add(grassLOD0FarMesh);
 
         grassMeshRef = grassLOD0Mesh;
         window.grassLOD0Mesh = grassLOD0Mesh;
@@ -2353,7 +2715,26 @@ function buildEnvironment(scene) {
     cotMesh.castShadow = true;
     cotMesh.receiveShadow = true;
     envGroup.add(cotMesh);
-    worldBuildings.push({ x: cotX, z: cotZ, radius: 5.2, isRuin: false });
+    aimRaycastMeshes.push(cotMesh);
+    const staticCotObj = { mesh: cotMesh, x: cotX, y: cotY, z: cotZ, radius: 5.4, height: 6.6, isRuin: false, type: 'house' };
+    worldBuildings.push(staticCotObj);
+    worldObstacles.push(staticCotObj);
+
+    // Signature massive limestone cover rock formation near tank spawn for cover practice
+    const sigRockX = -19.0;
+    const sigRockZ = 22.0;
+    const sigRockY = getTerrainHeight(sigRockX, sigRockZ);
+    const sigRockMesh = new THREE.Mesh(sharedRockGeo, rockMat);
+    sigRockMesh.position.set(sigRockX, sigRockY - 0.25, sigRockZ);
+    sigRockMesh.rotation.y = 0.85;
+    sigRockMesh.scale.set(1.2, 1.2, 1.2);
+    sigRockMesh.castShadow = true;
+    sigRockMesh.receiveShadow = true;
+    envGroup.add(sigRockMesh);
+    aimRaycastMeshes.push(sigRockMesh);
+    const sigRockObj = { mesh: sigRockMesh, x: sigRockX, y: sigRockY, z: sigRockZ, radius: 5.8, height: 4.8, type: 'rock' };
+    worldBuildings.push({ x: sigRockX, z: sigRockZ, radius: 5.8, isRuin: false, isRock: true });
+    worldObstacles.push(sigRockObj);
 
     // Rising smoke plumes drifting toward the sea
     if (sharedSmokeTex) {
@@ -2432,11 +2813,11 @@ function updateEnvironment(dt, tankState) {
         const dz = bldg.z - pz;
         if (dx * dx + dz * dz < 140 * 140) {
             nearBldgs.push(bldg);
-            if (nearBldgs.length >= 16) break;
+            if (nearBldgs.length >= 32) break;
         }
     }
     const bArr = grassUniforms.uBuildings.value;
-    for (let i = 0; i < 16; i++) {
+    for (let i = 0; i < 32; i++) {
         if (i < nearBldgs.length) {
             bArr[i].set(nearBldgs[i].x, nearBldgs[i].z, nearBldgs[i].radius, 1.0);
         } else {
@@ -2540,6 +2921,7 @@ window.obstacles = obstacles;
 window.targets = targets;
 window.swayTrees = swayTrees;
 window.worldBuildings = worldBuildings;
+window.worldObstacles = worldObstacles;
 window.terrainMeshRef = terrainMeshRef;
 window.aimRaycastMeshes = aimRaycastMeshes;
 window.waterMeshRef = waterMeshRef;
@@ -2556,6 +2938,7 @@ window.updateSkyDome = updateSkyDome;
 window.updateDaylightSystem = updateDaylightSystem;
 window.getTerrainHeight = getTerrainHeight;
 window.getTerrainNormal = getTerrainNormal;
+window.getRoadDistance = getRoadDistance;
 window.getRoadCenterX = getRoadCenterX;
 window.getRoadFactor = getRoadFactor;
 window.initEnvironment = initEnvironment;

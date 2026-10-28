@@ -810,12 +810,14 @@ function updateSimulation(dt) {
         const distSq = dx * dx + dz * dz;
         const crushDist = 2.45 + (tree.radius || 1.2) * 0.45;
         if (distSq < crushDist * crushDist) {
-            const pushDir = new THREE.Vector3(dx, 0, dz).normalize();
-            if (tankSpeed > 0.08) {
-                pushDir.addScaledVector(headingDir, Math.sign(tankState.speed) * 0.85).normalize();
+            // Force direction is combination of contact normal and tank travel velocity
+            let pushDir = new THREE.Vector3(dx, 0, dz).normalize();
+            if (tankSpeed > 0.05) {
+                const moveDir = headingDir.clone().multiplyScalar(Math.sign(tankState.speed));
+                pushDir = pushDir.multiplyScalar(0.35).addScaledVector(moveDir, 0.65).normalize();
             }
             if (window.hitTree) {
-                window.hitTree(tree, pushDir, Math.max(3.2, tankSpeed * 2.4));
+                window.hitTree(tree, pushDir, Math.max(1.8, tankSpeed * 2.0));
             }
             // Hull resistance from crushing massive timber
             tankState.speed *= 0.82;
@@ -829,23 +831,28 @@ function updateSimulation(dt) {
         const st = trees[i];
         if (st.isFallen) {
             if (st.fallAngle < st.maxFallAngle) {
-                st.angularVel += 7.2 * dt;
+                // Weighty, slow falling physics: starts with heavy wood resistance, accelerating gently under gravity
+                const gravityTorque = 1.15 * Math.sin(st.fallAngle + 0.14) + 0.12;
+                st.angularVel += gravityTorque * dt;
+                st.angularVel = Math.min(st.angularVel, 1.45);
                 st.fallAngle += st.angularVel * dt;
                 if (st.fallAngle >= st.maxFallAngle) {
                     st.fallAngle = st.maxFallAngle;
                     st.angularVel = 0;
                     // Dust puff impact when canopy/trunk hits the ground
                     const tipDist = (st.trunkHeight || 3.5) * 0.72;
-                    const tipX = st.x + (-st.fallAxis.z) * tipDist;
-                    const tipZ = st.z + (st.fallAxis.x) * tipDist;
+                    const hDirX = st.fallDir ? st.fallDir.x : -st.fallAxis.z;
+                    const hDirZ = st.fallDir ? st.fallDir.z : st.fallAxis.x;
+                    const tipX = st.x + hDirX * tipDist;
+                    const tipZ = st.z + hDirZ * tipDist;
                     const tipY = getTerrainHeight(tipX, tipZ);
-                    for (let p = 0; p < 7; p++) {
+                    for (let p = 0; p < 9; p++) {
                         const dVel = new THREE.Vector3(
                             (Math.random() - 0.5) * 4.2,
                             0.5 + Math.random() * 1.5,
                             (Math.random() - 0.5) * 4.2
                         );
-                        spawnParticle(new THREE.Vector3(tipX, tipY + 0.15, tipZ), dVel, 0x5a4d41, 0.35, 1.8, 1.1, false, 'dirt');
+                        spawnParticle(new THREE.Vector3(tipX, tipY + 0.15, tipZ), dVel, 0x5a4d41, 0.45, 2.2, 1.4, false, 'dirt');
                     }
                 }
                 st.group.quaternion.setFromAxisAngle(st.fallAxis, st.fallAngle);

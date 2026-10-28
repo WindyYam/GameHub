@@ -1088,16 +1088,14 @@ function createGrassMaterial() {
                 // Vertical botanical gradient from damp roots to golden sunlit tips
                 vec3 bladeColor = mix(rootColor, mix(midColor, tipColor, smoothstep(0.35, 1.0, vUv.y)), smoothstep(0.0, 0.35, vUv.y));
 
-                // Fresnel edge effect: bright at silhouette, dim when facing camera directly
+                // Warm sunlight subsurface scattering, strictly on blade edges (grazing Fresnel silhouette)
                 vec3 viewNorm = normalize(vViewDir);
                 float fresnel = pow(1.0 - abs(dot(vNormal, viewNorm)), 2.2);
-
-                // Sun direction lighting on blade
-                float NdotL = max(abs(dot(vNormal, sunDirection)), 0.28);
+                vec3 sunDir = normalize(sunDirection);
+                float backLight = pow(max(dot(-viewNorm, sunDir), 0.0), 2.2);
+                vec3 sss = sunColor * backLight * fresnel * smoothstep(0.15, 1.0, vUv.y) * 0.75;
                 
-                // Apply sun color enhancement mainly to edges via Fresnel
-                vec3 sunEnhance = sunColor * NdotL * fresnel * 0.6;
-                vec3 finalColor = bladeColor * (sunEnhance + skyColor * 0.38);
+                vec3 finalColor = bladeColor * (skyColor * 0.38 + 0.30) + sss;
 
                 gl_FragColor = vec4(finalColor, 1.0);
             }
@@ -1746,9 +1744,10 @@ function createBotanicalFoliageAtlas() {
 // Col 3 [0.75..1.00]: Meadow Grass with Golden Buttercup / Dandelion Wildflowers
 // ============================================================================
 let _grassTuftAtlasTex = null;
+let _grassTuftEdgeTex = null;
 
 function createGrassTuftAtlasTexture() {
-    if (_grassTuftAtlasTex) return _grassTuftAtlasTex;
+    if (_grassTuftAtlasTex && _grassTuftEdgeTex) return _grassTuftAtlasTex;
 
     const width = 512;
     const height = 256;
@@ -1758,6 +1757,13 @@ function createGrassTuftAtlasTexture() {
     canvas.height = height;
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, width, height);
+
+    // Dedicated edge-mask canvas for blade edge subsurface scattering
+    const edgeCanvas = document.createElement('canvas');
+    edgeCanvas.width = width;
+    edgeCanvas.height = height;
+    const edgeCtx = edgeCanvas.getContext('2d');
+    edgeCtx.clearRect(0, 0, width, height);
 
     let gSeed = 8191;
     function gRand() {
@@ -1772,20 +1778,26 @@ function createGrassTuftAtlasTexture() {
         ctx.rect(xOffset + 2, 0, colW - 4, height);
         ctx.clip();
 
+        edgeCtx.save();
+        edgeCtx.beginPath();
+        edgeCtx.rect(xOffset + 2, 0, colW - 4, height);
+        edgeCtx.clip();
+
         // Draw 52 dense overlapping grass blades spanning full column width
         const numBlades = 52;
         for (let b = 0; b < numBlades; b++) {
             const depthFrac = b / (numBlades - 1);
             const rootX = xOffset + 6 + (b / (numBlades - 1)) * (colW - 12) + (gRand() - 0.5) * 6;
             const rootY = height + 4;
-            const edgeFactor = 1.0 - Math.pow(Math.abs((b / (numBlades - 1)) - 0.5) * 1.85, 2.0) * 0.35;
-            const bladeH = height * (0.50 + gRand() * 0.42) * edgeFactor;
-            const lean = ((rootX - (xOffset + colW * 0.5)) / (colW * 0.5)) * 18 + (gRand() - 0.5) * 20;
+            const edgeFactor = 1.0 - Math.pow(Math.abs((b / (numBlades - 1)) - 0.5) * 1.85, 2.0) * 0.25;
+            // Higher grass blades reaching 80% to 98% of the tuft height
+            const bladeH = height * (0.80 + gRand() * 0.18) * edgeFactor;
+            const lean = ((rootX - (xOffset + colW * 0.5)) / (colW * 0.5)) * 16 + (gRand() - 0.5) * 18;
             const tipX = Math.max(xOffset + 4, Math.min(xOffset + colW - 4, rootX + lean));
             const tipY = height - bladeH;
-            const ctrlX = (rootX + tipX) * 0.5 + (gRand() - 0.5) * 6;
+            const ctrlX = (rootX + tipX) * 0.5 + (gRand() - 0.5) * 5;
             const ctrlY = height - bladeH * 0.55;
-            const baseHalfW = 3.8 + gRand() * 2.4;
+            const baseHalfW = 3.0 + gRand() * 1.8;
 
             const grad = ctx.createLinearGradient(rootX, rootY, tipX, tipY);
             const brightness = 0.52 + depthFrac * 0.52;
@@ -1810,6 +1822,20 @@ function createGrassTuftAtlasTexture() {
             ctx.closePath();
             ctx.fill();
 
+            // Razor-sharp fine edge mask (1.0px) strictly on blade contours & tips
+            edgeCtx.lineWidth = 1.0;
+            edgeCtx.strokeStyle = 'rgba(255, 255, 255, 0.92)';
+            edgeCtx.beginPath();
+            edgeCtx.moveTo(rootX - baseHalfW, rootY);
+            edgeCtx.quadraticCurveTo(ctrlX - baseHalfW * 0.48, ctrlY, tipX, tipY);
+            edgeCtx.quadraticCurveTo(ctrlX + baseHalfW * 0.48, ctrlY, rootX + baseHalfW, rootY);
+            edgeCtx.stroke();
+
+            edgeCtx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+            edgeCtx.beginPath();
+            edgeCtx.arc(tipX, tipY, 1.4, 0, Math.PI * 2);
+            edgeCtx.fill();
+
             // Seed head plumes in Column 1
             if (col === 1 && depthFrac > 0.5 && b % 4 === 0) {
                 ctx.fillStyle = 'rgba(218, 198, 112, 0.95)';
@@ -1820,6 +1846,16 @@ function createGrassTuftAtlasTexture() {
                 ctx.ellipse(0, 0, 3.2, 12.0, 0, 0, Math.PI * 2);
                 ctx.fill();
                 ctx.restore();
+
+                edgeCtx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+                edgeCtx.lineWidth = 1.8;
+                edgeCtx.save();
+                edgeCtx.translate(tipX, tipY + 8);
+                edgeCtx.rotate(lean * 0.015);
+                edgeCtx.beginPath();
+                edgeCtx.ellipse(0, 0, 3.2, 12.0, 0, 0, Math.PI * 2);
+                edgeCtx.stroke();
+                edgeCtx.restore();
             }
         }
 
@@ -1832,8 +1868,9 @@ function createGrassTuftAtlasTexture() {
                 { x: xOffset + 52, y: 96, r: 8.5 }
             ];
             daisyPositions.forEach(fl => {
-                // Petals
                 ctx.fillStyle = '#fdfefc';
+                edgeCtx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+                edgeCtx.lineWidth = 1.6;
                 for (let p = 0; p < 10; p++) {
                     const pa = (p / 10) * Math.PI * 2;
                     ctx.save();
@@ -1843,8 +1880,15 @@ function createGrassTuftAtlasTexture() {
                     ctx.ellipse(0, 0, fl.r * 0.48, fl.r * 0.22, 0, 0, Math.PI * 2);
                     ctx.fill();
                     ctx.restore();
+
+                    edgeCtx.save();
+                    edgeCtx.translate(fl.x + Math.cos(pa) * (fl.r * 0.55), fl.y + Math.sin(pa) * (fl.r * 0.55));
+                    edgeCtx.rotate(pa);
+                    edgeCtx.beginPath();
+                    edgeCtx.ellipse(0, 0, fl.r * 0.48, fl.r * 0.22, 0, 0, Math.PI * 2);
+                    edgeCtx.stroke();
+                    edgeCtx.restore();
                 }
-                // Golden disc center
                 ctx.fillStyle = '#f59e0b';
                 ctx.beginPath();
                 ctx.arc(fl.x, fl.y, fl.r * 0.34, 0, Math.PI * 2);
@@ -1863,11 +1907,17 @@ function createGrassTuftAtlasTexture() {
             ];
             buttercupPositions.forEach(fl => {
                 ctx.fillStyle = '#facc15';
+                edgeCtx.strokeStyle = 'rgba(255, 255, 255, 0.85)';
+                edgeCtx.lineWidth = 1.6;
                 for (let p = 0; p < 5; p++) {
                     const pa = (p / 5) * Math.PI * 2;
                     ctx.beginPath();
                     ctx.arc(fl.x + Math.cos(pa) * (fl.r * 0.42), fl.y + Math.sin(pa) * (fl.r * 0.42), fl.r * 0.44, 0, Math.PI * 2);
                     ctx.fill();
+
+                    edgeCtx.beginPath();
+                    edgeCtx.arc(fl.x + Math.cos(pa) * (fl.r * 0.42), fl.y + Math.sin(pa) * (fl.r * 0.42), fl.r * 0.44, 0, Math.PI * 2);
+                    edgeCtx.stroke();
                 }
                 ctx.fillStyle = '#ca8a04';
                 ctx.beginPath();
@@ -1877,6 +1927,7 @@ function createGrassTuftAtlasTexture() {
         }
 
         ctx.restore();
+        edgeCtx.restore();
     }
 
     const tex = new THREE.CanvasTexture(canvas);
@@ -1885,8 +1936,24 @@ function createGrassTuftAtlasTexture() {
     tex.wrapT = THREE.ClampToEdgeWrapping;
     tex.anisotropy = 4;
     _grassTuftAtlasTex = tex;
+
+    const edgeTex = new THREE.CanvasTexture(edgeCanvas);
+    edgeTex.encoding = THREE.LinearEncoding;
+    edgeTex.wrapS = THREE.ClampToEdgeWrapping;
+    edgeTex.wrapT = THREE.ClampToEdgeWrapping;
+    edgeTex.anisotropy = 4;
+    _grassTuftEdgeTex = edgeTex;
+
     return tex;
 }
+
+function getGrassTuftEdgeTexture() {
+    if (!_grassTuftEdgeTex) {
+        createGrassTuftAtlasTexture();
+    }
+    return _grassTuftEdgeTex;
+}
+
 
 // ============================================================================
 // High-Resolution European Architectural PBR Atlas (1024x1024, 2x2 Quadrant UV)
@@ -3138,4 +3205,5 @@ window.createCoastalOceanMaterial = createCoastalOceanMaterial;
 window.createMaldiveSkyDome = createMaldiveSkyDome;
 window.createBotanicalFoliageAtlas = createBotanicalFoliageAtlas;
 window.createGrassTuftAtlasTexture = createGrassTuftAtlasTexture;
+window.getGrassTuftEdgeTexture = getGrassTuftEdgeTexture;
 window.createVillagePBRAtlas = createVillagePBRAtlas;
