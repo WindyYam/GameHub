@@ -1081,46 +1081,43 @@ const LOD0_FAR_PATCH_SIZE = 500.0;   // Covers [140m .. 250m] with previous mid 
 
 function createLOD0BladeGeometry() {
     const geo = new THREE.BufferGeometry();
-    const bw = 0.065, bh = 0.9;
-    const angles = [0.0, 1.05, 2.09]; // 0 deg, 60 deg, 120 deg
-    const heightMults = [1.0, 0.92, 0.86];
-    const zBends = [0.28, -0.22, 0.18];
-
     const positions = [];
     const uvs = [];
     const indices = [];
 
-    for (let b = 0; b < 3; b++) {
-        const ang = angles[b];
-        const ca = Math.cos(ang), sa = Math.sin(ang);
-        const h = bh * heightMults[b];
-        const zb = zBends[b];
-        const baseIdx = b * 7;
+    const bladesPerClump = 4;
+    const segments = 4;
+    const verticesPerBlade = (segments + 1) * 2;
 
-        const verts = [
-            [-bw,        0.0,      0.0,        0.0, 0.0],
-            [ bw,        0.0,      0.0,        1.0, 0.0],
-            [-bw * 0.82, h * 0.33, zb * 0.15,  0.0, 0.33],
-            [ bw * 0.82, h * 0.33, zb * 0.15,  1.0, 0.33],
-            [-bw * 0.52, h * 0.68, zb * 0.45,  0.0, 0.68],
-            [ bw * 0.52, h * 0.68, zb * 0.45,  1.0, 0.68],
-            [ 0.0,       h,        zb,         0.5, 1.0]
-        ];
+    for (let b = 0; b < bladesPerClump; b++) {
+        const angle = (b / bladesPerClump) * Math.PI + b * 0.42;
+        const cosA = Math.cos(angle);
+        const sinA = Math.sin(angle);
+        const offsetX = Math.cos(b * 2.1) * 0.14;
+        const offsetZ = Math.sin(b * 2.1) * 0.14;
+        const curveDroop = 0.22 + (b % 2) * 0.14;
+        const heightScale = 0.85 + (b % 3) * 0.15;
+        const baseIdx = b * verticesPerBlade;
 
-        for (let i = 0; i < verts.length; i++) {
-            let rx = verts[i][0] * ca - verts[i][2] * sa;
-            let rz = verts[i][0] * sa + verts[i][2] * ca;
-            positions.push(rx, verts[i][1], rz);
-            uvs.push(verts[i][3], verts[i][4]);
+        for (let i = 0; i <= segments; i++) {
+            const t = i / segments;
+            const halfW = 0.048 * (1.0 - t * 0.88);
+            const y = t * 1.15 * heightScale;
+            const bend = t * t * curveDroop;
+
+            positions.push(
+                -halfW * cosA + bend * sinA + offsetX, y,
+                -halfW * sinA - bend * cosA + offsetZ,
+                halfW * cosA + bend * sinA + offsetX, y,
+                halfW * sinA - bend * cosA + offsetZ
+            );
+            uvs.push(0, t, 1, t);
         }
 
-        indices.push(
-            baseIdx + 0, baseIdx + 1, baseIdx + 2,
-            baseIdx + 2, baseIdx + 1, baseIdx + 3,
-            baseIdx + 2, baseIdx + 3, baseIdx + 4,
-            baseIdx + 4, baseIdx + 3, baseIdx + 5,
-            baseIdx + 4, baseIdx + 5, baseIdx + 6
-        );
+        for (let i = 0; i < segments; i++) {
+            const row = baseIdx + i * 2;
+            indices.push(row, row + 1, row + 2, row + 1, row + 3, row + 2);
+        }
     }
 
     geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(positions), 3));
@@ -1236,6 +1233,11 @@ function createStratifiedToroidalGrass(geo, count, patchSize, minRadius, maxRadi
         shader.uniforms.uRoadBaseX = grassUniforms.uRoadBaseX;
         shader.uniforms.uBuildings = grassUniforms.uBuildings;
         shader.uniforms.uBuildingCount = grassUniforms.uBuildingCount;
+        if (isLOD0) {
+            shader.uniforms.uGrassSunDirection = window.celestialLighting.sunDirection;
+            shader.uniforms.uGrassSunColor = window.celestialLighting.sunColor;
+            shader.uniforms.uGrassSkyColor = window.celestialLighting.skyColor;
+        }
         shader.uniforms.uPatchSize = { value: patchSize };
         shader.uniforms.uMinRadius = { value: minRadius };
         shader.uniforms.uMaxRadius = { value: maxRadius };
@@ -1250,9 +1252,11 @@ function createStratifiedToroidalGrass(geo, count, patchSize, minRadius, maxRadi
             uniform float uMaxRadius;
             uniform vec4 uBuildings[16];
             uniform int uBuildingCount;
+            ${isLOD0 ? 'uniform vec3 uGrassSunDirection;' : ''}
 
             varying float vHeightRatio;
             varying vec3 vWorldPos;
+            ${isLOD0 ? 'varying vec3 vGrassSunDirectionView;' : ''}
             varying float vBladeSeed;
             varying float vFlowerType;
             ${SHARED_TERRAIN_GLSL}
@@ -1340,12 +1344,16 @@ function createStratifiedToroidalGrass(geo, count, patchSize, minRadius, maxRadi
 
             transformed = surfaceOffset + vec3(worldXZ.x, groundY - 0.015, worldXZ.y);
             vWorldPos = transformed;
+            ${isLOD0 ? 'vGrassSunDirectionView = normalize((viewMatrix * vec4(uGrassSunDirection, 0.0)).xyz);' : ''}
             `
         );
 
         shader.fragmentShader = `
+            ${isLOD0 ? 'uniform vec3 uGrassSunColor;' : ''}
+            ${isLOD0 ? 'uniform vec3 uGrassSkyColor;' : ''}
             varying float vHeightRatio;
             varying vec3 vWorldPos;
+            ${isLOD0 ? 'varying vec3 vGrassSunDirectionView;' : ''}
             varying float vBladeSeed;
             varying float vFlowerType;
             ${SHARED_TERRAIN_GLSL}
@@ -1357,11 +1365,12 @@ function createStratifiedToroidalGrass(geo, count, patchSize, minRadius, maxRadi
             #include <color_fragment>
             float fieldVariation = fbm3_gpu((vWorldPos.xz + uSeedOffset) * 0.007) * 0.5 + 0.5;
             float bladeVariation = hash2D_gpu(floor(vWorldPos.xz * 1.7) + vBladeSeed * 23.0);
-            vec3 yellowGreen = vec3(0.66, 0.74, 0.25);
-            vec3 normalGreen = vec3(0.32, 0.64, 0.19);
+            vec3 yellowGreen = ${isLOD0 ? 'vec3(0.20, 0.34, 0.05)' : 'vec3(0.66, 0.74, 0.25)'};
+            vec3 normalGreen = ${isLOD0 ? 'vec3(0.055, 0.20, 0.018)' : 'vec3(0.32, 0.64, 0.19)'};
             vec3 fieldColor = mix(yellowGreen, normalGreen, smoothstep(0.22, 0.78, fieldVariation));
-            vec3 tipCol = fieldColor * mix(0.90, 1.08, bladeVariation);
-            vec3 rootCol = fieldColor * vec3(0.32, 0.42, 0.18);
+            vec3 tipCol = ${isLOD0 ? 'mix(fieldColor * 1.28, vec3(0.62, 0.80, 0.26), 0.42)' : 'fieldColor'};
+            tipCol *= mix(0.90, 1.08, bladeVariation);
+            vec3 rootCol = ${isLOD0 ? 'fieldColor * 0.38' : 'fieldColor * vec3(0.32, 0.42, 0.18)'};
             vec3 bladeGrad = mix(rootCol, tipCol, smoothstep(0.0, 0.45, vHeightRatio));
 
             if (vFlowerType > 0.5 && vHeightRatio > 0.72) {
@@ -1370,6 +1379,23 @@ function createStratifiedToroidalGrass(geo, count, patchSize, minRadius, maxRadi
             }
 
             diffuseColor.rgb = bladeGrad;
+            `
+        );
+
+        shader.fragmentShader = shader.fragmentShader.replace(
+            '#include <lights_fragment_end>',
+            `
+            #include <lights_fragment_end>
+            ${isLOD0 ? `
+            reflectedLight.directDiffuse *= 0.42;
+            reflectedLight.indirectDiffuse *= 0.45;
+            float grassWrapLight = max(abs(dot(normal, normalize(vGrassSunDirectionView))), 0.28);
+            float grassBacklight = pow(max(dot(-normalize(vViewPosition), normalize(vGrassSunDirectionView)), 0.0), 2.5);
+            float grassTipTranslucency = smoothstep(0.35, 1.0, vHeightRatio);
+            vec3 grassBotanicalFill = uGrassSunColor * (grassWrapLight * 0.08 + grassBacklight * grassTipTranslucency * 0.30)
+                                    + uGrassSkyColor * 0.08;
+            reflectedLight.indirectDiffuse += diffuseColor.rgb * grassBotanicalFill;
+            ` : ''}
             `
         );
     };
@@ -1382,6 +1408,107 @@ function createStratifiedToroidalGrass(geo, count, patchSize, minRadius, maxRadi
     for (let i = 0; i < count; i++) {
         mesh.setMatrixAt(i, ident);
     }
+    mesh.instanceMatrix.needsUpdate = true;
+    return mesh;
+}
+
+let yellowWildflowerMesh = null;
+let whiteWildflowerMesh = null;
+
+function createToroidalWildflowerMesh(count, color) {
+    const flowerGeo = new THREE.DodecahedronGeometry(0.14, 0);
+    flowerGeo.scale(1, 0.62, 1);
+    flowerGeo.computeVertexNormals();
+
+    const gridSide = Math.ceil(Math.sqrt(count));
+    const cellSize = LOD0_PATCH_SIZE / gridSide;
+    const flowerData = new Float32Array(count * 4);
+    let idx = 0;
+
+    for (let gx = 0; gx < gridSide && idx < count; gx++) {
+        for (let gz = 0; gz < gridSide && idx < count; gz++) {
+            flowerData[idx * 4] = (gx + 0.12 + Math.random() * 0.76) * cellSize - LOD0_PATCH_SIZE * 0.5;
+            flowerData[idx * 4 + 1] = (gz + 0.12 + Math.random() * 0.76) * cellSize - LOD0_PATCH_SIZE * 0.5;
+            flowerData[idx * 4 + 2] = Math.random() * Math.PI * 2.0;
+            flowerData[idx * 4 + 3] = Math.random();
+            idx++;
+        }
+    }
+
+    flowerGeo.setAttribute('aFlowerData', new THREE.InstancedBufferAttribute(flowerData, 4));
+
+    const material = new THREE.MeshStandardMaterial({
+        color,
+        roughness: 0.82,
+        metalness: 0.0,
+        flatShading: true
+    });
+
+    material.onBeforeCompile = (shader) => {
+        shader.uniforms.uCameraPos = grassUniforms.uCameraPos;
+        shader.uniforms.uPatchSize = { value: LOD0_PATCH_SIZE };
+        shader.uniforms.uSeedOffset = terrainUniforms.uSeedOffset;
+        shader.uniforms.uRoadBaseX = terrainUniforms.uRoadBaseX;
+        shader.uniforms.uBuildings = grassUniforms.uBuildings;
+        shader.uniforms.uBuildingCount = grassUniforms.uBuildingCount;
+
+        shader.vertexShader = `
+            attribute vec4 aFlowerData;
+            uniform vec3 uCameraPos;
+            uniform float uPatchSize;
+            uniform vec4 uBuildings[16];
+            uniform int uBuildingCount;
+            ${SHARED_TERRAIN_GLSL}
+        ` + shader.vertexShader;
+
+        shader.vertexShader = shader.vertexShader.replace(
+            '#include <begin_vertex>',
+            `
+            #include <begin_vertex>
+            vec2 patchOffset = vec2(uPatchSize * 0.5);
+            vec2 relXZ = mod(aFlowerData.xy - uCameraPos.xz + patchOffset, vec2(uPatchSize)) - patchOffset;
+            vec2 worldXZ = uCameraPos.xz + relXZ;
+            float distToCam = length(relXZ);
+            float ringMask = (distToCam >= 4.8 && distToCam < 53.0) ? 1.0 : 0.0;
+
+            vec3 surfaceNormal;
+            float groundY = getTerrainSurfaceHeight_gpu(worldXZ.x, worldXZ.y, surfaceNormal);
+            float slope = 1.0 - surfaceNormal.y;
+            float slopeCull = 1.0 - smoothstep(0.22, 0.35, slope);
+            float roadCull = 1.0 - smoothstep(0.08, 0.32, getRoadFactor_gpu(worldXZ.x, worldXZ.y));
+
+            float buildingCull = 1.0;
+            for (int b = 0; b < 16; b++) {
+                if (b >= uBuildingCount) break;
+                if (length(worldXZ - uBuildings[b].xy) < uBuildings[b].z + 0.4) {
+                    buildingCull = 0.0;
+                }
+            }
+
+            float spawnCull = smoothstep(4.0, 7.0, length(worldXZ));
+            float waterCull = smoothstep(-2.4, -1.6, groundY);
+            float flowerVisibility = ringMask * slopeCull * roadCull * buildingCull * spawnCull * waterCull;
+
+            float flowerScale = mix(0.70, 1.45, aFlowerData.w) * flowerVisibility;
+            float ca = cos(aFlowerData.z), sa = sin(aFlowerData.z);
+            vec3 flowerPos = transformed;
+            flowerPos.xz *= flowerScale;
+            flowerPos.y *= flowerScale;
+            transformed = vec3(
+                flowerPos.x * ca - flowerPos.z * sa + worldXZ.x,
+                groundY + mix(0.55, 1.15, aFlowerData.w) * flowerVisibility + flowerPos.y,
+                flowerPos.x * sa + flowerPos.z * ca + worldXZ.y
+            );
+            `
+        );
+    };
+
+    const mesh = new THREE.InstancedMesh(flowerGeo, material, count);
+    mesh.frustumCulled = false;
+    mesh.receiveShadow = true;
+
+    const identity = new THREE.Matrix4();
+    for (let i = 0; i < count; i++) mesh.setMatrixAt(i, identity);
     mesh.instanceMatrix.needsUpdate = true;
     return mesh;
 }
@@ -1936,6 +2063,11 @@ function buildEnvironment(scene) {
         envGroup.add(grassLOD0Mesh);
         envGroup.add(grassLOD0MidMesh);
         envGroup.add(grassLOD0FarMesh);
+        const wildflowerCount = isMob ? 1100 : 2200;
+        yellowWildflowerMesh = createToroidalWildflowerMesh(wildflowerCount, 0xfbe134);
+        whiteWildflowerMesh = createToroidalWildflowerMesh(wildflowerCount, 0xfefefe);
+        envGroup.add(yellowWildflowerMesh);
+        envGroup.add(whiteWildflowerMesh);
         grassMeshRef = grassLOD0Mesh;
         window.grassLOD0Mesh = grassLOD0Mesh;
         window.grassLOD0MidMesh = grassLOD0MidMesh;
