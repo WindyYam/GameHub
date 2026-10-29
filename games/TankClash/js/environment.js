@@ -2920,6 +2920,16 @@ function restartGame(customSeed) {
             window.tankRoot.position.set(0, spawnY, 0);
             window.tankRoot.rotation.y = 0;
         }
+        if (window.turretGroup) {
+            if (window.turretGroup.userData && window.turretGroup.userData.basePos) {
+                window.turretGroup.position.copy(window.turretGroup.userData.basePos);
+            }
+            window.turretGroup.rotation.x = 0;
+            window.turretGroup.rotation.z = 0;
+        }
+        if (window.gunElevationPivot) {
+            window.gunElevationPivot.rotation.x = 0;
+        }
     }
 
     if (window.camOrbit) {
@@ -2937,6 +2947,7 @@ function restartGame(customSeed) {
     updateTerrainChunks(0, 0);
     if (typeof window.resetEnemyTanks === 'function') window.resetEnemyTanks();
     if (typeof window.resetPlayerHealth === 'function') window.resetPlayerHealth();
+    if (typeof window.resetSoldiers === 'function') window.resetSoldiers();
 
     const seedEl = document.getElementById('hud-seed-display');
     if (seedEl) seedEl.textContent = `Seed: ${seed}`;

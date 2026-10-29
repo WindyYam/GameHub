@@ -232,6 +232,52 @@ const soundFX = {
         src.start(now);
     },
 
+    playRifleShot(distance = 10) {
+        this.init();
+        if (!this.enabled || !this.ctx) return;
+        const now = this.ctx.currentTime;
+        const d = Math.max(1, distance || 10);
+        const vol = Math.min(0.28, Math.max(0.015, 0.28 / (1.0 + (d / 28) ** 1.3)));
+        const cutoff = Math.max(700, 3200 - d * 18);
+
+        const bufferSize = Math.floor(this.ctx.sampleRate * 0.14);
+        const buf = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+            data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.16));
+        }
+        const src = this.ctx.createBufferSource();
+        src.buffer = buf;
+
+        const lp = this.ctx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.setValueAtTime(cutoff, now);
+
+        const osc = this.ctx.createOscillator();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(260, now);
+        osc.frequency.exponentialRampToValueAtTime(75, now + 0.08);
+
+        const oscGain = this.ctx.createGain();
+        oscGain.gain.setValueAtTime(vol * 0.8, now);
+        oscGain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(vol, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.13);
+
+        src.connect(lp);
+        lp.connect(gain);
+        gain.connect(this.ctx.destination);
+
+        osc.connect(oscGain);
+        oscGain.connect(this.ctx.destination);
+
+        src.start(now);
+        osc.start(now);
+        osc.stop(now + 0.10);
+    },
+
     playImpactExplosion() {
         if (!this.enabled || !this.ctx) return;
         const now = this.ctx.currentTime;

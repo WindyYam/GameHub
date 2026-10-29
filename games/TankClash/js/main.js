@@ -966,6 +966,9 @@ function updateSimulation(dt) {
     if (typeof window.updateEnemyTanks === 'function') {
         window.updateEnemyTanks(dt);
     }
+    if (typeof window.updateSoldiers === 'function') {
+        window.updateSoldiers(dt);
+    }
 
     // --- 8. PROCEDURAL CHUNK STREAMING, GRASS & DAYLIGHT ATMOSPHERE ---
     if (typeof updateEnvironment === 'function') {
@@ -1279,5 +1282,8 @@ if (screen.orientation && screen.orientation.addEventListener) {
 window.updateSimulation = updateSimulation;
 
 window.onload = function () {
+    if (typeof window.spawnBattlefieldInfantry === 'function') {
+        window.spawnBattlefieldInfantry();
+    }
     animate(performance.now());
 };

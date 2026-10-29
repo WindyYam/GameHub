@@ -137,6 +137,10 @@ function bindTankGlobals(model) {
     window.tankRoot = tankRoot;
     window.hullGroup = hullGroup;
     window.turretGroup = turretGroup;
+    if (turretGroup) {
+        turretGroup.userData.basePos = turretGroup.position.clone();
+        turretGroup.userData.baseRot = turretGroup.rotation.clone();
+    }
     window.gunElevationPivot = gunElevationPivot;
     window.barrelRecoilGroup = barrelRecoilGroup;
     window.mainGunMuzzleTip = mainGunMuzzleTip;

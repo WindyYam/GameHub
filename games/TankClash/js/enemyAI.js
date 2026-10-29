@@ -161,6 +161,9 @@
             detectionTimer: 0,
             reloadTimer: 2.0 + Math.random() * 2.5,
             barrelRecoil: 0,
+            aimErrorYaw: (Math.random() - 0.5) * 0.16,
+            aimErrorElev: (Math.random() - 0.5) * 0.10,
+            aimErrorTimer: 0,
             speed: 0,
             isDestroyed: false,
             burningSmokeTimer: 0,
@@ -272,13 +275,15 @@
             const dz = playerZ - e.z;
             const distToPlayer = Math.hypot(dx, dz);
 
-            const hasLOS = (distToPlayer < 240) && checkObstacleLineOfSight(e.x, e.z, playerX, playerZ);
+            // Reduced detection range: realistic vision limit through vision slits & periscopes
+            const maxDetectRange = playerShotRecently ? 110 : 95;
+            const hasLOS = (distToPlayer < 125) && checkObstacleLineOfSight(e.x, e.z, playerX, playerZ);
 
             if (playerDead) {
                 e.state = 'PATROL';
-            } else if (hasLOS && distToPlayer < 200) {
-                // Detection occurs immediately if player is close or firing cannon; otherwise periscope spotting takes ~1s
-                if (playerShotRecently || distToPlayer < 65) {
+            } else if (hasLOS && distToPlayer < maxDetectRange) {
+                // Immediate detection only if player fires main gun or approaches within close stealth buffer (~32m)
+                if (playerShotRecently || distToPlayer < 32) {
                     e.detectionTimer = Math.max(e.detectionTimer, 1.2);
                 } else {
                     e.detectionTimer += dt;
@@ -307,26 +312,37 @@
             // ----------------------------------------------------------------
             // State: ENGAGING (Turret Slew, Ballistic Elevation, Cannon Fire)
             // ----------------------------------------------------------------
-            // 1. Calculate Target Turret Angle in enemy local space
-            const worldAngleToPlayer = Math.atan2(dx, dz);
-            const desiredLocalTurretYaw = normalizeAngle(worldAngleToPlayer - e.heading);
+            // Drift aim error over time so enemy gunners exhibit human imperfection and wandering aim
+            e.aimErrorTimer = (e.aimErrorTimer || 0) + dt;
+            if (e.aimErrorTimer > 2.8) {
+                e.aimErrorTimer = 0;
+                e.aimErrorYaw = (Math.random() - 0.5) * 0.16;   // ~±4.6° error
+                e.aimErrorElev = (Math.random() - 0.5) * 0.10;  // ~±2.9° error
+            }
 
-            // Slew turret towards player with authentic traverse speed (~0.85 rad/s)
+            // 1. Calculate Target Turret Angle in enemy local space (with crew aim error)
+            const worldAngleToPlayer = Math.atan2(dx, dz);
+            const rawDesiredLocalTurretYaw = normalizeAngle(worldAngleToPlayer - e.heading);
+            const desiredLocalTurretYaw = normalizeAngle(rawDesiredLocalTurretYaw + (e.aimErrorYaw || 0));
+
+            // Slew turret towards target with authentic traverse speed (~0.85 rad/s)
             const turretTurnSpeed = (e.tankType === 'sherman') ? 1.15 : (e.tankType === 't34' ? 0.95 : 0.75);
             e.turretYaw = THREE.MathUtils.lerp(e.turretYaw, desiredLocalTurretYaw, dt * turretTurnSpeed * 1.5);
             if (e.model.turretGroup) e.model.turretGroup.rotation.y = e.turretYaw;
 
-            // 2. Ballistic Gun Pitch / Elevation to hit player hull center
+            // 2. Ballistic Gun Pitch / Elevation with drop compensation and sight inaccuracy
             const dy = (playerY + 1.2) - (e.y + 1.7);
             const shellSpeed = e.spec.shellVel || 750;
-            // Arc-tangent elevation with gravity drop compensation
             const dropCompensation = 0.5 * (9.81 * (distToPlayer / shellSpeed) ** 2) / Math.max(1, distToPlayer);
-            const desiredElevation = THREE.MathUtils.clamp(Math.atan2(dy, distToPlayer) + dropCompensation, -0.15, 0.35);
+            const desiredElevation = THREE.MathUtils.clamp(
+                Math.atan2(dy, distToPlayer) + dropCompensation + (e.aimErrorElev || 0),
+                -0.15, 0.35
+            );
             e.gunElevation = THREE.MathUtils.lerp(e.gunElevation, desiredElevation, dt * 2.0);
             if (e.model.gunElevationPivot) e.model.gunElevationPivot.rotation.x = -e.gunElevation;
 
             // 3. Maneuvering: Close distance if too far, hold ground or adjust if in range
-            if (distToPlayer > 130 && hasLOS) {
+            if (distToPlayer > 80 && hasLOS) {
                 // Slowly advance toward player
                 e.speed = THREE.MathUtils.lerp(e.speed, 3.2, dt * 1.2);
                 const moveDist = e.speed * dt;
@@ -353,12 +369,13 @@
                 }
             }
 
-            // 5. Fire Main Cannon when aligned on player
+            // 5. Fire Main Cannon when roughly aligned on player
             e.reloadTimer -= dt;
-            const yawError = Math.abs(normalizeAngle(e.turretYaw - desiredLocalTurretYaw));
-            const elevError = Math.abs(e.gunElevation - desiredElevation);
+            const yawError = Math.abs(normalizeAngle(e.turretYaw - rawDesiredLocalTurretYaw));
+            const elevError = Math.abs(e.gunElevation - (Math.atan2(dy, distToPlayer) + dropCompensation));
 
-            if (yawError < 0.12 && elevError < 0.08 && e.reloadTimer <= 0 && hasLOS && !playerDead) {
+            // Generous alignment trigger so enemies shoot with realistic hesitation and imperfection
+            if (yawError < 0.22 && elevError < 0.16 && e.reloadTimer <= 0 && hasLOS && !playerDead) {
                 // FIRE MAIN CANNON!
                 e.reloadTimer = (e.spec.reloadTime || 4.2) + Math.random() * 0.8;
                 e.barrelRecoil = e.spec.recoilOffset || 0.45;
@@ -372,13 +389,20 @@
                     muzzlePos.set(e.x, e.y + 1.8, e.z).add(new THREE.Vector3(Math.sin(worldAngleToPlayer), 0, Math.cos(worldAngleToPlayer)).multiplyScalar(4.0));
                 }
 
-                // Add slight dispersion / crew aim error so at 150m it's challenging but fair
-                const dispersion = new THREE.Vector3(
-                    (Math.random() - 0.5) * 0.025,
-                    (Math.random() - 0.5) * 0.020,
-                    (Math.random() - 0.5) * 0.025
-                );
-                const fireDir = new THREE.Vector3(dx, dy, dz).normalize().add(dispersion).normalize();
+                // Authentic gun barrel world direction with wider dispersion so they miss frequently
+                const shotYaw = e.heading + e.turretYaw + (Math.random() - 0.5) * 0.10;
+                const shotElev = e.gunElevation + (Math.random() - 0.5) * 0.08;
+                const cosElev = Math.cos(shotElev);
+                const fireDir = new THREE.Vector3(
+                    Math.sin(shotYaw) * cosElev,
+                    Math.sin(shotElev),
+                    Math.cos(shotYaw) * cosElev
+                ).normalize();
+
+                // Re-randomize aim error for subsequent shots
+                e.aimErrorYaw = (Math.random() - 0.5) * 0.18;
+                e.aimErrorElev = (Math.random() - 0.5) * 0.12;
+                e.aimErrorTimer = 0;
 
                 // Dynamic Muzzle Flash Light
                 if (typeof window.spawnDynamicFlash === 'function') {
@@ -448,6 +472,10 @@
 
             // Turret slumps sideways on player tank
             if (window.turretGroup) {
+                if (!window.turretGroup.userData.basePos) {
+                    window.turretGroup.userData.basePos = window.turretGroup.position.clone();
+                    window.turretGroup.userData.baseRot = window.turretGroup.rotation.clone();
+                }
                 window.turretGroup.rotation.z += 0.28;
                 window.turretGroup.position.y += 0.18;
             }
@@ -469,6 +497,21 @@
         playerHitsTaken = 0;
         if (window.tankState) {
             window.tankState.isKnockedOut = false;
+        }
+        if (window.turretGroup) {
+            if (window.turretGroup.userData && window.turretGroup.userData.basePos) {
+                window.turretGroup.position.copy(window.turretGroup.userData.basePos);
+            }
+            if (window.turretGroup.userData && window.turretGroup.userData.baseRot) {
+                window.turretGroup.rotation.x = window.turretGroup.userData.baseRot.x;
+                window.turretGroup.rotation.z = window.turretGroup.userData.baseRot.z;
+            } else {
+                window.turretGroup.rotation.x = 0;
+                window.turretGroup.rotation.z = 0;
+            }
+        }
+        if (window.gunElevationPivot) {
+            window.gunElevationPivot.rotation.x = 0;
         }
         updateArmorHUD(MAX_PLAYER_HITS);
         hideKnockoutModal();
