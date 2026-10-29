@@ -97,12 +97,15 @@ function buildTigerTank(scene, mats, options = {}) {
         const slitMat = new THREE.MeshBasicMaterial({ color: 0xfef08a });
         addPart(hlGroup, new THREE.BoxGeometry(0.09, 0.022, 0.02), slitMat, 0, 0.03, 0.082);
 
-        const spot = new THREE.SpotLight(0xfef08a, 0.0, 38, Math.PI / 5, 0.45, 1.5);
-        spot.position.set(0, 0.03, 0.1);
-        spot.target.position.set(0, -0.5, 12);
-        hlGroup.add(spot);
-        hlGroup.add(spot.target);
-        headlightLights.push({ spot, slitMat });
+        // Enemy headlights are never lit; omitting their SpotLights keeps the scene light count fixed across spawns.
+        if (!options.isEnemy) {
+            const spot = new THREE.SpotLight(0xfef08a, 0.0, 38, Math.PI / 5, 0.45, 1.5);
+            spot.position.set(0, 0.03, 0.1);
+            spot.target.position.set(0, -0.5, 12);
+            hlGroup.add(spot);
+            hlGroup.add(spot.target);
+            headlightLights.push({ spot, slitMat });
+        }
     });
 
     // Upper Hull Roof Pioneer Tools, Driver/Radio Hatches

@@ -5,16 +5,12 @@
 // Spoked Starfish Christie Road Wheels & Articulated Caterpillar Tracks
 // ============================================================================
 
-function buildT34Tank(scene, mats, options = {}) {
-    const H_OFF = 0.92; // Offset to align with game physics suspension frame
+const t34AssetCache = {};
 
-    const tankRoot = new THREE.Group();
-    const sc = scene || (typeof window !== 'undefined' ? window.scene : null);
-    if (sc && typeof sc.add === 'function') sc.add(tankRoot);
-
-    const hullGroup = new THREE.Group();
-    hullGroup.position.y = H_OFF;
-    tankRoot.add(hullGroup);
+// Textures and materials are built once per variant (enemy/player) and reused by every tank of that variant.
+function getT34SharedAssets(isEnemy) {
+    const key = isEnemy ? 'enemy' : 'player';
+    if (t34AssetCache[key]) return t34AssetCache[key];
 
     // ============================================================================
     // 1. PROCEDURAL PBR TEXTURES (Mottled 4BO Olive Green, Cast Bump, "311" Decals)
@@ -379,6 +375,27 @@ function buildT34Tank(scene, mats, options = {}) {
             metalness: 0.1
         })
     };
+    Object.values(materials).forEach((mat) => {
+        mat.userData.shared = true;
+        if (isEnemy && mat.isMeshStandardMaterial) mat.envMapIntensity = 0.3;
+    });
+
+    t34AssetCache[key] = { materials };
+    return t34AssetCache[key];
+}
+
+function buildT34Tank(scene, mats, options = {}) {
+    const H_OFF = 0.92; // Offset to align with game physics suspension frame
+
+    const tankRoot = new THREE.Group();
+    const sc = scene || (typeof window !== 'undefined' ? window.scene : null);
+    if (sc && typeof sc.add === 'function') sc.add(tankRoot);
+
+    const hullGroup = new THREE.Group();
+    hullGroup.position.y = H_OFF;
+    tankRoot.add(hullGroup);
+
+    const { materials } = getT34SharedAssets(!!options.isEnemy);
 
     function regPart(mesh) {
         mesh.castShadow = true;
@@ -660,12 +677,15 @@ function buildT34Tank(scene, mats, options = {}) {
     slitMesh.position.set(0, 0, 0.062);
     hlGroup.add(slitMesh);
 
-    const spot = new THREE.SpotLight(0xfef08a, 0.0, 38, Math.PI / 5, 0.45, 1.5);
-    spot.position.set(0, 0, 0.08);
-    spot.target.position.set(0, -0.5, 12);
-    hlGroup.add(spot);
-    hlGroup.add(spot.target);
-    headlightLights.push({ spot, slitMat });
+    // Enemy headlights are never lit; omitting their SpotLights keeps the scene light count fixed across spawns.
+    if (!options.isEnemy) {
+        const spot = new THREE.SpotLight(0xfef08a, 0.0, 38, Math.PI / 5, 0.45, 1.5);
+        spot.position.set(0, 0, 0.08);
+        spot.target.position.set(0, -0.5, 12);
+        hlGroup.add(spot);
+        hlGroup.add(spot.target);
+        headlightLights.push({ spot, slitMat });
+    }
 
     // ============================================================================
     // 3. CHRISTIE RUNNING GEAR, SPOKED ROAD WHEELS & CATERPILLAR TRACKS

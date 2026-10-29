@@ -1146,7 +1146,10 @@ function updateSimulation(dt) {
     const mobSpeedEl = document.getElementById('mob-speed');
     if (mobSpeedEl) mobSpeedEl.textContent = kmh;
     const mobHitsEl = document.getElementById('mob-hits');
-    if (mobHitsEl) mobHitsEl.textContent = `Hits: ${tankState.hitsCount}`;
+    if (mobHitsEl) {
+        const count = window.activeEnemyTanks ? window.activeEnemyTanks.length : 0;
+        mobHitsEl.textContent = `Enemies: ${count}/15 • Kills: ${tankState.hitsCount}`;
+    }
     const mobReloadEl = document.getElementById('mob-reload');
     if (mobReloadEl) {
         if (tankState.reloadTimer <= 0) {

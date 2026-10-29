@@ -8,16 +8,12 @@
 // 13-Tooth Drive Sprockets, Ribbed Idlers, and Articulated Chevron Tracks
 // ============================================================================
 
-function buildShermanTank(scene, mats, options = {}) {
-    const H_OFF = 0.92; // Align chassis with TankClash physics frame
+const shermanAssetCache = {};
 
-    const tankRoot = new THREE.Group();
-    const sc = scene || (typeof window !== 'undefined' ? window.scene : null);
-    if (sc && typeof sc.add === 'function') sc.add(tankRoot);
-
-    const hullGroup = new THREE.Group();
-    hullGroup.position.y = H_OFF;
-    tankRoot.add(hullGroup);
+// Textures and materials are built once per variant (enemy/player) and reused by every tank of that variant.
+function getShermanSharedAssets(isEnemy) {
+    const key = isEnemy ? 'enemy' : 'player';
+    if (shermanAssetCache[key]) return shermanAssetCache[key];
 
     // ============================================================================
     // 1. PROCEDURAL PBR MAPS (Rolled & Cast Armor, Scratch Textures & Sobel Normals)
@@ -708,6 +704,27 @@ function buildShermanTank(scene, mats, options = {}) {
             color: 0x050608
         })
     };
+    Object.values(materials).forEach((mat) => {
+        mat.userData.shared = true;
+        if (isEnemy && mat.isMeshStandardMaterial) mat.envMapIntensity = 0.3;
+    });
+
+    shermanAssetCache[key] = { materials, turretNumberTex };
+    return shermanAssetCache[key];
+}
+
+function buildShermanTank(scene, mats, options = {}) {
+    const H_OFF = 0.92; // Align chassis with TankClash physics frame
+
+    const tankRoot = new THREE.Group();
+    const sc = scene || (typeof window !== 'undefined' ? window.scene : null);
+    if (sc && typeof sc.add === 'function') sc.add(tankRoot);
+
+    const hullGroup = new THREE.Group();
+    hullGroup.position.y = H_OFF;
+    tankRoot.add(hullGroup);
+
+    const { materials, turretNumberTex } = getShermanSharedAssets(!!options.isEnemy);
 
     function regPart(mesh) {
         if (mesh && mesh.geometry) {
@@ -960,12 +977,15 @@ function buildShermanTank(scene, mats, options = {}) {
         slitMesh.position.set(0, 0, 0.062);
         hlGroup.add(slitMesh);
 
-        const spot = new THREE.SpotLight(0xfef08a, 0.0, 38, Math.PI / 5, 0.45, 1.5);
-        spot.position.set(0, 0, 0.08);
-        spot.target.position.set(0, -0.5, 12);
-        hlGroup.add(spot);
-        hlGroup.add(spot.target);
-        headlightLights.push({ spot, slitMat });
+        // Enemy headlights are never lit; omitting their SpotLights keeps the scene light count fixed across spawns.
+        if (!options.isEnemy) {
+            const spot = new THREE.SpotLight(0xfef08a, 0.0, 38, Math.PI / 5, 0.45, 1.5);
+            spot.position.set(0, 0, 0.08);
+            spot.target.position.set(0, -0.5, 12);
+            hlGroup.add(spot);
+            hlGroup.add(spot.target);
+            headlightLights.push({ spot, slitMat });
+        }
     });
 
     // Center Glacis Folding Barrel Travel Lock U-Frame

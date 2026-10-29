@@ -11,10 +11,20 @@
     let playerHitsTaken = 0;
     const sessionDestroyedEnemyTanks = new Set();
     const activeEnemyTanks = [];
+    const MAX_ZONE_ENEMIES = 15;
+    const MIN_SPAWN_DIST = 160.0;
+    const MAX_SPAWN_DIST = 240.0;
+    const DESPAWN_DIST = 280.0;
+    const SPAWN_INTERVAL_SEC = 2.5;
+
+    let nextEnemySeq = 1;
+    let enemySpawnCooldown = 1.0;
+    let lastSpawnAngle = 0;
 
     window.activeEnemyTanks = activeEnemyTanks;
     window.sessionDestroyedEnemyTanks = sessionDestroyedEnemyTanks;
     window.MAX_PLAYER_HITS = MAX_PLAYER_HITS;
+    window.TOTAL_ZONE_ENEMIES = MAX_ZONE_ENEMIES;
 
     // Track when player fired to dynamically alert nearby enemy crews
     let lastPlayerFireTime = -999;
@@ -82,6 +92,35 @@
     // ========================================================================
     // 2. ENEMY TANK FACTORY (Real 3D Tank Models)
     // ========================================================================
+    // Enemy-only copies of the player material set, so enemy envMap tuning never leaks into player tanks.
+    let enemyTankMatsCache = null;
+    function getEnemyTankMats() {
+        if (enemyTankMatsCache) return enemyTankMatsCache;
+        if (!window.mats) return {};
+        enemyTankMatsCache = {};
+        Object.entries(window.mats).forEach(([key, mat]) => {
+            if (!mat || !mat.isMaterial) return;
+            const copy = mat.clone();
+            copy.userData.shared = true;
+            if (copy.isMeshStandardMaterial) copy.envMapIntensity = 0.3;
+            enemyTankMatsCache[key] = copy;
+        });
+        return enemyTankMatsCache;
+    }
+
+    // Frees per-tank geometry and materials. Anything flagged userData.shared, or owned by window.mats, is kept.
+    function disposeTankOwnedResources(root) {
+        const sharedMats = new Set(Object.values(window.mats || {}));
+        root.traverse((obj) => {
+            if (!obj.isMesh) return;
+            if (obj.geometry && !obj.geometry.userData.shared) obj.geometry.dispose();
+            const list = Array.isArray(obj.material) ? obj.material : [obj.material];
+            list.forEach((mat) => {
+                if (mat && !mat.userData.shared && !sharedMats.has(mat)) mat.dispose();
+            });
+        });
+    }
+
     function spawnEnemyCombatTank(id, x, y, z, parentGroup, forceType) {
         if (sessionDestroyedEnemyTanks.has(id)) {
             // Already destroyed in this session; don't respawn as active
@@ -109,7 +148,7 @@
             targetGroup.add(enemyRoot);
         }
 
-        const m = window.mats;
+        const m = getEnemyTankMats();
         let model = null;
         if (tankType === 'sherman' && typeof window.buildShermanTank === 'function') {
             model = window.buildShermanTank(enemyRoot, m, { isEnemy: true });
@@ -135,10 +174,6 @@
                     if (window.aimRaycastMeshes) window.aimRaycastMeshes.push(obj);
                 }
             }
-            const list = Array.isArray(obj.material) ? obj.material : [obj.material];
-            list.forEach((mat) => {
-                if (mat && mat.isMeshStandardMaterial) mat.envMapIntensity = 0.3;
-            });
         });
 
         // Bold Red Target Cursor hovering high above enemy tank cupola
@@ -202,15 +237,18 @@
                     this.model.turretGroup.position.y += 0.22;
                 }
 
-                // Char and soot-blacken the tank exterior
+                // Char and soot-blacken the tank exterior on per-tank clones so shared materials stay intact
                 this.model.tankRoot.traverse((obj) => {
-                    if (obj.isMesh && obj.material) {
-                        const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-                        mats.forEach(mat => {
-                            if (mat.color) mat.color.setHex(0x1e242b);
-                            if (mat.roughness !== undefined) mat.roughness = 0.95;
-                        });
-                    }
+                    if (!obj.isMesh || !obj.material) return;
+                    const isArray = Array.isArray(obj.material);
+                    const owned = (isArray ? obj.material : [obj.material]).map((mat) => {
+                        const copy = mat.clone();
+                        copy.userData.shared = false;
+                        if (copy.color) copy.color.setHex(0x1e242b);
+                        if (copy.roughness !== undefined) copy.roughness = 0.95;
+                        return copy;
+                    });
+                    obj.material = isArray ? owned : owned[0];
                 });
 
                 // Spawn continuous catastrophic burning plume from engine deck & turret hatch
@@ -236,6 +274,7 @@
                         if (idx !== -1) window.aimRaycastMeshes.splice(idx, 1);
                     });
                 }
+                if (this.enemyRoot) disposeTankOwnedResources(this.enemyRoot);
                 if (this.parentGroup && this.enemyRoot) {
                     this.parentGroup.remove(this.enemyRoot);
                 }
@@ -254,8 +293,43 @@
     // ========================================================================
     function updateEnemyTanks(dt) {
         if (!dt || dt <= 0) return;
+
         const pState = window.tankState;
         if (!pState) return;
+
+        let targetX = pState.x;
+        let targetY = pState.y || 0;
+        let targetZ = pState.z;
+        let targetDead = !!pState.isKnockedOut;
+        const isInfantry = (window.playerMode === 'soldier' && window.playerSoldier);
+
+        if (isInfantry) {
+            const ps = window.playerSoldier;
+            targetX = ps.x;
+            targetY = ps.y || 0;
+            targetZ = ps.z;
+            targetDead = !!ps.isDead;
+        }
+
+        // 1. DEGENERATE DISTANT ENEMY TANKS AND WRECKS: Player is away (> 280m)
+        // Releases GPU meshes, collision bounding boxes, and burning particle systems, allowing new enemies to spawn in the zone
+        for (let i = activeEnemyTanks.length - 1; i >= 0; i--) {
+            const e = activeEnemyTanks[i];
+            if (!e) continue;
+
+            const distToPlayer = Math.hypot(e.x - targetX, e.z - targetZ);
+            if (distToPlayer > DESPAWN_DIST) {
+                e.dispose();
+                continue;
+            }
+        }
+
+        // 2. GRADUAL ENEMY SPAWNER: Deploy 1 tank every ~2.5 seconds, ONLY far away (160m - 240m)
+        enemySpawnCooldown -= dt;
+        if (enemySpawnCooldown <= 0 && activeEnemyTanks.length < MAX_ZONE_ENEMIES) {
+            enemySpawnCooldown = SPAWN_INTERVAL_SEC;
+            spawnSingleFarEnemy(targetX, targetZ);
+        }
 
         // Player tank wreck smoke: Dense dark billowing smoke plume sourced directly on top of turret
         if (pState.isKnockedOut && typeof window.spawnParticle === 'function' && Math.random() < dt * 4.2) {
@@ -286,20 +360,6 @@
                 buoyancy: 3.0,
                 maxOpacity: 0.78 // Opaque, dense billowing smoke
             });
-        }
-
-        let targetX = pState.x;
-        let targetY = pState.y || 0;
-        let targetZ = pState.z;
-        let targetDead = !!pState.isKnockedOut;
-        const isInfantry = (window.playerMode === 'soldier' && window.playerSoldier);
-
-        if (isInfantry) {
-            const ps = window.playerSoldier;
-            targetX = ps.x;
-            targetY = ps.y || 0;
-            targetZ = ps.z;
-            targetDead = !!ps.isDead;
         }
 
         const nowSec = (window.performance && window.performance.now) ? window.performance.now() / 1000 : Date.now() / 1000;
@@ -781,32 +841,119 @@
     }
 
     // ========================================================================
-    // 6. CAMPAIGN SWITCHER & INITIAL SEED ENEMIES
+    // 6. GRADUAL DISTANT ENEMY SPAWNER & RESOURCE DEGENERATION (Max 15 per Zone)
     // ========================================================================
-    function spawnInitialFieldEnemies() {
-        // Spawn 2 initial enemy tanks across the opening meadows at ~70m and ~95m
-        if (activeEnemyTanks.length > 0) return;
-        const initialPositions = [
-            { id: 'init:enemy1', x: 54.0, z: 65.0 },
-            { id: 'init:enemy2', x: -62.0, z: 78.0 }
-        ];
+    function spawnSingleFarEnemy(playerX, playerZ) {
+        if (activeEnemyTanks.length >= MAX_ZONE_ENEMIES) return null;
 
-        initialPositions.forEach(p => {
-            const y = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(p.x, p.z) : 0;
-            spawnEnemyCombatTank(p.id, p.x, y, p.z, window.scene);
-        });
+        const currentTank = window.currentTankId || 'tiger';
+        const isPlayerGerman = (currentTank === 'tiger');
+
+        // Golden angle offset (~2.3999 rad) to distribute spawns evenly around 360 degrees
+        lastSpawnAngle += 2.39996 + (Math.random() - 0.5) * 0.4;
+
+        let bestX = 0, bestY = 0, bestZ = 0;
+        let found = false;
+
+        for (let attempt = 0; attempt < 14; attempt++) {
+            const angle = lastSpawnAngle + (attempt * 0.45);
+            const dist = MIN_SPAWN_DIST + Math.random() * (MAX_SPAWN_DIST - MIN_SPAWN_DIST);
+            const testX = playerX + Math.cos(angle) * dist;
+            const testZ = playerZ + Math.sin(angle) * dist;
+
+            const y = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(testX, testZ) : 0;
+            const norm = (typeof window.getTerrainNormal === 'function') ? window.getTerrainNormal(testX, testZ) : { y: 1 };
+
+            // Reject if submerged in water (sea level < -1.5)
+            if (y < -1.5) continue;
+            // Reject if steep cliff
+            if (norm.y < 0.82) continue;
+            // Strict distance check: MUST NEVER be near player
+            if (Math.hypot(testX - playerX, testZ - playerZ) < 140.0) continue;
+
+            // Reject if colliding with building or rock
+            let collidesObstacle = false;
+            const obstacles = window.worldObstacles || [];
+            for (let o = 0; o < obstacles.length; o++) {
+                const obs = obstacles[o];
+                if (Math.hypot(testX - obs.x, testZ - obs.z) < (obs.radius || 4.5) + 4.5) {
+                    collidesObstacle = true;
+                    break;
+                }
+            }
+            if (collidesObstacle) continue;
+
+            // Reject if too close to an existing active enemy tank
+            let collidesTank = false;
+            for (let t = 0; t < activeEnemyTanks.length; t++) {
+                if (Math.hypot(testX - activeEnemyTanks[t].x, testZ - activeEnemyTanks[t].z) < 32.0) {
+                    collidesTank = true;
+                    break;
+                }
+            }
+            if (collidesTank) continue;
+
+            bestX = testX;
+            bestY = y;
+            bestZ = testZ;
+            found = true;
+            break;
+        }
+
+        if (!found) {
+            // Radial search along angle for first valid dry ground
+            for (let r = MIN_SPAWN_DIST; r <= MAX_SPAWN_DIST; r += 15) {
+                const tx = playerX + Math.cos(lastSpawnAngle) * r;
+                const tz = playerZ + Math.sin(lastSpawnAngle) * r;
+                const ty = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(tx, tz) : 0;
+                if (ty > -1.5) {
+                    bestX = tx;
+                    bestY = ty;
+                    bestZ = tz;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) return null;
+        }
+
+        const enemyId = `zone:enemy:${nextEnemySeq++}`;
+        let tankType;
+        if (isPlayerGerman) {
+            tankType = (Math.random() < 0.5) ? 'sherman' : 't34';
+        } else {
+            tankType = 'tiger';
+        }
+
+        const enemy = spawnEnemyCombatTank(enemyId, bestX, bestY, bestZ, window.scene, tankType);
+        if (enemy && typeof window.spawnSoldierEscortForTank === 'function') {
+            const currentSoldiers = window.activeSoldiers ? window.activeSoldiers.length : 0;
+            if (currentSoldiers < 14) {
+                const { enemy: enemyFaction } = (typeof window.getFactionsForPlayerTank === 'function')
+                    ? window.getFactionsForPlayerTank(window.currentTankId || 'tiger')
+                    : { enemy: 'us' };
+                window.spawnSoldierEscortForTank(enemy, enemyFaction);
+            }
+        }
+        return enemy;
     }
-    window.spawnInitialFieldEnemies = spawnInitialFieldEnemies;
+
+    function spawnZoneEnemies() {
+        // Reset spawner to begin gradual deployment far away, avoiding initial lag
+        enemySpawnCooldown = 1.0;
+    }
 
     function resetEnemyTanks() {
         for (let i = activeEnemyTanks.length - 1; i >= 0; i--) {
             activeEnemyTanks[i].dispose();
         }
         activeEnemyTanks.length = 0;
-        sessionDestroyedEnemyTanks.clear();
-        spawnInitialFieldEnemies();
+        enemySpawnCooldown = 1.0;
+        lastSpawnAngle = Math.random() * Math.PI * 2;
     }
     window.resetEnemyTanks = resetEnemyTanks;
+    window.spawnZoneEnemies = spawnZoneEnemies;
+    window.spawnInitialFieldEnemies = spawnZoneEnemies;
 
     // Called when player switches to another tank (e.g., Tiger -> Sherman)
     function onPlayerTankChanged(newPlayerTankId) {

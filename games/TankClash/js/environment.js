@@ -1948,6 +1948,11 @@ const CHUNK_SEGS = 32;
 const VIEW_RADIUS = 4; // 9x9 = 81 chunks (320m radius) - covers visual range with fog transition
 const UNLOAD_RADIUS = 5; // Hysteresis buffer: only dispose chunks when player is >= 5 chunks (400m) away
 
+// Non-blocking asynchronous chunk streaming queue
+var chunkLoadQueue = [];
+var chunkLoadSet = new Set();
+var chunkUnloadQueue = [];
+
 class TerrainChunk {
     constructor(cx, cz) {
         this.cx = cx;
@@ -1956,12 +1961,12 @@ class TerrainChunk {
         this.group = new THREE.Group();
         this.trees = [];
         this.targets = [];
-        this.enemyTanks = [];
         this.raycastMeshes = [];
         this.buildings = [];
         this.rocks = [];
         this.smokePuffs = [];
         this.fireSprites = [];
+        this.bushMesh = null;
 
         this.buildTerrainMesh();
         this.populateChunkContent();
@@ -1984,6 +1989,7 @@ class TerrainChunk {
         const colCliffRock = new THREE.Color(0x585652);
         const colMountain  = new THREE.Color(0x3c4852);
         const tempCol = new THREE.Color();
+        const tempDirtCol = new THREE.Color();
 
         const xMin = this.cx * CHUNK_SIZE;
         const zMin = this.cz * CHUNK_SIZE;
@@ -2014,8 +2020,8 @@ class TerrainChunk {
                 const distFromCenter = getRoadDistance(wx, wz);
                 const rutDist = Math.abs(distFromCenter - 1.35);
                 const isRut = rutDist < 0.55 ? 0.75 : 0.0;
-                const dirtCol = colMudRoad.clone().lerp(colWetRut, isRut);
-                tempCol.lerp(dirtCol, Math.min(1.0, roadF * 1.1));
+                tempDirtCol.copy(colMudRoad).lerp(colWetRut, isRut);
+                tempCol.lerp(tempDirtCol, Math.min(1.0, roadF * 1.1));
             }
 
             if (slope > 0.22) {
@@ -2370,10 +2376,12 @@ class TerrainChunk {
         }
 
         // ---------------------------------------------------------------------
-        // 4. UNDERGROWTH BUSHES (DENSER IN FORESTS)
+        // 4. UNDERGROWTH BUSHES (DENSER IN FORESTS - INSTANCED MESH)
         // ---------------------------------------------------------------------
-        const bushGeos = [];
+        const bushMatrices = [];
         const bushCount = (forestNoise > 0.52) ? (5 + Math.floor(rng() * 5)) : (Math.floor(rng() * 3) + 1);
+        const dummyBush = new THREE.Object3D();
+
         for (let b = 0; b < bushCount; b++) {
             const bx = xMin + (0.05 + rng() * 0.90) * CHUNK_SIZE;
             const bz = zMin + (0.05 + rng() * 0.90) * CHUNK_SIZE;
@@ -2381,39 +2389,31 @@ class TerrainChunk {
             const by = getTerrainHeight(bx, bz);
             if (by < -2.4) continue;
             const bs = 0.75 + rng() * 0.65;
-            const g = sharedBushGeo.clone();
-            g.scale(bs * 1.15, bs * 0.9, bs * 1.15);
-            g.rotateY(rng() * Math.PI * 2);
-            g.translate(bx, by, bz);
-            bushGeos.push(g);
-        }
-        if (bushGeos.length > 0) {
-            const mergedBushes = mergeBufferGeometries(bushGeos);
-            const bushMesh = new THREE.Mesh(mergedBushes, treeMaterial);
-            bushMesh.castShadow = true;
-            bushMesh.receiveShadow = true;
-            bushMesh.customDepthMaterial = getTreeDepthMaterial();
-            this.group.add(bushMesh);
+
+            dummyBush.position.set(bx, by, bz);
+            dummyBush.scale.set(bs * 1.15, bs * 0.9, bs * 1.15);
+            dummyBush.rotation.y = rng() * Math.PI * 2;
+            dummyBush.updateMatrix();
+            bushMatrices.push(dummyBush.matrix.clone());
         }
 
-        // ---------------------------------------------------------------------
-        // 5. OPPOSING CAMPAIGN COMBAT ENEMY TANKS (Real 3D Models)
-        // ---------------------------------------------------------------------
-        if (distFromSpawn > 45 && !isVillage && rng() < 0.18) {
-            const tx = xMin + (0.15 + rng() * 0.70) * CHUNK_SIZE;
-            const tz = zMin + (0.15 + rng() * 0.70) * CHUNK_SIZE;
-            if (getRoadFactor(tx, tz) < 0.40) {
-                const ty = getTerrainHeight(tx, tz);
-                const targetId = `${this.chunkKey}:enemyTank`;
-                if (typeof window.spawnEnemyCombatTank === 'function') {
-                    const enemyTank = window.spawnEnemyCombatTank(targetId, tx, ty, tz, this.group);
-                    if (enemyTank) {
-                        this.enemyTanks.push(enemyTank);
-                    }
-                }
+        if (bushMatrices.length > 0) {
+            const bushInstMesh = new THREE.InstancedMesh(sharedBushGeo, treeMaterial, bushMatrices.length);
+            for (let i = 0; i < bushMatrices.length; i++) {
+                bushInstMesh.setMatrixAt(i, bushMatrices[i]);
             }
+            bushInstMesh.instanceMatrix.needsUpdate = true;
+            bushInstMesh.castShadow = true;
+            bushInstMesh.receiveShadow = true;
+            bushInstMesh.customDepthMaterial = getTreeDepthMaterial();
+            this.group.add(bushInstMesh);
+            this.bushMesh = bushInstMesh;
         }
+
+        // Note: Enemy tanks are persistent zone-level combatants (15 total per zone)
+        // and are spawned when the zone is loaded, not dynamically in chunks.
     }
+
     dispose() {
         chunksGroup.remove(this.group);
 
@@ -2426,13 +2426,6 @@ class TerrainChunk {
             const idx = swayTrees.indexOf(t);
             if (idx !== -1) swayTrees.splice(idx, 1);
         });
-
-        if (this.enemyTanks) {
-            this.enemyTanks.forEach(tank => {
-                if (typeof tank.dispose === 'function') tank.dispose();
-            });
-            this.enemyTanks.length = 0;
-        }
 
         this.targets.forEach(tg => {
             const idx = targets.indexOf(tg);
@@ -2470,42 +2463,109 @@ class TerrainChunk {
         if (this.terrainMesh) {
             this.terrainMesh.geometry.dispose();
         }
+        if (this.bushMesh) {
+            this.bushMesh.dispose && this.bushMesh.dispose();
+        }
     }
 }
 
-function updateTerrainChunks(playerX, playerZ) {
+function updateTerrainChunks(playerX, playerZ, forceSyncCenter = false) {
     const playerCX = Math.floor(playerX / CHUNK_SIZE);
     const playerCZ = Math.floor(playerZ / CHUNK_SIZE);
-    if (activeChunks.size > 0 && playerCX === activeChunkCenterX && playerCZ === activeChunkCenterZ) return;
 
     const isMobile = (typeof window.isMobileBrowser === "function" && window.isMobileBrowser()) || (typeof window.isMobileDevice === "function" && window.isMobileDevice());
     const currentViewRadius = isMobile ? 2 : VIEW_RADIUS;
     const currentUnloadRadius = isMobile ? 3 : UNLOAD_RADIUS;
 
-    // Load all chunks within currentViewRadius
-    for (let dx = -currentViewRadius; dx <= currentViewRadius; dx++) {
-        for (let dz = -currentViewRadius; dz <= currentViewRadius; dz++) {
-            const cx = playerCX + dx;
-            const cz = playerCZ + dz;
-            const key = `${cx},${cz}`;
-            if (!activeChunks.has(key)) {
-                activeChunks.set(key, new TerrainChunk(cx, cz));
+    const centerChanged = (playerCX !== activeChunkCenterX || playerCZ !== activeChunkCenterZ);
+
+    if (centerChanged || forceSyncCenter) {
+        activeChunkCenterX = playerCX;
+        activeChunkCenterZ = playerCZ;
+
+        // On initial zone boot or restart, build the center chunk immediately
+        // so the player's tank has immediate collision ground
+        const centerKey = `${playerCX},${playerCZ}`;
+        if (forceSyncCenter && !activeChunks.has(centerKey)) {
+            activeChunks.set(centerKey, new TerrainChunk(playerCX, playerCZ));
+            chunkLoadSet.delete(centerKey);
+        }
+
+        // Collect all chunks required within view radius
+        for (let dx = -currentViewRadius; dx <= currentViewRadius; dx++) {
+            for (let dz = -currentViewRadius; dz <= currentViewRadius; dz++) {
+                const cx = playerCX + dx;
+                const cz = playerCZ + dz;
+                const key = `${cx},${cz}`;
+
+                if (!activeChunks.has(key) && !chunkLoadSet.has(key)) {
+                    const distSq = dx * dx + dz * dz;
+                    chunkLoadQueue.push({ cx, cz, key, distSq });
+                    chunkLoadSet.add(key);
+                }
+            }
+        }
+
+        // Prune load queue: remove chunks that have moved out of unload radius
+        for (let i = chunkLoadQueue.length - 1; i >= 0; i--) {
+            const item = chunkLoadQueue[i];
+            const distCX = Math.abs(item.cx - playerCX);
+            const distCZ = Math.abs(item.cz - playerCZ);
+            if (distCX > currentUnloadRadius || distCZ > currentUnloadRadius) {
+                chunkLoadSet.delete(item.key);
+                chunkLoadQueue.splice(i, 1);
+            } else {
+                item.distSq = (item.cx - playerCX) ** 2 + (item.cz - playerCZ) ** 2;
+            }
+        }
+
+        // Sort queue: chunks closest to the player load first!
+        chunkLoadQueue.sort((a, b) => a.distSq - b.distSq);
+
+        // Queue chunks further than currentUnloadRadius for smooth background disposal
+        for (const [key, chunk] of activeChunks.entries()) {
+            const distCX = Math.abs(chunk.cx - playerCX);
+            const distCZ = Math.abs(chunk.cz - playerCZ);
+            if (distCX > currentUnloadRadius || distCZ > currentUnloadRadius) {
+                if (!chunkUnloadQueue.includes(chunk)) {
+                    chunkUnloadQueue.push(chunk);
+                }
             }
         }
     }
+}
 
-    // Only dispose chunks that are further than currentUnloadRadius
-    for (const [key, chunk] of activeChunks.entries()) {
-        const distCX = Math.abs(chunk.cx - playerCX);
-        const distCZ = Math.abs(chunk.cz - playerCZ);
-        if (distCX > currentUnloadRadius || distCZ > currentUnloadRadius) {
+// Progressive time-sliced background chunk loader: maintains constant 60 FPS
+function processChunkStreamingQueue(budgetMs = 3.5) {
+    // 1. Process at most 1 chunk disposal per frame to avoid garbage collection hitches
+    if (chunkUnloadQueue.length > 0) {
+        const chunk = chunkUnloadQueue.shift();
+        if (chunk) {
+            activeChunks.delete(chunk.chunkKey);
             chunk.dispose();
-            activeChunks.delete(key);
         }
     }
-    activeChunkCenterX = playerCX;
-    activeChunkCenterZ = playerCZ;
+
+    // 2. Process chunk loading within allotted frame time budget
+    if (chunkLoadQueue.length === 0) return;
+
+    const startT = (window.performance && window.performance.now) ? window.performance.now() : Date.now();
+    while (chunkLoadQueue.length > 0) {
+        const item = chunkLoadQueue.shift();
+        chunkLoadSet.delete(item.key);
+
+        if (!activeChunks.has(item.key)) {
+            activeChunks.set(item.key, new TerrainChunk(item.cx, item.cz));
+        }
+
+        const elapsed = ((window.performance && window.performance.now) ? window.performance.now() : Date.now()) - startT;
+        if (elapsed >= budgetMs) {
+            break;
+        }
+    }
 }
+window.updateTerrainChunks = updateTerrainChunks;
+window.processChunkStreamingQueue = processChunkStreamingQueue;
 
 // ============================================================================
 // 9. TREE DESTRUCTION & PERSISTENCE
@@ -2638,6 +2698,9 @@ function buildEnvironment(scene) {
     activeChunks.clear();
     activeChunkCenterX = null;
     activeChunkCenterZ = null;
+    chunkLoadQueue.length = 0;
+    chunkLoadSet.clear();
+    chunkUnloadQueue.length = 0;
     aimRaycastMeshes.length = 0;
     activeSmokePuffs.length = 0;
     activeFireSprites.length = 0;
@@ -2821,8 +2884,10 @@ function buildEnvironment(scene) {
         });
     }
 
-    updateTerrainChunks(0, 0);
-    if (typeof window.spawnInitialFieldEnemies === 'function') {
+    updateTerrainChunks(0, 0, true);
+    if (typeof window.spawnZoneEnemies === 'function') {
+        window.spawnZoneEnemies();
+    } else if (typeof window.spawnInitialFieldEnemies === 'function') {
         window.spawnInitialFieldEnemies();
     }
 }
@@ -2885,6 +2950,7 @@ function updateEnvironment(dt, tankState) {
     terrainUniforms.uBuildingCount.value = nearBldgs.length;
 
     updateTerrainChunks(px, pz);
+    processChunkStreamingQueue(3.5);
 
     // Animate active fire sprites and smoke plumes
     for (let i = 0; i < activeFireSprites.length; i++) {
@@ -2973,7 +3039,10 @@ function restartGame(customSeed) {
     activeChunks.clear();
     activeChunkCenterX = null;
     activeChunkCenterZ = null;
-    updateTerrainChunks(0, 0);
+    chunkLoadQueue.length = 0;
+    chunkLoadSet.clear();
+    chunkUnloadQueue.length = 0;
+    updateTerrainChunks(0, 0, true);
     if (typeof window.resetEnemyTanks === 'function') window.resetEnemyTanks();
     if (typeof window.resetPlayerHealth === 'function') window.resetPlayerHealth();
     if (typeof window.resetSoldiers === 'function') window.resetSoldiers();

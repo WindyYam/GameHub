@@ -1606,14 +1606,22 @@
     // ------------------------------------------------------------------------
     // 5b. SIMPLE RED TARGET CURSOR SYSTEM
     // ------------------------------------------------------------------------
-    function createRedTargetCursor(radius = 0.45, height = 0.72) {
-        const cursorGroup = new THREE.Group();
-        cursorGroup.renderOrder = 9999;
+    // Geometry and materials depend only on size, so they are built once per size and shared by every cursor.
+    const redTargetCursorAssets = {};
+    function getRedTargetCursorAssets(radius, height) {
+        const key = `${radius}|${height}`;
+        if (redTargetCursorAssets[key]) return redTargetCursorAssets[key];
 
         // Downward pointing 3D diamond/pyramid
         const coneGeo = new THREE.ConeGeometry(radius, height, 4);
         coneGeo.rotateX(Math.PI); // Invert so apex points down directly onto target
         coneGeo.rotateY(Math.PI / 4);
+
+        const capGeo = new THREE.ConeGeometry(radius, height * 0.45, 4);
+        capGeo.rotateY(Math.PI / 4);
+
+        const ringGeo = new THREE.RingGeometry(radius * 0.35, radius * 0.65, 8);
+        ringGeo.rotateX(Math.PI / 2);
 
         const mat = new THREE.MeshBasicMaterial({
             color: 0xff1e1e,
@@ -1621,17 +1629,6 @@
             side: THREE.DoubleSide,
             depthTest: false
         });
-        const mesh = new THREE.Mesh(coneGeo, mat);
-        cursorGroup.add(mesh);
-
-        // Upper diamond cap
-        const capGeo = new THREE.ConeGeometry(radius, height * 0.45, 4);
-        capGeo.rotateY(Math.PI / 4);
-        const cap = new THREE.Mesh(capGeo, mat);
-        cap.position.y = height * 0.225;
-        cursorGroup.add(cap);
-
-        // Rim wireframe
         const wireMat = new THREE.MeshBasicMaterial({
             color: 0xffffff,
             wireframe: true,
@@ -1639,19 +1636,38 @@
             opacity: 0.90,
             depthTest: false
         });
-        const wire = new THREE.Mesh(coneGeo.clone(), wireMat);
-        wire.scale.set(1.05, 1.05, 1.05);
-        cursorGroup.add(wire);
-
-        // Downward target ring indicator
-        const ringGeo = new THREE.RingGeometry(radius * 0.35, radius * 0.65, 8);
-        ringGeo.rotateX(Math.PI / 2);
         const ringMat = new THREE.MeshBasicMaterial({
             color: 0xff2222,
             side: THREE.DoubleSide,
             depthTest: false
         });
-        const ring = new THREE.Mesh(ringGeo, ringMat);
+
+        [coneGeo, capGeo, ringGeo, mat, wireMat, ringMat].forEach((res) => { res.userData.shared = true; });
+
+        redTargetCursorAssets[key] = { coneGeo, capGeo, ringGeo, mat, wireMat, ringMat };
+        return redTargetCursorAssets[key];
+    }
+
+    function createRedTargetCursor(radius = 0.45, height = 0.72) {
+        const cursorGroup = new THREE.Group();
+        cursorGroup.renderOrder = 9999;
+        const a = getRedTargetCursorAssets(radius, height);
+
+        // Downward pointing 3D diamond/pyramid
+        cursorGroup.add(new THREE.Mesh(a.coneGeo, a.mat));
+
+        // Upper diamond cap
+        const cap = new THREE.Mesh(a.capGeo, a.mat);
+        cap.position.y = height * 0.225;
+        cursorGroup.add(cap);
+
+        // Rim wireframe
+        const wire = new THREE.Mesh(a.coneGeo, a.wireMat);
+        wire.scale.set(1.05, 1.05, 1.05);
+        cursorGroup.add(wire);
+
+        // Downward target ring indicator
+        const ring = new THREE.Mesh(a.ringGeo, a.ringMat);
         ring.position.y = -height * 0.20;
         cursorGroup.add(ring);
 
@@ -1678,6 +1694,7 @@
             this.heading = options.heading || Math.random() * Math.PI * 2;
             this.health = 100;
             this.isDead = false;
+            this.deathTime = 0;
             this.escortTank = options.escortTank || null;
 
             this.homeX = x;
@@ -1996,6 +2013,7 @@
 
         die() {
             this.isDead = true;
+            this.deathTime = (window.performance && window.performance.now) ? window.performance.now() * 0.001 : Date.now() * 0.001;
             this.speed = 0;
             this.currentTarget = null;
             if (this.targetCursor) this.targetCursor.visible = false;
@@ -2222,14 +2240,10 @@
         // Spawn soldiers always clustered around enemy tanks (Panzergrenadiers / Infantry escorts)
         const tanks = window.activeEnemyTanks || [];
         if (tanks.length > 0) {
-            tanks.forEach(tank => spawnSoldierEscortForTank(tank, enemy));
-        } else {
-            // Initial field enemy tank positions if tanks not yet spawned
-            const initialEnemyTanks = [
-                { id: 'init:enemy1', x: 54.0, z: 65.0 },
-                { id: 'init:enemy2', x: -62.0, z: 78.0 }
-            ];
-            initialEnemyTanks.forEach(p => spawnSoldierEscortForTank(p, enemy));
+            const escortCount = Math.min(tanks.length, 4);
+            for (let i = 0; i < escortCount; i++) {
+                spawnSoldierEscortForTank(tanks[i], enemy);
+            }
         }
 
         console.log(`[Infantry] Deployed ${activeSoldiers.length} WWII infantry escorts accompanying enemy armor`);
@@ -2272,10 +2286,8 @@
         if (!enemyTank) return;
         const faction = enemyFaction || (window.getOpposingFaction ? window.getOpposingFaction() : 'us');
         const offsets = [
-            { dx: 7.0, dz: 4.5, heading: 0.2 },
-            { dx: -7.0, dz: 4.5, heading: -0.2 },
-            { dx: -5.5, dz: -6.5, heading: 2.8 },
-            { dx: 5.5, dz: -6.0, heading: -2.8 }
+            { dx: 6.5, dz: 3.5, heading: 0.2 },
+            { dx: -6.5, dz: 3.5, heading: -0.2 }
         ];
         offsets.forEach((off, idx) => {
             const sx = enemyTank.x + off.dx;
@@ -2297,12 +2309,25 @@
         const pState = window.tankState;
         if (!pState) return;
 
-        const playerX = pState.x || 0;
-        const playerZ = pState.z || 0;
-        const nowSec = performance.now() * 0.001;
+        const isInfantry = (window.playerMode === 'soldier' && window.playerSoldier);
+        const playerX = isInfantry ? window.playerSoldier.x : (pState.x || 0);
+        const playerZ = isInfantry ? window.playerSoldier.z : (pState.z || 0);
+        const nowSec = (window.performance && window.performance.now) ? window.performance.now() * 0.001 : Date.now() * 0.001;
 
-        for (let i = 0; i < activeSoldiers.length; i++) {
-            activeSoldiers[i].update(dt, playerX, playerZ, nowSec);
+        for (let i = activeSoldiers.length - 1; i >= 0; i--) {
+            const s = activeSoldiers[i];
+            const dist = Math.hypot(s.x - playerX, s.z - playerZ);
+
+            // Degenerate soldiers / corpses when player is away (> 260m)
+            // or degenerate dead bodies after 15s or when > 75m away
+            const shouldDegenerate = (dist > 260) || (s.isDead && (dist > 75 || (nowSec - (s.deathTime || 0) > 15.0)));
+            if (shouldDegenerate) {
+                s.dispose();
+                activeSoldiers.splice(i, 1);
+                continue;
+            }
+
+            s.update(dt, playerX, playerZ, nowSec);
         }
     }
 
