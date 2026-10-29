@@ -35,7 +35,7 @@ window.activeCamera = activeCamera;
 // 3. WebGL High-Performance Renderer
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -807,7 +807,9 @@ function updateSimulation(dt) {
         const tree = trees[i];
         if (tree.isFallen) continue;
         const dx = tree.x - tankX;
+        if (Math.abs(dx) > 8.0) continue;
         const dz = tree.z - tankZ;
+        if (Math.abs(dz) > 8.0) continue;
         const distSq = dx * dx + dz * dz;
         const crushDist = 2.45 + (tree.radius || 1.2) * 0.45;
         if (distSq < crushDist * crushDist) {
@@ -859,8 +861,12 @@ function updateSimulation(dt) {
                 st.group.quaternion.setFromAxisAngle(st.fallAxis, st.fallAngle);
             }
         } else {
-            st.group.rotation.z = Math.sin(nowSec * 1.4 + st.phase) * 0.022;
-            st.group.rotation.x = Math.cos(nowSec * 1.1 + st.phase) * 0.015;
+            const tdx = st.x - tankX;
+            const tdz = st.z - tankZ;
+            if (tdx * tdx + tdz * tdz < 7225) { // 85m radius cull
+                st.group.rotation.z = Math.sin(nowSec * 1.4 + st.phase) * 0.022;
+                st.group.rotation.x = Math.cos(nowSec * 1.1 + st.phase) * 0.015;
+            }
         }
     }
 
@@ -1001,8 +1007,6 @@ function updateSimulation(dt) {
     const timeStr = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
     const hudTimeEl = document.getElementById('hud-time-label');
     if (hudTimeEl) hudTimeEl.textContent = `${timeStr}`;
-    const mobTimeEl = document.getElementById('mob-time-label');
-    if (mobTimeEl) mobTimeEl.textContent = `${phaseName}`;
     const btnTimeEl = document.getElementById('btn-time-cycle');
     if (btnTimeEl) btnTimeEl.innerHTML = `${phaseIcon} <span id="hud-time-label">${timeStr}</span>`;
 

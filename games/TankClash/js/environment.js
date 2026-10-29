@@ -1576,9 +1576,9 @@ function createCrossedTuftGeometry() {
         { ang: 1.05, tilt: -0.08 },
         { ang: 2.10, tilt: 0.08 }
     ];
-    // Taller, lush WW2 meadow grass geometry
-    const w = 1.42;
-    const h = 1.15;
+    // Optimized wider, lush WW2 meadow grass geometry
+    const w = 1.85;
+    const h = 1.18;
     const hw = w * 0.5;
 
     const positions = [];
@@ -1626,9 +1626,9 @@ function createCrossedTuftGeometry() {
 
 // Single camera-facing billboard quad for distant grass (2 triangles per instance)
 function createBillboardTuftGeometry() {
-    // Taller distant billboard grass geometry
-    const w = 1.52;
-    const h = 1.22;
+    // Optimized wider distant billboard grass geometry
+    const w = 2.45;
+    const h = 1.30;
     const hw = w * 0.5;
 
     const positions = [
@@ -2664,9 +2664,9 @@ function buildEnvironment(scene) {
         const tuftGeo = createCrossedTuftGeometry();
         const billboardGeo = createBillboardTuftGeometry();
 
-        grassLOD0Mesh = createTexturedToroidalGrass(tuftGeo, 48000, 96.0, 0.0, 48.0, false);
-        grassLOD0MidMesh = createTexturedToroidalGrass(tuftGeo, 28000, 192.0, 48.0, 98.0, false);
-        grassLOD0FarMesh = createTexturedToroidalGrass(billboardGeo, 24000, 384.0, 98.0, 195.0, true);
+        grassLOD0Mesh = createTexturedToroidalGrass(tuftGeo, 16000, 96.0, 0.0, 48.0, false);
+        grassLOD0MidMesh = createTexturedToroidalGrass(tuftGeo, 10000, 192.0, 48.0, 98.0, false);
+        grassLOD0FarMesh = createTexturedToroidalGrass(billboardGeo, 8000, 384.0, 98.0, 195.0, true);
         grassLOD1Mesh = grassLOD0MidMesh;
 
         envGroup.add(grassLOD0Mesh);

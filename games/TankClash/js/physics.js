@@ -511,7 +511,8 @@ function fireMainCannon(tankModel) {
         mesh: shellGroup,
         pos: muzzlePos.clone(),
         vel: shootDir.clone().multiplyScalar(shellSpeed),
-        life: 5.0
+        life: 5.0,
+        isEnemy: false
     });
 }
 
@@ -677,9 +678,117 @@ function triggerHeavyDetonation(pos) {
 
 const _obstacleRaycaster = new THREE.Raycaster();
 
+// Hitbox dimensions based on authentic historical vehicle profiles
+function getTankHitboxDims(specOrType) {
+    const t = typeof specOrType === 'string' ? specOrType.toLowerCase() : (specOrType && specOrType.tankType ? specOrType.tankType.toLowerCase() : 'tiger');
+    if (t.includes('sherman')) {
+        return { halfW: 1.55, halfH: 1.35, halfL: 3.05 };
+    } else if (t.includes('t34') || t.includes('t-34')) {
+        return { halfW: 1.60, halfH: 1.30, halfL: 3.10 };
+    }
+    return { halfW: 1.80, halfH: 1.40, halfL: 3.30 };
+}
+
+// 3D Continuous Collision Detection (CCD) Segment vs Oriented Bounding Box (OBB)
+function testSegmentVsTank(prevPos, nextPos, tankX, tankY, tankZ, heading, halfW = 1.80, halfH = 1.35, halfL = 3.30) {
+    const centerY = tankY + halfH;
+    const cosH = Math.cos(-heading);
+    const sinH = Math.sin(-heading);
+
+    const p0x = prevPos.x - tankX;
+    const p0y = prevPos.y - centerY;
+    const p0z = prevPos.z - tankZ;
+
+    const lx0 = p0x * cosH - p0z * sinH;
+    const ly0 = p0y;
+    const lz0 = p0x * sinH + p0z * cosH;
+
+    const p1x = nextPos.x - tankX;
+    const p1y = nextPos.y - centerY;
+    const p1z = nextPos.z - tankZ;
+
+    const lx1 = p1x * cosH - p1z * sinH;
+    const ly1 = p1y;
+    const lz1 = p1x * sinH + p1z * cosH;
+
+    const dx = lx1 - lx0;
+    const dy = ly1 - ly0;
+    const dz = lz1 - lz0;
+
+    let tmin = 0.0;
+    let tmax = 1.0;
+
+    // Lateral X slab
+    if (Math.abs(dx) > 1e-6) {
+        let t1 = (-halfW - lx0) / dx;
+        let t2 = (halfW - lx0) / dx;
+        if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+        tmin = Math.max(tmin, t1);
+        tmax = Math.min(tmax, t2);
+        if (tmin > tmax) return null;
+    } else if (Math.abs(lx0) > halfW) {
+        return null;
+    }
+
+    // Vertical Y slab
+    if (Math.abs(dy) > 1e-6) {
+        let t1 = (-halfH - ly0) / dy;
+        let t2 = (halfH - ly0) / dy;
+        if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+        tmin = Math.max(tmin, t1);
+        tmax = Math.min(tmax, t2);
+        if (tmin > tmax) return null;
+    } else if (Math.abs(ly0) > halfH) {
+        return null;
+    }
+
+    // Longitudinal Z slab
+    if (Math.abs(dz) > 1e-6) {
+        let t1 = (-halfL - lz0) / dz;
+        let t2 = (halfL - lz0) / dz;
+        if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
+        tmin = Math.max(tmin, t1);
+        tmax = Math.min(tmax, t2);
+        if (tmin > tmax) return null;
+    } else if (Math.abs(lz0) > halfL) {
+        return null;
+    }
+
+    const tHit = Math.max(0, tmin);
+    return {
+        tHit,
+        impact: new THREE.Vector3(
+            prevPos.x + (nextPos.x - prevPos.x) * tHit,
+            prevPos.y + (nextPos.y - prevPos.y) * tHit,
+            prevPos.z + (nextPos.z - prevPos.z) * tHit
+        )
+    };
+}
+
+// Spawns shell projectile from Enemy Tank toward Player
+function spawnEnemyShell(muzzlePos, fireDir, shellSpeed, enemyTank) {
+    const shellGroup = shellPool.pop() || createShellObject();
+    shellGroup.visible = true;
+    shellGroup.position.copy(muzzlePos);
+    const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), fireDir);
+    shellGroup.quaternion.copy(quat);
+    if (shellGroup.parent !== window.scene) window.scene.add(shellGroup);
+
+    const spd = shellSpeed || 750;
+    shells.push({
+        mesh: shellGroup,
+        pos: muzzlePos.clone(),
+        vel: fireDir.clone().multiplyScalar(spd),
+        life: 5.0,
+        isEnemy: true,
+        sourceTank: enemyTank
+    });
+}
+window.spawnEnemyShell = spawnEnemyShell;
+
 // Continuous Collision Detection (CCD) and Ballistic Trajectory Updates
 function updateProjectiles(dt) {
-    // 1. Update 8.8cm Cannon Shells (773 m/s)
+    // 1. Update Cannon Shells (Player shells and Enemy combat shells)
     for (let i = shells.length - 1; i >= 0; i--) {
         const s = shells[i];
         const prevPos = s.pos.clone();
@@ -692,122 +801,218 @@ function updateProjectiles(dt) {
         s.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), velDir);
         s.life -= dt;
 
-        // CCD against targets
+        // Continuous Collision Detection along path segment [prevPos -> s.pos]
         const seg = s.pos.clone().sub(prevPos);
         const segLenSq = seg.lengthSq();
-        let hit = false;
-        let impactPos = s.pos.clone();
+        const segLen = Math.sqrt(segLenSq);
+        const segDir = (segLen > 0.0001) ? seg.clone().multiplyScalar(1 / segLen) : velDir;
 
-        for (let t = 0; t < targets.length; t++) {
-            const tg = targets[t];
-            const toTg = new THREE.Vector3(tg.x - prevPos.x, tg.y - prevPos.y, tg.z - prevPos.z);
-            let projT = 0;
-            if (segLenSq > 0.0001) {
-                projT = THREE.MathUtils.clamp(toTg.dot(seg) / segLenSq, 0, 1);
-            }
-            const closestPt = prevPos.clone().addScaledVector(seg, projT);
-            const distSq = closestPt.distanceToSquared(new THREE.Vector3(tg.x, tg.y, tg.z));
-            if (distSq < 4.2) {
-                hit = true;
-                impactPos = closestPt;
-                tg.hitAngle = -Math.PI * 0.46;
-                tg.recoverTimer = 4.5;
-                tg.plateMat.color.setHex(0xf59e0b);
-                tankState.hitsCount++;
-                break;
-            }
-        }
+        let closestHit = null;
 
-        // Check collision against forest trees (Shoot tree down with 88mm shell)
-        if (!hit) {
-            const trees = window.swayTrees || [];
-            for (let tr = 0; tr < trees.length; tr++) {
-                const tree = trees[tr];
-                if (tree.isFallen) continue;
-                const toTree = new THREE.Vector3(tree.x - prevPos.x, (tree.y + tree.trunkHeight * 0.45) - prevPos.y, tree.z - prevPos.z);
-                const projT = (segLenSq > 0.0001) ? THREE.MathUtils.clamp(toTree.dot(seg) / segLenSq, 0, 1) : 0;
-                const closestPt = prevPos.clone().addScaledVector(seg, projT);
-                const dSq = (closestPt.x - tree.x) ** 2 + (closestPt.z - tree.z) ** 2;
-                if (dSq < tree.radius * tree.radius * 2.2 && closestPt.y >= tree.y - 0.2 && closestPt.y <= tree.y + tree.trunkHeight * 1.2) {
-                    hit = true;
-                    impactPos = closestPt;
-                    if (window.hitTree) window.hitTree(tree, s.vel.clone().normalize(), 7.5);
-                    break;
-                }
-            }
-        }
+        // A. Tank Collision Hitboxes
+        if (!s.isEnemy) {
+            // Player shell vs Enemy Tanks
+            const enemies = window.activeEnemyTanks || [];
+            for (let eIdx = 0; eIdx < enemies.length; eIdx++) {
+                const enemy = enemies[eIdx];
+                if (!enemy || enemy.isDestroyed) continue;
 
-        // Check collision against tactical cover obstacles: Massive Rocks, Houses, Ruins, Barns, Walls
-        if (!hit) {
-            const obstacles = window.worldObstacles || [];
-            const segLen = Math.sqrt(segLenSq);
-            const segDir = (segLen > 0.0001) ? seg.clone().multiplyScalar(1 / segLen) : new THREE.Vector3(0, 0, 1);
-
-            for (let ob = 0; ob < obstacles.length; ob++) {
-                const obs = obstacles[ob];
-                const dCenterSq = (prevPos.x - obs.x) ** 2 + (prevPos.z - obs.z) ** 2;
-                const maxRange = obs.radius + segLen + 2.0;
+                const midX = (prevPos.x + s.pos.x) * 0.5;
+                const midZ = (prevPos.z + s.pos.z) * 0.5;
+                const dCenterSq = (midX - enemy.x) ** 2 + (midZ - enemy.z) ** 2;
+                const maxRange = 5.5 + segLen * 0.5;
                 if (dCenterSq > maxRange * maxRange) continue;
 
-                // 1. Direct mesh polygon raycast for exact geometric surface impact point
-                if (obs.mesh) {
-                    _obstacleRaycaster.set(prevPos, segDir);
-                    _obstacleRaycaster.far = segLen + 0.2;
-                    const hits = _obstacleRaycaster.intersectObject(obs.mesh, true);
-                    if (hits.length > 0 && hits[0].distance <= segLen + 0.2) {
-                        hit = true;
-                        impactPos.copy(hits[0].point);
-                        break;
+                const dims = getTankHitboxDims(enemy.tankType || enemy.spec);
+                const hitResult = testSegmentVsTank(prevPos, s.pos, enemy.x, enemy.y, enemy.z, enemy.heading, dims.halfW, dims.halfH, dims.halfL);
+                if (hitResult && (!closestHit || hitResult.tHit < closestHit.t)) {
+                    closestHit = {
+                        t: hitResult.tHit,
+                        type: 'enemyTank',
+                        impactPos: hitResult.impact,
+                        targetObj: enemy
+                    };
+                }
+            }
+        } else {
+            // Enemy shell vs Player Tank
+            if (window.tankState && !window.tankState.isKnockedOut) {
+                const ts = window.tankState;
+                const midX = (prevPos.x + s.pos.x) * 0.5;
+                const midZ = (prevPos.z + s.pos.z) * 0.5;
+                const dCenterSq = (midX - ts.x) ** 2 + (midZ - ts.z) ** 2;
+                const maxRange = 5.5 + segLen * 0.5;
+                if (dCenterSq <= maxRange * maxRange) {
+                    const dims = getTankHitboxDims(window.currentTankId || 'tiger');
+                    const hitResult = testSegmentVsTank(prevPos, s.pos, ts.x, ts.y, ts.z, ts.heading, dims.halfW, dims.halfH, dims.halfL);
+                    if (hitResult && (!closestHit || hitResult.tHit < closestHit.t)) {
+                        closestHit = {
+                            t: hitResult.tHit,
+                            type: 'playerTank',
+                            impactPos: hitResult.impact,
+                            targetObj: ts
+                        };
                     }
                 }
+            }
+        }
 
-                // 2. Analytical ray-cylinder entry point along line of flight (facing gun, never side)
-                const dx = prevPos.x - obs.x;
-                const dz = prevPos.z - obs.z;
-                const vx = segDir.x;
-                const vz = segDir.z;
-                const a = vx * vx + vz * vz;
-                const b = 2 * (dx * vx + dz * vz);
-                const c = dx * dx + dz * dz - obs.radius * obs.radius;
-                const disc = b * b - 4 * a * c;
+        // B. Tactical Cover Obstacles (Massive Limestone Rocks, Houses, Ruins, Walls)
+        const obstacles = window.worldObstacles || [];
+        for (let ob = 0; ob < obstacles.length; ob++) {
+            const obs = obstacles[ob];
+            const dCenterSq = (prevPos.x - obs.x) ** 2 + (prevPos.z - obs.z) ** 2;
+            const maxRange = obs.radius + segLen + 2.0;
+            if (dCenterSq > maxRange * maxRange) continue;
 
-                if (disc >= 0 && a > 0.0001) {
-                    const sqrtD = Math.sqrt(disc);
-                    const t0 = (-b - sqrtD) / (2 * a);
-                    const t1 = (-b + sqrtD) / (2 * a);
+            // Direct polygon raycast
+            if (obs.mesh) {
+                _obstacleRaycaster.set(prevPos, segDir);
+                _obstacleRaycaster.far = segLen + 0.2;
+                const hits = _obstacleRaycaster.intersectObject(obs.mesh, true);
+                if (hits.length > 0 && hits[0].distance <= segLen + 0.2) {
+                    const tNorm = hits[0].distance / (segLen || 1);
+                    if (!closestHit || tNorm < closestHit.t) {
+                        closestHit = {
+                            t: tNorm,
+                            type: 'obstacle',
+                            impactPos: hits[0].point.clone(),
+                            targetObj: obs
+                        };
+                    }
+                    continue;
+                }
+            }
 
-                    if (t0 <= segLen + 0.2 && t1 >= -0.2) {
-                        const tHit = Math.max(0, t0);
-                        const testPt = prevPos.clone().addScaledVector(segDir, tHit);
-                        const obsTop = obs.y + (obs.height || 4.5);
-                        const obsBottom = obs.y - 0.5;
+            // Analytical ray-cylinder entry point
+            const dx = prevPos.x - obs.x;
+            const dz = prevPos.z - obs.z;
+            const vx = segDir.x;
+            const vz = segDir.z;
+            const a = vx * vx + vz * vz;
+            const b = 2 * (dx * vx + dz * vz);
+            const c = dx * dx + dz * dz - obs.radius * obs.radius;
+            const disc = b * b - 4 * a * c;
 
-                        if (testPt.y >= obsBottom && testPt.y <= obsTop) {
-                            hit = true;
-                            impactPos.copy(testPt);
-                            break;
+            if (disc >= 0 && a > 0.0001) {
+                const sqrtD = Math.sqrt(disc);
+                const t0 = (-b - sqrtD) / (2 * a);
+                const t1 = (-b + sqrtD) / (2 * a);
+
+                if (t0 <= segLen + 0.2 && t1 >= -0.2) {
+                    const tHitDist = Math.max(0, t0);
+                    const tNorm = tHitDist / (segLen || 1);
+                    const testPt = prevPos.clone().addScaledVector(segDir, tHitDist);
+                    const obsTop = obs.y + (obs.height || 4.5);
+                    const obsBottom = obs.y - 0.5;
+
+                    if (testPt.y >= obsBottom && testPt.y <= obsTop) {
+                        if (!closestHit || tNorm < closestHit.t) {
+                            closestHit = {
+                                t: tNorm,
+                                type: 'obstacle',
+                                impactPos: testPt,
+                                targetObj: obs
+                            };
                         }
                     }
                 }
             }
         }
 
-        // CCD against terrain
-        const groundPrev = getTerrainHeight(prevPos.x, prevPos.z);
-        const groundNext = getTerrainHeight(s.pos.x, s.pos.z);
-        let hitTerrain = false;
-        if (!hit && (s.pos.y <= groundNext || prevPos.y <= groundPrev)) {
-            hitTerrain = true;
-            const denom = (prevPos.y - groundPrev) - (s.pos.y - groundNext);
-            const tG = Math.abs(denom) > 0.0001 ? THREE.MathUtils.clamp((prevPos.y - groundPrev) / denom, 0, 1) : 1;
-            impactPos = prevPos.clone().lerp(s.pos, tG);
-            impactPos.y = Math.max(impactPos.y, getTerrainHeight(impactPos.x, impactPos.z) + 0.15);
+        // C. Forest Trees
+        const trees = window.swayTrees || [];
+        for (let tr = 0; tr < trees.length; tr++) {
+            const tree = trees[tr];
+            if (tree.isFallen) continue;
+            const dx = tree.x - prevPos.x;
+            const dz = tree.z - prevPos.z;
+            if (dx * dx + dz * dz > (tree.radius * 2.5 + segLen) ** 2) continue;
+
+            const toTree = new THREE.Vector3(tree.x - prevPos.x, (tree.y + tree.trunkHeight * 0.45) - prevPos.y, tree.z - prevPos.z);
+            const projT = (segLenSq > 0.0001) ? THREE.MathUtils.clamp(toTree.dot(seg) / segLenSq, 0, 1) : 0;
+            const closestPt = prevPos.clone().addScaledVector(seg, projT);
+            const dSq = (closestPt.x - tree.x) ** 2 + (closestPt.z - tree.z) ** 2;
+            if (dSq < tree.radius * tree.radius * 2.2 && closestPt.y >= tree.y - 0.2 && closestPt.y <= tree.y + tree.trunkHeight * 1.2) {
+                if (!closestHit || projT < closestHit.t) {
+                    closestHit = {
+                        t: projT,
+                        type: 'tree',
+                        impactPos: closestPt,
+                        targetObj: tree
+                    };
+                }
+            }
         }
 
-        if (hit || hitTerrain || s.life <= 0) {
-            if (hit || hitTerrain) {
-                triggerHeavyDetonation(impactPos);
+        // D. Target Dummies (Player only)
+        if (!s.isEnemy && typeof targets !== 'undefined') {
+            for (let t = 0; t < targets.length; t++) {
+                const tg = targets[t];
+                const toTg = new THREE.Vector3(tg.x - prevPos.x, tg.y - prevPos.y, tg.z - prevPos.z);
+                let projT = 0;
+                if (segLenSq > 0.0001) {
+                    projT = THREE.MathUtils.clamp(toTg.dot(seg) / segLenSq, 0, 1);
+                }
+                const closestPt = prevPos.clone().addScaledVector(seg, projT);
+                const distSq = closestPt.distanceToSquared(new THREE.Vector3(tg.x, tg.y, tg.z));
+                if (distSq < 4.2) {
+                    if (!closestHit || projT < closestHit.t) {
+                        closestHit = {
+                            t: projT,
+                            type: 'target',
+                            impactPos: closestPt,
+                            targetObj: tg
+                        };
+                    }
+                }
             }
+        }
+
+        // E. Terrain CCD
+        const groundPrev = getTerrainHeight(prevPos.x, prevPos.z);
+        const groundNext = getTerrainHeight(s.pos.x, s.pos.z);
+        if (s.pos.y <= groundNext || prevPos.y <= groundPrev) {
+            const denom = (prevPos.y - groundPrev) - (s.pos.y - groundNext);
+            const tG = Math.abs(denom) > 0.0001 ? THREE.MathUtils.clamp((prevPos.y - groundPrev) / denom, 0, 1) : 1;
+            if (!closestHit || tG < closestHit.t) {
+                const terrainImpactPos = prevPos.clone().lerp(s.pos, tG);
+                terrainImpactPos.y = Math.max(terrainImpactPos.y, getTerrainHeight(terrainImpactPos.x, terrainImpactPos.z) + 0.15);
+                closestHit = {
+                    t: tG,
+                    type: 'terrain',
+                    impactPos: terrainImpactPos,
+                    targetObj: null
+                };
+            }
+        }
+
+        // Apply Closest Hit or Expiration
+        if (closestHit || s.life <= 0) {
+            if (closestHit) {
+                const imp = closestHit.impactPos;
+                if (closestHit.type === 'enemyTank') {
+                    if (typeof closestHit.targetObj.onHit === 'function') {
+                        closestHit.targetObj.onHit(imp, velDir);
+                    }
+                } else if (closestHit.type === 'playerTank') {
+                    if (typeof window.onPlayerHit === 'function') {
+                        window.onPlayerHit(imp, velDir);
+                    }
+                } else if (closestHit.type === 'tree') {
+                    if (window.hitTree) window.hitTree(closestHit.targetObj, s.vel.clone().normalize(), 7.5);
+                    triggerHeavyDetonation(imp);
+                } else if (closestHit.type === 'target') {
+                    closestHit.targetObj.hitAngle = -Math.PI * 0.46;
+                    closestHit.targetObj.recoverTimer = 4.5;
+                    closestHit.targetObj.plateMat.color.setHex(0xf59e0b);
+                    tankState.hitsCount++;
+                    triggerHeavyDetonation(imp);
+                } else if (closestHit.type === 'obstacle' || closestHit.type === 'terrain') {
+                    triggerHeavyDetonation(imp);
+                }
+            }
+
             s.mesh.visible = false;
             if (shellPool.length < PROJECTILE_POOL_LIMIT) shellPool.push(s.mesh);
             else window.scene.remove(s.mesh);
@@ -815,7 +1020,7 @@ function updateProjectiles(dt) {
         }
     }
 
-    // 2. Update MG34 Tracers (765 m/s)
+    // 2. Update MG Tracers (Coaxial & Bow Machine Guns)
     for (let i = tracers.length - 1; i >= 0; i--) {
         const tr = tracers[i];
         const prevPos = tr.pos.clone();
@@ -828,24 +1033,53 @@ function updateProjectiles(dt) {
 
         const seg = tr.pos.clone().sub(prevPos);
         const segLenSq = seg.lengthSq();
+        const trSegLen = Math.sqrt(segLenSq);
+        const trSegDir = (trSegLen > 0.0001) ? seg.clone().multiplyScalar(1 / trSegLen) : trVelDir;
         let hit = false;
         let impactPos = tr.pos.clone();
 
-        for (let t = 0; t < targets.length; t++) {
-            const tg = targets[t];
-            const toTg = new THREE.Vector3(tg.x - prevPos.x, tg.y - prevPos.y, tg.z - prevPos.z);
-            let projT = 0;
-            if (segLenSq > 0.0001) {
-                projT = THREE.MathUtils.clamp(toTg.dot(seg) / segLenSq, 0, 1);
-            }
-            const closestPt = prevPos.clone().addScaledVector(seg, projT);
-            const distSq = closestPt.distanceToSquared(new THREE.Vector3(tg.x, tg.y, tg.z));
-            if (distSq < 2.8) {
+        // Check MG burst against Enemy Tanks (Sparks & armor ricochet sound)
+        const enemies = window.activeEnemyTanks || [];
+        for (let eIdx = 0; eIdx < enemies.length; eIdx++) {
+            const enemy = enemies[eIdx];
+            if (!enemy || enemy.isDestroyed) continue;
+            const dCenterSq = (prevPos.x - enemy.x) ** 2 + (prevPos.z - enemy.z) ** 2;
+            if (dCenterSq > (5.0 + trSegLen) ** 2) continue;
+
+            const dims = getTankHitboxDims(enemy.tankType || enemy.spec);
+            const hitResult = testSegmentVsTank(prevPos, tr.pos, enemy.x, enemy.y, enemy.z, enemy.heading, dims.halfW, dims.halfH, dims.halfL);
+            if (hitResult) {
                 hit = true;
-                impactPos = closestPt;
-                tg.hitAngle = Math.min(tg.hitAngle - 0.08, -0.25);
-                tg.recoverTimer = Math.max(tg.recoverTimer, 1.2);
+                impactPos.copy(hitResult.impact);
+                for (let sp = 0; sp < 6; sp++) {
+                    const sVel = new THREE.Vector3((Math.random() - 0.5) * 12, 1.5 + Math.random() * 8, (Math.random() - 0.5) * 12);
+                    spawnParticle(impactPos, sVel, 0xfff08a, 0.12, 0.06, 0.4, true, 'spark');
+                }
+                if (window.soundFX && typeof window.soundFX.playArmorRicochet === 'function') {
+                    window.soundFX.playArmorRicochet();
+                }
                 break;
+            }
+        }
+
+        // Check MG burst against range target dummies
+        if (!hit && typeof targets !== 'undefined') {
+            for (let t = 0; t < targets.length; t++) {
+                const tg = targets[t];
+                const toTg = new THREE.Vector3(tg.x - prevPos.x, tg.y - prevPos.y, tg.z - prevPos.z);
+                let projT = 0;
+                if (segLenSq > 0.0001) {
+                    projT = THREE.MathUtils.clamp(toTg.dot(seg) / segLenSq, 0, 1);
+                }
+                const closestPt = prevPos.clone().addScaledVector(seg, projT);
+                const distSq = closestPt.distanceToSquared(new THREE.Vector3(tg.x, tg.y, tg.z));
+                if (distSq < 2.8) {
+                    hit = true;
+                    impactPos = closestPt;
+                    tg.hitAngle = Math.min(tg.hitAngle - 0.08, -0.25);
+                    tg.recoverTimer = Math.max(tg.recoverTimer, 1.2);
+                    break;
+                }
             }
         }
 
@@ -872,17 +1106,13 @@ function updateProjectiles(dt) {
         // Check MG burst against cover obstacles (Rocks, Houses, Ruins)
         if (!hit) {
             const obstacles = window.worldObstacles || [];
-            const trSeg = tr.pos.clone().sub(prevPos);
-            const trSegLen = trSeg.length();
-            const trSegDir = (trSegLen > 0.0001) ? trSeg.clone().multiplyScalar(1 / trSegLen) : new THREE.Vector3(0, 0, 1);
-
             for (let ob = 0; ob < obstacles.length; ob++) {
                 const obs = obstacles[ob];
                 const dSqXZ = (tr.pos.x - obs.x) ** 2 + (tr.pos.z - obs.z) ** 2;
                 const maxR = obs.radius + trSegLen + 1.0;
                 if (dSqXZ > maxR * maxR) continue;
 
-                // 1. Direct mesh raycast
+                // Direct mesh raycast
                 if (obs.mesh) {
                     _obstacleRaycaster.set(prevPos, trSegDir);
                     _obstacleRaycaster.far = trSegLen + 0.15;
@@ -894,7 +1124,7 @@ function updateProjectiles(dt) {
                     }
                 }
 
-                // 2. Analytical entry point on front face facing the gun
+                // Analytical entry point
                 const dx = prevPos.x - obs.x;
                 const dz = prevPos.z - obs.z;
                 const a = trSegDir.x * trSegDir.x + trSegDir.z * trSegDir.z;
@@ -928,7 +1158,6 @@ function updateProjectiles(dt) {
 
         if (hit || hitTerrain || tr.life <= 0) {
             if (hit || hitTerrain) {
-                // High-velocity bullet ricochet spark shower
                 for (let k = 0; k < 6; k++) {
                     const spkVel = new THREE.Vector3((Math.random() - 0.5) * 8, 2.5 + Math.random() * 5, (Math.random() - 0.5) * 8);
                     spawnParticle(impactPos, spkVel, 0xfde047, 0.12, 0.05, 0.25 + Math.random() * 0.2, true, 'spark');
@@ -943,15 +1172,17 @@ function updateProjectiles(dt) {
     }
 
     // 3. Update Reactive Targets Recovery
-    targets.forEach((tg) => {
-        if (tg.recoverTimer > 0) {
-            tg.recoverTimer -= dt;
-            if (tg.recoverTimer <= 0) tg.plateMat.color.setHex(0xb91c1c);
-        } else {
-            tg.hitAngle = THREE.MathUtils.lerp(tg.hitAngle, 0, 5 * dt);
-        }
-        tg.pivot.rotation.x = tg.hitAngle;
-    });
+    if (typeof targets !== 'undefined') {
+        targets.forEach((tg) => {
+            if (tg.recoverTimer > 0) {
+                tg.recoverTimer -= dt;
+                if (tg.recoverTimer <= 0) tg.plateMat.color.setHex(0xb91c1c);
+            } else {
+                tg.hitAngle = THREE.MathUtils.lerp(tg.hitAngle, 0, 5 * dt);
+            }
+            tg.pivot.rotation.x = tg.hitAngle;
+        });
+    }
 }
 
 // Update Volumetric Particles, Sparks, Dynamic Lights & Shockwaves

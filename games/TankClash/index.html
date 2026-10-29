@@ -217,7 +217,7 @@
             <div id="panel-views-content" class="flex items-center gap-1">
                 <button id="cam-orbit" class="hud-btn active px-2.5 py-1 rounded-lg text-[11px] font-semibold" title="Follow Aim Camera">📷 Follow</button>
                 <button id="cam-fpv" class="hud-btn px-2.5 py-1 rounded-lg text-[11px] font-semibold text-emerald-300" title="First-Person Gunner Mode">🎯 FPV</button>
-                <button id="btn-time-cycle" class="hud-btn px-2.5 py-1 rounded-lg text-[11px] font-semibold text-amber-300" title="Cycle Day / Night (T)">☀️ <span id="hud-time-label">10:30</span></button>
+                <button id="btn-time-cycle" class="hud-btn px-2.5 py-1 rounded-lg text-[11px] font-semibold text-amber-300 hidden md:inline-block" title="Cycle Day / Night (T)">☀️ <span id="hud-time-label">10:30</span></button>
                 <button id="btn-restart" class="hud-btn px-2.5 py-1 rounded-lg text-[11px] font-bold text-amber-300 hover:text-white" title="Restart with New Seed [Key: R]">🔄 Reset [R]</button>
                 <span id="hud-seed-display" class="mono text-[10px] text-amber-300/90 font-semibold px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 hidden lg:inline-block">Seed: ...</span>
                 <button id="audio-toggle" class="hud-btn px-2 py-1 rounded-lg text-[11px] font-semibold text-emerald-400" title="Toggle Sound">🔊</button>
@@ -248,7 +248,6 @@
         <div id="mobile-actions" class="fixed bottom-4 right-4 z-30 pointer-events-auto flex flex-col items-end gap-1.5 select-none touch-none transition-opacity duration-200">
             <!-- Top auxiliary row: Zoom, Smoke, Bow MG -->
             <div class="flex items-center gap-1.5">
-                <button id="mob-btn-time" class="h-8 px-2 bg-slate-900/40 border border-yellow-400/40 active:bg-yellow-600/50 text-yellow-300 font-semibold text-[10px] rounded-lg flex items-center gap-1 backdrop-blur-sm touch-none active:scale-95"><span>☀️</span><span id="mob-time-label">Day</span></button>
                 <button id="mob-btn-restart" class="h-8 px-2 bg-slate-900/40 border border-amber-400/40 active:bg-amber-600/50 text-amber-300 font-semibold text-[10px] rounded-lg flex items-center gap-1 backdrop-blur-sm touch-none active:scale-95"><span>🔄</span><span>Reset</span></button>
                 <button id="mob-btn-zoom" class="h-8 px-2 bg-slate-900/40 border border-sky-400/40 active:bg-sky-600/50 text-sky-300 font-semibold text-[10px] rounded-lg flex items-center gap-1 backdrop-blur-sm touch-none active:scale-95">
                     <span>🔍</span>
@@ -292,15 +291,15 @@
 
     <!-- Modularized Tiger Tank Simulation Scripts -->
     <script src="js/audio.js"></script>
-    <script src="js/shaders.js?v=smoke3"></script>
-    <script src="js/environment.js?v=smoke2"></script>
-    <script src="js/tankTiger.js"></script>
-    <script src="js/tankSherman.js"></script>
-    <script src="js/tankT34.js"></script>
+    <script src="js/shaders.js?v=opt2"></script>
+    <script src="js/environment.js?v=opt2"></script>
+    <script src="js/tankTiger.js?v=opt2"></script>
+    <script src="js/tankSherman.js?v=opt2"></script>
+    <script src="js/tankT34.js?v=opt2"></script>
     <script src="js/tankModel.js?v=ai1"></script>
-    <script src="js/physics.js?v=ai1"></script>
-    <script src="js/enemyAI.js?v=ai1"></script>
+    <script src="js/physics.js?v=hitbox1"></script>
+    <script src="js/enemyAI.js?v=hitbox1"></script>
     <script src="js/controls.js"></script>
-    <script src="js/main.js?v=ai1"></script>
+    <script src="js/main.js?v=opt2"></script>
 </body>
 </html>

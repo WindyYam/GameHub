@@ -1,3 +1,48 @@
+// Universal Fast BufferGeometry Merger
+if (typeof window !== 'undefined') {
+    window.mergeBufferGeometries = function(geos) {
+        if (window.THREE && THREE.BufferGeometryUtils && THREE.BufferGeometryUtils.mergeBufferGeometries) {
+            return THREE.BufferGeometryUtils.mergeBufferGeometries(geos);
+        }
+        if (!geos || geos.length === 0) return new THREE.BufferGeometry();
+        let totalVerts = 0;
+        const nonIndexed = geos.map(function(g) {
+            const ni = g.index ? g.toNonIndexed() : g.clone();
+            totalVerts += ni.attributes.position.count;
+            return ni;
+        });
+        const pos = new Float32Array(totalVerts * 3);
+        const norm = new Float32Array(totalVerts * 3);
+        const uv = new Float32Array(totalVerts * 2);
+        let offset = 0;
+        let uvOffset = 0;
+        nonIndexed.forEach(function(g) {
+            pos.set(g.attributes.position.array, offset);
+            if (g.attributes.normal) {
+                norm.set(g.attributes.normal.array, offset);
+            } else {
+                for (let k = 0; k < g.attributes.position.array.length; k += 3) {
+                    norm[offset + k] = 0;
+                    norm[offset + k + 1] = 1;
+                    norm[offset + k + 2] = 0;
+                }
+            }
+            if (g.attributes.uv) {
+                uv.set(g.attributes.uv.array, uvOffset);
+                uvOffset += g.attributes.uv.array.length;
+            } else {
+                uvOffset += (g.attributes.position.count * 2);
+            }
+            offset += g.attributes.position.array.length;
+        });
+        const merged = new THREE.BufferGeometry();
+        merged.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        merged.setAttribute('normal', new THREE.BufferAttribute(norm, 3));
+        merged.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+        return merged;
+    };
+}
+
 // ============================================================================
 // TigerTank Shaders, Textures & Materials Palette
 // High-Resolution Procedural PBR Maps: Rolled Homogeneous Armor (RHA),

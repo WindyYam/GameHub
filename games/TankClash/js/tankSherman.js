@@ -8,7 +8,7 @@
 // 13-Tooth Drive Sprockets, Ribbed Idlers, and Articulated Chevron Tracks
 // ============================================================================
 
-function buildShermanTank(scene, mats) {
+function buildShermanTank(scene, mats, options = {}) {
     const H_OFF = 0.92; // Align chassis with TankClash physics frame
 
     const tankRoot = new THREE.Group();
@@ -744,7 +744,7 @@ function buildShermanTank(scene, mats) {
     lowerHullGroup.add(noseGroup);
 
     // Transverse rounded cylinder forming bulbous Sherman lower nose
-    const noseCylGeo = new THREE.CylinderGeometry(0.39, 0.39, 1.72, 28);
+    const noseCylGeo = new THREE.CylinderGeometry(0.39, 0.39, 1.72, 16);
     noseCylGeo.rotateZ(Math.PI / 2);
     const noseCyl = regPart(new THREE.Mesh(noseCylGeo, materials.castOlive));
     noseCyl.scale.set(1.0, 0.96, 1.35);
@@ -982,50 +982,46 @@ function buildShermanTank(scene, mats) {
     clamp.position.set(0, 0.24, 0);
     lockGroup.add(armL, armR, clamp);
 
-    // Creates an authentic Sherman Chevron Track Block with end connectors & guide tooth
-    function createTrackBlockGroup(includeGuideTooth = true, isSpare = false) {
-        const block = new THREE.Group();
-
-        // Main pad (Spare rack uses warm oxidized rusty steel; track run uses vulcanized rubber)
-        const padMat = isSpare ? materials.spareTrackSteel : materials.trackPadMat;
+    function createShermanTrackBlockGeometry(includeGuideTooth = true, isSpare = false) {
+        const mergeFn = (typeof window !== 'undefined' && window.mergeBufferGeometries) || (typeof mergeBufferGeometries === 'function' ? mergeBufferGeometries : null);
         const padGeo = new THREE.BoxGeometry(0.42, 0.042, 0.115);
-        const pad = regPart(new THREE.Mesh(padGeo, padMat));
-        block.add(pad);
-
-        // Raised Steel V-Chevron grouser bars
-        const chevMat = isSpare ? materials.spareTrackSteel : materials.wornTrackSteel;
         const chevY = isSpare ? 0.026 : -0.026;
-        const chevArmGeo = new THREE.BoxGeometry(0.20, 0.024, 0.032);
-        const chevLeft = new THREE.Mesh(chevArmGeo, chevMat);
-        chevLeft.position.set(-0.085, chevY, 0.008);
-        chevLeft.rotation.y = 0.36;
 
-        const chevRight = new THREE.Mesh(chevArmGeo, chevMat);
-        chevRight.position.set(0.085, chevY, 0.008);
-        chevRight.rotation.y = -0.36;
-        block.add(chevLeft, chevRight);
+        const chevLeft = new THREE.BoxGeometry(0.20, 0.024, 0.032);
+        chevLeft.rotateY(0.36);
+        chevLeft.translate(-0.085, chevY, 0.008);
 
-        // End connectors on outer edges
-        [-0.225, 0.225].forEach((xEdge) => {
-            const earGeo = new THREE.BoxGeometry(0.042, 0.052, 0.135);
-            const ear = new THREE.Mesh(earGeo, chevMat);
-            ear.position.set(xEdge, 0.004, 0);
-            block.add(ear);
-        });
+        const chevRight = new THREE.BoxGeometry(0.20, 0.024, 0.032);
+        chevRight.rotateY(-0.36);
+        chevRight.translate(0.085, chevY, 0.008);
 
+        const earLeft = new THREE.BoxGeometry(0.042, 0.052, 0.135);
+        earLeft.translate(-0.225, 0.004, 0);
+
+        const earRight = new THREE.BoxGeometry(0.042, 0.052, 0.135);
+        earRight.translate(0.225, 0.004, 0);
+
+        const geos = [padGeo, chevLeft, chevRight, earLeft, earRight];
         if (includeGuideTooth) {
-            const toothGeo = new THREE.BoxGeometry(0.022, 0.058, 0.055);
-            const tooth = new THREE.Mesh(toothGeo, materials.machinedSteel);
-            tooth.position.set(0, 0.042, 0); // Polished bare steel guide horn
-            block.add(tooth);
+            const tooth = new THREE.BoxGeometry(0.022, 0.058, 0.055);
+            tooth.translate(0, 0.042, 0);
+            geos.push(tooth);
         }
+        return mergeFn ? mergeFn(geos) : padGeo;
+    }
 
-        return block;
+    const shermanTrackGeo = createShermanTrackBlockGeometry(true, false);
+    const shermanSpareTrackGeo = createShermanTrackBlockGeometry(false, true);
+
+    function createTrackBlockGroup(includeGuideTooth = true, isSpare = false) {
+        const geo = isSpare ? shermanSpareTrackGeo : shermanTrackGeo;
+        const mat = isSpare ? materials.spareTrackSteel : materials.trackPadMat;
+        return regPart(new THREE.Mesh(geo, mat));
     }
 
     // 3 Rows of Spare Chevron Track Links on the Right-Front Glacis (Exact match to monument reference)
     const spareRackGroup = new THREE.Group();
-    upperGroup.add(spareRackGroup);
+    if (!options.isEnemy) upperGroup.add(spareRackGroup);
 
     const rackConfigs = [
         { xCenter: -0.02, numLinks: 7, startDist: -0.38 },
@@ -1104,7 +1100,7 @@ function buildShermanTank(scene, mats) {
     turretGroup.add(turretDome);
 
     // Rear turret bustle counterweight overhang
-    const bustleGeo = new THREE.CylinderGeometry(0.64, 0.56, 0.54, 24);
+    const bustleGeo = new THREE.CylinderGeometry(0.64, 0.56, 0.54, 16);
     bustleGeo.scale(1.12, 1.0, 1.15);
     const bustle = regPart(new THREE.Mesh(bustleGeo, materials.castOlive));
     bustle.position.set(0, 0.42, -0.56);
@@ -1234,7 +1230,7 @@ function buildShermanTank(scene, mats) {
     gunElevationPivot.add(barrelRecoilGroup);
 
     // Tapered 75mm M3 gun barrel tube (L/40 caliber length) in blued ordnance gunmetal
-    const barrelGeo = new THREE.CylinderGeometry(0.072, 0.108, 1.88, 28);
+    const barrelGeo = new THREE.CylinderGeometry(0.072, 0.108, 1.88, 16);
     barrelGeo.rotateX(Math.PI / 2);
     barrelGeo.translate(0, 0, 1.06);
     const barrel = regPart(new THREE.Mesh(barrelGeo, materials.gunSteel));
@@ -1266,28 +1262,30 @@ function buildShermanTank(scene, mats) {
         wheelGroup.add(spinGroup);
 
         const rimMat = isIdler ? materials.wornTrackSteel : materials.rubberTireMat;
-        const tireGeo = new THREE.CylinderGeometry(radius, radius, 0.26, 24);
+        const tireGeo = new THREE.CylinderGeometry(radius, radius, 0.26, 14);
         tireGeo.rotateZ(Math.PI / 2);
         const tire = regPart(new THREE.Mesh(tireGeo, rimMat));
         spinGroup.add(tire);
 
-        const discGeo = new THREE.CylinderGeometry(radius * 0.78, radius * 0.78, 0.27, 20);
+        const discGeo = new THREE.CylinderGeometry(radius * 0.78, radius * 0.78, 0.27, 12);
         discGeo.rotateZ(Math.PI / 2);
         const disc = new THREE.Mesh(discGeo, materials.wheelDiscMat);
         spinGroup.add(disc);
 
-        // 6 Radial reinforcement ribs & lightening recesses
-        for (let i = 0; i < 6; i++) {
-            const angle = (i / 6) * Math.PI * 2;
-            const ribGeo = new THREE.BoxGeometry(0.04, 0.042, radius * 0.65);
-            const rib = new THREE.Mesh(ribGeo, materials.oliveDrab);
-            rib.position.set(
-                sideSign * 0.125,
-                Math.sin(angle) * (radius * 0.42),
-                Math.cos(angle) * (radius * 0.42)
-            );
-            rib.rotation.x = angle;
-            spinGroup.add(rib);
+        // 6 Radial reinforcement ribs & lightening recesses (skipped on distant enemy tanks)
+        if (!options.isEnemy) {
+            for (let i = 0; i < 6; i++) {
+                const angle = (i / 6) * Math.PI * 2;
+                const ribGeo = new THREE.BoxGeometry(0.04, 0.042, radius * 0.65);
+                const rib = new THREE.Mesh(ribGeo, materials.oliveDrab);
+                rib.position.set(
+                    sideSign * 0.125,
+                    Math.sin(angle) * (radius * 0.42),
+                    Math.cos(angle) * (radius * 0.42)
+                );
+                rib.rotation.x = angle;
+                spinGroup.add(rib);
+            }
         }
 
         const hubGeo = new THREE.CylinderGeometry(0.085, 0.095, 0.31, 14);
@@ -1308,18 +1306,20 @@ function buildShermanTank(scene, mats) {
         crab.position.set(sideSign * 0.04, 0.16, 0);
         bogieGroup.add(crab);
 
-        // Twin recessed spring pockets with conical volute spring coils
-        [-0.10, 0.10].forEach((sz) => {
-            const pocketGeo = new THREE.BoxGeometry(0.06, 0.28, 0.13);
-            const pocket = new THREE.Mesh(pocketGeo, materials.trackPadMat);
-            pocket.position.set(sideSign * 0.155, 0.18, sz);
-            bogieGroup.add(pocket);
+        // Twin recessed spring pockets with conical volute spring coils (omitted on enemy LOD)
+        if (!options.isEnemy) {
+            [-0.10, 0.10].forEach((sz) => {
+                const pocketGeo = new THREE.BoxGeometry(0.06, 0.28, 0.13);
+                const pocket = new THREE.Mesh(pocketGeo, materials.trackPadMat);
+                pocket.position.set(sideSign * 0.155, 0.18, sz);
+                bogieGroup.add(pocket);
 
-            const coilGeo = new THREE.CylinderGeometry(0.045, 0.055, 0.24, 12);
-            const coil = new THREE.Mesh(coilGeo, materials.machinedSteel);
-            coil.position.set(sideSign * 0.15, 0.18, sz);
-            bogieGroup.add(coil);
-        });
+                const coilGeo = new THREE.CylinderGeometry(0.045, 0.055, 0.24, 12);
+                const coil = new THREE.Mesh(coilGeo, materials.machinedSteel);
+                coil.position.set(sideSign * 0.15, 0.18, sz);
+                bogieGroup.add(coil);
+            });
+        }
 
         // Articulated scissor/walking-beam arms
         [-1, 1].forEach((dir) => {
@@ -1368,7 +1368,7 @@ function buildShermanTank(scene, mats) {
         const sprocketGroup = new THREE.Group();
 
         [-0.14, 0.14].forEach((xRing) => {
-            const ringGeo = new THREE.TorusGeometry(0.32, 0.032, 8, 26);
+            const ringGeo = new THREE.TorusGeometry(0.32, 0.032, 6, 14);
             ringGeo.rotateY(Math.PI / 2);
             const ring = new THREE.Mesh(ringGeo, materials.sprocketRingMat);
             ring.position.x = xRing;
@@ -1385,12 +1385,12 @@ function buildShermanTank(scene, mats) {
             }
         });
 
-        const hubDrumGeo = new THREE.CylinderGeometry(0.22, 0.22, 0.30, 20);
+        const hubDrumGeo = new THREE.CylinderGeometry(0.22, 0.22, 0.30, 14);
         hubDrumGeo.rotateZ(Math.PI / 2);
         const hubDrum = new THREE.Mesh(hubDrumGeo, materials.sprocketRingMat);
         sprocketGroup.add(hubDrum);
 
-        const capGeo = new THREE.CylinderGeometry(0.14, 0.15, 0.34, 16);
+        const capGeo = new THREE.CylinderGeometry(0.14, 0.15, 0.34, 12);
         capGeo.rotateZ(Math.PI / 2);
         const cap = new THREE.Mesh(capGeo, materials.hubCapMat);
         sprocketGroup.add(cap);
@@ -1494,14 +1494,18 @@ function buildShermanTank(scene, mats) {
             });
         });
 
-        // 76 Articulated Chevron Track Links per side
+        // 76 Articulated Chevron Track Links per side (Single InstancedMesh per side!)
         const numLinks = 76;
-        for (let k = 0; k < numLinks; k++) {
-            const block = createTrackBlockGroup(true);
-            block.position.x = trackX;
-            hullGroup.add(block);
-            trackChains[sideKey].push(block);
-        }
+        const trackInstMesh = new THREE.InstancedMesh(shermanTrackGeo, materials.wornTrackSteel || materials.trackPadMat, numLinks);
+        trackInstMesh.castShadow = true;
+        trackInstMesh.receiveShadow = true;
+        trackInstMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        hullGroup.add(trackInstMesh);
+        trackChains[sideKey] = {
+            instMesh: trackInstMesh,
+            trackX: trackX,
+            count: numLinks
+        };
     });
 
     const evaluateTrackPoint = function(sideKey, uNorm) {
@@ -1537,21 +1541,27 @@ function buildShermanTank(scene, mats) {
         return { z: SHERMAN_TRACK_WAYPOINTS[0].x, y: SHERMAN_TRACK_WAYPOINTS[0].y, pitch: 0 };
     };
 
+    const dummyShermanLink = new THREE.Object3D();
     const updateTracksGeometry = function(leftPhase, rightPhase) {
         ['left', 'right'].forEach((sideKey) => {
-            const links = trackChains[sideKey];
+            const chain = trackChains[sideKey];
+            if (!chain || !chain.instMesh) return;
             const phase = (sideKey === 'left') ? leftPhase : rightPhase;
-            const n = links.length;
+            const n = chain.count;
+            const trackX = chain.trackX;
 
             for (let i = 0; i < n; i++) {
                 const u = (i / n + phase) % 1.0;
                 const pt = evaluateTrackPoint(sideKey, u);
-                links[i].position.z = pt.z;
-                links[i].position.y = pt.y;
-                links[i].rotation.x = pt.pitch;
+                dummyShermanLink.position.set(trackX, pt.y, pt.z);
+                dummyShermanLink.rotation.set(pt.pitch, 0, 0);
+                dummyShermanLink.updateMatrix();
+                chain.instMesh.setMatrixAt(i, dummyShermanLink.matrix);
             }
+            chain.instMesh.instanceMatrix.needsUpdate = true;
         });
     };
+    updateTracksGeometry(0, 0);
 
     tankRoot.traverse((obj) => {
         if (obj.isMesh) {

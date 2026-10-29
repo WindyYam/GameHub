@@ -5,7 +5,7 @@
 // Spoked Starfish Christie Road Wheels & Articulated Caterpillar Tracks
 // ============================================================================
 
-function buildT34Tank(scene, mats) {
+function buildT34Tank(scene, mats, options = {}) {
     const H_OFF = 0.92; // Offset to align with game physics suspension frame
 
     const tankRoot = new THREE.Group();
@@ -687,33 +687,35 @@ function buildT34Tank(scene, mats) {
             tire.position.x = offsetX;
             spinGroup.add(tire);
 
-            const steelRimGeo = new THREE.TorusGeometry(radius - 0.055, 0.025, 10, 28);
+            const steelRimGeo = new THREE.TorusGeometry(radius - 0.055, 0.025, 6, 14);
             steelRimGeo.rotateY(Math.PI / 2);
             const steelRim = regPart(new THREE.Mesh(steelRimGeo, materials.hullArmor));
             steelRim.position.x = offsetX + (offsetX > 0 ? 0.052 : -0.052);
             spinGroup.add(steelRim);
 
-            const dishGeo = new THREE.CylinderGeometry(radius - 0.06, radius - 0.06, 0.06, 24);
+            const dishGeo = new THREE.CylinderGeometry(radius - 0.06, radius - 0.06, 0.06, 14);
             dishGeo.rotateZ(Math.PI / 2);
             const dish = regPart(new THREE.Mesh(dishGeo, materials.darkSteel));
             dish.position.x = offsetX;
             spinGroup.add(dish);
         });
 
-        // 12 Radial Starfish Ribs / Spokes on visible outer face
-        const numSpokes = 12;
-        const outerX = sideSign * 0.115;
-        for (let s = 0; s < numSpokes; s++) {
-            const angle = (s / numSpokes) * Math.PI * 2;
-            const spokeGeo = new THREE.BoxGeometry(0.035, 0.22, 0.032);
-            const spoke = regPart(new THREE.Mesh(spokeGeo, materials.hullArmor));
-            spoke.position.set(
-                outerX,
-                Math.cos(angle) * (radius * 0.52),
-                Math.sin(angle) * (radius * 0.52)
-            );
-            spoke.rotation.x = -angle;
-            spinGroup.add(spoke);
+        // 12 Radial Starfish Ribs / Spokes on visible outer face (omitted on enemy LOD)
+        if (!options.isEnemy) {
+            const numSpokes = 12;
+            const outerX = sideSign * 0.115;
+            for (let s = 0; s < numSpokes; s++) {
+                const angle = (s / numSpokes) * Math.PI * 2;
+                const spokeGeo = new THREE.BoxGeometry(0.035, 0.22, 0.032);
+                const spoke = regPart(new THREE.Mesh(spokeGeo, materials.hullArmor));
+                spoke.position.set(
+                    outerX,
+                    Math.cos(angle) * (radius * 0.52),
+                    Math.sin(angle) * (radius * 0.52)
+                );
+                spoke.rotation.x = -angle;
+                spinGroup.add(spoke);
+            }
         }
 
         const hubGeo = new THREE.CylinderGeometry(0.115, 0.135, 0.16, 18);
@@ -734,7 +736,7 @@ function buildT34Tank(scene, mats) {
     function createIdlerOrSprocket(radius = 0.30, isSprocket = false) {
         const group = new THREE.Group();
         [-0.08, 0.08].forEach((offsetX) => {
-            const discGeo = new THREE.CylinderGeometry(radius, radius, 0.09, 24);
+            const discGeo = new THREE.CylinderGeometry(radius, radius, 0.09, 14);
             discGeo.rotateZ(Math.PI / 2);
             const disc = regPart(new THREE.Mesh(discGeo, materials.hullArmor));
             disc.position.x = offsetX;
@@ -839,26 +841,24 @@ function buildT34Tank(scene, mats) {
         hullGroup.add(sprocket);
         driveSprockets.push({ mesh: sprocket, side: sideKey });
 
-        // 76 Articulated Waffle Caterpillar Track Links per side
-        const numLinks = 76;
+        // 76 Articulated Waffle Caterpillar Track Links per side (Single InstancedMesh per side!)
+        const mergeFn = (typeof window !== 'undefined' && window.mergeBufferGeometries) || (typeof mergeBufferGeometries === 'function' ? mergeBufferGeometries : null);
         const linkGeo = new THREE.BoxGeometry(0.50, 0.032, 0.14);
         const toothGeo = new THREE.BoxGeometry(0.035, 0.065, 0.05);
+        toothGeo.translate(0, 0.035, 0);
+        const mergedT34LinkGeo = mergeFn ? mergeFn([linkGeo, toothGeo]) : linkGeo;
 
-        for (let i = 0; i < numLinks; i++) {
-            const linkGroup = new THREE.Group();
-            const plate = regPart(new THREE.Mesh(linkGeo, materials.trackMetal));
-            linkGroup.add(plate);
-
-            if (i % 2 === 0) {
-                const tooth = regPart(new THREE.Mesh(toothGeo, materials.trackMetal));
-                tooth.position.set(0, 0.04, 0);
-                linkGroup.add(tooth);
-            }
-
-            linkGroup.position.x = sideX;
-            hullGroup.add(linkGroup);
-            trackChains[sideKey].push(linkGroup);
-        }
+        const numLinks = 76;
+        const trackInstMesh = new THREE.InstancedMesh(mergedT34LinkGeo, materials.trackMetal, numLinks);
+        trackInstMesh.castShadow = true;
+        trackInstMesh.receiveShadow = true;
+        trackInstMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        hullGroup.add(trackInstMesh);
+        trackChains[sideKey] = {
+            instMesh: trackInstMesh,
+            trackX: sideX,
+            count: numLinks
+        };
     });
 
     const evaluateTrackPoint = function(sideKey, uNorm) {
@@ -870,20 +870,26 @@ function buildT34Tank(scene, mats) {
         };
     };
 
+    const dummyT34Link = new THREE.Object3D();
     const updateTracksGeometry = function(leftPhase, rightPhase) {
         ['left', 'right'].forEach((sideKey) => {
-            const links = trackChains[sideKey];
+            const chain = trackChains[sideKey];
+            if (!chain || !chain.instMesh) return;
             const phase = (sideKey === 'left') ? leftPhase : rightPhase;
-            const n = links.length;
+            const n = chain.count;
+            const trackX = chain.trackX;
             for (let i = 0; i < n; i++) {
                 const u = (i / n + phase) % 1.0;
                 const pt = getTrackPathPoint(u);
-                links[i].position.z = pt.z;
-                links[i].position.y = pt.y - H_OFF;
-                links[i].rotation.x = -pt.angle;
+                dummyT34Link.position.set(trackX, pt.y - H_OFF, pt.z);
+                dummyT34Link.rotation.set(-pt.angle, 0, 0);
+                dummyT34Link.updateMatrix();
+                chain.instMesh.setMatrixAt(i, dummyT34Link.matrix);
             }
+            chain.instMesh.instanceMatrix.needsUpdate = true;
         });
     };
+    updateTracksGeometry(0, 0);
 
     // ============================================================================
     // 4. T-34-85 CAST 1944 TURRET, 85MM ZIS-S-53 GUN & "311" DECALS

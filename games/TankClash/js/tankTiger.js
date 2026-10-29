@@ -17,7 +17,7 @@ function addPart(parent, geo, mat, x, y, z, rx = 0, ry = 0, rz = 0) {
 }
 window.addPart = addPart;
 
-function buildTigerTank(scene, mats) {
+function buildTigerTank(scene, mats, options = {}) {
     const tankRoot = new THREE.Group();
     const sc = scene || (typeof window !== 'undefined' ? window.scene : null);
     if (sc && typeof sc.add === 'function') sc.add(tankRoot);
@@ -250,13 +250,13 @@ function buildTigerTank(scene, mats) {
     const idlerWheels = [];
     const trackChains = { left: [], right: [] };
 
-    const dishTireGeo = new THREE.CylinderGeometry(0.41, 0.41, 0.09, 28);
+    const dishTireGeo = new THREE.CylinderGeometry(0.41, 0.41, 0.09, 16);
     dishTireGeo.rotateZ(Math.PI / 2);
-    const dishRimGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.10, 28);
+    const dishRimGeo = new THREE.CylinderGeometry(0.34, 0.34, 0.10, 16);
     dishRimGeo.rotateZ(Math.PI / 2);
-    const dishInnerRecessGeo = new THREE.CylinderGeometry(0.28, 0.28, 0.106, 24);
+    const dishInnerRecessGeo = new THREE.CylinderGeometry(0.28, 0.28, 0.106, 14);
     dishInnerRecessGeo.rotateZ(Math.PI / 2);
-    const hubCapGeo = new THREE.CylinderGeometry(0.085, 0.085, 0.13, 16);
+    const hubCapGeo = new THREE.CylinderGeometry(0.085, 0.085, 0.13, 10);
     hubCapGeo.rotateZ(Math.PI / 2);
 
     function createInterleavedWheelCluster(sideSign, stationIndex) {

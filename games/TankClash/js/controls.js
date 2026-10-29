@@ -458,12 +458,6 @@ function initControls(renderer) {
         if (typeof window.restartGame === 'function') window.restartGame();
     });
 
-    const mobBtnTime = document.getElementById('mob-btn-time');
-    if (mobBtnTime) mobBtnTime.addEventListener('pointerdown', (e) => {
-        e.preventDefault();
-        if (window.dayNight && window.dayNight.cycleNext) window.dayNight.cycleNext();
-    });
-
     const mobBtnRestart = document.getElementById('mob-btn-restart');
     if (mobBtnRestart) mobBtnRestart.addEventListener('pointerdown', (e) => {
         e.preventDefault();

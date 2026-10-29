@@ -112,21 +112,29 @@
         const m = window.mats;
         let model = null;
         if (tankType === 'sherman' && typeof window.buildShermanTank === 'function') {
-            model = window.buildShermanTank(enemyRoot, m);
+            model = window.buildShermanTank(enemyRoot, m, { isEnemy: true });
         } else if (tankType === 't34' && typeof window.buildT34Tank === 'function') {
-            model = window.buildT34Tank(enemyRoot, m);
+            model = window.buildT34Tank(enemyRoot, m, { isEnemy: true });
         } else if (typeof window.buildTigerTank === 'function') {
-            model = window.buildTigerTank(enemyRoot, m);
+            model = window.buildTigerTank(enemyRoot, m, { isEnemy: true });
         }
 
         if (!model) return null;
 
-        // Apply steel environment reflection map to enemy meshes
+        // Apply steel environment reflection map & register major collision meshes
         const raycastMeshes = [];
         model.tankRoot.traverse((obj) => {
             if (!obj.isMesh) return;
-            raycastMeshes.push(obj);
-            if (window.aimRaycastMeshes) window.aimRaycastMeshes.push(obj);
+            if (obj.geometry) {
+                if (!obj.geometry.boundingBox) obj.geometry.computeBoundingBox();
+                const bb = obj.geometry.boundingBox;
+                const size = bb ? Math.max(bb.max.x - bb.min.x, bb.max.y - bb.min.y, bb.max.z - bb.min.z) : 1;
+                // Add major hull/turret/track components to aim raycasting
+                if (size >= 0.35 || obj.isInstancedMesh) {
+                    raycastMeshes.push(obj);
+                    if (window.aimRaycastMeshes) window.aimRaycastMeshes.push(obj);
+                }
+            }
             const list = Array.isArray(obj.material) ? obj.material : [obj.material];
             list.forEach((mat) => {
                 if (mat && mat.isMeshStandardMaterial) mat.envMapIntensity = 0.3;
@@ -358,6 +366,7 @@
                 // Muzzle position & direction
                 const muzzlePos = new THREE.Vector3();
                 if (e.model.mainGunMuzzleTip) {
+                    if (e.model.tankRoot) e.model.tankRoot.updateMatrixWorld(true);
                     e.model.mainGunMuzzleTip.getWorldPosition(muzzlePos);
                 } else {
                     muzzlePos.set(e.x, e.y + 1.8, e.z).add(new THREE.Vector3(Math.sin(worldAngleToPlayer), 0, Math.cos(worldAngleToPlayer)).multiplyScalar(4.0));
