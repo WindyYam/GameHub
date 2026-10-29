@@ -288,7 +288,7 @@
 
         activeGrenades.push(grenade);
 
-        // Classic bomb falling whistle sound (high pitch to low glide)
+        // Soft descending grenade whistle
         let soundHandle = null;
         if (window.soundFX && typeof window.soundFX.playBombWhistle === 'function') {
             soundHandle = window.soundFX.playBombWhistle(1.6);
@@ -447,7 +447,7 @@
         const now = performance.now();
         if (now - (playerSoldier.lastJumpTime || 0) < 350) return;
         playerSoldier.lastJumpTime = now;
-        playerSoldier.vy = 5.8; // Vertical velocity (~0.9m jump clearance)
+        playerSoldier.vy = 6.8; // Vertical velocity (~0.9m jump clearance)
         playerSoldier.isGrounded = false;
     }
     window.soldierJump = soldierJump;
@@ -751,7 +751,7 @@
                 const perp = toEnemy.clone().sub(shootDir.clone().multiplyScalar(proj)).length();
                 if (perp < 0.65) { // Hit soldier torso/body cylinder
                     hitTarget = true;
-                    e.takeDamage(65); // Lethal in 1-2 shots
+                    e.takeDamage(52);
                     if (typeof window.showKillFeedBanner === 'function' && e.isDead) {
                         window.showKillFeedBanner('🎯 ENEMY INFANTRY ELIMINATED');
                     }

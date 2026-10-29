@@ -1689,14 +1689,7 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             offsets[idx * 4 + 0] = jx;
             offsets[idx * 4 + 1] = jz;
             offsets[idx * 4 + 2] = Math.random() * Math.PI * 2.0;
-            // Clumped wildflower distribution: 82% lush grass & ryegrass, 18% natural wildflower drifts
-            const clumpedFlower = Math.sin(jx * 0.14 + 0.5) * Math.cos(jz * 0.14 - 0.3);
-            const pick = Math.random();
-            let col = 0.0;
-            if (clumpedFlower > 0.38 && pick > 0.72) col = 3.0;      // Golden buttercup drift
-            else if (clumpedFlower < -0.35 && pick > 0.70) col = 2.0; // White chamomile daisy drift
-            else if (pick > 0.48) col = 1.0;                          // Ryegrass & seed plumes
-            offsets[idx * 4 + 3] = col;
+            offsets[idx * 4 + 3] = Math.random();
             idx++;
         }
     }
@@ -1704,7 +1697,7 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
         offsets[idx * 4 + 0] = (Math.random() - 0.5) * patchSize;
         offsets[idx * 4 + 1] = (Math.random() - 0.5) * patchSize;
         offsets[idx * 4 + 2] = Math.random() * Math.PI * 2.0;
-        offsets[idx * 4 + 3] = Math.random() > 0.5 ? 1.0 : 0.0;
+        offsets[idx * 4 + 3] = Math.random();
         idx++;
     }
 
@@ -1816,8 +1809,17 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
                 return;
             }
 
-            float sizeVar = 0.92 + 0.38 * fract(sin(dot(aInstanceData.xy, vec2(12.9898, 78.233))) * 43758.5453);
-            float colIdx = aInstanceData.w;
+            float tuftRandom = fract(sin(dot(aInstanceData.xy, vec2(12.9898, 78.233))) * 43758.5453);
+            float sizeVar = 0.92 + 0.38 * tuftRandom;
+            vec2 meadowPos = worldXZ + uSeedOffset;
+            float flowerPatch = valueNoise2D_gpu(meadowPos * 0.025) * 0.5 + 0.5;
+            float flowerChance = mix(0.008, 0.22, smoothstep(0.35, 0.75, flowerPatch));
+            float flowerColor = valueNoise2D_gpu(meadowPos * 0.045 + vec2(31.0, 17.0));
+            float colIdx = aInstanceData.w < flowerChance
+                ? (flowerColor < 0.0 ? 2.0 : 3.0)
+                : (aInstanceData.w < 0.55 ? 0.0 : 1.0);
+            float heightPatch = valueNoise2D_gpu(meadowPos * 0.035 + vec2(13.0, 47.0)) * 0.5 + 0.5;
+            float heightVar = (0.68 + 0.62 * tuftRandom) * (0.78 + 0.44 * heightPatch);
             vGrassAtlasUv = vec2(
                 (colIdx + clamp(uv.x, 0.02, 0.98)) * 0.25,
                 clamp(uv.y, 0.02, 0.98)
@@ -1832,7 +1834,7 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
 
             vec3 localP = transformed;
             localP.xz *= (0.85 + 0.30 * sizeVar);
-            localP.y *= (sizeVar * roadCull * waterCull * spawnCull * bldgCull); // Full natural height, zero ringFade squashing!
+            localP.y *= (heightVar * roadCull * waterCull * spawnCull * bldgCull);
 
             vec3 rotP;
 ` + (isBillboard ? `

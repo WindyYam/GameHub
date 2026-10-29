@@ -976,7 +976,7 @@ const soundFX = {
         latchOsc.stop(tLatch + 0.07);
     },
 
-    // Clear acoustic ordnance whistling sound effect (pure tonal descent, zero air whoosh)
+    // Soft descending whistle with an octave overtone
     playBombWhistle(duration = 1.4) {
         this.init();
         if (!this.enabled || !this.ctx) return null;
@@ -986,14 +986,14 @@ const soundFX = {
         // 1. Clean fundamental whistle oscillator (pure sine tone descending smoothly)
         const osc1 = this.ctx.createOscillator();
         osc1.type = 'sine';
-        osc1.frequency.setValueAtTime(2200, now);
-        osc1.frequency.exponentialRampToValueAtTime(460, now + dur);
+        osc1.frequency.setValueAtTime(720, now);
+        osc1.frequency.exponentialRampToValueAtTime(300, now + dur);
 
-        // 2. Subtle harmonic overtone for acoustic body (resonant metallic whistle tone)
+        // 2. Subtle octave overtone for acoustic body
         const osc2 = this.ctx.createOscillator();
         osc2.type = 'sine';
-        osc2.frequency.setValueAtTime(3300, now);
-        osc2.frequency.exponentialRampToValueAtTime(690, now + dur);
+        osc2.frequency.setValueAtTime(1440, now);
+        osc2.frequency.exponentialRampToValueAtTime(600, now + dur);
 
         const osc2Gain = this.ctx.createGain();
         osc2Gain.gain.setValueAtTime(0.18, now);
@@ -1001,8 +1001,8 @@ const soundFX = {
         // 3. Master gain envelope (smooth click-free entry and clean sustain)
         const masterGain = this.ctx.createGain();
         masterGain.gain.setValueAtTime(0.0001, now);
-        masterGain.gain.linearRampToValueAtTime(0.42, now + 0.04);
-        masterGain.gain.setValueAtTime(0.42, now + dur * 0.75);
+        masterGain.gain.linearRampToValueAtTime(0.09, now + 0.12);
+        masterGain.gain.setValueAtTime(0.09, now + dur * 0.75);
         masterGain.gain.exponentialRampToValueAtTime(0.0001, now + dur);
 
         osc1.connect(masterGain);
@@ -1015,20 +1015,15 @@ const soundFX = {
         osc1.stop(now + dur + 0.05);
         osc2.stop(now + dur + 0.05);
 
+        let stopped = false;
         return {
             stop: () => {
-                try {
-                    const stopTime = this.ctx.currentTime;
-                    masterGain.gain.cancelScheduledValues(stopTime);
-                    masterGain.gain.setValueAtTime(masterGain.gain.value, stopTime);
-                    masterGain.gain.exponentialRampToValueAtTime(0.0001, stopTime + 0.02);
-                    setTimeout(() => {
-                        try {
-                            osc1.stop();
-                            osc2.stop();
-                        } catch (e) {}
-                    }, 30);
-                } catch (e) {}
+                if (stopped) return;
+                stopped = true;
+                const stopTime = this.ctx.currentTime;
+                masterGain.gain.cancelScheduledValues(stopTime);
+                masterGain.gain.setValueAtTime(masterGain.gain.value, stopTime);
+                masterGain.gain.exponentialRampToValueAtTime(0.0001, stopTime + 0.02);
             }
         };
     }
