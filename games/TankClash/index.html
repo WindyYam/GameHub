@@ -56,6 +56,32 @@
             border: 1px solid rgba(255, 255, 255, 0.12);
             transition: all 0.15s ease;
         }
+        /* Mobile Performance: Disable expensive full-frame backdrop blur on mobile */
+        @media (max-width: 900px), (pointer: coarse) {
+            .hud-panel, .hud-btn, #mobile-actions button, #portrait-orientation-prompt {
+                backdrop-filter: none !important;
+                -webkit-backdrop-filter: none !important;
+            }
+            .hud-panel {
+                background: rgba(12, 16, 22, 0.88) !important;
+            }
+            .hud-btn {
+                background: rgba(20, 26, 35, 0.85) !important;
+            }
+        }
+        body.is-mobile .hud-panel,
+        body.is-mobile .hud-btn,
+        body.is-mobile #mobile-actions button,
+        body.is-mobile #portrait-orientation-prompt {
+            backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
+        }
+        body.is-mobile .hud-panel {
+            background: rgba(12, 16, 22, 0.88) !important;
+        }
+        body.is-mobile .hud-btn {
+            background: rgba(20, 26, 35, 0.85) !important;
+        }
         /* Mobile Portrait Orientation Prompt Overlay */
         @media (max-width: 900px) and (orientation: portrait) {
             body.is-mobile #portrait-orientation-prompt {
@@ -168,6 +194,12 @@
         <!-- 2. Actual 8.8cm KwK 36 Gun Bore Reticle (Dynamic Ballistic Circle converging onto Target) -->
         <div id="gun-bore-reticle" class="absolute -translate-x-1/2 -translate-y-1/2 w-7 h-7 rounded-full border-2 border-emerald-400 flex items-center justify-center transition-colors duration-75" style="left: 50%; top: 50%;">
             <div id="gun-bore-dot" class="w-2 h-2 bg-emerald-400 rounded-full"></div>
+        </div>
+
+        <!-- 3. Front Hull MG 34 Bow Mount Reticle (Shows physical swivel cone & impact point) -->
+        <div id="bow-mg-reticle" class="absolute -translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full border border-amber-400/80 flex items-center justify-center pointer-events-none transition-opacity duration-75" style="opacity: 0; left: 50%; top: 50%;">
+            <div class="w-1 h-1 bg-amber-400 rounded-full"></div>
+            <span class="absolute -bottom-3 text-[8px] mono text-amber-300/90 whitespace-nowrap font-bold tracking-tighter">BOW MG</span>
         </div>
     </div>
 
@@ -293,13 +325,13 @@
     <script src="js/audio.js"></script>
     <script src="js/shaders.js?v=opt2"></script>
     <script src="js/environment.js?v=opt2"></script>
-    <script src="js/tankTiger.js?v=opt2"></script>
+    <script src="js/tankTiger.js?v=bow1"></script>
     <script src="js/tankSherman.js?v=opt2"></script>
     <script src="js/tankT34.js?v=opt2"></script>
     <script src="js/tankModel.js?v=ai1"></script>
-    <script src="js/physics.js?v=hitbox1"></script>
+    <script src="js/physics.js?v=bow1"></script>
     <script src="js/enemyAI.js?v=hitbox1"></script>
     <script src="js/controls.js"></script>
-    <script src="js/main.js?v=opt2"></script>
+    <script src="js/main.js?v=bow1"></script>
 </body>
 </html>

@@ -2030,6 +2030,7 @@ class TerrainChunk {
     }
 
     populateChunkContent() {
+        const isMobile = (typeof window.isMobileBrowser === "function" && window.isMobileBrowser()) || (typeof window.isMobileDevice === "function" && window.isMobileDevice());
         const rng = createChunkRNG(this.cx, this.cz, currentSeed);
         const xMin = this.cx * CHUNK_SIZE;
         const zMin = this.cz * CHUNK_SIZE;
@@ -2190,7 +2191,7 @@ class TerrainChunk {
         // 2. MASSIVE LIMESTONE CRAGS & ROCK COVER
         // ---------------------------------------------------------------------
         this.rocks = [];
-        const rockCount = (distFromSpawn > 20 && !isVillage && rng() < 0.70) ? (1 + Math.floor(rng() * 2)) : 0;
+        const rockCount = (distFromSpawn > 20 && !isVillage && rng() < (isMobile ? 0.35 : 0.70)) ? (1 + Math.floor(rng() * (isMobile ? 1 : 2))) : 0;
         for (let r = 0; r < rockCount; r++) {
             let rx = xMin + (0.15 + rng() * 0.70) * CHUNK_SIZE;
             let rz = zMin + (0.15 + rng() * 0.70) * CHUNK_SIZE;
@@ -2241,6 +2242,7 @@ class TerrainChunk {
         } else {
             targetTreeCount = Math.floor(rng() * 3); // Open Meadow / Pasture (0 to 2 trees)
         }
+        if (isMobile) targetTreeCount = Math.ceil(targetTreeCount * 0.45);
 
         for (let t = 0; t < targetTreeCount; t++) {
             let tx = xMin + (0.08 + rng() * 0.84) * CHUNK_SIZE;
@@ -2313,12 +2315,11 @@ class TerrainChunk {
             treeGroup.scale.setScalar(scale);
 
             const treeMesh = new THREE.Mesh(treeGeo, treeMaterial);
-            treeMesh.castShadow = (distFromSpawn < 85);
+            treeMesh.castShadow = !isMobile && (distFromSpawn < 85);
             treeMesh.receiveShadow = true;
             treeGroup.add(treeMesh);
             this.group.add(treeGroup);
             this.raycastMeshes.push(treeMesh);
-            aimRaycastMeshes.push(treeMesh);
 
             const treeId = `${this.chunkKey}:t:${t}`;
             const wasFallen = sessionFallenTrees.has(treeId);
@@ -2373,7 +2374,7 @@ class TerrainChunk {
         if (bushGeos.length > 0) {
             const mergedBushes = mergeBufferGeometries(bushGeos);
             const bushMesh = new THREE.Mesh(mergedBushes, treeMaterial);
-            bushMesh.castShadow = (distFromSpawn < 65);
+            bushMesh.castShadow = !isMobile && (distFromSpawn < 65);
             bushMesh.receiveShadow = true;
             this.group.add(bushMesh);
         }
@@ -2460,9 +2461,13 @@ function updateTerrainChunks(playerX, playerZ) {
     const playerCZ = Math.floor(playerZ / CHUNK_SIZE);
     if (activeChunks.size > 0 && playerCX === activeChunkCenterX && playerCZ === activeChunkCenterZ) return;
 
-    // Load all chunks within VIEW_RADIUS (4 chunks = 320m)
-    for (let dx = -VIEW_RADIUS; dx <= VIEW_RADIUS; dx++) {
-        for (let dz = -VIEW_RADIUS; dz <= VIEW_RADIUS; dz++) {
+    const isMobile = (typeof window.isMobileBrowser === "function" && window.isMobileBrowser()) || (typeof window.isMobileDevice === "function" && window.isMobileDevice());
+    const currentViewRadius = isMobile ? 2 : VIEW_RADIUS;
+    const currentUnloadRadius = isMobile ? 3 : UNLOAD_RADIUS;
+
+    // Load all chunks within currentViewRadius
+    for (let dx = -currentViewRadius; dx <= currentViewRadius; dx++) {
+        for (let dz = -currentViewRadius; dz <= currentViewRadius; dz++) {
             const cx = playerCX + dx;
             const cz = playerCZ + dz;
             const key = `${cx},${cz}`;
@@ -2472,12 +2477,11 @@ function updateTerrainChunks(playerX, playerZ) {
         }
     }
 
-    // Only dispose chunks that are further than UNLOAD_RADIUS (5 chunks = 400m)
-    // This hysteresis prevents any popping/thrashing when driving near chunk boundaries
+    // Only dispose chunks that are further than currentUnloadRadius
     for (const [key, chunk] of activeChunks.entries()) {
         const distCX = Math.abs(chunk.cx - playerCX);
         const distCZ = Math.abs(chunk.cz - playerCZ);
-        if (distCX > UNLOAD_RADIUS || distCZ > UNLOAD_RADIUS) {
+        if (distCX > currentUnloadRadius || distCZ > currentUnloadRadius) {
             chunk.dispose();
             activeChunks.delete(key);
         }
@@ -2664,14 +2668,19 @@ function buildEnvironment(scene) {
         const tuftGeo = createCrossedTuftGeometry();
         const billboardGeo = createBillboardTuftGeometry();
 
-        grassLOD0Mesh = createTexturedToroidalGrass(tuftGeo, 16000, 96.0, 0.0, 48.0, false);
-        grassLOD0MidMesh = createTexturedToroidalGrass(tuftGeo, 10000, 192.0, 48.0, 98.0, false);
-        grassLOD0FarMesh = createTexturedToroidalGrass(billboardGeo, 8000, 384.0, 98.0, 195.0, true);
+        const isMobile = (typeof window.isMobileBrowser === "function" && window.isMobileBrowser()) || (typeof window.isMobileDevice === "function" && window.isMobileDevice());
+        const tuftCount = isMobile ? 5000 : 16000;
+        const midCount  = isMobile ? 3500 : 10000;
+        const farCount  = isMobile ? 0    : 8000;
+
+        grassLOD0Mesh = createTexturedToroidalGrass(tuftGeo, tuftCount, 96.0, 0.0, 48.0, false);
+        grassLOD0MidMesh = createTexturedToroidalGrass(tuftGeo, midCount, 192.0, 48.0, 98.0, false);
+        grassLOD0FarMesh = farCount > 0 ? createTexturedToroidalGrass(billboardGeo, farCount, 384.0, 98.0, 195.0, true) : new THREE.Group();
         grassLOD1Mesh = grassLOD0MidMesh;
 
         envGroup.add(grassLOD0Mesh);
         envGroup.add(grassLOD0MidMesh);
-        envGroup.add(grassLOD0FarMesh);
+        if (farCount > 0) envGroup.add(grassLOD0FarMesh);
 
         grassMeshRef = grassLOD0Mesh;
         window.grassLOD0Mesh = grassLOD0Mesh;

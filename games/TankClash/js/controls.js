@@ -28,6 +28,14 @@ function isMobileBrowser() {
     const hasTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
     return isMobileUA && hasTouch;
 }
+window.isMobileBrowser = isMobileBrowser;
+
+function isMobileDevice() {
+    if (isMobileBrowser()) return true;
+    const hasTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
+    return hasTouch && (window.innerWidth <= 900 || window.innerHeight <= 900);
+}
+window.isMobileDevice = isMobileDevice;
 
 function setCameraMode(mode) {
     cameraMode = mode;

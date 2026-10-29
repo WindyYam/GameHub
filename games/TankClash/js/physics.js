@@ -45,6 +45,8 @@ var tankState = {
     currentTankSpec: null,
     coaxMgCooldown: 0,
     bowMgCooldown: 0,
+    bowMgYaw: 0,
+    bowMgPitch: 0,
     mgHeat: 0,
     headlightsOn: false,
     hitsCount: 0,
@@ -557,7 +559,7 @@ function fireCoaxMG(tankModel) {
     spawnTracerRound(coaxPos, coaxDir, gunQuat);
 }
 
-// Fire Front Hull Kugelblende 50 Bow MG34
+// Fire Front Hull Ball-Mounted Bow Machine Gun (Kugelblende 50 / Bow MG) with Shoot Range Cone
 function fireBowMG(tankModel) {
     if (tankState.bowMgCooldown > 0 || tankState.mgHeat >= 100 || tankState.isKnockedOut) return;
     tankState.bowMgCooldown = 0.075;
@@ -565,20 +567,42 @@ function fireBowMG(tankModel) {
 
     soundFX.playMG34Shot();
     const tm = window.tankModel || tankModel;
-    if (!tm || !tm.bowMgBarrel || !tm.hullGroup) return;
+    const bGroup = tm ? (tm.bowMgGroup || window.bowMgGroup) : window.bowMgGroup;
+    const bBarrel = tm ? (tm.bowMgBarrel || window.bowMgBarrel) : window.bowMgBarrel;
+    const hGroup = tm ? (tm.hullGroup || window.hullGroup) : window.hullGroup;
+    if (!bGroup || !hGroup) return;
 
     const bowPos = new THREE.Vector3();
-    tm.bowMgBarrel.getWorldPosition(bowPos);
+    if (bBarrel) {
+        bBarrel.getWorldPosition(bowPos);
+    } else {
+        bGroup.getWorldPosition(bowPos);
+    }
+
+    // Swiveled aim angles within the ball-mount shoot range cone
+    const yaw = tankState.bowMgYaw || 0;
+    const pitch = tankState.bowMgPitch || 0;
+
+    // Cyclic machinegun muzzle spread (tight high-rpm conical dispersion)
+    const spreadYaw   = (Math.random() - 0.5) * 0.026;
+    const spreadPitch = (Math.random() - 0.5) * 0.022;
+
+    const effYaw = yaw + spreadYaw;
+    const effPitch = pitch + spreadPitch;
+
+    // Local firing direction vector in hull coordinate space
+    const localDir = new THREE.Vector3(
+        Math.sin(effYaw) * Math.cos(effPitch),
+        Math.sin(effPitch),
+        Math.cos(effYaw) * Math.cos(effPitch)
+    );
+
     const hullQuat = new THREE.Quaternion();
-    tm.hullGroup.getWorldQuaternion(hullQuat);
-    const bowDir = new THREE.Vector3(0, 0, 1).applyQuaternion(hullQuat).normalize();
+    hGroup.getWorldQuaternion(hullQuat);
+    const bowDir = localDir.applyQuaternion(hullQuat).normalize();
 
-    // Minor mechanical mount jitter
-    bowDir.x += (Math.random() - 0.5) * 0.025;
-    bowDir.y += (Math.random() - 0.5) * 0.022;
-    bowDir.normalize();
-
-    spawnTracerRound(bowPos, bowDir, hullQuat);
+    const tracerQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), bowDir);
+    spawnTracerRound(bowPos, bowDir, tracerQuat);
 }
 
 // Fire Turret-Mounted Nebelwurfgerät Smoke Grenade Dischargers

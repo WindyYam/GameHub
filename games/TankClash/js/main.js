@@ -204,8 +204,10 @@ const DAY_NIGHT_COLORS = {
 const sunLight = new THREE.DirectionalLight(0xfff1db, 1.45);
 sunLight.position.set(45, 55, 38);
 sunLight.castShadow = true;
-sunLight.shadow.mapSize.width = 2048;
-sunLight.shadow.mapSize.height = 2048;
+const isMobLight = (typeof isMobileBrowser === 'function' && isMobileBrowser()) || (typeof isMobileDevice === 'function' && isMobileDevice());
+const shadowRes = isMobLight ? 1024 : 2048;
+sunLight.shadow.mapSize.width = shadowRes;
+sunLight.shadow.mapSize.height = shadowRes;
 sunLight.shadow.camera.near = 5;
 sunLight.shadow.camera.far = 180;
 const d = 48;
@@ -265,6 +267,20 @@ if (seedBadge && window.currentSeed) {
 // MAIN SIMULATION & PHYSICS LOOP
 // ============================================================================
 let lastTime = performance.now();
+
+function getAimRaycastCandidates(originPos, maxDistSq = 62500) {
+    const list = window.aimRaycastMeshes || [];
+    if (list.length <= 40) return list;
+    const ox = originPos ? originPos.x : (tankState ? tankState.x : 0);
+    const oz = originPos ? originPos.z : (tankState ? tankState.z : 0);
+    return list.filter(m => {
+        if (!m.visible) return false;
+        const p = m.position;
+        const dx = p.x - ox;
+        const dz = p.z - oz;
+        return (dx * dx + dz * dz) < maxDistSq;
+    });
+}
 
 function updateSimulation(dt) {
     const nowSec = performance.now() * 0.001;
@@ -610,7 +626,8 @@ function updateSimulation(dt) {
         raycaster.setFromCamera(aimCursorNDC, currentActiveCam);
         let foundHit = false;
 
-        const hits = raycaster.intersectObjects(window.aimRaycastMeshes || [], false);
+        const aimCandidates = getAimRaycastCandidates(tankRoot.position);
+        const hits = raycaster.intersectObjects(aimCandidates, false);
         for (let i = 0; i < hits.length; i++) {
             if (hits[i].distance > 3.0) {
                 worldAimPoint.copy(hits[i].point);
@@ -667,6 +684,47 @@ function updateSimulation(dt) {
     gunElevationPivot.rotation.x = -tankState.gunElevation;
     turretGroup.updateMatrixWorld(true);
 
+    // --- 4b. FRONT HULL BOW MACHINE GUN (Kugelblende 50 / Ball Mount) SHOOT RANGE CONE ---
+    const curBowGroup = window.bowMgGroup || (window.tankModel && window.tankModel.bowMgGroup);
+    if (curBowGroup && hullGroup) {
+        const bowWorldPos = new THREE.Vector3();
+        curBowGroup.getWorldPosition(bowWorldPos);
+
+        const targetInHull = hullGroup.worldToLocal(worldAimPoint.clone());
+        const bowInHull = hullGroup.worldToLocal(bowWorldPos);
+
+        const dx = targetInHull.x - bowInHull.x;
+        const dy = targetInHull.y - bowInHull.y;
+        const dz = targetInHull.z - bowInHull.z;
+
+        let targetBowYaw = 0;
+        let targetBowPitch = 0;
+
+        if (dz > 0.15) {
+            targetBowYaw = Math.atan2(dx, dz);
+            const horizDist = Math.max(0.1, Math.hypot(dx, dz));
+            targetBowPitch = Math.atan2(dy, horizDist);
+        } else {
+            targetBowYaw = Math.sign(dx || 1) * THREE.MathUtils.degToRad(25.0);
+            targetBowPitch = 0;
+        }
+
+        // Clamp to physical ball mount cone limits (±25° yaw, -12° to +18° pitch)
+        const MAX_BOW_YAW = THREE.MathUtils.degToRad(25.0);
+        const MIN_BOW_PITCH = THREE.MathUtils.degToRad(-12.0);
+        const MAX_BOW_PITCH = THREE.MathUtils.degToRad(18.0);
+
+        const clampedBowYaw = THREE.MathUtils.clamp(targetBowYaw, -MAX_BOW_YAW, MAX_BOW_YAW);
+        const clampedBowPitch = THREE.MathUtils.clamp(targetBowPitch, MIN_BOW_PITCH, MAX_BOW_PITCH);
+
+        tankState.bowMgYaw = THREE.MathUtils.lerp(tankState.bowMgYaw || 0, clampedBowYaw, 16.0 * dt);
+        tankState.bowMgPitch = THREE.MathUtils.lerp(tankState.bowMgPitch || 0, clampedBowPitch, 16.0 * dt);
+
+        curBowGroup.rotation.y = tankState.bowMgYaw;
+        curBowGroup.rotation.x = -tankState.bowMgPitch;
+        curBowGroup.updateMatrixWorld(true);
+    }
+
     // --- 4. COMPUTE ACTUAL 8.8cm GUN BORE RAYCAST & PROJECT RETICLES ---
     const muzzleWorldPos = new THREE.Vector3();
     mainGunMuzzleTip.getWorldPosition(muzzleWorldPos);
@@ -676,7 +734,8 @@ function updateSimulation(dt) {
 
     raycaster.set(muzzleWorldPos, boreDir);
     let boreDist = 250.0;
-    const boreHits = raycaster.intersectObjects(window.aimRaycastMeshes || [], false);
+    const boreCandidates = getAimRaycastCandidates(muzzleWorldPos);
+    const boreHits = raycaster.intersectObjects(boreCandidates, false);
     if (boreHits.length > 0) {
         actualGunHitPoint.copy(boreHits[0].point);
         boreDist = boreHits[0].distance;
@@ -721,6 +780,37 @@ function updateSimulation(dt) {
             boreDotEl.className = `w-2 h-2 rounded-full ${aligned ? 'bg-emerald-400' : 'bg-amber-400'}`;
         } else {
             boreReticleEl.style.opacity = '0';
+        }
+
+        const bowReticleEl = document.getElementById('bow-mg-reticle');
+        if (bowReticleEl && curBowGroup && hullGroup) {
+            const yaw = tankState.bowMgYaw || 0;
+            const pitch = tankState.bowMgPitch || 0;
+            const localDir = new THREE.Vector3(
+                Math.sin(yaw) * Math.cos(pitch),
+                Math.sin(pitch),
+                Math.cos(yaw) * Math.cos(pitch)
+            );
+            const hQuat = new THREE.Quaternion();
+            hullGroup.getWorldQuaternion(hQuat);
+            const bowWorldDir = localDir.applyQuaternion(hQuat).normalize();
+
+            const bowWorldPos = new THREE.Vector3();
+            curBowGroup.getWorldPosition(bowWorldPos);
+            const bowAimTarget = bowWorldPos.clone().addScaledVector(bowWorldDir, 70.0);
+
+            const bowScreen = bowAimTarget.project(currentActiveCam);
+            if (bowScreen.z < 1.0) {
+                const bx = (bowScreen.x * 0.5 + 0.5) * window.innerWidth;
+                const by = (-bowScreen.y * 0.5 + 0.5) * window.innerHeight;
+                bowReticleEl.style.left = `${bx}px`;
+                bowReticleEl.style.top  = `${by}px`;
+                const isBowActive = isFiringBowMG || keys['g'];
+                bowReticleEl.style.opacity = isBowActive ? '1' : '0.7';
+                bowReticleEl.classList.toggle('scale-125', isBowActive);
+            } else {
+                bowReticleEl.style.opacity = '0';
+            }
         }
     }
 
@@ -1095,7 +1185,9 @@ const useSSAO = /[?&]ssao=1/.test(window.location.search);
 window.useSSAO = useSSAO;
 
 // Adaptive resolution: trade pixel density for a stable frame rate
-const adaptiveRes = { ratio: Math.min(window.devicePixelRatio, 1.5), max: Math.min(window.devicePixelRatio, 1.5), min: 0.7, avgMs: 16.7, cooldown: 0 };
+const isMobUser = (typeof isMobileBrowser === 'function' && isMobileBrowser()) || (typeof isMobileDevice === 'function' && isMobileDevice());
+const maxPixelRatio = isMobUser ? 1.0 : Math.min(window.devicePixelRatio || 1.5, 1.5);
+const adaptiveRes = { ratio: maxPixelRatio, max: maxPixelRatio, min: 0.65, avgMs: 16.7, cooldown: 0 };
 function updateAdaptiveResolution(frameMs) {
     adaptiveRes.avgMs = adaptiveRes.avgMs * 0.95 + Math.min(frameMs, 100) * 0.05;
     if (adaptiveRes.cooldown-- > 0) return;

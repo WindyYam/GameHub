@@ -74,11 +74,13 @@ function buildTigerTank(scene, mats, options = {}) {
     addPart(visorGroup, new THREE.BoxGeometry(0.48, 0.24, 0.12), mats.armor, 0, 0, 0);
     addPart(visorGroup, new THREE.BoxGeometry(0.32, 0.045, 0.14), mats.muzzleBlack, 0, 0.02, 0.01);
 
-    // Kugelblende 50 Ball-Mounted Bow MG34 (Front-Right, -X)
+    // Kugelblende 50 Fixed Armor Collar (fixed to glacis)
+    addPart(hullGroup, new THREE.CylinderGeometry(0.18, 0.21, 0.12, 18), mats.armor, -0.74, 0.44, 2.51, Math.PI / 2, 0, 0);
+
+    // Kugelblende 50 Swiveling Ball Mount & MG34 Barrel
     const bowMgGroup = new THREE.Group();
     bowMgGroup.position.set(-0.74, 0.44, 2.51);
     hullGroup.add(bowMgGroup);
-    addPart(bowMgGroup, new THREE.CylinderGeometry(0.18, 0.21, 0.12, 18), mats.armor, 0, 0, 0, Math.PI / 2, 0, 0);
     addPart(bowMgGroup, new THREE.SphereGeometry(0.13, 16, 16), mats.armorDark, 0, 0, 0.04);
     const bowMgBarrel = addPart(bowMgGroup, new THREE.CylinderGeometry(0.024, 0.028, 0.42, 10), mats.muzzleBlack, 0, 0, 0.22, Math.PI / 2, 0, 0);
 
@@ -410,14 +412,16 @@ function buildTigerTank(scene, mats, options = {}) {
         }
 
         const numLinks = 74;
-        for (let k = 0; k < numLinks; k++) {
-            const linkMesh = new THREE.Mesh(mergedTrackLinkGeo, mats.trackSteel);
-            linkMesh.castShadow = (k % 2 === 0);
-            linkMesh.receiveShadow = true;
-            linkMesh.position.x = trackX;
-            hullGroup.add(linkMesh);
-            trackChains[sideKey].push(linkMesh);
-        }
+        const trackInstMesh = new THREE.InstancedMesh(mergedTrackLinkGeo, mats.trackSteel, numLinks);
+        trackInstMesh.castShadow = true;
+        trackInstMesh.receiveShadow = true;
+        trackInstMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        hullGroup.add(trackInstMesh);
+        trackChains[sideKey] = {
+            instMesh: trackInstMesh,
+            trackX: trackX,
+            count: numLinks
+        };
     });
 
     const evaluateTrackPoint = function(sideKey, uNorm) {
@@ -454,21 +458,27 @@ function buildTigerTank(scene, mats, options = {}) {
         return { z: TIGER_TRACK_WAYPOINTS[0].x, y: TIGER_TRACK_WAYPOINTS[0].y, pitch: 0 };
     };
 
+    const dummyTigerLink = new THREE.Object3D();
     const updateTracksGeometry = function(leftPhase, rightPhase) {
         ['left', 'right'].forEach((sideKey) => {
-            const links = trackChains[sideKey];
+            const chain = trackChains[sideKey];
+            if (!chain || !chain.instMesh) return;
             const phase = (sideKey === 'left') ? leftPhase : rightPhase;
-            const n = links.length;
+            const n = chain.count;
+            const trackX = chain.trackX;
 
             for (let i = 0; i < n; i++) {
                 const u = (i / n + phase) % 1.0;
                 const pt = evaluateTrackPoint(sideKey, u);
-                links[i].position.z = pt.z;
-                links[i].position.y = pt.y;
-                links[i].rotation.x = pt.pitch;
+                dummyTigerLink.position.set(trackX, pt.y, pt.z);
+                dummyTigerLink.rotation.set(pt.pitch, 0, 0);
+                dummyTigerLink.updateMatrix();
+                chain.instMesh.setMatrixAt(i, dummyTigerLink.matrix);
             }
+            chain.instMesh.instanceMatrix.needsUpdate = true;
         });
     };
+    updateTracksGeometry(0, 0);
 
     return {
         tankRoot,
