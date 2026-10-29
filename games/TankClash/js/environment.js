@@ -558,6 +558,20 @@ const treeMaterial = new THREE.MeshStandardMaterial({
     envMapIntensity: GROUND_ENV_MAP_INTENSITY
 });
 
+let sharedTreeDepthMaterial = null;
+function getTreeDepthMaterial() {
+    if (!sharedTreeDepthMaterial) {
+        sharedTreeDepthMaterial = new THREE.MeshDepthMaterial({
+            depthPacking: THREE.RGBADepthPacking,
+            map: getBotanicalAtlas(),
+            alphaTest: 0.36,
+            side: THREE.DoubleSide
+        });
+    }
+    return sharedTreeDepthMaterial;
+}
+treeMaterial.customDepthMaterial = getTreeDepthMaterial();
+
 treeMaterial.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = terrainUniforms.uTime;
     shader.uniforms.uWindSpeed = terrainUniforms.uWindSpeed;
@@ -2316,8 +2330,9 @@ class TerrainChunk {
             treeGroup.scale.setScalar(scale);
 
             const treeMesh = new THREE.Mesh(treeGeo, treeMaterial);
-            treeMesh.castShadow = !isMobile && (distFromSpawn < 85);
+            treeMesh.castShadow = true;
             treeMesh.receiveShadow = true;
+            treeMesh.customDepthMaterial = getTreeDepthMaterial();
             treeGroup.add(treeMesh);
             this.group.add(treeGroup);
             this.raycastMeshes.push(treeMesh);
@@ -2375,8 +2390,9 @@ class TerrainChunk {
         if (bushGeos.length > 0) {
             const mergedBushes = mergeBufferGeometries(bushGeos);
             const bushMesh = new THREE.Mesh(mergedBushes, treeMaterial);
-            bushMesh.castShadow = !isMobile && (distFromSpawn < 65);
+            bushMesh.castShadow = true;
             bushMesh.receiveShadow = true;
+            bushMesh.customDepthMaterial = getTreeDepthMaterial();
             this.group.add(bushMesh);
         }
 
@@ -2537,7 +2553,7 @@ function hitTree(tree, hitDir, force = 3.5) {
     }
 
     if (window.soundFX && typeof window.soundFX.playTreeCrack === 'function') {
-        window.soundFX.playTreeCrack();
+        window.soundFX.playTreeCrack(impactPos);
     }
 }
 window.hitTree = hitTree;
@@ -2720,6 +2736,7 @@ function buildEnvironment(scene) {
     const sigMesh = new THREE.Mesh(sharedSpruceGeo, treeMaterial);
     sigMesh.castShadow = true;
     sigMesh.receiveShadow = true;
+    sigMesh.customDepthMaterial = getTreeDepthMaterial();
     sigGroup.add(sigMesh);
     envGroup.add(sigGroup);
     swayTrees.push({
@@ -2923,6 +2940,7 @@ function restartGame(customSeed) {
         window.tankState.hitsCount = 0;
         window.tankState.reloadTimer = 0;
         window.tankState.mgHeat = 0;
+        window.tankState.isKnockedOut = false;
 
         const spawnY = getTerrainHeight(0, 0);
         window.tankState.y = spawnY;
@@ -2959,6 +2977,8 @@ function restartGame(customSeed) {
     if (typeof window.resetEnemyTanks === 'function') window.resetEnemyTanks();
     if (typeof window.resetPlayerHealth === 'function') window.resetPlayerHealth();
     if (typeof window.resetSoldiers === 'function') window.resetSoldiers();
+    if (typeof window.resetPlayerSoldier === 'function') window.resetPlayerSoldier();
+    if (typeof window.hideKnockoutModal === 'function') window.hideKnockoutModal();
 
     const seedEl = document.getElementById('hud-seed-display');
     if (seedEl) seedEl.textContent = `Seed: ${seed}`;

@@ -210,7 +210,7 @@ sunLight.shadow.mapSize.width = shadowRes;
 sunLight.shadow.mapSize.height = shadowRes;
 sunLight.shadow.camera.near = 5;
 sunLight.shadow.camera.far = 180;
-const d = 48;
+const d = 58;
 sunLight.shadow.camera.left = -d;
 sunLight.shadow.camera.right = d;
 sunLight.shadow.camera.top = d;
@@ -366,6 +366,11 @@ function updateSimulation(dt) {
     const accel = F_net / mass;
     tankState.speed += accel * dt;
 
+    if (window.playerMode === 'soldier') {
+        tankState.speed = 0;
+        tankState.turnRate = 0;
+    }
+
     // Terminal velocity caps under extreme downhill runs
     const terminalMax = maxSpeed * 1.55;
     const terminalRev = revSpeed * 1.40;
@@ -422,8 +427,8 @@ function updateSimulation(dt) {
     }
 
     // Update Engine Audio
-    const speedRatio = Math.min(1, Math.abs(tankState.speed) / maxSpeed + Math.abs(tankState.turnRate) * 0.3);
-    soundFX.updateEngine(speedRatio, forwardInput !== 0 || turnInput !== 0);
+    const speedRatio = (window.playerMode === 'soldier') ? 0 : Math.min(1, Math.abs(tankState.speed) / maxSpeed + Math.abs(tankState.turnRate) * 0.3);
+    soundFX.updateEngine(speedRatio, (window.playerMode !== 'soldier') && (forwardInput !== 0 || turnInput !== 0));
 
     // --- 1b. TANK VS BUILDING COLLISION (Stop tank at solid house walls) ---
     const worldBldgs = window.worldBuildings || [];
@@ -690,7 +695,7 @@ function updateSimulation(dt) {
 
     // --- 4b. FRONT HULL BOW MACHINE GUN (Kugelblende 50 / Ball Mount) SHOOT RANGE CONE ---
     const curBowGroup = window.bowMgGroup || (window.tankModel && window.tankModel.bowMgGroup);
-    if (curBowGroup && hullGroup) {
+    if (curBowGroup && hullGroup && window.playerMode !== 'soldier') {
         const bowWorldPos = new THREE.Vector3();
         curBowGroup.getWorldPosition(bowWorldPos);
 
@@ -790,37 +795,6 @@ function updateSimulation(dt) {
         } else {
             boreReticleEl.style.opacity = '0';
         }
-
-        const bowReticleEl = document.getElementById('bow-mg-reticle');
-        if (bowReticleEl && curBowGroup && hullGroup) {
-            const yaw = tankState.bowMgYaw || 0;
-            const pitch = tankState.bowMgPitch || 0;
-            const localDir = new THREE.Vector3(
-                Math.sin(yaw) * Math.cos(pitch),
-                Math.sin(pitch),
-                Math.cos(yaw) * Math.cos(pitch)
-            );
-            const hQuat = new THREE.Quaternion();
-            hullGroup.getWorldQuaternion(hQuat);
-            const bowWorldDir = localDir.applyQuaternion(hQuat).normalize();
-
-            const bowWorldPos = new THREE.Vector3();
-            curBowGroup.getWorldPosition(bowWorldPos);
-            const bowAimTarget = bowWorldPos.clone().addScaledVector(bowWorldDir, 70.0);
-
-            const bowScreen = bowAimTarget.project(currentActiveCam);
-            if (bowScreen.z < 1.0) {
-                const bx = (bowScreen.x * 0.5 + 0.5) * window.innerWidth;
-                const by = (-bowScreen.y * 0.5 + 0.5) * window.innerHeight;
-                bowReticleEl.style.left = `${bx}px`;
-                bowReticleEl.style.top  = `${by}px`;
-                const isBowActive = isFiringBowMG || keys['g'];
-                bowReticleEl.style.opacity = isBowActive ? '1' : '0.7';
-                bowReticleEl.classList.toggle('scale-125', isBowActive);
-            } else {
-                bowReticleEl.style.opacity = '0';
-            }
-        }
     }
 
     // --- 5. 8.8cm BARREL RECOIL RECOVERY & WEAPON TIMERS ---
@@ -860,13 +834,21 @@ function updateSimulation(dt) {
         tankState.bowMgCooldown = Math.max(0, tankState.bowMgCooldown - dt);
     }
 
-    const isCoaxActive = isFiringCoaxMG || keys['f'];
-    const isBowActive  = isFiringBowMG  || keys['g'];
+    if (window.playerMode !== 'soldier') {
+        const isCoaxActive = isFiringCoaxMG || window.isFiringCoaxMG || keys['f'];
+        const isBowActive  = isFiringBowMG  || window.isFiringBowMG  || keys['g'];
 
-    if (isCoaxActive) fireCoaxMG();
-    if (isBowActive)  fireBowMG();
+        if (isCoaxActive) fireCoaxMG();
+        if (isBowActive)  fireBowMG();
 
-    if (!isCoaxActive && !isBowActive) {
+        if (!isCoaxActive && !isBowActive) {
+            tankState.mgHeat = Math.max(0, tankState.mgHeat - 25 * dt);
+        }
+    } else {
+        isFiringCoaxMG = false;
+        isFiringBowMG = false;
+        window.isFiringCoaxMG = false;
+        window.isFiringBowMG = false;
         tankState.mgHeat = Math.max(0, tankState.mgHeat - 25 * dt);
     }
 
@@ -1008,8 +990,11 @@ function updateSimulation(dt) {
     const lightDist = 95.0;
     const isSunActive = (sunY > -0.05);
     const celestialDir = isSunActive ? sunDir : moonDir;
-    sunLight.position.set(tankState.x + celestialDir.x * lightDist, tankState.y + celestialDir.y * lightDist, tankState.z + celestialDir.z * lightDist);
-    sunLight.target.position.set(tankState.x, tankState.y, tankState.z);
+    const focusX = (window.playerMode === 'soldier' && window.playerSoldier) ? window.playerSoldier.x : tankState.x;
+    const focusY = (window.playerMode === 'soldier' && window.playerSoldier) ? window.playerSoldier.y : tankState.y;
+    const focusZ = (window.playerMode === 'soldier' && window.playerSoldier) ? window.playerSoldier.z : tankState.z;
+    sunLight.position.set(focusX + celestialDir.x * lightDist, focusY + celestialDir.y * lightDist, focusZ + celestialDir.z * lightDist);
+    sunLight.target.position.set(focusX, focusY, focusZ);
     sunLight.target.updateMatrixWorld();
 
     // Maldive continuous atmospheric interpolation factors
@@ -1024,8 +1009,8 @@ function updateSimulation(dt) {
     sunLight.color.copy(isSunActive ? sunCol : MOON_LIGHT_COLOR);
     sunLight.intensity = isSunActive ? sunIntensity : moonIntensity;
 
-    // Only the sun casts shadows
-    sunLight.castShadow = isSunActive && sunLight.intensity > 0.15;
+    // Sun & Moonlight both cast dynamic battlefield shadows whenever celestial light is active
+    sunLight.castShadow = (sunLight.intensity > 0.12) && (celestialDir.y > 0.02);
 
     // Sky top & horizon colors calibrated from Maldive
     const skyHorizonColor = DAY_NIGHT_COLORS.nitHor.clone()

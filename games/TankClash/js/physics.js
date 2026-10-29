@@ -90,7 +90,7 @@ const PROJECTILE_POOL_LIMIT = 64;
 const smokePool = [];
 window.smokePool = smokePool;
 const reusableParticlePools = new Map();
-const PARTICLE_POOL_LIMIT = 64;
+const PARTICLE_POOL_LIMIT = 128;
 let particlePoolsPrewarmed = false;
 
 function getParticlePoolKey(type, isAdditive) {
@@ -310,7 +310,7 @@ function spawnShockwave(pos, maxRadius, duration, colorHex = 0xfde68a) {
 }
 
 // Universal Multi-Type Realistic Particle Spawner
-function spawnParticle(pos, vel, colorHex, startSize, endSize, life, isAdditive = false, type = 'smoke') {
+function spawnParticle(pos, vel, colorHex, startSize, endSize, life, isAdditive = false, type = 'smoke', extraOpts = null) {
     const currentScene = window.scene;
     if (!currentScene) return;
 
@@ -330,7 +330,9 @@ function spawnParticle(pos, vel, colorHex, startSize, endSize, life, isAdditive 
             if (mat.uniforms.ditherOffset) {
                 mat.uniforms.ditherOffset.value.set(0, 0);
             }
-            if (mat.uniforms.opacity) mat.uniforms.opacity.value = 0.88;
+            if (mat.uniforms.opacity) {
+                mat.uniforms.opacity.value = (extraOpts && extraOpts.maxOpacity !== undefined) ? extraOpts.maxOpacity : 0.88;
+            }
             mesh.visible = true;
         } else {
             mat = (window.createHaltonSmokeMaterial || window.createMaldiveSmokeMaterial)
@@ -362,8 +364,9 @@ function spawnParticle(pos, vel, colorHex, startSize, endSize, life, isAdditive 
                 (Math.random() - 0.5) * 2.5,
                 (Math.random() - 0.5) * 2.5
             ),
-            drag: 0.94,
-            buoyancy: 1.4,
+            drag: (extraOpts && extraOpts.drag !== undefined) ? extraOpts.drag : 0.94,
+            buoyancy: (extraOpts && extraOpts.buoyancy !== undefined) ? extraOpts.buoyancy : 1.4,
+            maxOpacity: (extraOpts && extraOpts.maxOpacity !== undefined) ? extraOpts.maxOpacity : 0.92,
             gravity: 0.0,
             isPooled: true
         });
@@ -417,7 +420,7 @@ function spawnParticle(pos, vel, colorHex, startSize, endSize, life, isAdditive 
 
 // Fire Main Tank Cannon (KwK 36 / 75mm M3 / 85mm ZiS-S-53)
 function fireMainCannon(tankModel) {
-    if (tankState.reloadTimer > 0 || tankState.isKnockedOut) return;
+    if (window.playerMode === 'soldier' || tankState.reloadTimer > 0 || tankState.isKnockedOut) return;
     if (typeof window.notifyPlayerFired === 'function') window.notifyPlayerFired();
     tankState.reloadTimer = tankState.RELOAD_TIME;
     tankState.reloadStage = 1;
@@ -518,7 +521,7 @@ function fireMainCannon(tankModel) {
     });
 }
 
-function spawnTracerRound(pos, dir, quat) {
+function spawnTracerRound(pos, dir, quat, isEnemy = false) {
     spawnParticle(pos, dir.clone().multiplyScalar(6), 0xfde047, 0.12, 0.30, 0.06, true, 'fire');
 
     const wrap = tracerPool.pop() || createTracerObject();
@@ -531,13 +534,14 @@ function spawnTracerRound(pos, dir, quat) {
         mesh: wrap,
         pos: pos.clone(),
         vel: dir.clone().multiplyScalar(765), // 765 m/s MG34 tracer velocity
-        life: 2.5
+        life: 2.5,
+        isEnemy: !!isEnemy
     });
 }
 
 // Fire Coaxial MG34 (Turret Mantlet)
 function fireCoaxMG(tankModel) {
-    if (tankState.coaxMgCooldown > 0 || tankState.mgHeat >= 100 || tankState.isKnockedOut) return;
+    if (window.playerMode === 'soldier' || tankState.coaxMgCooldown > 0 || tankState.mgHeat >= 100 || tankState.isKnockedOut) return;
     tankState.coaxMgCooldown = 0.075;
     tankState.mgHeat = Math.min(100, tankState.mgHeat + 1.8);
 
@@ -561,7 +565,7 @@ function fireCoaxMG(tankModel) {
 
 // Fire Front Hull Ball-Mounted Bow Machine Gun (Kugelblende 50 / Bow MG) with Shoot Range Cone
 function fireBowMG(tankModel) {
-    if (tankState.bowMgCooldown > 0 || tankState.mgHeat >= 100 || tankState.isKnockedOut) return;
+    if (window.playerMode === 'soldier' || tankState.bowMgCooldown > 0 || tankState.mgHeat >= 100 || tankState.isKnockedOut) return;
     tankState.bowMgCooldown = 0.075;
     tankState.mgHeat = Math.min(100, tankState.mgHeat + 1.8);
 
@@ -607,6 +611,7 @@ function fireBowMG(tankModel) {
 
 // Fire Turret-Mounted Nebelwurfgerät Smoke Grenade Dischargers
 function fireSmokeDischargers(tankModel) {
+    if (window.playerMode === 'soldier' || (window.tankState && window.tankState.isKnockedOut)) return;
     soundFX.playMG34Shot();
     const tm = window.tankModel || tankModel;
     if (!tm || !tm.smokeTubes) return;
@@ -628,8 +633,8 @@ function fireSmokeDischargers(tankModel) {
 }
 
 // High-Fidelity Multi-Stage Shell Detonation (Fireball, Shockwave, Sparks, Smoke Column)
-function triggerHeavyDetonation(pos) {
-    soundFX.playImpactExplosion();
+function triggerHeavyDetonation(pos, ignorePlayer = false) {
+    soundFX.playImpactExplosion(pos);
 
     // 1. Blinding Detonation Flash Light
     spawnDynamicFlash(pos, 0xfff08a, 24.0, 55.0, 0.18);
@@ -670,7 +675,10 @@ function triggerHeavyDetonation(pos) {
     }
 
     // Blast wave shrapnel damage to nearby soldiers
-    const blastSols = window.activeSoldiers || [];
+    const blastSols = [...(window.activeSoldiers || [])];
+    if (!ignorePlayer && window.playerMode === 'soldier' && window.playerSoldier && !window.playerSoldier.isDead) {
+        blastSols.push(window.playerSoldier);
+    }
     for (let bsi = 0; bsi < blastSols.length; bsi++) {
         const bsol = blastSols[bsi];
         if (!bsol || bsol.isDead) continue;
@@ -984,7 +992,10 @@ function updateProjectiles(dt) {
         }
 
         // D1. Active Soldiers (Direct cannon shell strike)
-        const activeSols = window.activeSoldiers || [];
+        const activeSols = [...(window.activeSoldiers || [])];
+        if (s.isEnemy && window.playerMode === 'soldier' && window.playerSoldier && !window.playerSoldier.isDead) {
+            activeSols.push(window.playerSoldier);
+        }
         for (let si = 0; si < activeSols.length; si++) {
             const sol = activeSols[si];
             if (!sol || sol.isDead) continue;
@@ -1126,7 +1137,7 @@ function updateProjectiles(dt) {
                     spawnParticle(impactPos, sVel, 0xfff08a, 0.12, 0.06, 0.4, true, 'spark');
                 }
                 if (window.soundFX && typeof window.soundFX.playArmorRicochet === 'function') {
-                    window.soundFX.playArmorRicochet();
+                    window.soundFX.playArmorRicochet(impactPos);
                 }
                 break;
             }
@@ -1134,11 +1145,37 @@ function updateProjectiles(dt) {
 
         // Check MG burst against active soldiers
         if (!hit) {
+            // Check player soldier if tracer is from an enemy combatant
+            if (tr.isEnemy && window.playerMode === 'soldier' && window.playerSoldier && !window.playerSoldier.isDead) {
+                const ps = window.playerSoldier;
+                const solCenterY = ps.y + 0.9;
+                const dCenterSq = (prevPos.x - ps.x) ** 2 + (prevPos.z - ps.z) ** 2;
+                if (dCenterSq <= (1.8 + trSegLen) ** 2) {
+                    const toSol = new THREE.Vector3(ps.x - prevPos.x, solCenterY - prevPos.y, ps.z - prevPos.z);
+                    let projT = 0;
+                    if (segLenSq > 0.0001) {
+                        projT = THREE.MathUtils.clamp(toSol.dot(seg) / segLenSq, 0, 1);
+                    }
+                    const closestPt = prevPos.clone().addScaledVector(seg, projT);
+                    const distSq = (closestPt.x - ps.x) ** 2 + (closestPt.y - solCenterY) ** 2 + (closestPt.z - ps.z) ** 2;
+                    if (distSq < 0.35) {
+                        hit = true;
+                        impactPos.copy(closestPt);
+                        if (typeof ps.takeDamage === 'function') {
+                            ps.takeDamage(25);
+                        }
+                        if (typeof window.spawnParticle === 'function') {
+                            window.spawnParticle(impactPos, tr.vel.clone().multiplyScalar(-0.06), 0x991b1b, 0.15, 0.25, 0.45, false, 'smoke');
+                        }
+                    }
+                }
+            }
+
             const mgSols = window.activeSoldiers || [];
-            for (let msi = 0; msi < mgSols.length; msi++) {
+            for (let msi = 0; !hit && msi < mgSols.length; msi++) {
                 const msol = mgSols[msi];
                 if (!msol || msol.isDead) continue;
-                if (!msol.isEnemy) continue; // Player machine gun only targets enemy soldiers
+                if (!tr.isEnemy && !msol.isEnemy) continue; // Player bullets only hit enemies
 
                 const solCenterY = msol.y + 0.9;
                 const dCenterSq = (prevPos.x - msol.x) ** 2 + (prevPos.z - msol.z) ** 2;
@@ -1379,7 +1416,8 @@ function updateParticles(dt) {
                     // Rapid initial puff-in, followed by smooth volumetric dissipation
                     const fadeIn = Math.min(1.0, progress * 6.0);
                     const fadeOut = Math.max(0.0, (1.0 - progress) / 0.50);
-                    p.mat.uniforms.opacity.value = Math.min(1.0, fadeIn * fadeOut) * 0.92;
+                    const maxOp = (p.maxOpacity !== undefined) ? p.maxOpacity : 0.92;
+                    p.mat.uniforms.opacity.value = Math.min(1.0, fadeIn * fadeOut) * maxOp;
                 }
             }
         } else {

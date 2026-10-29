@@ -6,6 +6,77 @@
 
     let playerMode = 'tank'; // 'tank' or 'soldier'
     let playerSoldier = null;
+
+    function onPlayerSoldierDamage(amount) {
+        if (!playerSoldier || playerSoldier.isDead) return;
+        playerSoldier.health = Math.max(0, playerSoldier.health - Math.round(amount));
+
+        // Flinch / kickback impulse
+        playerSoldier.speed = -0.8;
+        playerSoldier.recoilKick = 0.45;
+
+        const pPos = new THREE.Vector3(playerSoldier.x, playerSoldier.y + 1.1, playerSoldier.z);
+        // Blood/impact dust particles
+        if (typeof window.spawnParticle === 'function') {
+            for (let i = 0; i < 4; i++) {
+                const pVel = new THREE.Vector3((Math.random() - 0.5) * 2.0, 1.2 + Math.random() * 1.5, (Math.random() - 0.5) * 2.0);
+                window.spawnParticle(pPos, pVel, 0x881111, 0.12, 0.32, 0.4, false, 'smoke');
+            }
+        }
+
+        // Red damage screen flash
+        if (typeof window.showDamageFlash === 'function') {
+            window.showDamageFlash(playerSoldier.health <= 0 ? 0.8 : 0.45);
+        }
+
+        // Ricochet / hit sound
+        if (window.soundFX && typeof window.soundFX.playArmorRicochet === 'function') {
+            window.soundFX.playArmorRicochet(pPos);
+        }
+
+        // Update HUD
+        const hudArmor = document.getElementById('hud-armor');
+        if (hudArmor) {
+            hudArmor.textContent = `HP: ${playerSoldier.health}/100`;
+            hudArmor.className = playerSoldier.health > 40 ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold';
+        }
+
+        if (playerSoldier.health <= 0) {
+            onPlayerSoldierDie();
+        } else {
+            if (typeof window.showKillFeedBanner === 'function') {
+                window.showKillFeedBanner(`⚠️ INFANTRY HIT! (HP: ${playerSoldier.health}/100)`);
+            }
+        }
+    }
+    window.damagePlayerSoldier = onPlayerSoldierDamage;
+
+    function onPlayerSoldierDie() {
+        if (!playerSoldier || playerSoldier.isDead) return;
+        playerSoldier.isDead = true;
+        playerSoldier.speed = 0;
+
+        // Sprawl limp ragdoll pose on ground
+        if (playerSoldier.rig) {
+            playerSoldier.rig.hips.position.y = 0.14;
+            playerSoldier.rig.hips.rotation.x = -Math.PI * 0.48;
+            playerSoldier.rig.hips.rotation.z = (Math.random() - 0.5) * 0.6;
+            playerSoldier.rig.head.rotation.x = -0.3;
+            if (playerSoldier.rig.rightArm && playerSoldier.rig.rightArm.shoulder) {
+                playerSoldier.rig.rightArm.shoulder.rotation.set(-0.25, 0, -1.2);
+            }
+        }
+
+        if (typeof window.showKillFeedBanner === 'function') {
+            window.showKillFeedBanner('☠️ KILLED IN ACTION (INFANTRY CASUALTY)');
+        }
+
+        setTimeout(() => {
+            if (typeof window.showKnockoutModal === 'function') {
+                window.showKnockoutModal();
+            }
+        }, 1200);
+    }
     let currentInteractAction = null; // null, { type: 'mount' }, { type: 'hijack', enemyTank }, { type: 'dismount' }
     let lastInteractCheck = 0;
 
@@ -90,6 +161,8 @@
         }
         const camFpvBtn = document.getElementById('cam-fpv');
         if (camFpvBtn) camFpvBtn.classList.toggle('hidden', isInfantry);
+        const tankSelector = document.getElementById('panel-tank-selector');
+        if (tankSelector) tankSelector.classList.toggle('hidden', isInfantry);
 
         // 2. Mobile Jump & Grenade buttons
         const mobJump = document.getElementById('mob-btn-jump');
@@ -103,6 +176,14 @@
             const el = document.getElementById(id);
             if (el) el.classList.toggle('hidden', isInfantry);
         });
+
+        const hudArmor = document.getElementById('hud-armor');
+        if (hudArmor) {
+            if (isInfantry && playerSoldier) {
+                hudArmor.textContent = `HP: ${playerSoldier.health}/100`;
+                hudArmor.className = playerSoldier.health > 40 ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold';
+            }
+        }
 
         // 4. Update Main Fire button label/icon
         const mobFireIcon = document.getElementById('mob-fire-icon');
@@ -170,7 +251,7 @@
         if (playerMode !== 'soldier' || !playerSoldier || playerSoldier.isDead) return;
         const now = performance.now();
         if (playerSoldier.lastGrenadeTime && (now - playerSoldier.lastGrenadeTime < 1100)) return;
-        playerSoldier.lastGrenadeTime = now;
+        playerSoldier.lastGrenadeTime = (window.performance && window.performance.now) ? window.performance.now() * 0.001 : Date.now() * 0.001;
 
         const s = playerSoldier;
         const cam = window.activeCamera || window.perspCamera;
@@ -182,11 +263,14 @@
         // Spawn grenade slightly in front of soldier chest
         const spawnPos = new THREE.Vector3(s.x, s.y + 1.35, s.z).add(camDir.clone().multiplyScalar(0.45));
         
-        // Arc trajectory: along look direction + 28% upward pitch
-        const throwVel = camDir.clone().normalize();
-        throwVel.y += 0.28;
-        throwVel.normalize();
-        throwVel.multiplyScalar(22.0); // 22 m/s throwing speed
+        // 3D aim-directed trajectory: launched noticeably higher than cursor direction with stronger velocity
+        const aimDist = 32.0;
+        const aimTarget = cam.position.clone().add(camDir.clone().multiplyScalar(aimDist));
+        const throwDir = aimTarget.clone().sub(spawnPos).normalize();
+        // Pitch launch vector higher than cursor (+0.26 upward lob bias)
+        throwDir.y += 0.26;
+        throwDir.normalize();
+        throwDir.multiplyScalar(25.0); // Stronger throw velocity (25 m/s)
 
         const mesh = buildGrenadeMesh();
         mesh.position.copy(spawnPos);
@@ -195,10 +279,11 @@
         const grenade = {
             mesh,
             pos: spawnPos.clone(),
-            vel: throwVel,
+            vel: throwDir,
             rotVel: new THREE.Vector3((Math.random() - 0.5) * 12 + 6, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8),
-            timer: 2.2, // 2.2s fuse
-            exploded: false
+            timer: 3.0, // 3.0s fuse for high-arc 25m/s throw
+            exploded: false,
+            isPlayerGrenade: true
         };
 
         activeGrenades.push(grenade);
@@ -232,9 +317,10 @@
 
         // 1. Heavy Detonation Effects (Flash, Shockwave, Fireball, Billowing Smoke)
         if (typeof window.triggerHeavyDetonation === 'function') {
-            window.triggerHeavyDetonation(blastPos);
+            // ignorePlayer = true so player's own grenade won't kill/damage player soldier
+            window.triggerHeavyDetonation(blastPos, true);
         } else if (window.soundFX && typeof window.soundFX.playExplosion === 'function') {
-            window.soundFX.playExplosion();
+            window.soundFX.playExplosion(blastPos);
         }
 
         // Screen shake if near player
@@ -291,8 +377,8 @@
 
             g.timer -= dt;
 
-            // Gravity
-            g.vel.y -= 19.6 * dt;
+            // Gravity (smoother trajectory for far throws)
+            g.vel.y -= 12.0 * dt;
             g.pos.addScaledVector(g.vel, dt);
 
             // Mesh rotation
@@ -373,9 +459,16 @@
         if (playerMode === 'soldier') return;
         if (!window.tankState) return;
 
-        // Bring tank to a standstill
+        // Bring tank to a standstill and clear all weapon firing flags
         window.tankState.speed = 0;
         window.tankState.turnRate = 0;
+        if (typeof window.isFiringCoaxMG !== 'undefined') window.isFiringCoaxMG = false;
+        if (typeof window.isFiringBowMG !== 'undefined') window.isFiringBowMG = false;
+        if (window.keys) {
+            window.keys['f'] = false;
+            window.keys['g'] = false;
+            window.keys[' '] = false;
+        }
 
         const faction = getPlayerFaction();
         if (typeof window.buildSoldier !== 'function') {
@@ -407,6 +500,7 @@
             isGrounded: true,
             lastJumpTime: 0,
             lastGrenadeTime: 0,
+            lastFireTime: 0,
             heading: tH,
             speed: 0,
             health: 100,
@@ -416,7 +510,9 @@
             recoilKick: 0,
             fireCooldown: 0,
             faction,
-            rig
+            rig,
+            takeDamage: function(amount) { onPlayerSoldierDamage(amount); },
+            die: function() { onPlayerSoldierDie(); }
         };
 
         playerMode = 'soldier';
@@ -446,6 +542,12 @@
     // ------------------------------------------------------------------------
     function mountTank() {
         if (playerMode !== 'soldier' || !playerSoldier) return;
+        if (window.tankState && window.tankState.isKnockedOut) {
+            if (typeof window.showKillFeedBanner === 'function') {
+                window.showKillFeedBanner('⚠️ TANK IS DESTROYED! SNEAK & HIJACK AN ENEMY TANK [E]');
+            }
+            return;
+        }
 
         if (playerSoldier.rig && playerSoldier.rig.root && window.scene) {
             window.scene.remove(playerSoldier.rig.root);
@@ -455,6 +557,13 @@
 
         playerMode = 'tank';
         window.playerMode = 'tank';
+        if (typeof window.isFiringCoaxMG !== 'undefined') window.isFiringCoaxMG = false;
+        if (typeof window.isFiringBowMG !== 'undefined') window.isFiringBowMG = false;
+        if (window.keys) {
+            window.keys['f'] = false;
+            window.keys['g'] = false;
+            window.keys[' '] = false;
+        }
 
         if (window.camOrbit) {
             window.camOrbit.distance = 10.5;
@@ -469,9 +578,10 @@
         hideInteractPrompt();
 
         syncInfantryUI(false);
+        if (typeof window.updateArmorHUD === 'function') window.updateArmorHUD();
 
         if (typeof window.showKillFeedBanner === 'function') {
-            window.showKillFeedBanner('🚗 RETURNED TO TANK COMMAND');
+            window.showKillFeedBanner('🚗 TANK HIJACKED! ENEMY CREW DRIVER EJECTED!');
         }
     }
 
@@ -518,6 +628,12 @@
         // 2. Sound effect & sparks
         if (window.soundFX && typeof window.soundFX.playArmorRicochet === 'function') {
             window.soundFX.playArmorRicochet();
+        }
+
+        // Eject the enemy driver soldier out onto the battlefield!
+        const enemyFaction = enemyTank.faction || (capturedType === 'tiger' ? 'german' : (capturedType === 't34' ? 'soviet' : 'us'));
+        if (typeof window.spawnEjectedDriver === 'function') {
+            window.spawnEjectedDriver(capturedX, capturedZ, capturedHeading, enemyFaction);
         }
 
         // 3. Switch player tank to captured vehicle type
@@ -587,6 +703,7 @@
 
         playerSoldier.fireCooldown = 0.65;
         playerSoldier.recoilKick = 0.35;
+        playerSoldier.lastFireTime = (window.performance && window.performance.now) ? window.performance.now() * 0.001 : Date.now() * 0.001;
 
         // Gunshot audio
         if (window.soundFX && typeof window.soundFX.playRifleShot === 'function') {
@@ -663,6 +780,9 @@
                                 window.spawnParticle(hitPos, sparkVel, 0xffcc33, 0.08, 0.03, 0.25, true, 'spark');
                             }
                         }
+                        if (window.soundFX && typeof window.soundFX.playArmorRicochet === 'function') {
+                            window.soundFX.playArmorRicochet(hitPos);
+                        }
                         break;
                     }
                 }
@@ -684,9 +804,16 @@
         s.recoilKick = Math.max(0, s.recoilKick - dt * 5.0);
 
         // 1. WASD Input relative to Camera Look Direction
-        const fwdInput = ((keys['w'] ? 1 : 0) - (keys['s'] ? 1 : 0)) + (window.touchDrive ? window.touchDrive.forward : 0);
-        const strInput = ((keys['d'] ? 1 : 0) - (keys['a'] ? 1 : 0)) + (window.touchDrive ? window.touchDrive.turn : 0);
-        const isSprinting = !!keys['shift'];
+        const stickForward = window.touchDrive ? (window.touchDrive.forward || 0) : 0;
+        const stickStrafe  = window.touchDrive ? ((window.touchDrive.strafe !== undefined) ? window.touchDrive.strafe : -(window.touchDrive.turn || 0)) : 0;
+
+        const fwdInput = ((keys['w'] ? 1 : 0) - (keys['s'] ? 1 : 0)) + stickForward;
+        const strInput = ((keys['d'] ? 1 : 0) - (keys['a'] ? 1 : 0)) + stickStrafe;
+
+        const stickMag = window.touchDrive ? (window.touchDrive.magnitude || Math.hypot(stickForward, stickStrafe)) : 0;
+        const isStickRunning = (window.touchDrive && window.touchDrive.isMax) || (stickMag >= 0.85);
+
+        const isSprinting = !!keys['shift'] || isStickRunning;
         const moveSpeed = isSprinting ? 5.2 : 2.8;
 
         const camTheta = (window.camOrbit && window.camOrbit.theta !== undefined) ? window.camOrbit.theta : s.heading;
@@ -773,6 +900,13 @@
             rig.torso.rotation.y = -0.40;
             rig.head.rotation.y = 0.40;
 
+            // Pitch upper body & head according to camera look direction
+            const camLookDir = new THREE.Vector3();
+            currentActiveCam.getWorldDirection(camLookDir);
+            const camPitch = Math.asin(THREE.MathUtils.clamp(camLookDir.y, -0.99, 0.99));
+            rig.torso.rotation.x = -camPitch * 0.45;
+            rig.head.rotation.x = -camPitch * 0.35;
+
             // Right arm firmly shoulders the rifle
             rig.rightArm.shoulder.rotation.set(-0.70, 0.12, -0.22);
             rig.rightArm.elbow.rotation.x = -1.70;
@@ -784,11 +918,15 @@
             rig.rightArm.wrist.updateMatrixWorld(true);
 
             // Orient rifle directly along camera forward vector with sight upright
-            const camLookDir = new THREE.Vector3();
-            currentActiveCam.getWorldDirection(camLookDir);
             const fwd = camLookDir.clone().normalize();
             const worldUp = new THREE.Vector3(0, 1, 0);
-            const right = new THREE.Vector3().crossVectors(worldUp, fwd).normalize();
+            let right = new THREE.Vector3().crossVectors(worldUp, fwd);
+            if (right.lengthSq() < 0.0001) {
+                const camTheta = (window.camOrbit && window.camOrbit.theta !== undefined) ? window.camOrbit.theta : s.heading;
+                right.set(Math.cos(camTheta), 0, -Math.sin(camTheta));
+            } else {
+                right.normalize();
+            }
             const realUp = new THREE.Vector3().crossVectors(fwd, right).normalize();
             const rotMat = new THREE.Matrix4().makeBasis(right, realUp, fwd);
             const targetWorldQuat = new THREE.Quaternion().setFromRotationMatrix(rotMat);
@@ -851,14 +989,28 @@
                 -Math.sin(phi) * Math.cos(theta)
             ).normalize();
 
-            // Place camera behind soldier with slight right-shoulder offset
-            const rightOffset = new THREE.Vector3(-lookDir.z, 0, lookDir.x).normalize().multiplyScalar(0.45);
-            const camPos = anchor.clone().addScaledVector(lookDir, -dist).add(rightOffset).add(new THREE.Vector3(0, 0.35, 0));
+            // Over-the-shoulder right offset: stable at all phi angles
+            const rightOffset = new THREE.Vector3(Math.cos(theta), 0, -Math.sin(theta)).multiplyScalar(0.45);
 
-            const minCamY = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(camPos.x, camPos.z) + 0.35 : 1;
-            if (camPos.y < minCamY) camPos.y = minCamY;
+            // Dynamically adjust distance if camera descends close to ground when looking high up
+            const groundAtSoldier = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(s.x, s.z) : 0;
+            const minCamY = groundAtSoldier + 0.35;
 
-            const lookTarget = anchor.clone().add(rightOffset.clone().multiplyScalar(0.4)).addScaledVector(lookDir, 40.0);
+            let effectiveDist = dist;
+            if (lookDir.y > 0.05) {
+                const maxDrop = (anchor.y + 0.35) - minCamY;
+                if (maxDrop > 0.4) {
+                    effectiveDist = Math.max(1.1, Math.min(dist, maxDrop / lookDir.y));
+                }
+            }
+
+            const camPos = anchor.clone().addScaledVector(lookDir, -effectiveDist).add(rightOffset).add(new THREE.Vector3(0, 0.35, 0));
+
+            // Terrain safety clearance
+            const terrainUnderCam = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(camPos.x, camPos.z) + 0.30 : 0.8;
+            if (camPos.y < terrainUnderCam) camPos.y = terrainUnderCam;
+
+            const lookTarget = anchor.clone().add(rightOffset.clone().multiplyScalar(0.4)).addScaledVector(lookDir, 50.0);
             currentActiveCam.position.copy(camPos);
             currentActiveCam.lookAt(lookTarget);
             currentActiveCam.updateMatrixWorld();
@@ -908,7 +1060,8 @@
                 return;
             }
 
-            if (dOwn < 4.2) {
+            const ownTankDestroyed = !!(window.tankState && window.tankState.isKnockedOut);
+            if (dOwn < 4.2 && !ownTankDestroyed) {
                 currentInteractAction = { type: 'mount' };
                 showInteractPrompt('🚗 MOUNT TANK', '🚗', false);
                 return;
@@ -979,6 +1132,19 @@
     // ------------------------------------------------------------------------
     // WINDOW EXPORTS
     // ------------------------------------------------------------------------
+    function resetPlayerSoldier() {
+        if (playerSoldier && playerSoldier.rig && playerSoldier.rig.root && window.scene) {
+            window.scene.remove(playerSoldier.rig.root);
+        }
+        playerSoldier = null;
+        window.playerSoldier = null;
+        playerMode = 'tank';
+        window.playerMode = 'tank';
+        if (crosshairEl) crosshairEl.classList.add('hidden');
+        syncInfantryUI(false);
+        if (typeof window.hideKnockoutModal === 'function') window.hideKnockoutModal();
+    }
+    window.resetPlayerSoldier = resetPlayerSoldier;
     window.playerMode = playerMode;
     window.dismountTank = dismountTank;
     window.mountTank = mountTank;

@@ -20,7 +20,7 @@ var actualGunHitPoint = new THREE.Vector3(0, 1.5, 60);
 var keys = {};
 var isFiringCoaxMG = false;
 var isFiringBowMG = false;
-var touchDrive = { forward: 0, turn: 0 };
+var touchDrive = { forward: 0, turn: 0, strafe: 0, magnitude: 0, isMax: false };
 
 function isMobileBrowser() {
     const ua = (navigator.userAgent || navigator.vendor || window.opera || '').toLowerCase();
@@ -91,18 +91,24 @@ function initControls(renderer) {
                 if (typeof window.throwPlayerGrenade === 'function') window.throwPlayerGrenade();
             } else {
                 isFiringBowMG = true;
+                window.isFiringBowMG = true;
             }
         }
-        if (k === 'f') { if (window.playerMode !== 'soldier') isFiringCoaxMG = true; }
+        if (k === 'f') {
+            if (window.playerMode !== 'soldier') {
+                isFiringCoaxMG = true;
+                window.isFiringCoaxMG = true;
+            }
+        }
         if (k === 'x') { if (window.playerMode !== 'soldier') fireSmokeDischargers(); }
-        if (k === 'h') toggleHeadlights();
+        if (k === 'h') { if (window.playerMode !== 'soldier') toggleHeadlights(); }
         if (k === 'b') { if (typeof window.toggleGrass === 'function') window.toggleGrass(); }
         if (k === 'e') { if (typeof window.triggerInteract === 'function') window.triggerInteract(); }
         if (k === 'r') { if (typeof window.restartGame === 'function') window.restartGame(); }
         if (k === 't') { if (window.dayNight && window.dayNight.cycleNext) window.dayNight.cycleNext(); }
-        if (k === '1') { if (typeof window.switchTank === 'function') window.switchTank('tiger'); }
-        if (k === '2') { if (typeof window.switchTank === 'function') window.switchTank('sherman'); }
-        if (k === '3') { if (typeof window.switchTank === 'function') window.switchTank('t34'); }
+        if (k === '1') { if (window.playerMode !== 'soldier' && typeof window.switchTank === 'function') window.switchTank('tiger'); }
+        if (k === '2') { if (window.playerMode !== 'soldier' && typeof window.switchTank === 'function') window.switchTank('sherman'); }
+        if (k === '3') { if (window.playerMode !== 'soldier' && typeof window.switchTank === 'function') window.switchTank('t34'); }
         if (k === '5' || k === 'v' || k === 'c') {
             if (window.playerMode !== 'soldier') {
                 setCameraMode(cameraMode === 'fpv' ? 'orbit' : 'fpv');
@@ -120,8 +126,8 @@ function initControls(renderer) {
     window.addEventListener('keyup', (e) => {
         const k = e.key.toLowerCase();
         keys[k] = false;
-        if (k === 'g') { if (window.playerMode !== 'soldier') isFiringBowMG = false; }
-        if (k === 'f') isFiringCoaxMG = false;
+        if (k === 'g') { isFiringBowMG = false; window.isFiringBowMG = false; }
+        if (k === 'f') { isFiringCoaxMG = false; window.isFiringCoaxMG = false; }
     });
 
     renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -161,12 +167,15 @@ function initControls(renderer) {
                 if (zoomEl) zoomEl.textContent = 'OPTICAL 3.5× [ZOOMED]';
             } else {
                 isFiringCoaxMG = true;
+                window.isFiringCoaxMG = true;
             }
         }
     });
 
     window.addEventListener('mouseup', (e) => {
         if (e.button === 2) {
+            isFiringCoaxMG = false;
+            window.isFiringCoaxMG = false;
             if (window.playerMode !== 'soldier') {
                 if (cameraMode === 'fpv') {
                     isFpvZoomed = false;
@@ -175,7 +184,6 @@ function initControls(renderer) {
                     const zoomEl = document.getElementById('fpv-svg-zoom');
                     if (zoomEl) zoomEl.textContent = 'OPTICAL 1.0× [HOLD RMB / SCROLL: 3.5× ZOOM]';
                 }
-                isFiringCoaxMG = false;
             }
         }
     });
@@ -215,13 +223,19 @@ function initControls(renderer) {
             } else {
                 const sens = 0.0032;
                 camOrbit.theta -= dx * sens;
-                camOrbit.phi = THREE.MathUtils.clamp(camOrbit.phi - dy * sens, 0.45, 1.85);
+                const minPhi = (window.playerMode === 'soldier') ? 0.18 : 0.45;
+                const maxPhi = (window.playerMode === 'soldier') ? 2.90 : 1.85;
+                camOrbit.phi = THREE.MathUtils.clamp(camOrbit.phi - dy * sens, minPhi, maxPhi);
             }
         }
         aimCursorNDC.set(0, 0);
     });
 
     window.addEventListener('wheel', (e) => {
+        if (window.playerMode === 'soldier') {
+            camOrbit.distance = THREE.MathUtils.clamp(camOrbit.distance + e.deltaY * 0.004, 1.8, 6.0);
+            return;
+        }
         if (cameraMode === 'fpv') {
             window.perspCamera.fov = THREE.MathUtils.clamp(window.perspCamera.fov + e.deltaY * 0.03, 12, 55);
             window.perspCamera.updateProjectionMatrix();
@@ -266,16 +280,23 @@ function initControls(renderer) {
 
         const normX = dx / maxRadius;
         const normY = dy / maxRadius;
+        const mag = Math.min(1.0, Math.hypot(normX, normY));
 
         // Deadzone threshold of 0.08
-        touchDrive.forward = (Math.abs(normY) > 0.08) ? -normY : 0;
-        touchDrive.turn    = (Math.abs(normX) > 0.08) ? -normX : 0;
+        touchDrive.forward   = (Math.abs(normY) > 0.08) ? -normY : 0;
+        touchDrive.turn      = (Math.abs(normX) > 0.08) ? -normX : 0;
+        touchDrive.strafe    = (Math.abs(normX) > 0.08) ? normX : 0;
+        touchDrive.magnitude = (mag > 0.08) ? mag : 0;
+        touchDrive.isMax     = mag >= 0.85;
     }
 
     function resetJoystick() {
         if (joystickKnob) joystickKnob.style.transform = 'translate(-50%, -50%)';
-        touchDrive.forward = 0;
-        touchDrive.turn = 0;
+        touchDrive.forward   = 0;
+        touchDrive.turn      = 0;
+        touchDrive.strafe    = 0;
+        touchDrive.magnitude = 0;
+        touchDrive.isMax     = false;
         activeJoystickTouchId = null;
     }
 
@@ -362,7 +383,9 @@ function initControls(renderer) {
                     } else {
                         const sens = 0.0055;
                         camOrbit.theta -= dx * sens;
-                        camOrbit.phi = THREE.MathUtils.clamp(camOrbit.phi - dy * sens, 0.45, 1.85);
+                        const minPhi = (window.playerMode === 'soldier') ? 0.18 : 0.45;
+                        const maxPhi = (window.playerMode === 'soldier') ? 2.90 : 1.85;
+                        camOrbit.phi = THREE.MathUtils.clamp(camOrbit.phi - dy * sens, minPhi, maxPhi);
                     }
                     break;
                 }
@@ -414,6 +437,7 @@ function initControls(renderer) {
     document.querySelectorAll('.tank-select-btn').forEach((btn) => {
         btn.onclick = (e) => {
             e.preventDefault();
+            if (window.playerMode === 'soldier') return;
             const tid = btn.getAttribute('data-tank');
             if (tid && typeof window.switchTank === 'function') {
                 window.switchTank(tid);
@@ -425,7 +449,7 @@ function initControls(renderer) {
     if (btnOrbit) btnOrbit.onclick = () => setCameraMode('orbit');
 
     const btnFpv = document.getElementById('cam-fpv');
-    if (btnFpv) btnFpv.onclick = () => setCameraMode('fpv');
+    if (btnFpv) btnFpv.onclick = () => { if (window.playerMode !== 'soldier') setCameraMode('fpv'); };
 
     const audioBtn = document.getElementById('audio-toggle');
     if (audioBtn) {
@@ -478,8 +502,24 @@ function initControls(renderer) {
         });
     }
 
-    bindPointerAction('mob-fire-coax', () => { isFiringCoaxMG = true; }, () => { isFiringCoaxMG = false; });
-    bindPointerAction('mob-fire-bow',  () => { isFiringBowMG = true; },  () => { isFiringBowMG = false; });
+    bindPointerAction('mob-fire-coax', () => {
+        if (window.playerMode !== 'soldier') {
+            isFiringCoaxMG = true;
+            window.isFiringCoaxMG = true;
+        }
+    }, () => {
+        isFiringCoaxMG = false;
+        window.isFiringCoaxMG = false;
+    });
+    bindPointerAction('mob-fire-bow',  () => {
+        if (window.playerMode !== 'soldier') {
+            isFiringBowMG = true;
+            window.isFiringBowMG = true;
+        }
+    }, () => {
+        isFiringBowMG = false;
+        window.isFiringBowMG = false;
+    });
 
     const mobJump = document.getElementById('mob-btn-jump');
     if (mobJump) {
@@ -518,7 +558,7 @@ function initControls(renderer) {
     }
 
     const mobSmoke = document.getElementById('mob-btn-smoke');
-    if (mobSmoke) mobSmoke.addEventListener('pointerdown', (e) => { e.preventDefault(); soundFX.init(); fireSmokeDischargers(); });
+    if (mobSmoke) mobSmoke.addEventListener('pointerdown', (e) => { e.preventDefault(); soundFX.init(); if (window.playerMode !== 'soldier') fireSmokeDischargers(); });
 
     const btnGrass = document.getElementById('btn-grass-toggle');
     if (btnGrass) {

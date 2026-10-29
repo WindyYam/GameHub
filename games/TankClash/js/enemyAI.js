@@ -218,9 +218,9 @@
 
                 // Play metal tearing & explosion sound
                 if (window.soundFX && typeof window.soundFX.playExplosion === 'function') {
-                    window.soundFX.playExplosion();
+                    window.soundFX.playExplosion(impactPos);
                 } else if (window.soundFX && typeof window.soundFX.play88mmCannon === 'function') {
-                    window.soundFX.play88mmCannon();
+                    window.soundFX.play88mmCannon(impactPos);
                 }
 
                 // Update score & kill feed
@@ -257,13 +257,61 @@
         const pState = window.tankState;
         if (!pState) return;
 
-        const playerX = pState.x;
-        const playerY = pState.y || 0;
-        const playerZ = pState.z;
-        const playerDead = !!pState.isKnockedOut;
+        // Player tank wreck smoke: Dense dark billowing smoke plume sourced directly on top of turret
+        if (pState.isKnockedOut && typeof window.spawnParticle === 'function' && Math.random() < dt * 4.2) {
+            let pSpawnX = pState.x;
+            let pSpawnY = (pState.y || 0) + 2.65;
+            let pSpawnZ = pState.z;
+            if (window.turretGroup) {
+                const ptPos = new THREE.Vector3();
+                window.turretGroup.getWorldPosition(ptPos);
+                pSpawnX = ptPos.x;
+                pSpawnY = ptPos.y + 0.35; // Top of turret / commander hatch
+                pSpawnZ = ptPos.z;
+            }
+            const pTankPos = new THREE.Vector3(
+                pSpawnX + (Math.random() - 0.5) * 0.22,
+                pSpawnY + Math.random() * 0.15,
+                pSpawnZ + (Math.random() - 0.5) * 0.22
+            );
+            const pSmokeVel = new THREE.Vector3(
+                (Math.random() - 0.5) * 0.45,
+                3.8 + Math.random() * 1.6,
+                (Math.random() - 0.5) * 0.45
+            );
+            const col = (Math.random() > 0.4) ? 0x22262c : 0x2e353f; // Dense dark charcoal smoke
+            const life = 9.0 + Math.random() * 2.5;
+            window.spawnParticle(pTankPos, pSmokeVel, col, 0.35, 5.2 + Math.random() * 1.8, life, false, 'smoke', {
+                drag: 0.988,
+                buoyancy: 3.0,
+                maxOpacity: 0.78 // Opaque, dense billowing smoke
+            });
+        }
+
+        let targetX = pState.x;
+        let targetY = pState.y || 0;
+        let targetZ = pState.z;
+        let targetDead = !!pState.isKnockedOut;
+        const isInfantry = (window.playerMode === 'soldier' && window.playerSoldier);
+
+        if (isInfantry) {
+            const ps = window.playerSoldier;
+            targetX = ps.x;
+            targetY = ps.y || 0;
+            targetZ = ps.z;
+            targetDead = !!ps.isDead;
+        }
 
         const nowSec = (window.performance && window.performance.now) ? window.performance.now() / 1000 : Date.now() / 1000;
-        const playerShotRecently = (nowSec - lastPlayerFireTime < 3.0);
+        let playerShotRecently = (nowSec - lastPlayerFireTime < 3.0);
+        if (isInfantry && window.playerSoldier) {
+            const ps = window.playerSoldier;
+            playerShotRecently = (nowSec - (ps.lastFireTime || 0) < 3.0) || (nowSec - (ps.lastGrenadeTime || 0) < 3.0);
+        }
+
+        // In infantry mode, player is hard to detect, only in close range
+        const maxDetectRange = isInfantry ? (playerShotRecently ? 42 : 22) : (playerShotRecently ? 110 : 95);
+        const stealthBuffer = isInfantry ? 18 : 32;
 
         for (let i = activeEnemyTanks.length - 1; i >= 0; i--) {
             const e = activeEnemyTanks[i];
@@ -276,16 +324,40 @@
             }
 
             // ----------------------------------------------------------------
-            // Destroyed burning wreck state
+            // Destroyed wreck state: Dense dark billowing smoke plume sourced on top of turret (NO fire)
             // ----------------------------------------------------------------
             if (e.isDestroyed) {
-                // Spawn rising dark soot & flame particles from engine deck
                 e.burningSmokeTimer += dt;
-                if (Math.random() < dt * 6.0 && typeof window.spawnParticle === 'function') {
-                    const deckPos = new THREE.Vector3(e.x + (Math.random() - 0.5) * 1.2, e.y + 1.8, e.z + (Math.random() - 0.5) * 1.2);
-                    const smokeVel = new THREE.Vector3((Math.random() - 0.5) * 0.8, 2.2 + Math.random() * 1.2, (Math.random() - 0.5) * 0.8);
-                    const isFire = (Math.random() < 0.35);
-                    window.spawnParticle(deckPos, smokeVel, isFire ? 0xf59e0b : 0x22262a, 0.45, 3.2, 2.2, isFire, isFire ? 'fire' : 'smoke');
+                if (Math.random() < dt * 4.2 && typeof window.spawnParticle === 'function') {
+                    let spawnX = e.x;
+                    let spawnY = (e.y || 0) + 2.65;
+                    let spawnZ = e.z;
+                    if (e.model && e.model.turretGroup) {
+                        const tPos = new THREE.Vector3();
+                        e.model.turretGroup.getWorldPosition(tPos);
+                        spawnX = tPos.x;
+                        spawnY = tPos.y + 0.35; // Top of turret roof / commander cupola hatch
+                        spawnZ = tPos.z;
+                    }
+                    const turretTopPos = new THREE.Vector3(
+                        spawnX + (Math.random() - 0.5) * 0.22,
+                        spawnY + Math.random() * 0.15,
+                        spawnZ + (Math.random() - 0.5) * 0.22
+                    );
+                    const smokeVel = new THREE.Vector3(
+                        (Math.random() - 0.5) * 0.45,
+                        3.8 + Math.random() * 1.6, // Strong upward thermal buoyancy
+                        (Math.random() - 0.5) * 0.45
+                    );
+                    const col = (Math.random() > 0.4) ? 0x22262c : 0x2e353f; // Dense dark charcoal smoke
+                    const life = 9.0 + Math.random() * 2.5; // Floats up high into the sky
+                    const startSize = 0.35;
+                    const endSize = 5.2 + Math.random() * 1.8;
+                    window.spawnParticle(turretTopPos, smokeVel, col, startSize, endSize, life, false, 'smoke', {
+                        drag: 0.988,
+                        buoyancy: 3.0,
+                        maxOpacity: 0.78 // Opaque, dense billowing smoke
+                    });
                 }
                 continue;
             }
@@ -293,19 +365,17 @@
             // ----------------------------------------------------------------
             // Vision, Line-of-Sight & Tactical Detection
             // ----------------------------------------------------------------
-            const dx = playerX - e.x;
-            const dz = playerZ - e.z;
+            const dx = targetX - e.x;
+            const dz = targetZ - e.z;
             const distToPlayer = Math.hypot(dx, dz);
 
-            // Reduced detection range: realistic vision limit through vision slits & periscopes
-            const maxDetectRange = playerShotRecently ? 110 : 95;
-            const hasLOS = (distToPlayer < 125) && checkObstacleLineOfSight(e.x, e.z, playerX, playerZ);
+            const hasLOS = (distToPlayer < 125) && checkObstacleLineOfSight(e.x, e.z, targetX, targetZ);
 
-            if (playerDead) {
+            if (targetDead) {
                 e.state = 'PATROL';
             } else if (hasLOS && distToPlayer < maxDetectRange) {
-                // Immediate detection only if player fires main gun or approaches within close stealth buffer (~32m)
-                if (playerShotRecently || distToPlayer < 32) {
+                // Immediate detection if player fires or enters close stealth buffer
+                if (playerShotRecently || distToPlayer < stealthBuffer) {
                     e.detectionTimer = Math.max(e.detectionTimer, 1.2);
                 } else {
                     e.detectionTimer += dt;
@@ -353,7 +423,7 @@
             if (e.model.turretGroup) e.model.turretGroup.rotation.y = e.turretYaw;
 
             // 2. Ballistic Gun Pitch / Elevation with drop compensation and sight inaccuracy
-            const dy = (playerY + 1.2) - (e.y + 1.7);
+            const dy = (targetY + (isInfantry ? 0.6 : 1.2)) - (e.y + 1.7);
             const shellSpeed = e.spec.shellVel || 750;
             const dropCompensation = 0.5 * (9.81 * (distToPlayer / shellSpeed) ** 2) / Math.max(1, distToPlayer);
             const desiredElevation = THREE.MathUtils.clamp(
@@ -464,7 +534,7 @@
             const elevError = Math.abs(e.gunElevation - (Math.atan2(dy, distToPlayer) + dropCompensation));
 
             // Generous alignment trigger so enemies shoot with realistic hesitation and imperfection
-            if (yawError < 0.22 && elevError < 0.16 && e.reloadTimer <= 0 && hasLOS && !playerDead) {
+            if (yawError < 0.22 && elevError < 0.16 && e.reloadTimer <= 0 && hasLOS && !targetDead) {
                 // FIRE MAIN CANNON!
                 e.reloadTimer = (e.spec.reloadTime || 4.2) + Math.random() * 0.8;
                 e.barrelRecoil = e.spec.recoilOffset || 0.45;
@@ -506,9 +576,9 @@
 
                 // Cannon Sound FX
                 if (window.soundFX && typeof window.soundFX.playMainCannon === 'function') {
-                    window.soundFX.playMainCannon(e.spec);
+                    window.soundFX.playMainCannon(e.spec, muzzlePos);
                 } else if (window.soundFX && typeof window.soundFX.play88mmCannon === 'function') {
-                    window.soundFX.play88mmCannon();
+                    window.soundFX.play88mmCannon(muzzlePos);
                 }
 
                 // Spawn high-velocity shell projectile directed at player
@@ -539,9 +609,9 @@
 
         // Heavy armor ricochet/penetration sound
         if (window.soundFX && typeof window.soundFX.playArmorRicochet === 'function') {
-            window.soundFX.playArmorRicochet();
+            window.soundFX.playArmorRicochet(impactPos);
         } else if (window.soundFX && typeof window.soundFX.playExplosion === 'function') {
-            window.soundFX.playExplosion();
+            window.soundFX.playExplosion(impactPos);
         }
 
         // Heavy detonation at impact position on player tank
@@ -575,7 +645,15 @@
                 window.triggerHeavyDetonation(playerHullPos);
             }
 
-            showKnockoutModal();
+            // When killed as tank, allow player to continue fighting as infantry!
+            if (window.playerMode !== 'soldier') {
+                if (typeof window.dismountTank === 'function') {
+                    window.dismountTank();
+                }
+                showKillFeedBanner('💥 TANK DESTROYED! BAILED OUT AS INFANTRY! SNEAK & HIJACK AN ENEMY TANK [E]');
+            } else {
+                showKillFeedBanner('💥 TANK WRECK DESTROYED!');
+            }
         } else {
             showKillFeedBanner(`⚠️ ARMOR COMPROMISED! (${remainingArmor}/${MAX_PLAYER_HITS} HITS REMAINING)`);
         }
@@ -663,18 +741,22 @@
         }, 2800);
     }
 
-    function showKnockoutModal() {
+    function showKnockoutModal(titleText) {
         let modal = document.getElementById('knockout-modal');
         if (!modal) {
             modal = document.createElement('div');
             modal.id = 'knockout-modal';
-            modal.className = 'fixed inset-0 z-50 flex items-end justify-center pb-10 pointer-events-none select-none';
+            modal.className = 'fixed inset-0 z-50 flex items-end justify-center pb-12 pointer-events-none select-none';
             modal.innerHTML = `
-                <div class="pointer-events-auto flex flex-col items-center gap-2 animate-fade-in">
-                    <button id="btn-knockout-restart" class="px-6 py-2.5 rounded-2xl bg-black/40 hover:bg-black/65 active:scale-95 text-amber-300 hover:text-white font-extrabold text-sm tracking-wider border border-amber-400/50 hover:border-amber-300 backdrop-blur-sm shadow-2xl transition-all flex items-center gap-2 cursor-pointer">
+                <div class="pointer-events-auto flex flex-col items-center gap-2.5 animate-fade-in">
+                    <div class="px-4 py-1.5 rounded-full bg-red-950/85 border border-red-500/70 text-red-200 text-xs font-bold tracking-widest uppercase shadow-2xl flex items-center gap-2 backdrop-blur-md">
+                        <span class="text-sm">☠️</span>
+                        <span id="knockout-modal-title">${titleText || 'GAME OVER — KILLED IN ACTION'}</span>
+                    </div>
+                    <button id="btn-knockout-restart" class="px-7 py-3 rounded-2xl bg-black/50 hover:bg-black/75 active:scale-95 text-amber-300 hover:text-white font-extrabold text-sm tracking-wider border-2 border-amber-400/70 hover:border-amber-300 backdrop-blur-md shadow-2xl transition-all flex items-center gap-2.5 cursor-pointer">
                         <span class="text-base">🔄</span>
-                        <span>RESPAWN TANK</span>
-                        <span class="text-[11px] px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-200 border border-amber-400/30 mono">[R]</span>
+                        <span>RESPAWN BATTLEFIELD</span>
+                        <span class="text-[11px] px-2 py-0.5 rounded bg-amber-400/20 text-amber-200 border border-amber-400/30 mono font-bold">[R]</span>
                     </button>
                 </div>
             `;
@@ -686,6 +768,9 @@
                     if (typeof window.restartGame === 'function') window.restartGame();
                 });
             }
+        } else {
+            const tEl = document.getElementById('knockout-modal-title');
+            if (tEl) tEl.textContent = titleText || 'GAME OVER — KILLED IN ACTION';
         }
         modal.style.display = 'flex';
     }
@@ -741,6 +826,10 @@
         }
     }
     window.onPlayerTankChanged = onPlayerTankChanged;
+
+    window.showKnockoutModal = showKnockoutModal;
+    window.hideKnockoutModal = hideKnockoutModal;
+    window.updateArmorHUD = updateArmorHUD;
 
     // Auto-update Armor HUD on boot
     updateArmorHUD(MAX_PLAYER_HITS);

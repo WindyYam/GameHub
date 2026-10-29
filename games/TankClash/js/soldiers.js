@@ -1551,6 +1551,8 @@
             buckets.forEach((geos, mat) => {
                 const mesh = new THREE.Mesh(mergeGeometries(geos), mat);
                 mesh.matrixAutoUpdate = false;
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
                 bone.add(mesh);
                 geos.forEach(g => g.dispose());
             });
@@ -1577,6 +1579,12 @@
             if (!SOLDIER_TEMPLATES[faction]) SOLDIER_TEMPLATES[faction] = buildTemplate(faction);
             const tpl = SOLDIER_TEMPLATES[faction];
             const root = tpl.root.clone(true);
+            root.traverse(c => {
+                if (c.isMesh) {
+                    c.castShadow = true;
+                    c.receiveShadow = true;
+                }
+            });
             const g = (n) => root.getObjectByName(n);
             const rifle = g('rifle');
             rifle.userData.muzzleOffset = tpl.muzzle.clone();
@@ -1771,16 +1779,38 @@
         evaluateCombatTarget(playerX, playerZ, distToPlayer) {
             this.currentTarget = null;
 
-            // A. Check Player Tank
-            if (this.isEnemy && !window.tankState.isKnockedOut && distToPlayer < 135) {
-                this.currentTarget = {
-                    type: 'tank',
-                    x: playerX,
-                    y: (window.tankState.y || 0) + 1.2,
-                    z: playerZ,
-                    dist: distToPlayer
-                };
-                return;
+            // In infantry mode, player is on foot as a soldier!
+            if (window.playerMode === 'soldier' && window.playerSoldier && !window.playerSoldier.isDead) {
+                const ps = window.playerSoldier;
+                const dSoldier = Math.hypot(ps.x - this.x, ps.z - this.z);
+                const nowSec = performance.now() * 0.001;
+                const playerFiredRecently = (nowSec - (ps.lastFireTime || 0) < 3.0) || (nowSec - (ps.lastGrenadeTime || 0) < 3.0);
+                // In infantry mode player is hard to detect, only in close range
+                const detectDist = playerFiredRecently ? 45 : 22;
+
+                if (this.isEnemy && dSoldier < detectDist) {
+                    this.currentTarget = {
+                        type: 'soldier',
+                        ref: ps,
+                        x: ps.x,
+                        y: ps.y + 1.2,
+                        z: ps.z,
+                        dist: dSoldier
+                    };
+                    return;
+                }
+            } else {
+                // A. Check Player Tank
+                if (this.isEnemy && !window.tankState.isKnockedOut && distToPlayer < 135) {
+                    this.currentTarget = {
+                        type: 'tank',
+                        x: playerX,
+                        y: (window.tankState.y || 0) + 1.2,
+                        z: playerZ,
+                        dist: distToPlayer
+                    };
+                    return;
+                }
             }
 
             // B. Check Allied Tank (if soldier is allied to player, check enemy tanks)
@@ -1927,7 +1957,7 @@
             // 2. High-speed Tracer Round
             if (typeof window.spawnTracerRound === 'function') {
                 const tracerQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), shootDir);
-                window.spawnTracerRound(muzzleWorldPos, shootDir, tracerQuat);
+                window.spawnTracerRound(muzzleWorldPos, shootDir, tracerQuat, this.isEnemy);
             }
 
             // 3. Bullet Impact on Target
@@ -2204,6 +2234,39 @@
 
         console.log(`[Infantry] Deployed ${activeSoldiers.length} WWII infantry escorts accompanying enemy armor`);
     }
+
+    function spawnEjectedDriver(tankX, tankZ, tankHeading, faction) {
+        const f = faction || (window.getOpposingFaction ? window.getOpposingFaction() : 'us');
+        // Eject 2.5 meters to the side of the hull
+        const ejectAngle = (tankHeading || 0) + Math.PI * 0.5;
+        const sx = tankX + Math.cos(ejectAngle) * 2.5;
+        const sz = tankZ - Math.sin(ejectAngle) * 2.5;
+        const sId = `ejected_driver_${Date.now()}`;
+
+        const driver = new SoldierAI(sId, f, sx, sz, {
+            isEnemy: true,
+            heading: ejectAngle,
+            patrolRadius: 25
+        });
+
+        // Stagger / disorient reaction upon being thrown out of hatch
+        driver.speed = -1.2;
+        driver.recoilKick = 0.5;
+        driver.fireCooldown = 1.8;
+
+        if (typeof window.spawnParticle === 'function') {
+            const gy = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(sx, sz) : 0;
+            const pPos = new THREE.Vector3(sx, gy + 0.8, sz);
+            for (let i = 0; i < 6; i++) {
+                const pVel = new THREE.Vector3((Math.random() - 0.5) * 3, 1.2 + Math.random() * 2, (Math.random() - 0.5) * 3);
+                window.spawnParticle(pPos, pVel, 0x8c7853, 0.2, 0.8, 0.6, false, 'dirt');
+            }
+        }
+
+        activeSoldiers.push(driver);
+        return driver;
+    }
+    window.spawnEjectedDriver = spawnEjectedDriver;
 
     function spawnSoldierEscortForTank(enemyTank, enemyFaction) {
         if (!enemyTank) return;
