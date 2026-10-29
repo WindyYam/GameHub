@@ -279,29 +279,101 @@ const soundFX = {
     },
 
     playImpactExplosion() {
+        this.init();
         if (!this.enabled || !this.ctx) return;
         const now = this.ctx.currentTime;
-        const bufferSize = Math.floor(this.ctx.sampleRate * 0.9);
-        const buf = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
-        const data = buf.getChannelData(0);
-        for (let i = 0; i < bufferSize; i++) {
-            data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (bufferSize * 0.25));
+
+        // 1. Initial High-Energy Supersonic Shockwave Crack (Violent high-pressure transient)
+        const crackBufferSize = Math.floor(this.ctx.sampleRate * 0.14);
+        const crackBuf = this.ctx.createBuffer(1, crackBufferSize, this.ctx.sampleRate);
+        const crackData = crackBuf.getChannelData(0);
+        for (let i = 0; i < crackBufferSize; i++) {
+            crackData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (this.ctx.sampleRate * 0.024));
         }
-        const src = this.ctx.createBufferSource();
-        src.buffer = buf;
+        const crackSrc = this.ctx.createBufferSource();
+        crackSrc.buffer = crackBuf;
 
-        const lp = this.ctx.createBiquadFilter();
-        lp.type = 'lowpass';
-        lp.frequency.value = 320;
+        const crackFilter = this.ctx.createBiquadFilter();
+        crackFilter.type = 'bandpass';
+        crackFilter.frequency.setValueAtTime(1400, now);
+        crackFilter.Q.setValueAtTime(1.8, now);
 
-        const gain = this.ctx.createGain();
-        gain.gain.setValueAtTime(0.38, now);
-        gain.gain.exponentialRampToValueAtTime(0.005, now + 0.85);
+        const crackGain = this.ctx.createGain();
+        crackGain.gain.setValueAtTime(0.95, now);
+        crackGain.gain.exponentialRampToValueAtTime(0.001, now + 0.13);
 
-        src.connect(lp);
-        lp.connect(gain);
-        gain.connect(this.ctx.destination);
-        src.start(now);
+        crackSrc.connect(crackFilter);
+        crackFilter.connect(crackGain);
+        crackGain.connect(this.ctx.destination);
+        crackSrc.start(now);
+
+        // 2. Heavy HE Blast Roar & Debris Rumble (Deep, thundering broad noise blast - High Volume)
+        const rumbleBufferSize = Math.floor(this.ctx.sampleRate * 1.9);
+        const rumbleBuf = this.ctx.createBuffer(1, rumbleBufferSize, this.ctx.sampleRate);
+        const rumbleData = rumbleBuf.getChannelData(0);
+        for (let i = 0; i < rumbleBufferSize; i++) {
+            rumbleData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (this.ctx.sampleRate * 0.48));
+        }
+        const rumbleSrc = this.ctx.createBufferSource();
+        rumbleSrc.buffer = rumbleBuf;
+
+        const rumbleFilter = this.ctx.createBiquadFilter();
+        rumbleFilter.type = 'lowpass';
+        rumbleFilter.frequency.setValueAtTime(680, now);
+        rumbleFilter.frequency.exponentialRampToValueAtTime(110, now + 1.6);
+
+        const rumbleGain = this.ctx.createGain();
+        rumbleGain.gain.setValueAtTime(1.25, now); // Significantly increased blast volume
+        rumbleGain.gain.exponentialRampToValueAtTime(0.002, now + 1.85);
+
+        rumbleSrc.connect(rumbleFilter);
+        rumbleFilter.connect(rumbleGain);
+        rumbleGain.connect(this.ctx.destination);
+        rumbleSrc.start(now);
+
+        // 3. Sub-Bass Concussion Thump (Visceral chest-hitting shock: 160Hz down to 26Hz)
+        const subOsc = this.ctx.createOscillator();
+        subOsc.type = 'sine';
+        subOsc.frequency.setValueAtTime(160, now);
+        subOsc.frequency.exponentialRampToValueAtTime(26, now + 0.58);
+
+        const subGain = this.ctx.createGain();
+        subGain.gain.setValueAtTime(1.15, now);
+        subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.68);
+
+        subOsc.connect(subGain);
+        subGain.connect(this.ctx.destination);
+        subOsc.start(now);
+        subOsc.stop(now + 0.68);
+
+        // 4. Secondary Ground Debris Spatter (Pebbles and scorched earth fallout)
+        const debrisSize = Math.floor(this.ctx.sampleRate * 0.9);
+        const debrisBuf = this.ctx.createBuffer(1, debrisSize, this.ctx.sampleRate);
+        const dData = debrisBuf.getChannelData(0);
+        for (let i = 0; i < debrisSize; i++) {
+            dData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (this.ctx.sampleRate * 0.28));
+        }
+        const dSrc = this.ctx.createBufferSource();
+        dSrc.buffer = debrisBuf;
+
+        const dFilter = this.ctx.createBiquadFilter();
+        dFilter.type = 'bandpass';
+        dFilter.frequency.setValueAtTime(950, now);
+        dFilter.Q.setValueAtTime(2.2, now);
+
+        const dGain = this.ctx.createGain();
+        dGain.gain.setValueAtTime(0.001, now);
+        dGain.gain.linearRampToValueAtTime(0.45, now + 0.08);
+        dGain.gain.exponentialRampToValueAtTime(0.001, now + 0.88);
+
+        dSrc.connect(dFilter);
+        dFilter.connect(dGain);
+        dGain.connect(this.ctx.destination);
+        dSrc.start(now + 0.05);
+    },
+
+    playExplosion() {
+        this.playImpactExplosion();
     },
 
     playTreeCrack() {
@@ -601,6 +673,106 @@ const soundFX = {
         latchGain.connect(this.ctx.destination);
         latchOsc.start(tLatch);
         latchOsc.stop(tLatch + 0.07);
+    },
+
+    // Realistic acoustic bomb/ordnance whistling sound effect (organic noise-excited aerodynamic whistle)
+    playBombWhistle(duration = 1.4) {
+        this.init();
+        if (!this.enabled || !this.ctx) return null;
+        const now = this.ctx.currentTime;
+        const dur = Math.max(0.6, Math.min(2.5, duration));
+
+        // 1. Turbulent airflow excitation source (white/pink noise buffer)
+        const bufferSize = Math.floor(this.ctx.sampleRate * (dur + 0.3));
+        const noiseBuf = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+        const data = noiseBuf.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+            data[i] = Math.random() * 2 - 1;
+        }
+        const noiseSrc = this.ctx.createBufferSource();
+        noiseSrc.buffer = noiseBuf;
+
+        // 2. High-Q Resonant Formant Filter 1 (Acoustic whistle cavity ringing: 2600Hz down to 380Hz)
+        const bp1 = this.ctx.createBiquadFilter();
+        bp1.type = 'bandpass';
+        bp1.Q.setValueAtTime(24.0, now); // Extremely high resonance creates true physical whistle from air noise
+        bp1.frequency.setValueAtTime(2600, now);
+        bp1.frequency.exponentialRampToValueAtTime(380, now + dur);
+
+        // 3. High-Q Resonant Formant Filter 2 (Secondary harmonic overtone cavity: 3950Hz down to 590Hz)
+        const bp2 = this.ctx.createBiquadFilter();
+        bp2.type = 'bandpass';
+        bp2.Q.setValueAtTime(16.0, now);
+        bp2.frequency.setValueAtTime(3950, now);
+        bp2.frequency.exponentialRampToValueAtTime(590, now + dur);
+
+        // 4. Aerodynamic Wind Turbulence Rush (Whooshing air tearing around ordnance)
+        const windBp = this.ctx.createBiquadFilter();
+        windBp.type = 'bandpass';
+        windBp.Q.setValueAtTime(2.2, now);
+        windBp.frequency.setValueAtTime(1400, now);
+        windBp.frequency.exponentialRampToValueAtTime(240, now + dur);
+
+        // 5. Throw Whoosh Transient (Arm physical throw whoosh at start)
+        const whooshGain = this.ctx.createGain();
+        whooshGain.gain.setValueAtTime(0.001, now);
+        whooshGain.gain.linearRampToValueAtTime(0.42, now + 0.05);
+        whooshGain.gain.exponentialRampToValueAtTime(0.001, now + 0.28);
+
+        // Master output gain node
+        const masterGain = this.ctx.createGain();
+        masterGain.gain.setValueAtTime(0.001, now);
+        masterGain.gain.linearRampToValueAtTime(0.55, now + 0.04);
+        masterGain.gain.setValueAtTime(0.55, now + dur * 0.75);
+        masterGain.gain.exponentialRampToValueAtTime(0.001, now + dur);
+
+        // Individual gains
+        const g1 = this.ctx.createGain();
+        g1.gain.value = 0.52;
+
+        const g2 = this.ctx.createGain();
+        g2.gain.value = 0.26;
+
+        const gWind = this.ctx.createGain();
+        gWind.gain.value = 0.35;
+
+        // Connect graph
+        noiseSrc.connect(bp1);
+        noiseSrc.connect(bp2);
+        noiseSrc.connect(windBp);
+
+        bp1.connect(g1);
+        bp2.connect(g2);
+        windBp.connect(gWind);
+
+        g1.connect(masterGain);
+        g2.connect(masterGain);
+        gWind.connect(masterGain);
+
+        windBp.connect(whooshGain);
+        whooshGain.connect(masterGain);
+
+        masterGain.connect(this.ctx.destination);
+
+        // Start noise source
+        noiseSrc.start(now);
+        noiseSrc.stop(now + dur + 0.1);
+
+        return {
+            stop: () => {
+                try {
+                    const stopTime = this.ctx.currentTime;
+                    masterGain.gain.cancelScheduledValues(stopTime);
+                    masterGain.gain.setValueAtTime(masterGain.gain.value, stopTime);
+                    masterGain.gain.exponentialRampToValueAtTime(0.0001, stopTime + 0.03);
+                    setTimeout(() => {
+                        try {
+                            noiseSrc.stop();
+                        } catch (e) {}
+                    }, 40);
+                } catch (e) {}
+            }
+        };
     }
 };
 

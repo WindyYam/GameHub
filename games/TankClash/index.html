@@ -249,8 +249,8 @@
             <div id="panel-views-content" class="flex items-center gap-1">
                 <button id="cam-orbit" class="hud-btn active px-2.5 py-1 rounded-lg text-[11px] font-semibold" title="Follow Aim Camera">📷 Follow</button>
                 <button id="cam-fpv" class="hud-btn px-2.5 py-1 rounded-lg text-[11px] font-semibold text-emerald-300" title="First-Person Gunner Mode">🎯 FPV</button>
+                <button id="btn-grass-toggle" class="hud-btn px-2.5 py-1 rounded-lg text-[11px] font-semibold text-emerald-300" title="Toggle Grass Display [Key: B]">🌿 <span id="hud-grass-label">Grass: High</span></button>
                 <button id="btn-time-cycle" class="hud-btn px-2.5 py-1 rounded-lg text-[11px] font-semibold text-amber-300 hidden md:inline-block" title="Cycle Day / Night (T)">☀️ <span id="hud-time-label">10:30</span></button>
-                <button id="btn-restart" class="hud-btn px-2.5 py-1 rounded-lg text-[11px] font-bold text-amber-300 hover:text-white" title="Restart with New Seed [Key: R]">🔄 Reset [R]</button>
                 <span id="hud-seed-display" class="mono text-[10px] text-amber-300/90 font-semibold px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 hidden lg:inline-block">Seed: ...</span>
                 <button id="audio-toggle" class="hud-btn px-2 py-1 rounded-lg text-[11px] font-semibold text-emerald-400" title="Toggle Sound">🔊</button>
                 <button id="btn-fullscreen-landscape" class="hud-btn px-2 py-1 rounded-lg text-[11px] font-semibold text-amber-300" title="Toggle Fullscreen Landscape">⛶</button>
@@ -280,7 +280,6 @@
         <div id="mobile-actions" class="fixed bottom-4 right-4 z-30 pointer-events-auto flex flex-col items-end gap-1.5 select-none touch-none transition-opacity duration-200">
             <!-- Top auxiliary row: Zoom, Smoke, Bow MG -->
             <div class="flex items-center gap-1.5">
-                <button id="mob-btn-restart" class="h-8 px-2 bg-slate-900/40 border border-amber-400/40 active:bg-amber-600/50 text-amber-300 font-semibold text-[10px] rounded-lg flex items-center gap-1 backdrop-blur-sm touch-none active:scale-95"><span>🔄</span><span>Reset</span></button>
                 <button id="mob-btn-zoom" class="h-8 px-2 bg-slate-900/40 border border-sky-400/40 active:bg-sky-600/50 text-sky-300 font-semibold text-[10px] rounded-lg flex items-center gap-1 backdrop-blur-sm touch-none active:scale-95">
                     <span>🔍</span>
                     <span>Zoom</span>
@@ -294,14 +293,26 @@
                     <span>Bow MG</span>
                 </button>
             </div>
-            <!-- Primary fire row: Coax MG and 8.8cm Cannon -->
+            <!-- Primary fire row: Jump, Grenade, Interact, Coax MG and 8.8cm Cannon -->
             <div class="flex items-center gap-2">
+                <button id="mob-btn-jump" class="h-12 w-12 bg-sky-950/60 border border-sky-400/80 active:bg-sky-600/60 text-sky-300 font-bold text-xs rounded-xl flex flex-col items-center justify-center backdrop-blur-sm touch-none active:scale-95 shadow-md hidden">
+                    <span class="text-xs">⬆️</span>
+                    <span class="text-[8px] mono font-bold">JUMP</span>
+                </button>
+                <button id="mob-btn-grenade" class="h-12 w-12 bg-red-950/60 border border-red-400/80 active:bg-red-600/60 text-red-300 font-bold text-xs rounded-xl flex flex-col items-center justify-center backdrop-blur-sm touch-none active:scale-95 shadow-md hidden">
+                    <span class="text-xs">💣</span>
+                    <span class="text-[8px] mono font-bold">GRENADE</span>
+                </button>
+                <button id="mob-btn-interact" class="h-12 w-12 bg-slate-900/60 border border-amber-400/80 active:bg-amber-600/60 text-amber-300 font-bold text-xs rounded-xl flex flex-col items-center justify-center backdrop-blur-sm touch-none active:scale-95 shadow-md">
+                    <span class="text-xs">🚶</span>
+                    <span class="text-[8px] mono font-bold">EXIT</span>
+                </button>
                 <button id="mob-fire-coax" class="h-12 w-12 bg-slate-900/45 border border-amber-400/60 active:bg-amber-600/60 text-amber-300 font-bold text-xs rounded-xl flex flex-col items-center justify-center backdrop-blur-sm touch-none active:scale-95">
                     <span class="text-xs">🔥</span>
                     <span class="text-[8px] mono font-bold">COAX</span>
                 </button>
                 <button id="mob-fire-88" class="h-13 px-4 py-2 bg-red-950/45 border-2 border-amber-400/90 active:bg-amber-500/60 active:scale-95 text-amber-300 font-extrabold rounded-2xl flex flex-col items-center justify-center backdrop-blur-sm touch-none shadow-lg">
-                    <span class="text-sm leading-none">💥</span>
+                    <span id="mob-fire-icon" class="text-sm leading-none">💥</span>
                     <span id="mob-fire-caliber" class="text-[10px] mono font-extrabold text-white uppercase tracking-wider">8.8cm</span>
                 </button>
             </div>
@@ -322,17 +333,18 @@
     </div>
 
     <!-- Modularized Tiger Tank Simulation Scripts -->
-    <script src="js/audio.js"></script>
+    <script src="js/audio.js?v=whistle3"></script>
     <script src="js/shaders.js?v=opt2"></script>
-    <script src="js/environment.js?v=opt2"></script>
+    <script src="js/environment.js?v=grass4"></script>
     <script src="js/tankTiger.js?v=bow1"></script>
     <script src="js/tankSherman.js?v=opt2"></script>
     <script src="js/tankT34.js?v=opt2"></script>
     <script src="js/tankModel.js?v=ai1"></script>
-    <script src="js/physics.js?v=bow1"></script>
-    <script src="js/enemyAI.js?v=hitbox1"></script>
-    <script src="js/soldiers.js"></script>
-    <script src="js/controls.js"></script>
-    <script src="js/main.js?v=bow1"></script>
+    <script src="js/physics.js?v=smoke05"></script>
+    <script src="js/enemyAI.js?v=noblockUI"></script>
+    <script src="js/soldiers.js?v=showcase3"></script>
+    <script src="js/playerSoldier.js?v=sc1_whistle1"></script>
+    <script src="js/controls.js?v=inf4"></script>
+    <script src="js/main.js?v=inf3"></script>
 </body>
 </html>

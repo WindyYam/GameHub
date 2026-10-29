@@ -31,13 +31,12 @@ function isMobileBrowser() {
 window.isMobileBrowser = isMobileBrowser;
 
 function isMobileDevice() {
-    if (isMobileBrowser()) return true;
-    const hasTouch = ('ontouchstart' in window) || (navigator.maxTouchPoints > 0);
-    return hasTouch && (window.innerWidth <= 900 || window.innerHeight <= 900);
+    return isMobileBrowser();
 }
 window.isMobileDevice = isMobileDevice;
 
 function setCameraMode(mode) {
+    if (window.playerMode === 'soldier' && mode === 'fpv') return;
     cameraMode = mode;
     window.cameraMode = mode;
     ['cam-orbit', 'cam-fpv'].forEach(id => {
@@ -78,17 +77,37 @@ function initControls(renderer) {
     window.addEventListener('keydown', (e) => {
         const k = e.key.toLowerCase();
         keys[k] = true;
-        if (k === ' ') { e.preventDefault(); fireMainCannon(); }
-        if (k === 'g') { e.preventDefault(); isFiringBowMG = true; }
-        if (k === 'f') { isFiringCoaxMG = true; }
-        if (k === 'x') fireSmokeDischargers();
+        if (k === ' ') {
+            e.preventDefault();
+            if (window.playerMode === 'soldier') {
+                if (typeof window.soldierJump === 'function') window.soldierJump();
+            } else {
+                fireMainCannon();
+            }
+        }
+        if (k === 'g') {
+            e.preventDefault();
+            if (window.playerMode === 'soldier') {
+                if (typeof window.throwPlayerGrenade === 'function') window.throwPlayerGrenade();
+            } else {
+                isFiringBowMG = true;
+            }
+        }
+        if (k === 'f') { if (window.playerMode !== 'soldier') isFiringCoaxMG = true; }
+        if (k === 'x') { if (window.playerMode !== 'soldier') fireSmokeDischargers(); }
         if (k === 'h') toggleHeadlights();
+        if (k === 'b') { if (typeof window.toggleGrass === 'function') window.toggleGrass(); }
+        if (k === 'e') { if (typeof window.triggerInteract === 'function') window.triggerInteract(); }
         if (k === 'r') { if (typeof window.restartGame === 'function') window.restartGame(); }
         if (k === 't') { if (window.dayNight && window.dayNight.cycleNext) window.dayNight.cycleNext(); }
         if (k === '1') { if (typeof window.switchTank === 'function') window.switchTank('tiger'); }
         if (k === '2') { if (typeof window.switchTank === 'function') window.switchTank('sherman'); }
         if (k === '3') { if (typeof window.switchTank === 'function') window.switchTank('t34'); }
-        if (k === '5' || k === 'v' || k === 'c') setCameraMode(cameraMode === 'fpv' ? 'orbit' : 'fpv');
+        if (k === '5' || k === 'v' || k === 'c') {
+            if (window.playerMode !== 'soldier') {
+                setCameraMode(cameraMode === 'fpv' ? 'orbit' : 'fpv');
+            }
+        }
         if (k === 'z' && cameraMode === 'fpv') {
             isFpvZoomed = !isFpvZoomed;
             window.perspCamera.fov = isFpvZoomed ? 15 : 46;
@@ -101,11 +120,12 @@ function initControls(renderer) {
     window.addEventListener('keyup', (e) => {
         const k = e.key.toLowerCase();
         keys[k] = false;
-        if (k === 'g') isFiringBowMG = false;
+        if (k === 'g') { if (window.playerMode !== 'soldier') isFiringBowMG = false; }
         if (k === 'f') isFiringCoaxMG = false;
     });
 
     renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
+    window.addEventListener('contextmenu', (e) => e.preventDefault());
 
     // ------------------------------------------------------------------------
     // 2. DESKTOP MOUSE LOOK & DEFAULT ACTIVE CONTROL MODE
@@ -118,14 +138,22 @@ function initControls(renderer) {
     renderer.domElement.addEventListener('mousedown', (e) => {
         soundFX.init();
         if (e.button === 0) {
-            // First click fires immediately!
-            fireMainCannon();
+            // Left click: Fire player rifle in soldier mode or main cannon in tank mode
+            if (window.playerMode === 'soldier') {
+                if (typeof window.firePlayerRifle === 'function') window.firePlayerRifle();
+            } else {
+                fireMainCannon();
+            }
             // Also acquire pointer lock if available so mouse doesn't leave window
             if (document.pointerLockElement !== renderer.domElement && renderer.domElement.requestPointerLock) {
                 renderer.domElement.requestPointerLock();
             }
         } else if (e.button === 2) {
-            if (cameraMode === 'fpv') {
+            e.preventDefault();
+            if (window.playerMode === 'soldier') {
+                // In infantry mode, right click throws the grenade
+                if (typeof window.throwPlayerGrenade === 'function') window.throwPlayerGrenade();
+            } else if (cameraMode === 'fpv') {
                 isFpvZoomed = true;
                 window.perspCamera.fov = 15;
                 window.perspCamera.updateProjectionMatrix();
@@ -139,14 +167,16 @@ function initControls(renderer) {
 
     window.addEventListener('mouseup', (e) => {
         if (e.button === 2) {
-            if (cameraMode === 'fpv') {
-                isFpvZoomed = false;
-                window.perspCamera.fov = 46;
-                window.perspCamera.updateProjectionMatrix();
-                const zoomEl = document.getElementById('fpv-svg-zoom');
-                if (zoomEl) zoomEl.textContent = 'OPTICAL 1.0× [HOLD RMB / SCROLL: 3.5× ZOOM]';
+            if (window.playerMode !== 'soldier') {
+                if (cameraMode === 'fpv') {
+                    isFpvZoomed = false;
+                    window.perspCamera.fov = 46;
+                    window.perspCamera.updateProjectionMatrix();
+                    const zoomEl = document.getElementById('fpv-svg-zoom');
+                    if (zoomEl) zoomEl.textContent = 'OPTICAL 1.0× [HOLD RMB / SCROLL: 3.5× ZOOM]';
+                }
+                isFiringCoaxMG = false;
             }
-            isFiringCoaxMG = false;
         }
     });
 
@@ -429,16 +459,52 @@ function initControls(renderer) {
     }
 
     const mob88 = document.getElementById('mob-fire-88');
-    if (mob88) mob88.addEventListener('pointerdown', (e) => { e.preventDefault(); soundFX.init(); fireMainCannon(); });
+    if (mob88) mob88.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        soundFX.init();
+        if (window.playerMode === 'soldier') {
+            if (typeof window.firePlayerRifle === 'function') window.firePlayerRifle();
+        } else {
+            fireMainCannon();
+        }
+    });
+
+    const mobInteract = document.getElementById('mob-btn-interact');
+    if (mobInteract) {
+        mobInteract.addEventListener('pointerdown', (e) => {
+            e.preventDefault();
+            soundFX.init();
+            if (typeof window.triggerInteract === 'function') window.triggerInteract();
+        });
+    }
 
     bindPointerAction('mob-fire-coax', () => { isFiringCoaxMG = true; }, () => { isFiringCoaxMG = false; });
     bindPointerAction('mob-fire-bow',  () => { isFiringBowMG = true; },  () => { isFiringBowMG = false; });
+
+    const mobJump = document.getElementById('mob-btn-jump');
+    if (mobJump) {
+        mobJump.addEventListener('pointerdown', (e) => {
+            e.preventDefault();
+            soundFX.init();
+            if (typeof window.soldierJump === 'function') window.soldierJump();
+        });
+    }
+
+    const mobGrenade = document.getElementById('mob-btn-grenade');
+    if (mobGrenade) {
+        mobGrenade.addEventListener('pointerdown', (e) => {
+            e.preventDefault();
+            soundFX.init();
+            if (typeof window.throwPlayerGrenade === 'function') window.throwPlayerGrenade();
+        });
+    }
 
     const mobZoom = document.getElementById('mob-btn-zoom');
     if (mobZoom) {
         mobZoom.addEventListener('pointerdown', (e) => {
             e.preventDefault();
             soundFX.init();
+            if (window.playerMode === 'soldier') return;
             if (cameraMode !== 'fpv') {
                 setCameraMode('fpv');
             } else {
@@ -453,6 +519,14 @@ function initControls(renderer) {
 
     const mobSmoke = document.getElementById('mob-btn-smoke');
     if (mobSmoke) mobSmoke.addEventListener('pointerdown', (e) => { e.preventDefault(); soundFX.init(); fireSmokeDischargers(); });
+
+    const btnGrass = document.getElementById('btn-grass-toggle');
+    if (btnGrass) {
+        btnGrass.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (typeof window.toggleGrass === 'function') window.toggleGrass();
+        });
+    }
 
     const btnTimeCycle = document.getElementById('btn-time-cycle');
     if (btnTimeCycle) btnTimeCycle.addEventListener('click', (e) => {

@@ -287,7 +287,7 @@ function updateSimulation(dt) {
     const currentActiveCam = window.activeCamera || activeCamera;
 
     // --- 1. DRIVING & TRACTOR FORCE DYNAMICS (Mass, Engine Power, Slope Gravity, Rolling Resistance) ---
-    const isKO = !!tankState.isKnockedOut;
+    const isKO = !!tankState.isKnockedOut || (window.playerMode === 'soldier');
     const forwardInput = isKO ? 0 : (((keys['w'] ? 1 : 0) - (keys['s'] ? 1 : 0)) || touchDrive.forward);
     const turnInput    = isKO ? 0 : (((keys['a'] ? 1 : 0) - (keys['d'] ? 1 : 0)) || touchDrive.turn);
 
@@ -544,7 +544,9 @@ function updateSimulation(dt) {
     tankRoot.updateMatrixWorld(true);
 
     // --- 3. CAMERA POSITIONING & 3D RAYCAST AIMING SYSTEM ---
-    if (cameraMode === 'orbit') {
+    if (window.playerMode === 'soldier' && typeof window.updatePlayerSoldier === 'function') {
+        window.updatePlayerSoldier(dt, currentActiveCam, keys);
+    } else if (cameraMode === 'orbit') {
         const tankAnchor = new THREE.Vector3(tankState.x, tankState.y + 1.85, tankState.z);
 
         // Compute camera forward view direction from player mouse orbit angles (theta, phi)
@@ -607,6 +609,7 @@ function updateSimulation(dt) {
         currentActiveCam.updateMatrixWorld();
     }
 
+    if (window.playerMode !== 'soldier') {
     // Manual Keyboard Override for Turret Traverse & Gun Elevation (Arrow Keys or I/J/K/L)
     const manualTurn = (keys['arrowleft'] || keys['j'] ? 1 : 0) - (keys['arrowright'] || keys['l'] ? 1 : 0);
     const manualElev = (keys['arrowup']   || keys['i'] ? 1 : 0) - (keys['arrowdown']  || keys['k'] ? 1 : 0);
@@ -667,6 +670,7 @@ function updateSimulation(dt) {
             tankState.MIN_ELEV_RAD,
             tankState.MAX_ELEV_RAD
         );
+    }
     }
 
     // Shortest-angle hydraulic turret traverse smoothing
@@ -748,7 +752,12 @@ function updateSimulation(dt) {
         if (fpvRangeEl) fpvRangeEl.textContent = `RANGE: ${Math.round(boreDist)}m`;
     }
 
-    if (cameraMode === 'orbit' || cameraMode === 'inspect') {
+    if (window.playerMode === 'soldier') {
+        const camReticleEl = document.getElementById('camera-aim-reticle');
+        if (camReticleEl) camReticleEl.style.opacity = '0';
+        const boreReticleEl = document.getElementById('gun-bore-reticle');
+        if (boreReticleEl) boreReticleEl.style.opacity = '0';
+    } else if (cameraMode === 'orbit' || cameraMode === 'inspect') {
         const camAimScreen = worldAimPoint.clone().project(currentActiveCam);
         const camReticleEl = document.getElementById('camera-aim-reticle');
         if (camAimScreen.z < 1.0) {
@@ -968,6 +977,9 @@ function updateSimulation(dt) {
     }
     if (typeof window.updateSoldiers === 'function') {
         window.updateSoldiers(dt);
+    }
+    if (typeof window.updateGrenades === 'function') {
+        window.updateGrenades(dt);
     }
 
     // --- 8. PROCEDURAL CHUNK STREAMING, GRASS & DAYLIGHT ATMOSPHERE ---

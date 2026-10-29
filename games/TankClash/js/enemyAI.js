@@ -141,6 +141,16 @@
             });
         });
 
+        // Bold Red Target Cursor hovering high above enemy tank cupola
+        const targetCursor = (typeof window.createRedTargetCursor === 'function')
+            ? window.createRedTargetCursor(1.20, 1.85)
+            : null;
+        if (targetCursor) {
+            targetCursor.position.set(0, 4.4, 0);
+            targetCursor.userData.baseY = 4.4;
+            enemyRoot.add(targetCursor);
+        }
+
         const enemy = {
             id,
             tankType,
@@ -149,6 +159,7 @@
             model,
             raycastMeshes,
             parentGroup: targetGroup,
+            targetCursor,
             x,
             y,
             z,
@@ -158,6 +169,9 @@
             targetTurretYaw: 0,
             targetGunElevation: 0.02,
             state: 'PATROL',         // 'PATROL', 'ENGAGING', 'DESTROYED'
+            combatTactic: 'STAND_AND_FIRE', // 'STAND_AND_FIRE', 'FLANK_LEFT', 'FLANK_RIGHT', 'ADVANCE', 'REVERSE'
+            tacticTimer: 1.5 + Math.random() * 2.5,
+            targetSpeed: 0,
             detectionTimer: 0,
             reloadTimer: 2.0 + Math.random() * 2.5,
             barrelRecoil: 0,
@@ -172,6 +186,7 @@
             onHit(impactPos, hitDir) {
                 if (this.isDestroyed) return;
                 this.isDestroyed = true;
+                if (this.targetCursor) this.targetCursor.visible = false;
                 this.state = 'DESTROYED';
                 sessionDestroyedEnemyTanks.add(this.id);
 
@@ -252,6 +267,13 @@
 
         for (let i = activeEnemyTanks.length - 1; i >= 0; i--) {
             const e = activeEnemyTanks[i];
+            if (!e) continue;
+
+            // Animate simple red target cursor hovering above tank
+            if (e.targetCursor && !e.isDestroyed) {
+                e.targetCursor.rotation.y += dt * 2.0;
+                e.targetCursor.position.y = e.targetCursor.userData.baseY + Math.sin(nowSec * 3.5) * 0.08;
+            }
 
             // ----------------------------------------------------------------
             // Destroyed burning wreck state
@@ -341,24 +363,91 @@
             e.gunElevation = THREE.MathUtils.lerp(e.gunElevation, desiredElevation, dt * 2.0);
             if (e.model.gunElevationPivot) e.model.gunElevationPivot.rotation.x = -e.gunElevation;
 
-            // 3. Maneuvering: Close distance if too far, hold ground or adjust if in range
-            if (distToPlayer > 80 && hasLOS) {
-                // Slowly advance toward player
-                e.speed = THREE.MathUtils.lerp(e.speed, 3.2, dt * 1.2);
-                const moveDist = e.speed * dt;
-                e.x += Math.sin(e.heading) * moveDist;
-                e.z += Math.cos(e.heading) * moveDist;
-                if (typeof window.getTerrainHeight === 'function') {
-                    e.y = window.getTerrainHeight(e.x, e.z);
+            // 3. Dynamic Combat Maneuvering: Randomly alternate between shooting in place and moving/flanking
+            e.tacticTimer = (e.tacticTimer || 2.0) - dt;
+            if (e.tacticTimer <= 0) {
+                const roll = Math.random();
+                if (roll < 0.35) {
+                    // Shoot from stationary position
+                    e.combatTactic = 'STAND_AND_FIRE';
+                    e.tacticTimer = 2.5 + Math.random() * 3.0;
+                    e.targetSpeed = 0;
+                } else if (roll < 0.58) {
+                    // Move around: flank left around player
+                    e.combatTactic = 'FLANK_LEFT';
+                    e.tacticTimer = 3.0 + Math.random() * 3.5;
+                    e.targetSpeed = 3.2 + Math.random() * 1.0;
+                } else if (roll < 0.80) {
+                    // Move around: flank right around player
+                    e.combatTactic = 'FLANK_RIGHT';
+                    e.tacticTimer = 3.0 + Math.random() * 3.5;
+                    e.targetSpeed = 3.2 + Math.random() * 1.0;
+                } else if (distToPlayer > 42) {
+                    // Move around: close in aggressively
+                    e.combatTactic = 'ADVANCE';
+                    e.tacticTimer = 2.5 + Math.random() * 3.0;
+                    e.targetSpeed = 3.6 + Math.random() * 0.8;
+                } else {
+                    // Move around: reverse away
+                    e.combatTactic = 'REVERSE';
+                    e.tacticTimer = 2.0 + Math.random() * 2.5;
+                    e.targetSpeed = -2.4;
                 }
-                e.enemyRoot.position.set(e.x, e.y, e.z);
+            }
 
-                // Rotate tracks & road wheels
-                if (typeof e.model.updateTracksGeometry === 'function') {
-                    e.model.updateTracksGeometry(nowSec * 1.5, nowSec * 1.5);
+            let desiredHullHeading = e.heading;
+            if (e.combatTactic === 'STAND_AND_FIRE') {
+                desiredHullHeading = worldAngleToPlayer;
+                e.targetSpeed = 0;
+            } else if (e.combatTactic === 'FLANK_LEFT') {
+                desiredHullHeading = normalizeAngle(worldAngleToPlayer - Math.PI * 0.42);
+                if (distToPlayer < 35) desiredHullHeading = normalizeAngle(worldAngleToPlayer - Math.PI * 0.65);
+                if (distToPlayer > 80) desiredHullHeading = normalizeAngle(worldAngleToPlayer - Math.PI * 0.25);
+            } else if (e.combatTactic === 'FLANK_RIGHT') {
+                desiredHullHeading = normalizeAngle(worldAngleToPlayer + Math.PI * 0.42);
+                if (distToPlayer < 35) desiredHullHeading = normalizeAngle(worldAngleToPlayer + Math.PI * 0.65);
+                if (distToPlayer > 80) desiredHullHeading = normalizeAngle(worldAngleToPlayer + Math.PI * 0.25);
+            } else if (e.combatTactic === 'ADVANCE') {
+                desiredHullHeading = worldAngleToPlayer;
+            } else if (e.combatTactic === 'REVERSE') {
+                desiredHullHeading = worldAngleToPlayer;
+            }
+
+            // Slew hull towards desired maneuver heading
+            const hullTurnRate = (e.tankType === 'sherman') ? 1.15 : 0.90;
+            const headingDiff = normalizeAngle(desiredHullHeading - e.heading);
+            e.heading += THREE.MathUtils.clamp(headingDiff, -hullTurnRate * dt, hullTurnRate * dt);
+            e.enemyRoot.rotation.y = e.heading;
+
+            // Move tank forward/backward with speed
+            e.speed = THREE.MathUtils.lerp(e.speed, e.targetSpeed || 0, dt * 2.2);
+            if (Math.abs(e.speed) > 0.05) {
+                const moveDist = e.speed * dt;
+                const nextX = e.x + Math.sin(e.heading) * moveDist;
+                const nextZ = e.z + Math.cos(e.heading) * moveDist;
+
+                let canMove = true;
+                if (typeof window.getTerrainHeight === 'function') {
+                    const nextY = window.getTerrainHeight(nextX, nextZ);
+                    if (nextY < -1.8) {
+                        canMove = false;
+                        e.combatTactic = 'STAND_AND_FIRE';
+                        e.tacticTimer = 2.0;
+                    } else {
+                        e.y = nextY;
+                    }
                 }
-            } else {
-                e.speed = THREE.MathUtils.lerp(e.speed, 0, dt * 2.0);
+                if (canMove) {
+                    e.x = nextX;
+                    e.z = nextZ;
+                    e.enemyRoot.position.set(e.x, e.y, e.z);
+
+                    // Animate road wheels & track links while moving
+                    if (typeof e.model.updateTracksGeometry === 'function') {
+                        const trackAnim = e.speed * 0.9;
+                        e.model.updateTracksGeometry(nowSec * trackAnim * 1.5, nowSec * trackAnim * 1.5);
+                    }
+                }
             }
 
             // 4. Barrel recoil recovery animation
@@ -412,7 +501,7 @@
                 // Blast fire & smoke plume VFX
                 if (typeof window.spawnParticle === 'function') {
                     window.spawnParticle(muzzlePos, fireDir.clone().multiplyScalar(14), 0xfffbeb, 0.6, 2.4, 0.12, true, 'fire');
-                    window.spawnParticle(muzzlePos, fireDir.clone().multiplyScalar(6), 0x94a3b8, 0.45, 3.2, 1.8, false, 'smoke');
+                    window.spawnParticle(muzzlePos, fireDir.clone().multiplyScalar(6), 0x94a3b8, 0.45, 3.2, 0.50, false, 'smoke');
                 }
 
                 // Cannon Sound FX
@@ -579,15 +668,13 @@
         if (!modal) {
             modal = document.createElement('div');
             modal.id = 'knockout-modal';
-            modal.className = 'fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md';
+            modal.className = 'fixed inset-0 z-50 flex items-end justify-center pb-10 pointer-events-none select-none';
             modal.innerHTML = `
-                <div class="hud-panel p-6 rounded-2xl max-w-sm text-center border border-red-500/50 shadow-2xl flex flex-col items-center gap-3">
-                    <span class="text-3xl">💥</span>
-                    <h2 class="text-xl font-extrabold text-red-500 tracking-wide">VEHICLE KNOCKED OUT</h2>
-                    <p class="text-xs text-slate-300">All 3 armor plates penetrated by enemy armor-piercing shells.</p>
-                    <div class="mt-2 text-xs mono text-amber-300">Hits Scored: <strong id="knockout-hits">0</strong></div>
-                    <button id="btn-knockout-restart" class="mt-3 px-5 py-2 rounded-xl bg-red-600 hover:bg-red-500 active:scale-95 text-white font-bold text-sm tracking-wider shadow-lg transition-transform pointer-events-auto">
-                        🔄 RESPAWN TANK [R]
+                <div class="pointer-events-auto flex flex-col items-center gap-2 animate-fade-in">
+                    <button id="btn-knockout-restart" class="px-6 py-2.5 rounded-2xl bg-black/40 hover:bg-black/65 active:scale-95 text-amber-300 hover:text-white font-extrabold text-sm tracking-wider border border-amber-400/50 hover:border-amber-300 backdrop-blur-sm shadow-2xl transition-all flex items-center gap-2 cursor-pointer">
+                        <span class="text-base">🔄</span>
+                        <span>RESPAWN TANK</span>
+                        <span class="text-[11px] px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-200 border border-amber-400/30 mono">[R]</span>
                     </button>
                 </div>
             `;
@@ -600,8 +687,6 @@
                 });
             }
         }
-        const hitsEl = document.getElementById('knockout-hits');
-        if (hitsEl && window.tankState) hitsEl.textContent = window.tankState.hitsCount || 0;
         modal.style.display = 'flex';
     }
 

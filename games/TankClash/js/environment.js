@@ -27,6 +27,7 @@ var grassLOD0Mesh = null;
 var grassLOD0MidMesh = null;
 var grassLOD0FarMesh = null;
 var grassLOD1Mesh = null;
+var grassBillboardCloseMesh = null;
 var skyDome = null;
 var skyMat = null;
 
@@ -2671,21 +2672,31 @@ function buildEnvironment(scene) {
         const isMobile = (typeof window.isMobileBrowser === "function" && window.isMobileBrowser()) || (typeof window.isMobileDevice === "function" && window.isMobileDevice());
         const tuftCount = isMobile ? 5000 : 16000;
         const midCount  = isMobile ? 3500 : 10000;
-        const farCount  = isMobile ? 0    : 8000;
+        // On non-mobile, billboard grass extends all the way out to 380m (covering the entire 4-chunk view range instead of stopping at 195m)
+        const farPatchSize = isMobile ? 384.0 : 760.0;
+        const farMaxRadius = isMobile ? 195.0 : 380.0;
+        const farCount     = isMobile ? 0 : 16000;
 
         grassLOD0Mesh = createTexturedToroidalGrass(tuftGeo, tuftCount, 96.0, 0.0, 48.0, false);
         grassLOD0MidMesh = createTexturedToroidalGrass(tuftGeo, midCount, 192.0, 48.0, 98.0, false);
-        grassLOD0FarMesh = farCount > 0 ? createTexturedToroidalGrass(billboardGeo, farCount, 384.0, 98.0, 195.0, true) : new THREE.Group();
+        grassLOD0FarMesh = farCount > 0 ? createTexturedToroidalGrass(billboardGeo, farCount, farPatchSize, 98.0, farMaxRadius, true) : new THREE.Group();
         grassLOD1Mesh = grassLOD0MidMesh;
+
+        // Lowest res tier billboard grass for close-to-mid range (0m to 98m)
+        const closeBillboardCount = isMobile ? 3000 : 8000;
+        grassBillboardCloseMesh = createTexturedToroidalGrass(billboardGeo, closeBillboardCount, 196.0, 0.0, 98.0, true);
+        grassBillboardCloseMesh.visible = false; // Hidden in 'high' mode where 3D tufts are active
 
         envGroup.add(grassLOD0Mesh);
         envGroup.add(grassLOD0MidMesh);
+        envGroup.add(grassBillboardCloseMesh);
         if (farCount > 0) envGroup.add(grassLOD0FarMesh);
 
         grassMeshRef = grassLOD0Mesh;
         window.grassLOD0Mesh = grassLOD0Mesh;
         window.grassLOD0MidMesh = grassLOD0MidMesh;
         window.grassLOD0FarMesh = grassLOD0FarMesh;
+        window.grassBillboardCloseMesh = grassBillboardCloseMesh;
         window.grassLOD1Mesh = grassLOD1Mesh;
         window.grassMeshRef = grassMeshRef;
     }
@@ -2958,6 +2969,81 @@ function restartGame(customSeed) {
 // ============================================================================
 // EXPORTS & WINDOW ATTACHMENTS
 // ============================================================================
+// ============================================================================
+// GRASS DISPLAY TOGGLE & QUALITY SYSTEM
+// ============================================================================
+let currentGrassMode = 'high'; // 'high', 'low', 'off'
+
+function setGrassMode(mode) {
+    currentGrassMode = mode;
+
+    if (mode === 'high') {
+        if (grassLOD0Mesh) grassLOD0Mesh.visible = true;
+        if (grassLOD0MidMesh) grassLOD0MidMesh.visible = true;
+        if (grassBillboardCloseMesh) grassBillboardCloseMesh.visible = false;
+        if (grassLOD0FarMesh) grassLOD0FarMesh.visible = true;
+    } else if (mode === 'low') {
+        // Lowest res tier billboard grass covers ground instead of nothing
+        if (grassLOD0Mesh) grassLOD0Mesh.visible = false;
+        if (grassLOD0MidMesh) grassLOD0MidMesh.visible = false;
+        if (grassBillboardCloseMesh) grassBillboardCloseMesh.visible = true;
+        if (grassLOD0FarMesh) grassLOD0FarMesh.visible = true;
+    } else if (mode === 'off') {
+        if (grassLOD0Mesh) grassLOD0Mesh.visible = false;
+        if (grassLOD0MidMesh) grassLOD0MidMesh.visible = false;
+        if (grassBillboardCloseMesh) grassBillboardCloseMesh.visible = false;
+        if (grassLOD0FarMesh) grassLOD0FarMesh.visible = false;
+    }
+
+    // Update HUD button label & styling
+    const labelEl = document.getElementById('hud-grass-label');
+    const btnEl = document.getElementById('btn-grass-toggle');
+    if (labelEl) {
+        if (mode === 'high') labelEl.textContent = 'Grass: High';
+        else if (mode === 'low') labelEl.textContent = 'Grass: Low';
+        else labelEl.textContent = 'Grass: Off';
+    }
+    if (btnEl) {
+        if (mode === 'high') {
+            btnEl.className = 'hud-btn px-2.5 py-1 rounded-lg text-[11px] font-semibold text-emerald-300';
+        } else if (mode === 'low') {
+            btnEl.className = 'hud-btn px-2.5 py-1 rounded-lg text-[11px] font-semibold text-amber-300';
+        } else {
+            btnEl.className = 'hud-btn px-2.5 py-1 rounded-lg text-[11px] font-semibold text-slate-400 opacity-60';
+        }
+    }
+    console.log(`[Grass] Switched to mode: ${mode}`);
+}
+
+function isNonMobileDevice() {
+    if (typeof window.isMobileBrowser === 'function' && window.isMobileBrowser()) return false;
+    if (typeof window.isMobileDevice === 'function' && window.isMobileDevice()) return false;
+    const ua = (navigator.userAgent || '').toLowerCase();
+    const isMobileUA = /android|iphone|ipad|ipod|blackberry|mobile|tablet/i.test(ua);
+    return !isMobileUA;
+}
+window.isNonMobileDevice = isNonMobileDevice;
+
+function toggleGrass() {
+    const nonMobile = isNonMobileDevice();
+    if (nonMobile) {
+        // On non-mobile device, make the ground always at least cover with lowest res tier billboard grass instead of nothing!
+        // Toggle switches between High (3D tufts + far billboards) and Low (lowest res tier billboard grass everywhere)
+        if (currentGrassMode === 'high') {
+            setGrassMode('low');
+        } else {
+            setGrassMode('high');
+        }
+    } else {
+        // On mobile devices, toggle between High and Off
+        setGrassMode(currentGrassMode === 'off' ? 'high' : 'off');
+    }
+}
+window.setGrassMode = setGrassMode;
+window.toggleGrass = toggleGrass;
+window.getGrassMode = () => currentGrassMode;
+window.grassBillboardCloseMesh = grassBillboardCloseMesh;
+
 window.environmentMode = environmentMode;
 window.envGroup = envGroup;
 window.chunksGroup = chunksGroup;

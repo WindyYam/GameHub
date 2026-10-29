@@ -467,7 +467,7 @@ function fireMainCannon(tankModel) {
                     .add(shootDir.clone().multiplyScalar(1.5 + Math.random() * 2));
 
                 spawnParticle(muzzlePos, sideVel, 0xfbbf24, 0.28, 1.25, 0.15 + Math.random() * 0.08, true, 'fire');
-                spawnParticle(muzzlePos, sideVel.clone().multiplyScalar(0.55), 0x94a3b8, 0.35, 2.6, 1.6 + Math.random() * 0.8, false, 'smoke');
+                spawnParticle(muzzlePos, sideVel.clone().multiplyScalar(0.55), 0x94a3b8, 0.35, 2.6, 0.50, false, 'smoke');
             }
         });
     } else {
@@ -477,7 +477,7 @@ function fireMainCannon(tankModel) {
                 .add(rightVec.clone().multiplyScalar((Math.random() - 0.5) * 6))
                 .add(upVec.clone().multiplyScalar((Math.random() - 0.2) * 5));
             spawnParticle(muzzlePos, coneVel, 0xf59e0b, 0.32, 1.6, 0.18 + Math.random() * 0.08, true, 'fire');
-            spawnParticle(muzzlePos, coneVel.clone().multiplyScalar(0.45), 0x94a3b8, 0.40, 2.8, 1.8 + Math.random() * 0.8, false, 'smoke');
+            spawnParticle(muzzlePos, coneVel.clone().multiplyScalar(0.45), 0x94a3b8, 0.40, 2.8, 0.50, false, 'smoke');
         }
     }
 
@@ -485,7 +485,7 @@ function fireMainCannon(tankModel) {
     for (let i = 0; i < 8; i++) {
         const smokeVel = shootDir.clone().multiplyScalar(6 + Math.random() * 9)
             .add(new THREE.Vector3((Math.random() - 0.5) * 4, 1.4 + Math.random() * 2.5, (Math.random() - 0.5) * 4));
-        spawnParticle(muzzlePos, smokeVel, 0x64748b, 0.45, 3.6, 2.2 + Math.random() * 1.0, false, 'smoke');
+        spawnParticle(muzzlePos, smokeVel, 0x64748b, 0.45, 3.6, 0.50, false, 'smoke');
     }
 
     // 7. Ground Dust Shockwave Kick-up Under Gun Muzzle
@@ -498,7 +498,7 @@ function fireMainCannon(tankModel) {
             0.6 + Math.random() * 1.8,
             (Math.random() - 0.5) * 9
         );
-        spawnParticle(groundUnderMuzzle, dustVel, 0x785e46, 0.35, 2.4, 1.4 + Math.random() * 0.8, false, 'smoke');
+        spawnParticle(groundUnderMuzzle, dustVel, 0x785e46, 0.35, 2.4, 0.50, false, 'smoke');
     }
 
     // 8. Spawn High-Velocity Armor-Piercing Tracer Shell
@@ -656,7 +656,7 @@ function triggerHeavyDetonation(pos) {
             (Math.random() - 0.5) * 9.5
         );
         const col = (i % 2 === 0) ? 0x1e242b : 0x475569;
-        spawnParticle(pos, smokeVel, col, 0.65, 5.8, 2.5 + Math.random() * 1.8, false, 'smoke');
+        spawnParticle(pos, smokeVel, col, 0.65, 4.2, 0.50, false, 'smoke');
     }
 
     // 5. Fountain of Incandescent Shrapnel Sparks
@@ -667,6 +667,20 @@ function triggerHeavyDetonation(pos) {
             (Math.random() - 0.5) * 26.0
         );
         spawnParticle(pos, sparkVel, (Math.random() > 0.3) ? 0xfbbf24 : 0xf97316, 0.18, 0.08, 0.8 + Math.random() * 1.1, true, 'spark');
+    }
+
+    // Blast wave shrapnel damage to nearby soldiers
+    const blastSols = window.activeSoldiers || [];
+    for (let bsi = 0; bsi < blastSols.length; bsi++) {
+        const bsol = blastSols[bsi];
+        if (!bsol || bsol.isDead) continue;
+        const blastDist = Math.hypot(bsol.x - pos.x, bsol.z - pos.z);
+        if (blastDist < 8.5) {
+            const dmg = blastDist < 3.8 ? 100 : Math.round(100 * (1 - (blastDist - 3.8) / 4.7));
+            if (typeof bsol.takeDamage === 'function') {
+                bsol.takeDamage(dmg);
+            }
+        }
     }
 
     // 6. Heavy Clods of Earth & Shrapnel Debris
@@ -969,6 +983,33 @@ function updateProjectiles(dt) {
             }
         }
 
+        // D1. Active Soldiers (Direct cannon shell strike)
+        const activeSols = window.activeSoldiers || [];
+        for (let si = 0; si < activeSols.length; si++) {
+            const sol = activeSols[si];
+            if (!sol || sol.isDead) continue;
+            if (s.isEnemy && sol.isEnemy) continue; // Enemy shells don't friendly fire own troops
+
+            const solY = sol.y + 0.9;
+            const toSol = new THREE.Vector3(sol.x - prevPos.x, solY - prevPos.y, sol.z - prevPos.z);
+            let projT = 0;
+            if (segLenSq > 0.0001) {
+                projT = THREE.MathUtils.clamp(toSol.dot(seg) / segLenSq, 0, 1);
+            }
+            const closestPt = prevPos.clone().addScaledVector(seg, projT);
+            const distSq = (closestPt.x - sol.x) ** 2 + (closestPt.y - solY) ** 2 + (closestPt.z - sol.z) ** 2;
+            if (distSq < 0.65) {
+                if (!closestHit || projT < closestHit.t) {
+                    closestHit = {
+                        t: projT,
+                        type: 'soldier',
+                        impactPos: closestPt,
+                        targetObj: sol
+                    };
+                }
+            }
+        }
+
         // D. Target Dummies (Player only)
         if (!s.isEnemy && typeof targets !== 'undefined') {
             for (let t = 0; t < targets.length; t++) {
@@ -1025,6 +1066,11 @@ function updateProjectiles(dt) {
                     }
                 } else if (closestHit.type === 'tree') {
                     if (window.hitTree) window.hitTree(closestHit.targetObj, s.vel.clone().normalize(), 7.5);
+                    triggerHeavyDetonation(imp);
+                } else if (closestHit.type === 'soldier') {
+                    if (typeof closestHit.targetObj.takeDamage === 'function') {
+                        closestHit.targetObj.takeDamage(100);
+                    }
                     triggerHeavyDetonation(imp);
                 } else if (closestHit.type === 'target') {
                     closestHit.targetObj.hitAngle = -Math.PI * 0.46;
@@ -1083,6 +1129,39 @@ function updateProjectiles(dt) {
                     window.soundFX.playArmorRicochet();
                 }
                 break;
+            }
+        }
+
+        // Check MG burst against active soldiers
+        if (!hit) {
+            const mgSols = window.activeSoldiers || [];
+            for (let msi = 0; msi < mgSols.length; msi++) {
+                const msol = mgSols[msi];
+                if (!msol || msol.isDead) continue;
+                if (!msol.isEnemy) continue; // Player machine gun only targets enemy soldiers
+
+                const solCenterY = msol.y + 0.9;
+                const dCenterSq = (prevPos.x - msol.x) ** 2 + (prevPos.z - msol.z) ** 2;
+                if (dCenterSq > (1.8 + trSegLen) ** 2) continue;
+
+                const toSol = new THREE.Vector3(msol.x - prevPos.x, solCenterY - prevPos.y, msol.z - prevPos.z);
+                let projT = 0;
+                if (segLenSq > 0.0001) {
+                    projT = THREE.MathUtils.clamp(toSol.dot(seg) / segLenSq, 0, 1);
+                }
+                const closestPt = prevPos.clone().addScaledVector(seg, projT);
+                const distSq = (closestPt.x - msol.x) ** 2 + (closestPt.y - solCenterY) ** 2 + (closestPt.z - msol.z) ** 2;
+                if (distSq < 0.28) {
+                    hit = true;
+                    impactPos.copy(closestPt);
+                    if (typeof msol.takeDamage === 'function') {
+                        msol.takeDamage(35);
+                    }
+                    if (typeof window.spawnParticle === 'function') {
+                        window.spawnParticle(impactPos, tr.vel.clone().multiplyScalar(-0.06), 0x991b1b, 0.15, 0.25, 0.45, false, 'smoke');
+                    }
+                    break;
+                }
             }
         }
 
@@ -1186,7 +1265,7 @@ function updateProjectiles(dt) {
                     const spkVel = new THREE.Vector3((Math.random() - 0.5) * 8, 2.5 + Math.random() * 5, (Math.random() - 0.5) * 8);
                     spawnParticle(impactPos, spkVel, 0xfde047, 0.12, 0.05, 0.25 + Math.random() * 0.2, true, 'spark');
                 }
-                spawnParticle(impactPos, new THREE.Vector3(0, 1.2, 0), 0x785e46, 0.22, 0.95, 0.65, false, 'smoke');
+                spawnParticle(impactPos, new THREE.Vector3(0, 1.2, 0), 0x785e46, 0.22, 0.95, 0.45, false, 'smoke');
             }
             tr.mesh.visible = false;
             if (tracerPool.length < PROJECTILE_POOL_LIMIT) tracerPool.push(tr.mesh);
@@ -1198,6 +1277,15 @@ function updateProjectiles(dt) {
     // 3. Update Reactive Targets Recovery
     if (typeof targets !== 'undefined') {
         targets.forEach((tg) => {
+            if (!tg.targetCursor && typeof window.createRedTargetCursor === 'function' && tg.pivot) {
+                tg.targetCursor = window.createRedTargetCursor(0.25, 0.45);
+                tg.targetCursor.position.set(0, 2.4, 0);
+                tg.targetCursor.userData.baseY = 2.4;
+                tg.pivot.add(tg.targetCursor);
+            }
+            if (tg.targetCursor) {
+                tg.targetCursor.rotation.y += dt * 2.0;
+            }
             if (tg.recoverTimer > 0) {
                 tg.recoverTimer -= dt;
                 if (tg.recoverTimer <= 0) tg.plateMat.color.setHex(0xb91c1c);
