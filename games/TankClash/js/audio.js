@@ -579,72 +579,120 @@ const soundFX = {
 
     // Realistic Multi-Stage Tree Toppling & Canopy Ground Crash (Deep Low-Pitch Timber Snap)
 
-    // Deep heavy-armor bullet / shell deflection glance & metallic clang with distance falloff
+    // Deep heavy-armor bullet / shell deflection glance & bright metallic clang with distance falloff
     playArmorRicochet(posOrDist = 0) {
         this.init();
         if (!this.enabled || !this.ctx) return;
         const now = this.ctx.currentTime;
-        const spatial = this.createSpatialGain(posOrDist, 26.0, 1.25, 0.0, 6500);
+        const spatial = this.createSpatialGain(posOrDist, 30.0, 1.25, 0.0, 14000);
         if (spatial.gain < 0.01) return;
 
-        // 1. Heavy Kinetic Impact Thud (Low-pitch punch: 150Hz down to 45Hz)
+        // 1. Heavy Armor Solid Mass Thud (Punchy low-frequency hull substrate: 180Hz down to 50Hz)
         const thud = this.ctx.createOscillator();
         const thudGain = this.ctx.createGain();
         thud.type = 'triangle';
-        thud.frequency.setValueAtTime(150, now);
-        thud.frequency.exponentialRampToValueAtTime(45, now + 0.08);
-        thudGain.gain.setValueAtTime(0.75, now);
-        thudGain.gain.exponentialRampToValueAtTime(0.001, now + 0.09);
+        thud.frequency.setValueAtTime(180, now);
+        thud.frequency.exponentialRampToValueAtTime(50, now + 0.07);
+        thudGain.gain.setValueAtTime(0.70, now);
+        thudGain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
         thud.connect(thudGain);
         thudGain.connect(spatial.input);
         thud.start(now);
-        thud.stop(now + 0.09);
+        thud.stop(now + 0.08);
 
-        // 2. Heavy steel crunch snap (Lower-pitch bandpass around 1100Hz instead of shrill 3200Hz)
-        const snapLen = Math.floor(this.ctx.sampleRate * 0.045);
+        // 2. High-Frequency Hard Steel Impact Snap (Biting supersonic metal-on-metal crack)
+        const snapLen = Math.floor(this.ctx.sampleRate * 0.05);
         const snapBuf = this.ctx.createBuffer(1, snapLen, this.ctx.sampleRate);
         const snapData = snapBuf.getChannelData(0);
         for (let i = 0; i < snapLen; i++) {
-            snapData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (snapLen * 0.22));
+            snapData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (snapLen * 0.18));
         }
         const snapSrc = this.ctx.createBufferSource();
         snapSrc.buffer = snapBuf;
         const snapFilt = this.ctx.createBiquadFilter();
         snapFilt.type = 'bandpass';
-        snapFilt.frequency.setValueAtTime(1100, now);
-        snapFilt.Q.value = 2.4;
+        snapFilt.frequency.setValueAtTime(3600, now);
+        snapFilt.Q.value = 3.2;
         const snapGain = this.ctx.createGain();
-        snapGain.gain.setValueAtTime(0.70, now);
+        snapGain.gain.setValueAtTime(0.85, now);
         snapGain.gain.exponentialRampToValueAtTime(0.001, now + 0.045);
         snapSrc.connect(snapFilt);
         snapFilt.connect(snapGain);
         snapGain.connect(spatial.input);
         snapSrc.start(now);
 
-        // 3. Lower-pitched Doppler ricochet deflection (Lowered from 2400Hz->680Hz down to 780Hz->220Hz)
+        // 3. Resonant High-Q Metallic Clang Filter (Vibrating steel plate clang excitation)
+        const clangLen = Math.floor(this.ctx.sampleRate * 0.28);
+        const clangBuf = this.ctx.createBuffer(1, clangLen, this.ctx.sampleRate);
+        const clangData = clangBuf.getChannelData(0);
+        for (let i = 0; i < clangLen; i++) {
+            clangData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (clangLen * 0.25));
+        }
+        const clangSrc = this.ctx.createBufferSource();
+        clangSrc.buffer = clangBuf;
+        const clangFilt = this.ctx.createBiquadFilter();
+        clangFilt.type = 'bandpass';
+        clangFilt.frequency.setValueAtTime(2280, now);
+        clangFilt.Q.value = 18.0; // High Q generates unmistakable hollow metallic ring
+        const clangGain = this.ctx.createGain();
+        clangGain.gain.setValueAtTime(0.75, now);
+        clangGain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+        clangSrc.connect(clangFilt);
+        clangFilt.connect(clangGain);
+        clangGain.connect(spatial.input);
+        clangSrc.start(now);
+
+        // 4. Inharmonic Armor Plate Chime Modes (Distinctive metallic "PING / TING" anvil ringing)
+        // Mode 1: Primary steel chime (~1620Hz)
+        const ring1 = this.ctx.createOscillator();
+        const ring1Gain = this.ctx.createGain();
+        ring1.type = 'sine';
+        ring1.frequency.setValueAtTime(1620, now + 0.002);
+        ring1.frequency.exponentialRampToValueAtTime(1580, now + 0.35);
+        ring1Gain.gain.setValueAtTime(0.48, now + 0.002);
+        ring1Gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
+        ring1.connect(ring1Gain);
+        ring1Gain.connect(spatial.input);
+        ring1.start(now + 0.002);
+        ring1.stop(now + 0.35);
+
+        // Mode 2: High inharmonic metallic partial (~2860Hz)
+        const ring2 = this.ctx.createOscillator();
+        const ring2Gain = this.ctx.createGain();
+        ring2.type = 'sine';
+        ring2.frequency.setValueAtTime(2860, now + 0.002);
+        ring2.frequency.exponentialRampToValueAtTime(2780, now + 0.24);
+        ring2Gain.gain.setValueAtTime(0.38, now + 0.002);
+        ring2Gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.24);
+        ring2.connect(ring2Gain);
+        ring2Gain.connect(spatial.input);
+        ring2.start(now + 0.002);
+        ring2.stop(now + 0.24);
+
+        // Mode 3: Sharp overtone shimmer (~4380Hz)
+        const ring3 = this.ctx.createOscillator();
+        const ring3Gain = this.ctx.createGain();
+        ring3.type = 'sine';
+        ring3.frequency.setValueAtTime(4380, now + 0.001);
+        ring3Gain.gain.setValueAtTime(0.24, now + 0.001);
+        ring3Gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
+        ring3.connect(ring3Gain);
+        ring3Gain.connect(spatial.input);
+        ring3.start(now + 0.001);
+        ring3.stop(now + 0.12);
+
+        // 5. Classic High-Velocity Bullet Ricochet Whine / Zinger ("Pwwweee-ee-ew")
         const whine = this.ctx.createOscillator();
         const whineGain = this.ctx.createGain();
         whine.type = 'sine';
-        whine.frequency.setValueAtTime(780, now + 0.005);
-        whine.frequency.exponentialRampToValueAtTime(220, now + 0.24);
-        whineGain.gain.setValueAtTime(0.42, now + 0.005);
-        whineGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.26);
+        whine.frequency.setValueAtTime(3200, now + 0.005);
+        whine.frequency.exponentialRampToValueAtTime(820, now + 0.22);
+        whineGain.gain.setValueAtTime(0.40, now + 0.005);
+        whineGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.24);
         whine.connect(whineGain);
         whineGain.connect(spatial.input);
         whine.start(now + 0.005);
-        whine.stop(now + 0.26);
-
-        // 4. Low armored hull ringing resonance (Lowered from 920Hz down to 340Hz)
-        const ring = this.ctx.createOscillator();
-        const ringGain = this.ctx.createGain();
-        ring.type = 'triangle';
-        ring.frequency.setValueAtTime(340, now + 0.01);
-        ringGain.gain.setValueAtTime(0.38, now + 0.01);
-        ringGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.28);
-        ring.connect(ringGain);
-        ringGain.connect(spatial.input);
-        ring.start(now + 0.01);
-        ring.stop(now + 0.28);
+        whine.stop(now + 0.24);
     },
 
     playTreeCrack(posOrDist = 0) {
