@@ -733,7 +733,7 @@
         const rig = playerSoldier.rig;
         if (!rig || !rig.rifle) return;
 
-        rig.rifle.updateMatrixWorld(true);
+        rig.rifle.updateWorldMatrix(true, false);
         const muzzleWorldPos = new THREE.Vector3();
         rig.rifle.localToWorld(muzzleWorldPos.copy(rig.rifle.userData.muzzleOffset || new THREE.Vector3(0, 0.02, 0.6)));
 
@@ -753,60 +753,14 @@
         // 2. High-speed Tracer Round
         if (typeof window.spawnTracerRound === 'function') {
             const tracerQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), shootDir);
-            window.spawnTracerRound(muzzleWorldPos, shootDir, tracerQuat);
-        }
-
-        // 3. Ballistic Raycast against Enemies
-        // Check active enemy soldiers
-        let hitTarget = false;
-        const enemies = (window.activeSoldiers || []).filter(s => s.isEnemy && !s.isDead);
-        for (let i = 0; i < enemies.length; i++) {
-            const e = enemies[i];
-            const toEnemy = new THREE.Vector3(e.x - muzzleWorldPos.x, (e.y + 1.1) - muzzleWorldPos.y, e.z - muzzleWorldPos.z);
-            const dist = toEnemy.length();
-            if (dist > 180) continue;
-
-            const proj = toEnemy.dot(shootDir);
-            if (proj > 0) {
-                const perp = toEnemy.clone().sub(shootDir.clone().multiplyScalar(proj)).length();
-                if (perp < 0.65) { // Hit soldier torso/body cylinder
-                    hitTarget = true;
-                    e.takeDamage(52);
-                    if (typeof window.showKillFeedBanner === 'function' && e.isDead) {
+            window.spawnTracerRound(muzzleWorldPos, shootDir, tracerQuat, false, {
+                damage: 52,
+                onSoldierKilled: () => {
+                    if (typeof window.showKillFeedBanner === 'function') {
                         window.showKillFeedBanner('🎯 ENEMY INFANTRY ELIMINATED');
                     }
-                    break;
                 }
-            }
-        }
-
-        // Check enemy tanks if no soldier hit
-        if (!hitTarget && window.activeEnemyTanks) {
-            for (let i = 0; i < window.activeEnemyTanks.length; i++) {
-                const et = window.activeEnemyTanks[i];
-                if (et.isDestroyed) continue;
-                const toTank = new THREE.Vector3(et.x - muzzleWorldPos.x, (et.y + 1.2) - muzzleWorldPos.y, et.z - muzzleWorldPos.z);
-                const dist = toTank.length();
-                if (dist > 250) continue;
-
-                const proj = toTank.dot(shootDir);
-                if (proj > 0) {
-                    const perp = toTank.clone().sub(shootDir.clone().multiplyScalar(proj)).length();
-                    if (perp < 2.5) { // Hit tank armor
-                        const hitPos = muzzleWorldPos.clone().add(shootDir.clone().multiplyScalar(proj));
-                        if (typeof window.spawnParticle === 'function') {
-                            for (let s = 0; s < 5; s++) {
-                                const sparkVel = new THREE.Vector3((Math.random() - 0.5) * 4, 1.5 + Math.random() * 3, (Math.random() - 0.5) * 4);
-                                window.spawnParticle(hitPos, sparkVel, 0xffcc33, 0.08, 0.03, 0.25, true, 'spark');
-                            }
-                        }
-                        if (window.soundFX && typeof window.soundFX.playArmorRicochet === 'function') {
-                            window.soundFX.playArmorRicochet(hitPos);
-                        }
-                        break;
-                    }
-                }
-            }
+            });
         }
     }
 

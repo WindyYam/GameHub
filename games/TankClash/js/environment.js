@@ -1,5 +1,5 @@
 // ============================================================================
-// TankClash — Procedural Infinite Meadow Battlefield Environment
+// TankClash — Procedural Infinite Battlefield Environment
 // Features:
 // - Infinite Chunk-Based Procedural Terrain Streaming around Tank
 // - Smooth & Uniform Toroidal Grass Distribution (Stratified Grid, Zero Bald Patches)
@@ -9,6 +9,7 @@
 // - Detailed Botanical Multi-Bough Spruce & Forked Deciduous Trees
 // - European Timber-Framed Cottages & Smoldering War Ruins with Smoke Plumes
 // - Deterministic Seeded PRNG with Session Persistence & 'R' Restart
+// - Large seeded landscape zones with smoothly blended terrain
 // ============================================================================
 
 var environmentMode = 'wild'; // 'wild' or 'studio'
@@ -101,7 +102,7 @@ const ZONE_CONFIGS = {
 };
 
 const ALL_ZONES = ['meadow', 'desert', 'mountain', 'hills'];
-var currentZone = ALL_ZONES[Math.floor(Math.random() * ALL_ZONES.length)];
+var currentZone = 'meadow';
 var currentZoneIndex = ZONE_CONFIGS[currentZone].typeIndex;
 var currentZoneConfig = ZONE_CONFIGS[currentZone];
 window.ZONE_CONFIGS = ZONE_CONFIGS;
@@ -129,29 +130,29 @@ function syncZoneUniformsAndHUD() {
         if (waterMeshRef.material && waterMeshRef.material.uniforms && waterMeshRef.material.uniforms.uZoneType) {
             waterMeshRef.material.uniforms.uZoneType.value = currentZoneIndex;
         }
-        // In Coastal Meadow, ocean spans +Z bay; in Desert/Mountain/Hills, water plane covers central oasis/tarn/pond basins
-        waterMeshRef.position.set(0, -2.5, currentZone === 'meadow' ? 1500 : 0);
     }
 
     const zoneLabelEl = document.getElementById('hud-zone-label');
     if (zoneLabelEl && currentZoneConfig) {
         zoneLabelEl.textContent = `Zone: ${currentZoneConfig.shortName}`;
     }
-    const zoneBtnEl = document.getElementById('btn-zone-cycle');
-    if (zoneBtnEl && currentZoneConfig) {
-        zoneBtnEl.innerHTML = `${currentZoneConfig.icon} <span id="hud-zone-label">Zone: ${currentZoneConfig.shortName}</span>`;
+    const zoneIconEl = document.getElementById('hud-zone-icon');
+    if (zoneIconEl && currentZoneConfig) {
+        zoneIconEl.textContent = currentZoneConfig.icon;
     }
 }
 
-function setWorldSeed(seed, zoneId) {
-    if (zoneId && ZONE_CONFIGS[zoneId]) {
-        currentZone = zoneId;
-        currentZoneIndex = ZONE_CONFIGS[zoneId].typeIndex;
-        currentZoneConfig = ZONE_CONFIGS[zoneId];
-        window.currentZone = currentZone;
-        window.currentZoneIndex = currentZoneIndex;
-        window.currentZoneConfig = currentZoneConfig;
-    }
+function setCurrentZone(zoneIndex) {
+    currentZoneIndex = zoneIndex;
+    currentZone = ALL_ZONES[zoneIndex];
+    currentZoneConfig = ZONE_CONFIGS[currentZone];
+    window.currentZone = currentZone;
+    window.currentZoneIndex = currentZoneIndex;
+    window.currentZoneConfig = currentZoneConfig;
+    syncZoneUniformsAndHUD();
+}
+
+function setWorldSeed(seed) {
     currentSeed = seed;
     window.currentSeed = currentSeed;
     seedOffset.x = (currentSeed % 289);
@@ -186,7 +187,7 @@ function setWorldSeed(seed, zoneId) {
         }
     }
 
-    syncZoneUniformsAndHUD();
+    setCurrentZone(0);
     sessionFallenTrees.clear();
     sessionDestroyedTargets.clear();
 }
@@ -216,6 +217,50 @@ function hash2D(px, py) {
     const ix = Math.floor(px);
     const iy = Math.floor(py);
     return permute(permute(ix) + iy) / 288.0;
+}
+
+const ZONE_SIZE = 1600;
+
+function getZoneGrid(x, z) {
+    return [
+        (x + Math.sin(z * 0.0014 + seedOffset.z * 0.017) * 130) / ZONE_SIZE,
+        (z + Math.sin(x * 0.0014 + seedOffset.x * 0.017) * 130) / ZONE_SIZE
+    ];
+}
+
+function getZoneCenter(x, z) {
+    const [gx, gz] = getZoneGrid(x, z);
+    return [Math.floor(gx + 0.5) * ZONE_SIZE, Math.floor(gz + 0.5) * ZONE_SIZE];
+}
+
+function getZoneWeights(x, z) {
+    const [gx, gz] = getZoneGrid(x, z);
+    const ix = Math.floor(gx);
+    const iz = Math.floor(gz);
+    const tx = smoothstep(0.4, 0.6, gx - ix);
+    const tz = smoothstep(0.4, 0.6, gz - iz);
+    const weights = [0, 0, 0, 0];
+    const add = (cx, cz, weight) => {
+        if (weight === 0) return;
+        const zone = (cx === 0 && cz === 0)
+            ? 0
+            : Math.min(3, Math.floor(hash2D(cx + seedOffset.x, cz + seedOffset.z) * 4));
+        weights[zone] += weight;
+    };
+    add(ix, iz, (1 - tx) * (1 - tz));
+    add(ix + 1, iz, tx * (1 - tz));
+    add(ix, iz + 1, (1 - tx) * tz);
+    add(ix + 1, iz + 1, tx * tz);
+    return weights;
+}
+
+function getZoneIndexAt(x, z) {
+    const weights = getZoneWeights(x, z);
+    let zone = 0;
+    for (let i = 1; i < weights.length; i++) {
+        if (weights[i] > weights[zone]) zone = i;
+    }
+    return zone;
 }
 
 function valueNoise2D(px, py) {
@@ -268,6 +313,42 @@ const SHARED_TERRAIN_GLSL = `
     float hash2D_gpu(vec2 p) {
         vec2 ip = floor(p);
         return permute_gpu(permute_gpu(ip.x) + ip.y) * (1.0 / 288.0);
+    }
+
+    vec4 zoneCell_gpu(vec2 cell) {
+        float zone = 0.0;
+        if (cell.x != 0.0 || cell.y != 0.0) {
+            zone = min(3.0, floor(hash2D_gpu(cell + uSeedOffset) * 4.0));
+        }
+        if (zone < 0.5) return vec4(1.0, 0.0, 0.0, 0.0);
+        if (zone < 1.5) return vec4(0.0, 1.0, 0.0, 0.0);
+        if (zone < 2.5) return vec4(0.0, 0.0, 1.0, 0.0);
+        return vec4(0.0, 0.0, 0.0, 1.0);
+    }
+
+    vec2 getZoneGrid_gpu(vec2 pos) {
+        vec2 warp = vec2(sin(pos.y * 0.0014 + uSeedOffset.y * 0.017),
+                         sin(pos.x * 0.0014 + uSeedOffset.x * 0.017)) * 130.0;
+        return (pos + warp) / 1600.0;
+    }
+
+    vec4 getZoneWeights_gpu(vec2 pos) {
+        vec2 grid = getZoneGrid_gpu(pos);
+        vec2 cell = floor(grid);
+        vec2 t = smoothstep(vec2(0.4), vec2(0.6), fract(grid));
+        return zoneCell_gpu(cell) * (1.0 - t.x) * (1.0 - t.y)
+             + zoneCell_gpu(cell + vec2(1.0, 0.0)) * t.x * (1.0 - t.y)
+             + zoneCell_gpu(cell + vec2(0.0, 1.0)) * (1.0 - t.x) * t.y
+             + zoneCell_gpu(cell + vec2(1.0, 1.0)) * t.x * t.y;
+    }
+
+    int getZoneIndex_gpu(vec4 weights) {
+        int zone = 0;
+        float best = weights.x;
+        if (weights.y > best) { zone = 1; best = weights.y; }
+        if (weights.z > best) { zone = 2; best = weights.z; }
+        if (weights.w > best) { zone = 3; }
+        return zone;
     }
 
     float valueNoise2D_gpu(vec2 p) {
@@ -341,15 +422,16 @@ const SHARED_TERRAIN_GLSL = `
 
     const float SEA_LEVEL = -2.5;
 
-    float getTerrainHeight_gpu(float x, float z) {
+    float getZoneTerrainHeight_gpu(float x, float z, int zoneType) {
         vec2 s = vec2(x, z) + uSeedOffset;
         float dSpawn = length(vec2(x, z));
         float roadDist = getRoadDistance_gpu(x, z);
         float roadF = getRoadFactor_gpu(x, z);
+        vec2 zoneCenter = floor(getZoneGrid_gpu(vec2(x, z)) + 0.5) * 1600.0;
         float finalH = 0.0;
 
         // ZONE 1: SAHARA DESERT DUNES, SANDSTONE MESAS & OASIS
-        if (uZoneType == 1) {
+        if (zoneType == 1) {
             float duneWarp = fbm3_gpu(s * 0.0055) * 2.2;
             float dunePhase = (s.x * 0.82 + s.y * 0.57) * 0.019 + duneWarp;
             float duneWave = (sin(dunePhase) + 0.30 * sin(dunePhase * 2.0 - 0.55)) * 4.2;
@@ -364,8 +446,7 @@ const SHARED_TERRAIN_GLSL = `
             float mesaMask = smoothstep(0.34, 0.48, mesaNoise) * smoothstep(55.0, 105.0, dSpawn) * smoothstep(10.0, 32.0, roadDist);
             h += mesaMask * 13.5;
 
-            // Desert Oasis Basin at (58, 78)
-            float dOasis = length(vec2(x - 58.0, z - 78.0));
+            float dOasis = length(vec2(x, z) - zoneCenter - vec2(58.0, 78.0));
             float oasisDip = (1.0 - smoothstep(14.0, 48.0, dOasis)) * 9.8;
             h -= oasisDip;
 
@@ -382,7 +463,7 @@ const SHARED_TERRAIN_GLSL = `
         }
 
         // ZONE 2: ALPINE MOUNTAIN PASS, CRAGGY RIDGES & GLACIAL TARN
-        else if (uZoneType == 2) {
+        else if (zoneType == 2) {
             float valleyHills = fbm4_gpu(s * 0.0045) * 7.5;
             float foothillBumps = fbm3_gpu(s * 0.016) * 2.6;
             float microRock = valueNoise2D_gpu(s * 0.085) * 0.32;
@@ -399,8 +480,7 @@ const SHARED_TERRAIN_GLSL = `
             float spawnCorridor = smoothstep(22.0, 78.0, dSpawn);
             h += mountainHeight * passCorridor * spawnCorridor;
 
-            // Glacial Alpine Tarn at (-54, 92)
-            float dTarn = length(vec2(x + 54.0, z - 92.0));
+            float dTarn = length(vec2(x, z) - zoneCenter - vec2(-54.0, 92.0));
             float tarnDip = (1.0 - smoothstep(14.0, 46.0, dTarn)) * 11.5;
             h -= tarnDip;
 
@@ -417,7 +497,7 @@ const SHARED_TERRAIN_GLSL = `
         }
 
         // ZONE 3: HIGHLAND ROLLING HILLS, DRUMLINS & SUNKEN LANES
-        else if (uZoneType == 3) {
+        else if (zoneType == 3) {
             float bigHills = fbm4_gpu(s * 0.0062) * 10.5;
             float warp = fbm3_gpu(s * 0.009) * 2.2;
             float drumlins = sin(s.x * 0.021 + warp) * cos(s.y * 0.019 - warp) * 5.2;
@@ -428,8 +508,7 @@ const SHARED_TERRAIN_GLSL = `
             float knoll = (1.0 - smoothstep(15.0, 75.0, dSpawn)) * 3.2;
             h += knoll;
 
-            // Highland Valley Pond Basin at (62, -82)
-            float dPond = length(vec2(x - 62.0, z + 82.0));
+            float dPond = length(vec2(x, z) - zoneCenter - vec2(62.0, -82.0));
             float pondDip = (1.0 - smoothstep(12.0, 42.0, dPond)) * 11.2;
             h -= pondDip;
 
@@ -462,7 +541,8 @@ const SHARED_TERRAIN_GLSL = `
 
             // Rolling coastal headlands framing the bay on the left and right
             float headland = smoothstep(60.0, 200.0, abs(x)) * smoothstep(60.0, 420.0, coastalDist) * 6.5;
-            h = h - coastalSlope + headland;
+            float coastalExtent = (1.0 - smoothstep(600.0, 900.0, abs(x))) * (1.0 - smoothstep(750.0, 1200.0, z));
+            h += (-coastalSlope + headland) * coastalExtent;
 
             // Spawn pad clearing
             float spawnClear = smoothstep(3.5, 16.0, dSpawn);
@@ -476,6 +556,16 @@ const SHARED_TERRAIN_GLSL = `
         }
 
         return finalH;
+    }
+
+    float getTerrainHeight_gpu(float x, float z) {
+        vec4 weights = getZoneWeights_gpu(vec2(x, z));
+        float h = 0.0;
+        if (weights.x > 0.0) h += weights.x * getZoneTerrainHeight_gpu(x, z, 0);
+        if (weights.y > 0.0) h += weights.y * getZoneTerrainHeight_gpu(x, z, 1);
+        if (weights.z > 0.0) h += weights.z * getZoneTerrainHeight_gpu(x, z, 2);
+        if (weights.w > 0.0) h += weights.w * getZoneTerrainHeight_gpu(x, z, 3);
+        return h;
     }
 
     float getTerrainSurfaceHeight_gpu(float x, float z, out vec3 surfaceNormal) {
@@ -532,12 +622,21 @@ const SEA_LEVEL = -2.5;
 
 function getTerrainHeight(x, z) {
     if (environmentMode === 'studio') return 0;
+    const weights = getZoneWeights(x, z);
+    let height = 0;
+    for (let i = 0; i < weights.length; i++) {
+        if (weights[i] > 0) height += weights[i] * getZoneTerrainHeight(x, z, i);
+    }
+    return height;
+}
 
+function getZoneTerrainHeight(x, z, currentZoneIndex) {
     const sx = x + seedOffset.x;
     const sz = z + seedOffset.z;
     const dSpawn = Math.hypot(x, z);
     const roadDist = getRoadDistance(x, z);
     const roadF = getRoadFactor(x, z);
+    const [zoneX, zoneZ] = getZoneCenter(x, z);
 
     // ZONE 1: SAHARA DESERT DUNES, SANDSTONE MESAS & OASIS
     if (currentZoneIndex === 1) {
@@ -554,7 +653,7 @@ function getTerrainHeight(x, z) {
         const mesaMask = smoothstep(0.34, 0.48, mesaNoise) * smoothstep(55.0, 105.0, dSpawn) * smoothstep(10.0, 32.0, roadDist);
         h += mesaMask * 13.5;
 
-        const dOasis = Math.hypot(x - 58.0, z - 78.0);
+        const dOasis = Math.hypot(x - zoneX - 58.0, z - zoneZ - 78.0);
         const oasisDip = (1.0 - smoothstep(14.0, 48.0, dOasis)) * 9.8;
         h -= oasisDip;
 
@@ -587,7 +686,7 @@ function getTerrainHeight(x, z) {
         const spawnCorridor = smoothstep(22.0, 78.0, dSpawn);
         h += mountainHeight * passCorridor * spawnCorridor;
 
-        const dTarn = Math.hypot(x + 54.0, z - 92.0);
+        const dTarn = Math.hypot(x - zoneX + 54.0, z - zoneZ - 92.0);
         const tarnDip = (1.0 - smoothstep(14.0, 46.0, dTarn)) * 11.5;
         h -= tarnDip;
 
@@ -615,7 +714,7 @@ function getTerrainHeight(x, z) {
         const knoll = (1.0 - smoothstep(15.0, 75.0, dSpawn)) * 3.2;
         h += knoll;
 
-        const dPond = Math.hypot(x - 62.0, z + 82.0);
+        const dPond = Math.hypot(x - zoneX - 62.0, z - zoneZ + 82.0);
         const pondDip = (1.0 - smoothstep(12.0, 42.0, dPond)) * 11.2;
         h -= pondDip;
 
@@ -645,7 +744,8 @@ function getTerrainHeight(x, z) {
     const coastalSlope = smoothstep(110.0, 360.0, coastalDist) * 12.8;
 
     const headland = smoothstep(60.0, 200.0, Math.abs(x)) * smoothstep(60.0, 420.0, coastalDist) * 6.5;
-    h = h - coastalSlope + headland;
+    const coastalExtent = (1.0 - smoothstep(600.0, 900.0, Math.abs(x))) * (1.0 - smoothstep(750.0, 1200.0, z));
+    h += (-coastalSlope + headland) * coastalExtent;
 
     const spawnClear = smoothstep(3.5, 16.0, dSpawn);
     h = mix(7.2, h, spawnClear);
@@ -776,138 +876,149 @@ terrainMat.onBeforeCompile = (shader) => {
         // Convert vertex color from sRGB to linear space
         diffuseColor.rgb = pow(max(diffuseColor.rgb, vec3(0.001)), vec3(2.2));
 
-        if (uZoneType == 1) {
-            // SAHARA DESERT ZONE: Wind-rippled golden dunes, stratified red-ochre sandstone cliffs & desert oasis
-            float sandRipple = sin(vTerrainWorldPos.x * 3.4 + vTerrainWorldPos.z * 2.1 + microNoise * 2.2) * 0.5 + 0.5;
-            vec3 sunlitSand = vec3(0.48, 0.31, 0.14);
-            vec3 warmErg    = vec3(0.35, 0.20, 0.08);
-            vec3 duneTint   = mix(warmErg, sunlitSand, macroPatch * 0.55 + sandRipple * 0.30 + microNoise * 0.15);
-            duneTint *= (0.97 + windWave * 0.05);
-            diffuseColor.rgb = mix(diffuseColor.rgb, duneTint, grassSurfaceMask * 0.88);
+        vec3 baseZoneColor = diffuseColor.rgb;
+        vec3 blendedZoneColor = vec3(0.0);
+        vec4 zoneWeights = getZoneWeights_gpu(vTerrainWorldPos.xz);
+        for (int localZone = 0; localZone < 4; localZone++) {
+            float zoneWeight = localZone == 0 ? zoneWeights.x : (localZone == 1 ? zoneWeights.y : (localZone == 2 ? zoneWeights.z : zoneWeights.w));
+            if (zoneWeight <= 0.0) continue;
+            diffuseColor.rgb = baseZoneColor;
+            if (localZone == 1) {
+                // SAHARA DESERT ZONE: Wind-rippled golden dunes, stratified red-ochre sandstone cliffs & desert oasis
+                float sandRipple = sin(vTerrainWorldPos.x * 3.4 + vTerrainWorldPos.z * 2.1 + microNoise * 2.2) * 0.5 + 0.5;
+                vec3 sunlitSand = vec3(0.48, 0.31, 0.14);
+                vec3 warmErg    = vec3(0.35, 0.20, 0.08);
+                vec3 duneTint   = mix(warmErg, sunlitSand, macroPatch * 0.55 + sandRipple * 0.30 + microNoise * 0.15);
+                duneTint *= (0.97 + windWave * 0.05);
+                diffuseColor.rgb = mix(diffuseColor.rgb, duneTint, grassSurfaceMask * 0.88);
 
-            // Stratified desert sandstone strata on mesa cliffs & steep dune slip-faces
-            if (vTerrainSlope > 0.15) {
-                float strata = sin(vTerrainWorldPos.y * 2.6 + microNoise * 1.8) * 0.5 + 0.5;
-                vec3 sandstoneA = vec3(0.34, 0.17, 0.08);
-                vec3 sandstoneB = vec3(0.20, 0.10, 0.05);
-                vec3 mesaRock = mix(sandstoneB, sandstoneA, strata * 0.75 + gravelNoise * 0.25);
-                diffuseColor.rgb = mix(diffuseColor.rgb, mesaRock, smoothstep(0.15, 0.35, vTerrainSlope));
+                // Stratified desert sandstone strata on mesa cliffs & steep dune slip-faces
+                if (vTerrainSlope > 0.15) {
+                    float strata = sin(vTerrainWorldPos.y * 2.6 + microNoise * 1.8) * 0.5 + 0.5;
+                    vec3 sandstoneA = vec3(0.34, 0.17, 0.08);
+                    vec3 sandstoneB = vec3(0.20, 0.10, 0.05);
+                    vec3 mesaRock = mix(sandstoneB, sandstoneA, strata * 0.75 + gravelNoise * 0.25);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, mesaRock, smoothstep(0.15, 0.35, vTerrainSlope));
+                }
+
+                // Compacted Desert Hardpan & Gravel Wadi Trail
+                if (roadMask > 0.02) {
+                    float distFromCenter = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
+                    float rutMask = exp(-pow(distFromCenter - 1.35, 2.0) / 0.28);
+                    vec3 wadiGravel = mix(vec3(0.28, 0.18, 0.09), vec3(0.20, 0.13, 0.06), gravelNoise * 0.65);
+                    vec3 dustyRut = vec3(0.15, 0.095, 0.045);
+                    vec3 wadiColor = mix(wadiGravel, dustyRut, rutMask * 0.78);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, wadiColor, smoothstep(0.02, 0.48, roadMask));
+                }
+
+                // Lush Oasis Fringe & Wet Sand along oasis water edge
+                float oasisMask = 1.0 - smoothstep(-2.55, -0.45, vTerrainWorldPos.y);
+                if (oasisMask > 0.001) {
+                    float wetZone = 1.0 - smoothstep(-2.65, -1.95, vTerrainWorldPos.y);
+                    vec3 oasisMoss = mix(vec3(0.05, 0.11, 0.025), vec3(0.18, 0.14, 0.08), microNoise * 0.45);
+                    vec3 wetOasisSand = vec3(0.09, 0.07, 0.04);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, mix(oasisMoss, wetOasisSand, wetZone), oasisMask * (1.0 - roadMask * 0.7));
+                }
+            } else if (localZone == 2) {
+                // ALPINE MOUNTAIN ZONE: Valley pine turf, craggy cold granite/slate cliffs & high-altitude snowline
+                vec3 rootGround = mix(vec3(0.024, 0.060, 0.015), vec3(0.048, 0.042, 0.022), macroPatch * 0.45);
+                vec3 farBladeTint = rootGround * (0.92 + (microNoise * 0.5 + macroPatch * 0.5) * 0.16);
+                farBladeTint *= (0.96 + windWave * 0.07);
+                diffuseColor.rgb = mix(diffuseColor.rgb, farBladeTint, grassSurfaceMask);
+
+                // Exposed Craggy Granite & Slate Cliff Faces
+                float rockSlopeMask = smoothstep(0.14, 0.30, vTerrainSlope);
+                if (rockSlopeMask > 0.01) {
+                    float rockStrata = sin(vTerrainWorldPos.y * 1.9 + vTerrainWorldPos.x * 0.4 + microNoise * 2.0) * 0.5 + 0.5;
+                    vec3 graniteDark  = vec3(0.075, 0.082, 0.095);
+                    vec3 graniteLight = vec3(0.165, 0.175, 0.195);
+                    vec3 cliffCol = mix(graniteDark, graniteLight, rockStrata * 0.6 + gravelNoise * 0.4);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, cliffCol, rockSlopeMask);
+                }
+
+                // High-Altitude Alpine Snowline & Glacier Drifts (above y ~ 15.5m on ledges and peaks)
+                float snowElev = vTerrainWorldPos.y + (macroPatch - 0.5) * 3.5 + (microNoise - 0.5) * 1.2 - vTerrainSlope * 11.5;
+                float snowMask = smoothstep(14.5, 19.5, snowElev) * (1.0 - roadMask * 0.85);
+                if (snowMask > 0.005) {
+                    vec3 pureSnow = mix(vec3(0.58, 0.66, 0.78), vec3(0.78, 0.84, 0.92), microNoise * 0.5 + 0.5);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, pureSnow, snowMask);
+                }
+
+                // Crushed Granite & Slate Mountain Pass Road
+                if (roadMask > 0.02) {
+                    float distFromCenter = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
+                    float rutMask = exp(-pow(distFromCenter - 1.35, 2.0) / 0.28);
+                    vec3 slateRoad = mix(vec3(0.13, 0.135, 0.145), vec3(0.085, 0.090, 0.098), gravelNoise * 0.6);
+                    vec3 wetTrack  = vec3(0.042, 0.044, 0.050);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, mix(slateRoad, wetTrack, rutMask * 0.85), smoothstep(0.02, 0.48, roadMask));
+                }
+
+                // Glacial Tarn Shoreline (pebbles & wet slate)
+                float tarnShore = 1.0 - smoothstep(-2.55, -1.35, vTerrainWorldPos.y);
+                if (tarnShore > 0.001) {
+                    vec3 pebbleShore = mix(vec3(0.14, 0.15, 0.16), vec3(0.06, 0.07, 0.08), gravelNoise);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, pebbleShore, tarnShore);
+                }
+            } else if (localZone == 3) {
+                // HIGHLAND ROLLING HILLS ZONE: Upland pasture, golden heather/bracken hilltops & limestone bluffs
+                float hillCrestFactor = smoothstep(9.5, 17.5, vTerrainWorldPos.y + (macroPatch - 0.5) * 3.0);
+                vec3 valleyGreen  = vec3(0.028, 0.068, 0.014);
+                vec3 uplandHeather = vec3(0.068, 0.052, 0.015);
+                vec3 rootGround = mix(valleyGreen, uplandHeather, hillCrestFactor * 0.78);
+                vec3 farBladeTint = rootGround * (0.92 + (microNoise * 0.5 + macroPatch * 0.5) * 0.18);
+                farBladeTint *= (0.96 + windWave * 0.08);
+                diffuseColor.rgb = mix(diffuseColor.rgb, farBladeTint, grassSurfaceMask);
+
+                // Exposed Limestone & Chalky Hill Bluffs on steep drumlin flanks
+                if (vTerrainSlope > 0.17) {
+                    vec3 limestoneCol = mix(vec3(0.18, 0.165, 0.14), vec3(0.28, 0.26, 0.22), gravelNoise * 0.6 + microNoise * 0.4);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, limestoneCol, smoothstep(0.17, 0.34, vTerrainSlope));
+                }
+
+                // Sunken Country Lane with cobble/gravel & muddy wheel ruts
+                if (roadMask > 0.02) {
+                    float distFromCenter = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
+                    float rutMask = exp(-pow(distFromCenter - 1.35, 2.0) / 0.28);
+                    float centerCrown = exp(-pow(distFromCenter, 2.0) / 0.65);
+                    vec3 dryRoad = mix(vec3(0.155, 0.120, 0.078), vec3(0.105, 0.080, 0.052), gravelNoise * 0.55);
+                    dryRoad = mix(dryRoad, uplandHeather, centerCrown * 0.45);
+                    vec3 wetRut = vec3(0.045, 0.032, 0.020);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, mix(dryRoad, wetRut, rutMask * 0.88), smoothstep(0.02, 0.48, roadMask));
+                }
+            } else {
+                // ZONE 0 (DEFAULT): COASTAL MEADOW COUNTRYSIDE
+                vec3 rootGround = vec3(0.028, 0.070, 0.014);
+                vec3 farBladeTint = rootGround * (0.92 + (microNoise * 0.5 + macroPatch * 0.5) * 0.16);
+                farBladeTint *= (0.96 + windWave * 0.08);
+
+                diffuseColor.rgb = mix(diffuseColor.rgb, farBladeTint, grassSurfaceMask);
+
+                // Country Dirt Road with compacted gravel, verge grass transition, and wet wheel ruts
+                if (roadMask > 0.02) {
+                    float distFromCenter = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
+                    float rutMask = exp(-pow(distFromCenter - 1.35, 2.0) / 0.28);
+                    float centerCrown = exp(-pow(distFromCenter, 2.0) / 0.65);
+                    vec3 dryRoad = mix(vec3(0.165, 0.128, 0.085), vec3(0.110, 0.085, 0.056), gravelNoise * 0.55);
+                    dryRoad = mix(dryRoad, vec3(0.065, 0.110, 0.028), centerCrown * 0.42);
+                    vec3 wetRut = vec3(0.048, 0.035, 0.022);
+                    vec3 roadColor = mix(dryRoad, wetRut, rutMask * 0.88);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, roadColor, smoothstep(0.02, 0.48, roadMask));
+                }
+
+                // Coastal Shoreline: Golden beach sand right along the water edge (-2.6m to -1.35m)
+                float beachMask = 1.0 - smoothstep(-2.55, -1.35, vTerrainWorldPos.y);
+                if (beachMask > 0.001) {
+                    float wetZone = 1.0 - smoothstep(-2.65, -2.05, vTerrainWorldPos.y);
+                    vec3 drySand = mix(vec3(0.28, 0.23, 0.15), vec3(0.21, 0.17, 0.11), microNoise * 0.25);
+                    vec3 wetSand = vec3(0.08, 0.09, 0.08);
+                    vec3 sandCol = mix(drySand, wetSand, wetZone * 0.90);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, sandCol, beachMask * (1.0 - roadMask * 0.8));
+                }
             }
 
-            // Compacted Desert Hardpan & Gravel Wadi Trail
-            if (roadMask > 0.02) {
-                float distFromCenter = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
-                float rutMask = exp(-pow(distFromCenter - 1.35, 2.0) / 0.28);
-                vec3 wadiGravel = mix(vec3(0.28, 0.18, 0.09), vec3(0.20, 0.13, 0.06), gravelNoise * 0.65);
-                vec3 dustyRut = vec3(0.15, 0.095, 0.045);
-                vec3 wadiColor = mix(wadiGravel, dustyRut, rutMask * 0.78);
-                diffuseColor.rgb = mix(diffuseColor.rgb, wadiColor, smoothstep(0.02, 0.48, roadMask));
-            }
-
-            // Lush Oasis Fringe & Wet Sand along oasis water edge
-            float oasisMask = 1.0 - smoothstep(-2.55, -0.45, vTerrainWorldPos.y);
-            if (oasisMask > 0.001) {
-                float wetZone = 1.0 - smoothstep(-2.65, -1.95, vTerrainWorldPos.y);
-                vec3 oasisMoss = mix(vec3(0.05, 0.11, 0.025), vec3(0.18, 0.14, 0.08), microNoise * 0.45);
-                vec3 wetOasisSand = vec3(0.09, 0.07, 0.04);
-                diffuseColor.rgb = mix(diffuseColor.rgb, mix(oasisMoss, wetOasisSand, wetZone), oasisMask * (1.0 - roadMask * 0.7));
-            }
-        } else if (uZoneType == 2) {
-            // ALPINE MOUNTAIN ZONE: Valley pine turf, craggy cold granite/slate cliffs & high-altitude snowline
-            vec3 rootGround = mix(vec3(0.024, 0.060, 0.015), vec3(0.048, 0.042, 0.022), macroPatch * 0.45);
-            vec3 farBladeTint = rootGround * (0.92 + (microNoise * 0.5 + macroPatch * 0.5) * 0.16);
-            farBladeTint *= (0.96 + windWave * 0.07);
-            diffuseColor.rgb = mix(diffuseColor.rgb, farBladeTint, grassSurfaceMask);
-
-            // Exposed Craggy Granite & Slate Cliff Faces
-            float rockSlopeMask = smoothstep(0.14, 0.30, vTerrainSlope);
-            if (rockSlopeMask > 0.01) {
-                float rockStrata = sin(vTerrainWorldPos.y * 1.9 + vTerrainWorldPos.x * 0.4 + microNoise * 2.0) * 0.5 + 0.5;
-                vec3 graniteDark  = vec3(0.075, 0.082, 0.095);
-                vec3 graniteLight = vec3(0.165, 0.175, 0.195);
-                vec3 cliffCol = mix(graniteDark, graniteLight, rockStrata * 0.6 + gravelNoise * 0.4);
-                diffuseColor.rgb = mix(diffuseColor.rgb, cliffCol, rockSlopeMask);
-            }
-
-            // High-Altitude Alpine Snowline & Glacier Drifts (above y ~ 15.5m on ledges and peaks)
-            float snowElev = vTerrainWorldPos.y + (macroPatch - 0.5) * 3.5 + (microNoise - 0.5) * 1.2 - vTerrainSlope * 11.5;
-            float snowMask = smoothstep(14.5, 19.5, snowElev) * (1.0 - roadMask * 0.85);
-            if (snowMask > 0.005) {
-                vec3 pureSnow = mix(vec3(0.58, 0.66, 0.78), vec3(0.78, 0.84, 0.92), microNoise * 0.5 + 0.5);
-                diffuseColor.rgb = mix(diffuseColor.rgb, pureSnow, snowMask);
-            }
-
-            // Crushed Granite & Slate Mountain Pass Road
-            if (roadMask > 0.02) {
-                float distFromCenter = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
-                float rutMask = exp(-pow(distFromCenter - 1.35, 2.0) / 0.28);
-                vec3 slateRoad = mix(vec3(0.13, 0.135, 0.145), vec3(0.085, 0.090, 0.098), gravelNoise * 0.6);
-                vec3 wetTrack  = vec3(0.042, 0.044, 0.050);
-                diffuseColor.rgb = mix(diffuseColor.rgb, mix(slateRoad, wetTrack, rutMask * 0.85), smoothstep(0.02, 0.48, roadMask));
-            }
-
-            // Glacial Tarn Shoreline (pebbles & wet slate)
-            float tarnShore = 1.0 - smoothstep(-2.55, -1.35, vTerrainWorldPos.y);
-            if (tarnShore > 0.001) {
-                vec3 pebbleShore = mix(vec3(0.14, 0.15, 0.16), vec3(0.06, 0.07, 0.08), gravelNoise);
-                diffuseColor.rgb = mix(diffuseColor.rgb, pebbleShore, tarnShore);
-            }
-        } else if (uZoneType == 3) {
-            // HIGHLAND ROLLING HILLS ZONE: Upland pasture, golden heather/bracken hilltops & limestone bluffs
-            float hillCrestFactor = smoothstep(9.5, 17.5, vTerrainWorldPos.y + (macroPatch - 0.5) * 3.0);
-            vec3 valleyGreen  = vec3(0.028, 0.068, 0.014);
-            vec3 uplandHeather = vec3(0.068, 0.052, 0.015);
-            vec3 rootGround = mix(valleyGreen, uplandHeather, hillCrestFactor * 0.78);
-            vec3 farBladeTint = rootGround * (0.92 + (microNoise * 0.5 + macroPatch * 0.5) * 0.18);
-            farBladeTint *= (0.96 + windWave * 0.08);
-            diffuseColor.rgb = mix(diffuseColor.rgb, farBladeTint, grassSurfaceMask);
-
-            // Exposed Limestone & Chalky Hill Bluffs on steep drumlin flanks
-            if (vTerrainSlope > 0.17) {
-                vec3 limestoneCol = mix(vec3(0.18, 0.165, 0.14), vec3(0.28, 0.26, 0.22), gravelNoise * 0.6 + microNoise * 0.4);
-                diffuseColor.rgb = mix(diffuseColor.rgb, limestoneCol, smoothstep(0.17, 0.34, vTerrainSlope));
-            }
-
-            // Sunken Country Lane with cobble/gravel & muddy wheel ruts
-            if (roadMask > 0.02) {
-                float distFromCenter = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
-                float rutMask = exp(-pow(distFromCenter - 1.35, 2.0) / 0.28);
-                float centerCrown = exp(-pow(distFromCenter, 2.0) / 0.65);
-                vec3 dryRoad = mix(vec3(0.155, 0.120, 0.078), vec3(0.105, 0.080, 0.052), gravelNoise * 0.55);
-                dryRoad = mix(dryRoad, uplandHeather, centerCrown * 0.45);
-                vec3 wetRut = vec3(0.045, 0.032, 0.020);
-                diffuseColor.rgb = mix(diffuseColor.rgb, mix(dryRoad, wetRut, rutMask * 0.88), smoothstep(0.02, 0.48, roadMask));
-            }
-        } else {
-            // ZONE 0 (DEFAULT): COASTAL MEADOW COUNTRYSIDE
-            vec3 rootGround = vec3(0.028, 0.070, 0.014);
-            vec3 farBladeTint = rootGround * (0.92 + (microNoise * 0.5 + macroPatch * 0.5) * 0.16);
-            farBladeTint *= (0.96 + windWave * 0.08);
-
-            diffuseColor.rgb = mix(diffuseColor.rgb, farBladeTint, grassSurfaceMask);
-
-            // Country Dirt Road with compacted gravel, verge grass transition, and wet wheel ruts
-            if (roadMask > 0.02) {
-                float distFromCenter = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
-                float rutMask = exp(-pow(distFromCenter - 1.35, 2.0) / 0.28);
-                float centerCrown = exp(-pow(distFromCenter, 2.0) / 0.65);
-                vec3 dryRoad = mix(vec3(0.165, 0.128, 0.085), vec3(0.110, 0.085, 0.056), gravelNoise * 0.55);
-                dryRoad = mix(dryRoad, vec3(0.065, 0.110, 0.028), centerCrown * 0.42);
-                vec3 wetRut = vec3(0.048, 0.035, 0.022);
-                vec3 roadColor = mix(dryRoad, wetRut, rutMask * 0.88);
-                diffuseColor.rgb = mix(diffuseColor.rgb, roadColor, smoothstep(0.02, 0.48, roadMask));
-            }
-
-            // Coastal Shoreline: Golden beach sand right along the water edge (-2.6m to -1.35m)
-            float beachMask = 1.0 - smoothstep(-2.55, -1.35, vTerrainWorldPos.y);
-            if (beachMask > 0.001) {
-                float wetZone = 1.0 - smoothstep(-2.65, -2.05, vTerrainWorldPos.y);
-                vec3 drySand = mix(vec3(0.28, 0.23, 0.15), vec3(0.21, 0.17, 0.11), microNoise * 0.25);
-                vec3 wetSand = vec3(0.08, 0.09, 0.08);
-                vec3 sandCol = mix(drySand, wetSand, wetZone * 0.90);
-                diffuseColor.rgb = mix(diffuseColor.rgb, sandCol, beachMask * (1.0 - roadMask * 0.8));
-            }
+            blendedZoneColor += diffuseColor.rgb * zoneWeight;
         }
+        diffuseColor.rgb = blendedZoneColor;
 
         // Building Ground Contact Ambient Occlusion
         float buildingAO = 1.0;
@@ -929,14 +1040,15 @@ terrainMat.onBeforeCompile = (shader) => {
         `
         #include <roughnessmap_fragment>
         float rRoad = getRoadFactor_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
+        vec4 roughnessZones = getZoneWeights_gpu(vTerrainWorldPos.xz);
         if (rRoad > 0.05) {
             float distFromCenter = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
             float rut = exp(-pow(distFromCenter - 1.35, 2.0) / 0.35);
-            roughnessFactor = mix(roughnessFactor, (uZoneType == 1) ? 0.78 : 0.42, rut * rRoad);
+            roughnessFactor = mix(roughnessFactor, mix(0.42, 0.78, roughnessZones.y), rut * rRoad);
         }
-        if (uZoneType == 2 && vTerrainWorldPos.y > 15.0) {
+        if (roughnessZones.z > 0.0 && vTerrainWorldPos.y > 15.0) {
             float snowR = smoothstep(15.0, 20.0, vTerrainWorldPos.y - vTerrainSlope * 10.0);
-            roughnessFactor = mix(roughnessFactor, 0.36, snowR * 0.8);
+            roughnessFactor = mix(roughnessFactor, 0.36, snowR * 0.8 * roughnessZones.z);
         }
         if (vTerrainWorldPos.y < -1.8) {
             float wetBeach = 1.0 - smoothstep(-2.6, -1.8, vTerrainWorldPos.y);
@@ -2603,6 +2715,7 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             varying vec3 vGrassWorldPos;
             varying float vGrassHeightFrac;
             varying vec3 vTerrainNormalUp;
+            varying vec4 vGrassZoneWeights;
             ${SHARED_TERRAIN_GLSL}
         ` + shader.vertexShader;
 
@@ -2620,6 +2733,8 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             float halfPatch = uPatchSize * 0.5;
             vec2 relXZ = mod(aInstanceData.xy - uCameraPos.xz + halfPatch, uPatchSize) - halfPatch;
             vec2 worldXZ = uCameraPos.xz + relXZ;
+            vGrassZoneWeights = getZoneWeights_gpu(worldXZ);
+            int localZone = getZoneIndex_gpu(vGrassZoneWeights);
             float distFromCam = length(relXZ);
 
             // 1. Discrete radius check: NO height squashing / shrinking transition
@@ -2656,14 +2771,14 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
 
             // Zone-specific grass & scrub culling
             float zoneCull = 1.0;
-            if (uZoneType == 1) {
+            if (localZone == 1) {
                 // Desert zone: dense around oasis shoreline, sparse desert scrub tufts on dry sand dunes
                 if (groundY > -0.4 && tuftRandom > 0.14) {
                     gl_Position = vec4(2.0, 2.0, 2.0, 0.0);
                     return;
                 }
                 zoneCull = (groundY > -0.4) ? 0.72 : 1.0;
-            } else if (uZoneType == 2) {
+            } else if (localZone == 2) {
                 // Mountain zone: cull grass above snowline (15.5m) and on steep granite cliffs
                 float snowCull = 1.0 - smoothstep(12.5, 16.0, groundY);
                 float rockSlopeCull = 1.0 - smoothstep(0.16, 0.25, 1.0 - surfNorm.y);
@@ -2701,7 +2816,7 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             float areaFlowerMod = smoothstep(0.28, 0.52, regionVar);
 
             float flowerChance = mix(0.005, origFlowerChance, areaFlowerMod);
-            if (uZoneType == 1) flowerChance = 0.0; // No wildflowers in desert scrub
+            flowerChance *= 1.0 - vGrassZoneWeights.y;
             float flowerColor = valueNoise2D_gpu(meadowPos * 0.035 + vec2(31.0, 17.0));
             float plumeThreshold = mix(0.90, 0.50, areaFlowerMod);
 
@@ -2762,11 +2877,11 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             uniform vec3 uSunDir;
             uniform vec3 uSunColor;
             uniform vec3 uSkyColor;
-            uniform int uZoneType;
             varying vec2 vGrassAtlasUv;
             varying vec3 vGrassWorldPos;
             varying float vGrassHeightFrac;
             varying vec3 vTerrainNormalUp;
+            varying vec4 vGrassZoneWeights;
         ` + shader.fragmentShader;
 
         // Keep grass normal aligned with terrain surface normal on both front and back faces!
@@ -2788,19 +2903,14 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             vec3 bladeLinear = pow(max(texelColor.rgb, vec3(0.001)), vec3(2.2));
 
             // Seamlessly blend bottom root of grass tuft into the zone's linear ground color
-            vec3 groundRootCol = vec3(0.028, 0.070, 0.014);
-            if (uZoneType == 1) {
-                float oasisF = 1.0 - smoothstep(-2.0, -0.3, vGrassWorldPos.y);
-                groundRootCol = mix(vec3(0.42, 0.27, 0.12), vec3(0.055, 0.115, 0.028), oasisF);
-                // Sun-bleached golden-tan desert scrub tint on dunes
-                vec3 scrubBlade = mix(vec3(0.36, 0.26, 0.11), bladeLinear, 0.32);
-                bladeLinear = mix(scrubBlade, bladeLinear, oasisF);
-            } else if (uZoneType == 2) {
-                groundRootCol = vec3(0.024, 0.060, 0.015);
-            } else if (uZoneType == 3) {
-                float heatherH = smoothstep(9.5, 17.5, vGrassWorldPos.y);
-                groundRootCol = mix(vec3(0.028, 0.068, 0.014), vec3(0.068, 0.052, 0.015), heatherH * 0.78);
-            }
+            float oasisF = 1.0 - smoothstep(-2.0, -0.3, vGrassWorldPos.y);
+            float heatherH = smoothstep(9.5, 17.5, vGrassWorldPos.y);
+            vec3 groundRootCol = vec3(0.028, 0.070, 0.014) * vGrassZoneWeights.x
+                + mix(vec3(0.42, 0.27, 0.12), vec3(0.055, 0.115, 0.028), oasisF) * vGrassZoneWeights.y
+                + vec3(0.024, 0.060, 0.015) * vGrassZoneWeights.z
+                + mix(vec3(0.028, 0.068, 0.014), vec3(0.068, 0.052, 0.015), heatherH * 0.78) * vGrassZoneWeights.w;
+            vec3 scrubBlade = mix(vec3(0.36, 0.26, 0.11), bladeLinear, 0.32);
+            bladeLinear = mix(bladeLinear, mix(scrubBlade, bladeLinear, oasisF), vGrassZoneWeights.y);
             float rootBlend = smoothstep(0.02, 0.36, vGrassHeightFrac);
             bladeLinear = mix(groundRootCol, bladeLinear, rootBlend);
 
@@ -2923,78 +3033,86 @@ class TerrainChunk {
             const fieldNoise = fbm3((wx + seedOffset.x) * 0.014, (wz + seedOffset.z) * 0.014) * 0.5 + 0.5;
             const roadF = getRoadFactor(wx, wz);
 
-            if (currentZoneIndex === 1) {
-                // Desert zone vertex colors
-                tempCol.copy(colDesertSand).lerp(colDesertDune, smoothstep(0.20, 0.80, fieldNoise));
-                if (wy < -0.3) {
-                    const oasisGreenery = 1.0 - smoothstep(-1.9, -0.3, wy);
-                    tempCol.lerp(colLushGrass, oasisGreenery * 0.85);
-                }
-                if (roadF > 0.01) {
-                    tempDirtCol.setHex(0x8c6239);
-                    tempCol.lerp(tempDirtCol, Math.min(1.0, roadF * 1.1));
-                }
-                if (slope > 0.16) {
-                    tempCol.lerp(colSandstone, Math.min(1.0, (slope - 0.16) * 4.2));
-                }
-            } else if (currentZoneIndex === 2) {
-                // Alpine Mountain zone vertex colors
-                tempCol.copy(colLushGrass).lerp(colSunlitGrass, smoothstep(0.15, 0.65, fieldNoise) * 0.65);
-                if (roadF > 0.01) {
-                    tempDirtCol.setHex(0x4a4c50);
-                    tempCol.lerp(tempDirtCol, Math.min(1.0, roadF * 1.1));
-                }
-                if (slope > 0.15) {
-                    tempCol.lerp(colMountain, Math.min(1.0, (slope - 0.15) * 4.5));
-                }
-                if (wy > 13.5) {
-                    const snowBlend = Math.min(1.0, (wy - 13.5) / 8.0) * (1.0 - smoothstep(0.32, 0.58, slope) * 0.7);
-                    tempCol.lerp(colAlpineSnow, snowBlend);
-                }
-            } else if (currentZoneIndex === 3) {
-                // Highland Rolling Hills vertex colors
-                tempCol.copy(colLushGrass).lerp(colSunlitGrass, smoothstep(0.10, 0.60, fieldNoise) * 0.75);
-                tempCol.lerp(colDryGrass, smoothstep(0.55, 0.92, fieldNoise) * 0.78);
-                if (wy > 9.0) {
-                    tempCol.lerp(colHeather, Math.min(1.0, (wy - 9.0) / 9.0) * 0.75);
-                }
-                if (roadF > 0.01) {
-                    const distFromCenter = getRoadDistance(wx, wz);
-                    const rutDist = Math.abs(distFromCenter - 1.35);
-                    const isRut = rutDist < 0.55 ? 0.75 : 0.0;
-                    tempDirtCol.copy(colMudRoad).lerp(colWetRut, isRut);
-                    tempCol.lerp(tempDirtCol, Math.min(1.0, roadF * 1.1));
-                }
-                if (slope > 0.20) {
-                    tempCol.lerp(colCliffRock, Math.min(1.0, (slope - 0.20) * 4.5));
-                }
-            } else {
-                // Coastal Meadow (default)
-                tempCol.copy(colLushGrass).lerp(colSunlitGrass, smoothstep(0.10, 0.60, fieldNoise) * 0.75);
-                tempCol.lerp(colDryGrass, smoothstep(0.58, 0.94, fieldNoise) * 0.82);
+            const weights = getZoneWeights(wx, wz);
+            let red = 0, green = 0, blue = 0;
+            for (let currentZoneIndex = 0; currentZoneIndex < weights.length; currentZoneIndex++) {
+                if (weights[currentZoneIndex] === 0) continue;
+                if (currentZoneIndex === 1) {
+                    // Desert zone vertex colors
+                    tempCol.copy(colDesertSand).lerp(colDesertDune, smoothstep(0.20, 0.80, fieldNoise));
+                    if (wy < -0.3) {
+                        const oasisGreenery = 1.0 - smoothstep(-1.9, -0.3, wy);
+                        tempCol.lerp(colLushGrass, oasisGreenery * 0.85);
+                    }
+                    if (roadF > 0.01) {
+                        tempDirtCol.setHex(0x8c6239);
+                        tempCol.lerp(tempDirtCol, Math.min(1.0, roadF * 1.1));
+                    }
+                    if (slope > 0.16) {
+                        tempCol.lerp(colSandstone, Math.min(1.0, (slope - 0.16) * 4.2));
+                    }
+                } else if (currentZoneIndex === 2) {
+                    // Alpine Mountain zone vertex colors
+                    tempCol.copy(colLushGrass).lerp(colSunlitGrass, smoothstep(0.15, 0.65, fieldNoise) * 0.65);
+                    if (roadF > 0.01) {
+                        tempDirtCol.setHex(0x4a4c50);
+                        tempCol.lerp(tempDirtCol, Math.min(1.0, roadF * 1.1));
+                    }
+                    if (slope > 0.15) {
+                        tempCol.lerp(colMountain, Math.min(1.0, (slope - 0.15) * 4.5));
+                    }
+                    if (wy > 13.5) {
+                        const snowBlend = Math.min(1.0, (wy - 13.5) / 8.0) * (1.0 - smoothstep(0.32, 0.58, slope) * 0.7);
+                        tempCol.lerp(colAlpineSnow, snowBlend);
+                    }
+                } else if (currentZoneIndex === 3) {
+                    // Highland Rolling Hills vertex colors
+                    tempCol.copy(colLushGrass).lerp(colSunlitGrass, smoothstep(0.10, 0.60, fieldNoise) * 0.75);
+                    tempCol.lerp(colDryGrass, smoothstep(0.55, 0.92, fieldNoise) * 0.78);
+                    if (wy > 9.0) {
+                        tempCol.lerp(colHeather, Math.min(1.0, (wy - 9.0) / 9.0) * 0.75);
+                    }
+                    if (roadF > 0.01) {
+                        const distFromCenter = getRoadDistance(wx, wz);
+                        const rutDist = Math.abs(distFromCenter - 1.35);
+                        const isRut = rutDist < 0.55 ? 0.75 : 0.0;
+                        tempDirtCol.copy(colMudRoad).lerp(colWetRut, isRut);
+                        tempCol.lerp(tempDirtCol, Math.min(1.0, roadF * 1.1));
+                    }
+                    if (slope > 0.20) {
+                        tempCol.lerp(colCliffRock, Math.min(1.0, (slope - 0.20) * 4.5));
+                    }
+                } else {
+                    // Coastal Meadow (default)
+                    tempCol.copy(colLushGrass).lerp(colSunlitGrass, smoothstep(0.10, 0.60, fieldNoise) * 0.75);
+                    tempCol.lerp(colDryGrass, smoothstep(0.58, 0.94, fieldNoise) * 0.82);
 
-                if (roadF > 0.01) {
-                    const distFromCenter = getRoadDistance(wx, wz);
-                    const rutDist = Math.abs(distFromCenter - 1.35);
-                    const isRut = rutDist < 0.55 ? 0.75 : 0.0;
-                    tempDirtCol.copy(colMudRoad).lerp(colWetRut, isRut);
-                    tempCol.lerp(tempDirtCol, Math.min(1.0, roadF * 1.1));
+                    if (roadF > 0.01) {
+                        const distFromCenter = getRoadDistance(wx, wz);
+                        const rutDist = Math.abs(distFromCenter - 1.35);
+                        const isRut = rutDist < 0.55 ? 0.75 : 0.0;
+                        tempDirtCol.copy(colMudRoad).lerp(colWetRut, isRut);
+                        tempCol.lerp(tempDirtCol, Math.min(1.0, roadF * 1.1));
+                    }
+
+                    if (slope > 0.22) {
+                        const rockBlend = Math.min(1.0, (slope - 0.22) * 4.5);
+                        tempCol.lerp(colCliffRock, rockBlend);
+                    }
+
+                    if (wy > 12.0) {
+                        const mBlend = Math.min(1.0, (wy - 12.0) / 12.0);
+                        tempCol.lerp(colMountain, mBlend * 0.75);
+                    }
                 }
 
-                if (slope > 0.22) {
-                    const rockBlend = Math.min(1.0, (slope - 0.22) * 4.5);
-                    tempCol.lerp(colCliffRock, rockBlend);
-                }
-
-                if (wy > 12.0) {
-                    const mBlend = Math.min(1.0, (wy - 12.0) / 12.0);
-                    tempCol.lerp(colMountain, mBlend * 0.75);
-                }
+                red += tempCol.r * weights[currentZoneIndex];
+                green += tempCol.g * weights[currentZoneIndex];
+                blue += tempCol.b * weights[currentZoneIndex];
             }
-
-            colors[i * 3 + 0] = tempCol.r;
-            colors[i * 3 + 1] = tempCol.g;
-            colors[i * 3 + 2] = tempCol.b;
+            colors[i * 3 + 0] = red;
+            colors[i * 3 + 1] = green;
+            colors[i * 3 + 2] = blue;
         }
 
         geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
@@ -3015,6 +3133,7 @@ class TerrainChunk {
         const zMin = this.cz * CHUNK_SIZE;
         const chunkCenterX = xMin + CHUNK_SIZE * 0.5;
         const chunkCenterZ = zMin + CHUNK_SIZE * 0.5;
+        const currentZoneIndex = getZoneIndexAt(chunkCenterX, chunkCenterZ);
         const distFromSpawn = Math.hypot(chunkCenterX, chunkCenterZ);
 
         // ---------------------------------------------------------------------
@@ -3275,8 +3394,9 @@ class TerrainChunk {
 
         let targetTreeCount = 0;
         if (currentZoneIndex === 1) {
-            // Desert Zone: Lush Date Palm groves near the Oasis (58, 78), sparse Cacti & Palms across dunes
-            const distFromOasis = Math.hypot(chunkCenterX - 58.0, chunkCenterZ - 78.0);
+            // Desert Zone: Lush Date Palm groves near oases, sparse Cacti & Palms across dunes
+            const [zoneX, zoneZ] = getZoneCenter(chunkCenterX, chunkCenterZ);
+            const distFromOasis = Math.hypot(chunkCenterX - zoneX - 58.0, chunkCenterZ - zoneZ - 78.0);
             if (distFromOasis < 95.0) {
                 targetTreeCount = 9 + Math.floor(rng() * 7);
             } else if (isVillage) {
@@ -3814,15 +3934,13 @@ function createZoneWaterMaterial() {
                 vec3 deepCol = vec3(0.02, 0.12, 0.24);
                 vec3 midCol = vec3(0.04, 0.25, 0.36);
                 vec3 shallowCol = vec3(0.10, 0.42, 0.44);
-                if (uZoneType == 1) {
-                    deepCol = vec3(0.02, 0.20, 0.26);
-                    midCol = vec3(0.05, 0.36, 0.38);
-                    shallowCol = vec3(0.14, 0.54, 0.48);
-                } else if (uZoneType == 2) {
-                    deepCol = vec3(0.02, 0.14, 0.28);
-                    midCol = vec3(0.05, 0.28, 0.42);
-                    shallowCol = vec3(0.12, 0.46, 0.54);
-                }
+                vec4 waterZones = getZoneWeights_gpu(vWorldPos.xz);
+                deepCol = mix(deepCol, vec3(0.02, 0.20, 0.26), waterZones.y);
+                midCol = mix(midCol, vec3(0.05, 0.36, 0.38), waterZones.y);
+                shallowCol = mix(shallowCol, vec3(0.14, 0.54, 0.48), waterZones.y);
+                deepCol = mix(deepCol, vec3(0.02, 0.14, 0.28), waterZones.z);
+                midCol = mix(midCol, vec3(0.05, 0.28, 0.42), waterZones.z);
+                shallowCol = mix(shallowCol, vec3(0.12, 0.46, 0.54), waterZones.z);
 
                 float depthFactor = clamp(waterDepth / 9.0, 0.0, 1.0);
                 vec3 waterCol = mix(shallowCol, midCol, smoothstep(0.0, 0.45, depthFactor));
@@ -3859,7 +3977,7 @@ function createCoastalOceanMesh() {
     oceanGeo.rotateX(-Math.PI / 2);
     const oceanMat = createZoneWaterMaterial();
     const oceanMesh = new THREE.Mesh(oceanGeo, oceanMat);
-    oceanMesh.position.set(0, -2.5, currentZone === 'meadow' ? 1500 : 0);
+    oceanMesh.position.set(0, -2.5, 0);
     oceanMesh.receiveShadow = true;
     return oceanMesh;
 }
@@ -4179,7 +4297,7 @@ function buildEnvironment(scene) {
         window.waterMeshRef = waterMeshRef;
     }
 
-    setWorldSeed(currentSeed, currentZone);
+    setWorldSeed(currentSeed);
     rebuildZoneStaticProps();
 
     updateTerrainChunks(0, 0, true);
@@ -4203,8 +4321,16 @@ function updateEnvironment(dt, tankState) {
         terrainUniforms.uSkyColor.value.copy(window.celestialLighting.skyColor.value);
     }
 
-    const px = (tankState && tankState.x !== undefined) ? tankState.x : 0;
-    const pz = (tankState && tankState.z !== undefined) ? tankState.z : 0;
+    const focus = (window.playerMode === 'soldier' && window.playerSoldier) ? window.playerSoldier : tankState;
+    const px = (focus && focus.x !== undefined) ? focus.x : 0;
+    const pz = (focus && focus.z !== undefined) ? focus.z : 0;
+    const nextZone = getZoneIndexAt(px, pz);
+    if (nextZone !== currentZoneIndex) {
+        setCurrentZone(nextZone);
+        if (typeof window.showKillFeedBanner === 'function') {
+            window.showKillFeedBanner(currentZoneConfig.banner, '#fbbf24');
+        }
+    }
 
     const cam = window.activeCamera;
     const cx = (cam && cam.position && !isNaN(cam.position.x)) ? cam.position.x : px;
@@ -4223,6 +4349,7 @@ function updateEnvironment(dt, tankState) {
 
     if (waterMeshRef && waterMeshRef.material && waterMeshRef.material.uniforms && waterMeshRef.material.uniforms.uTime) {
         waterMeshRef.material.uniforms.uTime.value = timeSec;
+        waterMeshRef.position.set(px, -2.5, pz);
     }
 
     // Update building positions near player for real-time grass & terrain contact culling
@@ -4276,21 +4403,14 @@ function updateEnvironment(dt, tankState) {
 }
 
 // ============================================================================
-// 11. GAME RESTART & ZONE CYCLING (NEW SEED & RANDOM ZONE ON EACH RESTART)
+// 11. GAME RESTART (NEW SEED, STARTING IN THE MEADOW)
 // ============================================================================
-function restartGame(customSeed, customZone) {
+function restartGame(customSeed) {
     const seed = (customSeed !== undefined && customSeed !== null)
         ? customSeed
         : Math.floor(Math.random() * 900000) + 100000;
 
-    let nextZone = customZone;
-    if (!nextZone || !ZONE_CONFIGS[nextZone]) {
-        // Pick a random zone, preferring a different zone from the current one so each restart feels fresh
-        const otherZones = ALL_ZONES.filter(z => z !== currentZone);
-        nextZone = otherZones[Math.floor(Math.random() * otherZones.length)] || ALL_ZONES[0];
-    }
-
-    setWorldSeed(seed, nextZone);
+    setWorldSeed(seed);
     rebuildZoneStaticProps();
 
     if (window.tankState) {
@@ -4368,21 +4488,8 @@ function restartGame(customSeed, customZone) {
         window.showKillFeedBanner(currentZoneConfig.banner, '#fbbf24');
     }
 
-    console.log(`[TankClash] New Battlefield Generated — Zone: ${currentZoneConfig.name} (${nextZone}), Seed: ${seed}`);
+    console.log(`[TankClash] New Battlefield Generated — Zone: ${currentZoneConfig.name}, Seed: ${seed}`);
 }
-
-function setZone(zoneId) {
-    if (!ZONE_CONFIGS[zoneId]) return;
-    restartGame(null, zoneId);
-}
-
-function cycleZone() {
-    const idx = ALL_ZONES.indexOf(currentZone);
-    const nextZone = ALL_ZONES[(idx + 1) % ALL_ZONES.length];
-    restartGame(null, nextZone);
-}
-window.setZone = setZone;
-window.cycleZone = cycleZone;
 
 // ============================================================================
 // EXPORTS & WINDOW ATTACHMENTS

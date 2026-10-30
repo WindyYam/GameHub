@@ -1951,17 +1951,25 @@
             const muzzleWorldPos = new THREE.Vector3();
             const shootDir = new THREE.Vector3();
             if (this.rig.rifle) {
-                this.rig.rifle.updateMatrixWorld(true);
+                this.rig.rifle.updateWorldMatrix(true, false);
                 this.rig.rifle.localToWorld(muzzleWorldPos.copy(this.rig.rifle.userData.muzzleOffset || new THREE.Vector3(0, 0.02, 0.6)));
                 const rQuat = new THREE.Quaternion();
                 this.rig.rifle.getWorldQuaternion(rQuat);
                 shootDir.set(0, 0, 1).applyQuaternion(rQuat).normalize();
             } else {
                 muzzleWorldPos.set(this.x, this.y + 1.2, this.z);
-                shootDir.set(target.x - this.x, target.y - this.y, target.z - this.z).normalize();
+                shootDir.set(target.x - muzzleWorldPos.x, target.y - muzzleWorldPos.y, target.z - muzzleWorldPos.z).normalize();
             }
 
-            const aimTargetPos = muzzleWorldPos.clone().add(shootDir.clone().multiplyScalar(target.dist || 30));
+            if (this.isEnemy) {
+                const right = new THREE.Vector3(shootDir.z, 0, -shootDir.x);
+                if (right.lengthSq() < 0.000001) right.set(1, 0, 0);
+                right.normalize();
+                const up = new THREE.Vector3().crossVectors(shootDir, right).normalize();
+                shootDir.addScaledVector(right, (Math.random() - 0.5) * 0.07);
+                shootDir.addScaledVector(up, (Math.random() - 0.5) * 0.04);
+                shootDir.normalize();
+            }
 
             // 1. Muzzle Flash & Smoke
             if (typeof window.spawnParticle === 'function') {
@@ -1974,26 +1982,8 @@
             // 2. High-speed Tracer Round
             if (typeof window.spawnTracerRound === 'function') {
                 const tracerQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), shootDir);
-                window.spawnTracerRound(muzzleWorldPos, shootDir, tracerQuat, this.isEnemy);
+                window.spawnTracerRound(muzzleWorldPos, shootDir, tracerQuat, this.isEnemy, { damage: 35 });
             }
-
-            // 3. Bullet Impact on Target
-            const flightTime = target.dist / 750.0;
-            setTimeout(() => {
-                if (target.type === 'tank') {
-                    // Ricochet sparks off steel armor
-                    if (typeof window.spawnParticle === 'function') {
-                        const hitPos = aimTargetPos.clone();
-                        for (let s = 0; s < 4; s++) {
-                            const sparkVel = new THREE.Vector3((Math.random() - 0.5) * 3.5, 1.5 + Math.random() * 2.5, (Math.random() - 0.5) * 3.5);
-                            window.spawnParticle(hitPos, sparkVel, 0xffcc33, 0.08, 0.03, 0.25, true, 'spark');
-                        }
-                    }
-                } else if (target.type === 'soldier' && target.ref && !target.ref.isDead) {
-                    // Deal infantry damage
-                    target.ref.takeDamage(35);
-                }
-            }, Math.round(flightTime * 1000));
         }
 
         takeDamage(amount) {
@@ -2350,6 +2340,3 @@
     }
 
 })();
-
-
-

@@ -541,7 +541,7 @@ function fireMainCannon(tankModel) {
     });
 }
 
-function spawnTracerRound(pos, dir, quat, isEnemy = false) {
+function spawnTracerRound(pos, dir, quat, isEnemy = false, options = {}) {
     spawnParticle(pos, dir.clone().multiplyScalar(6), 0xfde047, 0.12, 0.30, 0.06, true, 'fire');
 
     const wrap = tracerPool.pop() || createTracerObject();
@@ -555,7 +555,9 @@ function spawnTracerRound(pos, dir, quat, isEnemy = false) {
         pos: pos.clone(),
         vel: dir.clone().multiplyScalar(765), // 765 m/s MG34 tracer velocity
         life: 2.5,
-        isEnemy: !!isEnemy
+        isEnemy: !!isEnemy,
+        damage: options.damage,
+        onSoldierKilled: options.onSoldierKilled
     });
 }
 
@@ -1173,7 +1175,7 @@ function updateProjectiles(dt) {
         }
     }
 
-    // 2. Update MG Tracers (Coaxial & Bow Machine Guns)
+    // 2. Update machine-gun and rifle tracers
     for (let i = tracers.length - 1; i >= 0; i--) {
         const tr = tracers[i];
         const prevPos = tr.pos.clone();
@@ -1184,159 +1186,28 @@ function updateProjectiles(dt) {
         tr.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), trVelDir);
         tr.life -= dt;
 
-        const seg = tr.pos.clone().sub(prevPos);
-        const segLenSq = seg.lengthSq();
-        const trSegLen = Math.sqrt(segLenSq);
+        let seg = tr.pos.clone().sub(prevPos);
+        let segLenSq = seg.lengthSq();
+        let trSegLen = Math.sqrt(segLenSq);
         const trSegDir = (trSegLen > 0.0001) ? seg.clone().multiplyScalar(1 / trSegLen) : trVelDir;
-        let hit = false;
-        let impactPos = tr.pos.clone();
+        let blockingDistance = trSegLen;
+        let blockingType = null;
+        let blockingTree = null;
+        const obstacles = window.worldObstacles || [];
+        for (let ob = 0; ob < obstacles.length; ob++) {
+            const obs = obstacles[ob];
+            const dSqXZ = (tr.pos.x - obs.x) ** 2 + (tr.pos.z - obs.z) ** 2;
+            const maxR = obs.radius + trSegLen + 1.0;
+            if (dSqXZ > maxR * maxR) continue;
 
-        // Check MG burst against Enemy Tanks (Sparks & armor ricochet sound)
-        const enemies = window.activeEnemyTanks || [];
-        for (let eIdx = 0; eIdx < enemies.length; eIdx++) {
-            const enemy = enemies[eIdx];
-            if (!enemy || enemy.isDestroyed) continue;
-            const dCenterSq = (prevPos.x - enemy.x) ** 2 + (prevPos.z - enemy.z) ** 2;
-            if (dCenterSq > (5.0 + trSegLen) ** 2) continue;
-
-            const dims = getTankHitboxDims(enemy.tankType || enemy.spec);
-            const hitResult = testSegmentVsTank(prevPos, tr.pos, enemy.x, enemy.y, enemy.z, enemy.heading, dims.halfW, dims.halfH, dims.halfL);
-            if (hitResult) {
-                hit = true;
-                impactPos.copy(hitResult.impact);
-                for (let sp = 0; sp < 6; sp++) {
-                    const sVel = new THREE.Vector3((Math.random() - 0.5) * 12, 1.5 + Math.random() * 8, (Math.random() - 0.5) * 12);
-                    spawnParticle(impactPos, sVel, 0xfff08a, 0.12, 0.06, 0.4, true, 'spark');
-                }
-                if (window.soundFX && typeof window.soundFX.playArmorRicochet === 'function') {
-                    window.soundFX.playArmorRicochet(impactPos);
-                }
-                break;
+            let distance = null;
+            if (obs.mesh) {
+                _obstacleRaycaster.set(prevPos, trSegDir);
+                _obstacleRaycaster.far = trSegLen;
+                const hits = _obstacleRaycaster.intersectObject(obs.mesh, true);
+                if (hits.length > 0 && hits[0].distance <= trSegLen) distance = hits[0].distance;
             }
-        }
-
-        // Check MG burst against active soldiers
-        if (!hit) {
-            // Check player soldier if tracer is from an enemy combatant
-            if (tr.isEnemy && window.playerMode === 'soldier' && window.playerSoldier && !window.playerSoldier.isDead) {
-                const ps = window.playerSoldier;
-                const solCenterY = ps.y + 0.9;
-                const dCenterSq = (prevPos.x - ps.x) ** 2 + (prevPos.z - ps.z) ** 2;
-                if (dCenterSq <= (1.8 + trSegLen) ** 2) {
-                    const toSol = new THREE.Vector3(ps.x - prevPos.x, solCenterY - prevPos.y, ps.z - prevPos.z);
-                    let projT = 0;
-                    if (segLenSq > 0.0001) {
-                        projT = THREE.MathUtils.clamp(toSol.dot(seg) / segLenSq, 0, 1);
-                    }
-                    const closestPt = prevPos.clone().addScaledVector(seg, projT);
-                    const distSq = (closestPt.x - ps.x) ** 2 + (closestPt.y - solCenterY) ** 2 + (closestPt.z - ps.z) ** 2;
-                    if (distSq < 0.35) {
-                        hit = true;
-                        impactPos.copy(closestPt);
-                        if (typeof ps.takeDamage === 'function') {
-                            ps.takeDamage(25);
-                        }
-                        if (typeof window.spawnParticle === 'function') {
-                            window.spawnParticle(impactPos, tr.vel.clone().multiplyScalar(-0.06), 0x991b1b, 0.15, 0.25, 0.45, false, 'smoke');
-                        }
-                    }
-                }
-            }
-
-            const mgSols = window.activeSoldiers || [];
-            for (let msi = 0; !hit && msi < mgSols.length; msi++) {
-                const msol = mgSols[msi];
-                if (!msol || msol.isDead) continue;
-                if (!tr.isEnemy && !msol.isEnemy) continue; // Player bullets only hit enemies
-
-                const solCenterY = msol.y + 0.9;
-                const dCenterSq = (prevPos.x - msol.x) ** 2 + (prevPos.z - msol.z) ** 2;
-                if (dCenterSq > (1.8 + trSegLen) ** 2) continue;
-
-                const toSol = new THREE.Vector3(msol.x - prevPos.x, solCenterY - prevPos.y, msol.z - prevPos.z);
-                let projT = 0;
-                if (segLenSq > 0.0001) {
-                    projT = THREE.MathUtils.clamp(toSol.dot(seg) / segLenSq, 0, 1);
-                }
-                const closestPt = prevPos.clone().addScaledVector(seg, projT);
-                const distSq = (closestPt.x - msol.x) ** 2 + (closestPt.y - solCenterY) ** 2 + (closestPt.z - msol.z) ** 2;
-                if (distSq < 0.28) {
-                    hit = true;
-                    impactPos.copy(closestPt);
-                    if (typeof msol.takeDamage === 'function') {
-                        msol.takeDamage(35);
-                    }
-                    if (typeof window.spawnParticle === 'function') {
-                        window.spawnParticle(impactPos, tr.vel.clone().multiplyScalar(-0.06), 0x991b1b, 0.15, 0.25, 0.45, false, 'smoke');
-                    }
-                    break;
-                }
-            }
-        }
-
-        // Check MG burst against range target dummies
-        if (!hit && typeof targets !== 'undefined') {
-            for (let t = 0; t < targets.length; t++) {
-                const tg = targets[t];
-                const toTg = new THREE.Vector3(tg.x - prevPos.x, tg.y - prevPos.y, tg.z - prevPos.z);
-                let projT = 0;
-                if (segLenSq > 0.0001) {
-                    projT = THREE.MathUtils.clamp(toTg.dot(seg) / segLenSq, 0, 1);
-                }
-                const closestPt = prevPos.clone().addScaledVector(seg, projT);
-                const distSq = closestPt.distanceToSquared(new THREE.Vector3(tg.x, tg.y, tg.z));
-                if (distSq < 2.8) {
-                    hit = true;
-                    impactPos = closestPt;
-                    tg.hitAngle = Math.min(tg.hitAngle - 0.08, -0.25);
-                    tg.recoverTimer = Math.max(tg.recoverTimer, 1.2);
-                    break;
-                }
-            }
-        }
-
-        // Check MG burst against forest trees
-        if (!hit) {
-            const trees = window.swayTrees || [];
-            for (let trk = 0; trk < trees.length; trk++) {
-                const tree = trees[trk];
-                if (tree.isFallen) continue;
-                const dSq = (tr.pos.x - tree.x) ** 2 + (tr.pos.z - tree.z) ** 2;
-                if (dSq < tree.radius * tree.radius && tr.pos.y >= tree.y && tr.pos.y <= tree.y + tree.trunkHeight) {
-                    hit = true;
-                    impactPos = tr.pos.clone();
-                    tree.bulletHits = (tree.bulletHits || 0) + 1;
-                    spawnParticle(tr.pos, tr.vel.clone().multiplyScalar(-0.12), (tree.type === 'pine' ? 0x3d281a : 0xdddddd), 0.12, 0.04, 0.35, false, 'spark');
-                    if (tree.bulletHits >= 4 && window.hitTree) {
-                        window.hitTree(tree, tr.vel.clone().normalize(), 3.5);
-                    }
-                    break;
-                }
-            }
-        }
-
-        // Check MG burst against cover obstacles (Rocks, Houses, Ruins)
-        if (!hit) {
-            const obstacles = window.worldObstacles || [];
-            for (let ob = 0; ob < obstacles.length; ob++) {
-                const obs = obstacles[ob];
-                const dSqXZ = (tr.pos.x - obs.x) ** 2 + (tr.pos.z - obs.z) ** 2;
-                const maxR = obs.radius + trSegLen + 1.0;
-                if (dSqXZ > maxR * maxR) continue;
-
-                // Direct mesh raycast
-                if (obs.mesh) {
-                    _obstacleRaycaster.set(prevPos, trSegDir);
-                    _obstacleRaycaster.far = trSegLen + 0.15;
-                    const hits = _obstacleRaycaster.intersectObject(obs.mesh, true);
-                    if (hits.length > 0 && hits[0].distance <= trSegLen + 0.15) {
-                        hit = true;
-                        impactPos.copy(hits[0].point);
-                        break;
-                    }
-                }
-
-                // Analytical entry point
+            if (distance === null) {
                 const dx = prevPos.x - obs.x;
                 const dz = prevPos.z - obs.z;
                 const a = trSegDir.x * trSegDir.x + trSegDir.z * trSegDir.z;
@@ -1346,27 +1217,145 @@ function updateProjectiles(dt) {
                 if (disc >= 0 && a > 0.0001) {
                     const t0 = (-b - Math.sqrt(disc)) / (2 * a);
                     const t1 = (-b + Math.sqrt(disc)) / (2 * a);
-                    if (t0 <= trSegLen + 0.15 && t1 >= -0.15) {
-                        const testPt = prevPos.clone().addScaledVector(trSegDir, Math.max(0, t0));
-                        const obsTop = obs.y + (obs.height || 4.5);
-                        const obsBottom = obs.y - 0.5;
-                        if (testPt.y >= obsBottom && testPt.y <= obsTop) {
-                            hit = true;
-                            impactPos.copy(testPt);
-                            break;
-                        }
+                    if (t0 <= trSegLen && t1 >= 0) {
+                        const entry = Math.max(0, t0);
+                        const y = prevPos.y + trSegDir.y * entry;
+                        if (y >= obs.y - 0.5 && y <= obs.y + (obs.height || 4.5)) distance = entry;
                     }
                 }
+            }
+            if (distance !== null && distance <= blockingDistance) {
+                blockingDistance = distance;
+                blockingType = 'cover';
+            }
+        }
+
+        for (const tree of (window.swayTrees || [])) {
+            if (tree.isFallen) continue;
+            const dx = prevPos.x - tree.x;
+            const dz = prevPos.z - tree.z;
+            const a = trSegDir.x * trSegDir.x + trSegDir.z * trSegDir.z;
+            const b = 2 * (dx * trSegDir.x + dz * trSegDir.z);
+            const c = dx * dx + dz * dz - tree.radius * tree.radius;
+            const disc = b * b - 4 * a * c;
+            if (a <= 0.0001 || disc < 0) continue;
+            const t0 = (-b - Math.sqrt(disc)) / (2 * a);
+            const t1 = (-b + Math.sqrt(disc)) / (2 * a);
+            const entry = Math.max(0, t0);
+            const y = prevPos.y + trSegDir.y * entry;
+            if (t1 >= 0 && entry <= blockingDistance && y >= tree.y && y <= tree.y + tree.trunkHeight) {
+                blockingDistance = entry;
+                blockingType = 'tree';
+                blockingTree = tree;
             }
         }
 
         const groundNext = getTerrainHeight(tr.pos.x, tr.pos.z);
-        let hitTerrain = false;
-        if (!hit && tr.pos.y <= groundNext) {
-            hitTerrain = true;
-            impactPos = tr.pos.clone();
-            impactPos.y = groundNext + 0.08;
+        if (tr.pos.y <= groundNext) {
+            let low = 0, high = 1;
+            for (let step = 0; step < 10; step++) {
+                const mid = (low + high) * 0.5;
+                const p = prevPos.clone().addScaledVector(seg, mid);
+                if (p.y <= getTerrainHeight(p.x, p.z)) high = mid;
+                else low = mid;
+            }
+            const distance = trSegLen * high;
+            if (distance <= blockingDistance) {
+                blockingDistance = distance;
+                blockingType = 'terrain';
+            }
         }
+        if (blockingType) {
+            tr.pos.copy(prevPos).addScaledVector(trSegDir, blockingDistance);
+            tr.mesh.position.copy(tr.pos);
+            seg = tr.pos.clone().sub(prevPos);
+            segLenSq = seg.lengthSq();
+            trSegLen = Math.sqrt(segLenSq);
+        }
+        let hit = false;
+        let impactPos = tr.pos.clone();
+        let closestActor = null;
+
+        // Check tracers against opposing tanks (sparks and armor ricochet sound)
+        const tanks = tr.isEnemy
+            ? (window.tankState && !window.tankState.isKnockedOut ? [window.tankState] : [])
+            : (window.activeEnemyTanks || []);
+        for (let eIdx = 0; eIdx < tanks.length; eIdx++) {
+            const tank = tanks[eIdx];
+            if (!tank || tank.isDestroyed) continue;
+            const dCenterSq = (prevPos.x - tank.x) ** 2 + (prevPos.z - tank.z) ** 2;
+            if (dCenterSq > (5.0 + trSegLen) ** 2) continue;
+
+            const dims = getTankHitboxDims(tr.isEnemy ? (window.currentTankId || 'tiger') : (tank.tankType || tank.spec));
+            const hitResult = testSegmentVsTank(prevPos, tr.pos, tank.x, tank.y, tank.z, tank.heading, dims.halfW, dims.halfH, dims.halfL);
+            if (hitResult && (!closestActor || hitResult.tHit < closestActor.t)) {
+                closestActor = { t: hitResult.tHit, type: 'tank', point: hitResult.impact };
+            }
+        }
+
+        const soldiers = (window.activeSoldiers || []).filter(sol => sol && !sol.isDead && !!sol.isEnemy !== tr.isEnemy);
+        if (tr.isEnemy && window.playerMode === 'soldier' && window.playerSoldier && !window.playerSoldier.isDead) {
+            soldiers.push(window.playerSoldier);
+        }
+        for (const soldier of soldiers) {
+            const dCenterSq = (prevPos.x - soldier.x) ** 2 + (prevPos.z - soldier.z) ** 2;
+            if (dCenterSq > (1.8 + trSegLen) ** 2) continue;
+            const centerY = soldier.y + 0.9;
+            const toSoldier = new THREE.Vector3(soldier.x - prevPos.x, centerY - prevPos.y, soldier.z - prevPos.z);
+            const t = segLenSq > 0.0001 ? THREE.MathUtils.clamp(toSoldier.dot(seg) / segLenSq, 0, 1) : 0;
+            const point = prevPos.clone().addScaledVector(seg, t);
+            const distSq = (point.x - soldier.x) ** 2 + (point.y - centerY) ** 2 + (point.z - soldier.z) ** 2;
+            const isPlayer = soldier === window.playerSoldier;
+            if (distSq < (isPlayer ? 0.35 : 0.28) && (!closestActor || t < closestActor.t)) {
+                closestActor = { t, type: 'soldier', point, soldier, isPlayer };
+            }
+        }
+        if (typeof targets !== 'undefined') {
+            for (let t = 0; t < targets.length; t++) {
+                const tg = targets[t];
+                const toTg = new THREE.Vector3(tg.x - prevPos.x, tg.y - prevPos.y, tg.z - prevPos.z);
+                const projT = segLenSq > 0.0001 ? THREE.MathUtils.clamp(toTg.dot(seg) / segLenSq, 0, 1) : 0;
+                const point = prevPos.clone().addScaledVector(seg, projT);
+                if (point.distanceToSquared(new THREE.Vector3(tg.x, tg.y, tg.z)) < 2.8 &&
+                    (!closestActor || projT < closestActor.t)) {
+                    closestActor = { t: projT, type: 'target', point, target: tg };
+                }
+            }
+        }
+
+        if (closestActor) {
+            hit = true;
+            impactPos.copy(closestActor.point);
+            if (closestActor.type === 'tank') {
+                for (let sp = 0; sp < 6; sp++) {
+                    const sVel = new THREE.Vector3((Math.random() - 0.5) * 12, 1.5 + Math.random() * 8, (Math.random() - 0.5) * 12);
+                    spawnParticle(impactPos, sVel, 0xfff08a, 0.12, 0.06, 0.4, true, 'spark');
+                }
+                if (window.soundFX && typeof window.soundFX.playArmorRicochet === 'function') {
+                    window.soundFX.playArmorRicochet(impactPos);
+                }
+            } else if (closestActor.type === 'soldier') {
+                const soldier = closestActor.soldier;
+                if (typeof soldier.takeDamage === 'function') {
+                    soldier.takeDamage(tr.damage !== undefined ? tr.damage : (closestActor.isPlayer ? 25 : 35));
+                    if (soldier.isDead && typeof tr.onSoldierKilled === 'function') tr.onSoldierKilled(soldier);
+                }
+                if (typeof window.spawnParticle === 'function') {
+                    window.spawnParticle(impactPos, tr.vel.clone().multiplyScalar(-0.06), 0x991b1b, 0.15, 0.25, 0.45, false, 'smoke');
+                }
+            } else {
+                closestActor.target.hitAngle = Math.min(closestActor.target.hitAngle - 0.08, -0.25);
+                closestActor.target.recoverTimer = Math.max(closestActor.target.recoverTimer, 1.2);
+            }
+        } else if (blockingType === 'tree') {
+            hit = true;
+            blockingTree.bulletHits = (blockingTree.bulletHits || 0) + 1;
+            spawnParticle(impactPos, tr.vel.clone().multiplyScalar(-0.12), (blockingTree.type === 'pine' ? 0x3d281a : 0xdddddd), 0.12, 0.04, 0.35, false, 'spark');
+            if (blockingTree.bulletHits >= 4 && window.hitTree) window.hitTree(blockingTree, tr.vel.clone().normalize(), 3.5);
+        }
+
+        const hitTerrain = !hit && blockingType === 'terrain';
+        if (!hit && blockingType === 'cover') hit = true;
 
         if (hit || hitTerrain || tr.life <= 0) {
             if (hit || hitTerrain) {
