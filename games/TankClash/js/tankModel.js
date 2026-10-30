@@ -227,6 +227,13 @@ function buildTankById(tankId, scene, mats) {
     });
 
     bindTankGlobals(model);
+    window.currentTankId = tankId;
+    if (TANK_SPECS[tankId]) {
+        updateTankHUD(TANK_SPECS[tankId]);
+        if (window.soundFX && typeof window.soundFX.setTankSoundProfile === 'function') {
+            window.soundFX.setTankSoundProfile(TANK_SPECS[tankId]);
+        }
+    }
     return model;
 }
 

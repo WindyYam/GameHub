@@ -234,14 +234,32 @@ buildEnvironment();
 prewarmParticlePools();
 prewarmParticleShaders(renderer, activeCamera);
 
+const ALL_CAMPAIGNS = ['tiger', 'sherman', 't34'];
+const initialCampaign = ALL_CAMPAIGNS[Math.floor(Math.random() * ALL_CAMPAIGNS.length)];
+window.currentTankId = initialCampaign;
+
 const tank = (typeof window.buildTankById === 'function') 
-    ? window.buildTankById('tiger', scene, mats) 
+    ? window.buildTankById(initialCampaign, scene, mats) 
     : (typeof buildTigerTank === 'function' ? buildTigerTank(scene, mats) : null);
 window.tankModel = tank;
-if (window.TANK_SPECS) {
-    tankState.currentTankSpec = window.TANK_SPECS.tiger;
+if (window.TANK_SPECS && window.TANK_SPECS[initialCampaign]) {
+    const initSpec = window.TANK_SPECS[initialCampaign];
+    tankState.currentTankSpec = initSpec;
+    tankState.RELOAD_TIME = initSpec.reloadTime;
+    tankState.SHELL_VELOCITY = initSpec.shellVel;
+    tankState.MAX_SPEED = initSpec.maxSpeed;
+    tankState.REVERSE_SPEED = initSpec.reverseSpeed;
+    tankState.TURN_SPEED = initSpec.turnSpeed;
+    tankState.RECOIL_OFFSET = initSpec.recoilOffset;
+    tankState.MIN_ELEV_RAD = THREE.MathUtils.degToRad(initSpec.minElevDeg);
+    tankState.MAX_ELEV_RAD = THREE.MathUtils.degToRad(initSpec.maxElevDeg);
+    tankState.hasMuzzleBrake = initSpec.hasMuzzleBrake;
+
     if (typeof window.updateTankHUD === 'function') {
-        window.updateTankHUD(window.TANK_SPECS.tiger);
+        window.updateTankHUD(initSpec);
+    }
+    if (window.soundFX && typeof window.soundFX.setTankSoundProfile === 'function') {
+        window.soundFX.setTankSoundProfile(initSpec);
     }
 }
 

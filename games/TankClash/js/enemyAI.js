@@ -44,18 +44,15 @@
     };
 
     // ========================================================================
-    // 1. OPPOSING CAMPAIGN FACTION ASSIGNMENT
-    // German (Axis) Player <---> Sherman & T-34 (Allied) Enemies
-    // Allied Player (Sherman / T-34) <---> Tiger I (German Axis) Enemies
+    // 1. ALL CAMPAIGNS FACTION ASSIGNMENT
+    // Enemies spawn from all campaigns: Tiger I (German), Sherman (US), T-34-85 (Soviet)
     // ========================================================================
-    function getOpposingCampaignTankType(playerTankId) {
-        const pid = playerTankId || window.currentTankId || 'tiger';
-        if (pid === 'tiger') {
-            return (Math.random() < 0.5) ? 'sherman' : 't34';
-        } else {
-            return 'tiger';
-        }
+    const ALL_CAMPAIGNS = ['tiger', 'sherman', 't34'];
+    function getRandomCampaignTankType() {
+        return ALL_CAMPAIGNS[Math.floor(Math.random() * ALL_CAMPAIGNS.length)];
     }
+    const getOpposingCampaignTankType = getRandomCampaignTankType;
+    window.getRandomCampaignTankType = getRandomCampaignTankType;
     window.getOpposingCampaignTankType = getOpposingCampaignTankType;
 
     // Normalize angle to [-PI, PI]
@@ -918,20 +915,13 @@
         }
 
         const enemyId = `zone:enemy:${nextEnemySeq++}`;
-        let tankType;
-        if (isPlayerGerman) {
-            tankType = (Math.random() < 0.5) ? 'sherman' : 't34';
-        } else {
-            tankType = 'tiger';
-        }
+        const tankType = getRandomCampaignTankType();
 
         const enemy = spawnEnemyCombatTank(enemyId, bestX, bestY, bestZ, window.scene, tankType);
         if (enemy && typeof window.spawnSoldierEscortForTank === 'function') {
             const currentSoldiers = window.activeSoldiers ? window.activeSoldiers.length : 0;
             if (currentSoldiers < 14) {
-                const { enemy: enemyFaction } = (typeof window.getFactionsForPlayerTank === 'function')
-                    ? window.getFactionsForPlayerTank(window.currentTankId || 'tiger')
-                    : { enemy: 'us' };
+                const enemyFaction = (tankType === 'sherman') ? 'us' : ((tankType === 't34') ? 'soviet' : 'german');
                 window.spawnSoldierEscortForTank(enemy, enemyFaction);
             }
         }
@@ -955,22 +945,9 @@
     window.spawnZoneEnemies = spawnZoneEnemies;
     window.spawnInitialFieldEnemies = spawnZoneEnemies;
 
-    // Called when player switches to another tank (e.g., Tiger -> Sherman)
+    // Called when player switches to another tank (e.g., via hijacking)
     function onPlayerTankChanged(newPlayerTankId) {
-        // Any alive enemy tanks should switch to the new opposing faction
-        const newEnemyType = getOpposingCampaignTankType(newPlayerTankId);
-        for (let i = activeEnemyTanks.length - 1; i >= 0; i--) {
-            const e = activeEnemyTanks[i];
-            if (!e.isDestroyed) {
-                const posX = e.x;
-                const posZ = e.z;
-                const posY = e.y;
-                const parent = e.parentGroup;
-                const oldId = e.id;
-                e.dispose();
-                spawnEnemyCombatTank(oldId, posX, posY, posZ, parent, newEnemyType);
-            }
-        }
+        // Enemy tanks exist in all campaigns across the battlefield
     }
     window.onPlayerTankChanged = onPlayerTankChanged;
 

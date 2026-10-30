@@ -62,6 +62,8 @@
             playerSoldier.rig.hips.rotation.x = -Math.PI * 0.48;
             playerSoldier.rig.hips.rotation.z = (Math.random() - 0.5) * 0.6;
             playerSoldier.rig.head.rotation.x = -0.3;
+            if (playerSoldier.rig.handGrenade) playerSoldier.rig.handGrenade.visible = false;
+            if (playerSoldier.rig.rifle) playerSoldier.rig.rifle.visible = true;
             if (playerSoldier.rig.rightArm && playerSoldier.rig.rightArm.shoulder) {
                 playerSoldier.rig.rightArm.shoulder.rotation.set(-0.25, 0, -1.2);
             }
@@ -250,17 +252,23 @@
     function throwPlayerGrenade() {
         if (playerMode !== 'soldier' || !playerSoldier || playerSoldier.isDead) return;
         const now = performance.now();
-        if (playerSoldier.lastGrenadeTime && (now - playerSoldier.lastGrenadeTime < 1100)) return;
-        playerSoldier.lastGrenadeTime = (window.performance && window.performance.now) ? window.performance.now() * 0.001 : Date.now() * 0.001;
+        if (playerSoldier.lastGrenadeTime && (now - playerSoldier.lastGrenadeTime < 400)) return;
+        playerSoldier.lastGrenadeTime = now;
 
         const s = playerSoldier;
+        const rig = s.rig;
+
+        // Trigger simple right hand lift up animation
+        s.grenadeAnimDuration = 0.40;
+        s.grenadeAnimTimer = 0.40;
+
         const cam = window.activeCamera || window.perspCamera;
         if (!cam) return;
 
         const camDir = new THREE.Vector3();
         cam.getWorldDirection(camDir);
 
-        // Spawn grenade slightly in front of soldier chest
+        // Spawn grenade slightly in front of soldier chest immediately
         const spawnPos = new THREE.Vector3(s.x, s.y + 1.35, s.z).add(camDir.clone().multiplyScalar(0.45));
         
         // 3D aim-directed trajectory: launched noticeably higher than cursor direction with stronger velocity
@@ -270,7 +278,7 @@
         // Pitch launch vector higher than cursor (+0.26 upward lob bias)
         throwDir.y += 0.26;
         throwDir.normalize();
-        throwDir.multiplyScalar(25.0); // Stronger throw velocity (25 m/s)
+        throwDir.multiplyScalar(25.0); // Strong throw velocity (25 m/s)
 
         const mesh = buildGrenadeMesh();
         mesh.position.copy(spawnPos);
@@ -477,6 +485,15 @@
         }
 
         const rig = window.buildSoldier(faction);
+        if (rig.rightArm && rig.rightArm.wrist) {
+            const hg = buildGrenadeMesh();
+            hg.scale.setScalar(0.9);
+            hg.position.set(-0.02, -0.06, 0.05);
+            hg.rotation.set(0.2, 0, 0.4);
+            hg.visible = false;
+            rig.rightArm.wrist.add(hg);
+            rig.handGrenade = hg;
+        }
         const tH = window.tankState.heading || 0;
 
         // Spawn player soldier 2.4 meters to the left of the tank hull
@@ -500,6 +517,9 @@
             isGrounded: true,
             lastJumpTime: 0,
             lastGrenadeTime: 0,
+            grenadeAnimTimer: 0,
+            grenadeAnimDuration: 0.65,
+            grenadeThrown: false,
             lastFireTime: 0,
             heading: tH,
             speed: 0,
@@ -807,13 +827,14 @@
         const stickForward = window.touchDrive ? (window.touchDrive.forward || 0) : 0;
         const stickStrafe  = window.touchDrive ? ((window.touchDrive.strafe !== undefined) ? window.touchDrive.strafe : -(window.touchDrive.turn || 0)) : 0;
 
-        const fwdInput = ((keys['w'] ? 1 : 0) - (keys['s'] ? 1 : 0)) + stickForward;
-        const strInput = ((keys['d'] ? 1 : 0) - (keys['a'] ? 1 : 0)) + stickStrafe;
+        const k = window.keys || (typeof keys !== 'undefined' ? keys : {});
+        const fwdInput = ((k['w'] ? 1 : 0) - (k['s'] ? 1 : 0)) + stickForward;
+        const strInput = ((k['d'] ? 1 : 0) - (k['a'] ? 1 : 0)) + stickStrafe;
 
         const stickMag = window.touchDrive ? (window.touchDrive.magnitude || Math.hypot(stickForward, stickStrafe)) : 0;
         const isStickRunning = (window.touchDrive && window.touchDrive.isMax) || (stickMag >= 0.85);
 
-        const isSprinting = !!keys['shift'] || isStickRunning;
+        const isSprinting = !!k['shift'] || isStickRunning;
         const moveSpeed = isSprinting ? 5.2 : 2.8;
 
         const camTheta = (window.camOrbit && window.camOrbit.theta !== undefined) ? window.camOrbit.theta : s.heading;
@@ -894,7 +915,7 @@
             rig.hips.position.y = 0.95;
         }
 
-        // Aim rifle directly along camera look vector with authentic 2-handed grip
+        // Aim rifle directly along camera look vector with authentic 2-handed grip (with simple right hand lift up on grenade throw)
         if (currentActiveCam && rig.rifle && rig.rightArm && rig.rightArm.wrist && rig.leftArm && rig.leftArm.shoulder) {
             // Natural bladed firing stance
             rig.torso.rotation.y = -0.40;
@@ -907,9 +928,35 @@
             rig.torso.rotation.x = -camPitch * 0.45;
             rig.head.rotation.x = -camPitch * 0.35;
 
-            // Right arm firmly shoulders the rifle
-            rig.rightArm.shoulder.rotation.set(-0.70, 0.12, -0.22);
-            rig.rightArm.elbow.rotation.x = -1.70;
+            const isThrowingGrenade = (s.grenadeAnimTimer > 0);
+
+            // Right arm firmly shoulders the rifle (lifts up simply when throwing grenade)
+            let rShX = -0.70;
+            let rShY = 0.12;
+            let rShZ = -0.22;
+            let rElX = -1.70;
+
+            if (isThrowingGrenade) {
+                s.grenadeAnimTimer = Math.max(0, s.grenadeAnimTimer - dt);
+                const p = 1.0 - (s.grenadeAnimTimer / (s.grenadeAnimDuration || 0.40));
+                const lift = Math.sin(p * Math.PI); // smooth 0 -> 1 -> 0 arch
+                rShX -= lift * 1.55; // lifts right arm and hand up
+                rShZ -= lift * 0.45; // lifts outward and up
+                rElX += lift * 0.50; // adjusts elbow
+
+                // Keep rifle held firmly by left hand on torso so left arm doesn't move with right arm
+                if (rig.rifle.parent === rig.rightArm.wrist) {
+                    rig.torso.attach(rig.rifle);
+                }
+            } else {
+                if (rig.rifle.parent !== rig.rightArm.wrist) {
+                    rig.rightArm.wrist.attach(rig.rifle);
+                }
+            }
+
+            rig.rightArm.shoulder.rotation.set(rShX, rShY, rShZ);
+            rig.rightArm.elbow.rotation.x = rElX;
+            rig.rightArm.wrist.rotation.set(0, 0, 0);
 
             // Update world matrices for torso and right arm/wrist
             rig.torso.updateMatrixWorld(true);
@@ -917,63 +964,65 @@
             rig.rightArm.elbow.updateMatrixWorld(true);
             rig.rightArm.wrist.updateMatrixWorld(true);
 
-            // Orient rifle directly along camera forward vector with sight upright
-            const fwd = camLookDir.clone().normalize();
-            const worldUp = new THREE.Vector3(0, 1, 0);
-            let right = new THREE.Vector3().crossVectors(worldUp, fwd);
-            if (right.lengthSq() < 0.0001) {
-                const camTheta = (window.camOrbit && window.camOrbit.theta !== undefined) ? window.camOrbit.theta : s.heading;
-                right.set(Math.cos(camTheta), 0, -Math.sin(camTheta));
-            } else {
-                right.normalize();
+            // Orient rifle and solve left arm IK only when not throwing (left arm remains completely unchanged during throw)
+            if (!isThrowingGrenade) {
+                const fwd = camLookDir.clone().normalize();
+                const worldUp = new THREE.Vector3(0, 1, 0);
+                let right = new THREE.Vector3().crossVectors(worldUp, fwd);
+                if (right.lengthSq() < 0.0001) {
+                    const camTheta = (window.camOrbit && window.camOrbit.theta !== undefined) ? window.camOrbit.theta : s.heading;
+                    right.set(Math.cos(camTheta), 0, -Math.sin(camTheta));
+                } else {
+                    right.normalize();
+                }
+                const realUp = new THREE.Vector3().crossVectors(fwd, right).normalize();
+                const rotMat = new THREE.Matrix4().makeBasis(right, realUp, fwd);
+                const targetWorldQuat = new THREE.Quaternion().setFromRotationMatrix(rotMat);
+
+                const wristWorldQuat = new THREE.Quaternion();
+                rig.rightArm.wrist.getWorldQuaternion(wristWorldQuat);
+                const localRifleQuat = wristWorldQuat.clone().invert().multiply(targetWorldQuat);
+                rig.rifle.quaternion.copy(localRifleQuat);
+                rig.rifle.updateMatrixWorld(true);
+
+                // 2-Bone Analytical Inverse Kinematics for Left Arm holding wooden forend
+                const gripWorld = rig.rifle.localToWorld(new THREE.Vector3(0, -0.02, 0.15));
+                const leftShoulderPos = rig.leftArm.shoulder.position; // in torso space
+                const gripTorso = rig.torso.worldToLocal(gripWorld.clone());
+
+                const D = gripTorso.clone().sub(leftShoulderPos);
+                const dist = D.length();
+                const L1 = 0.265; // upper arm length
+                const L2 = 0.24; // forearm length
+
+                const targetDist = Math.min(dist, L1 + L2 - 0.005);
+                const cosAlpha = Math.max(-1, Math.min(1, (L1 * L1 + targetDist * targetDist - L2 * L2) / (2 * L1 * targetDist)));
+                const alpha = Math.acos(cosAlpha);
+
+                const D_norm = D.clone().normalize();
+                const pole = new THREE.Vector3(0.5, -0.6, 0.4).normalize();
+                let n = pole.clone().sub(D_norm.clone().multiplyScalar(pole.dot(D_norm)));
+                if (n.lengthSq() < 0.001) n = new THREE.Vector3(1, 0, 0);
+                n.normalize();
+
+                const E = leftShoulderPos.clone()
+                    .add(D_norm.clone().multiplyScalar(L1 * Math.cos(alpha)))
+                    .add(n.clone().multiplyScalar(L1 * Math.sin(alpha)));
+
+                // Shoulder orientation (upper arm points to elbow E)
+                const vUpper = E.clone().sub(leftShoulderPos).normalize();
+                const qUpper = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, -1, 0), vUpper);
+                rig.leftArm.shoulder.quaternion.copy(qUpper);
+                rig.leftArm.shoulder.updateMatrixWorld(true);
+
+                // Elbow orientation (forearm points to gripTorso)
+                const vForearmTorso = gripTorso.clone().sub(E).normalize();
+                const vForearmShoulder = vForearmTorso.clone().applyQuaternion(qUpper.clone().invert());
+                const qForearm = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, -1, 0), vForearmShoulder);
+                rig.leftArm.elbow.quaternion.copy(qForearm);
+                rig.leftArm.elbow.updateMatrixWorld(true);
+                rig.leftArm.wrist.updateMatrixWorld(true);
             }
-            const realUp = new THREE.Vector3().crossVectors(fwd, right).normalize();
-            const rotMat = new THREE.Matrix4().makeBasis(right, realUp, fwd);
-            const targetWorldQuat = new THREE.Quaternion().setFromRotationMatrix(rotMat);
-
-            const wristWorldQuat = new THREE.Quaternion();
-            rig.rightArm.wrist.getWorldQuaternion(wristWorldQuat);
-            const localRifleQuat = wristWorldQuat.clone().invert().multiply(targetWorldQuat);
-            rig.rifle.quaternion.copy(localRifleQuat);
-            rig.rifle.updateMatrixWorld(true);
-
-            // 2-Bone Analytical Inverse Kinematics for Left Arm holding wooden forend
-            const gripWorld = rig.rifle.localToWorld(new THREE.Vector3(0, -0.02, 0.15));
-            const leftShoulderPos = rig.leftArm.shoulder.position; // in torso space
-            const gripTorso = rig.torso.worldToLocal(gripWorld.clone());
-
-            const D = gripTorso.clone().sub(leftShoulderPos);
-            const dist = D.length();
-            const L1 = 0.265; // upper arm length
-            const L2 = 0.24; // forearm length
-
-            const targetDist = Math.min(dist, L1 + L2 - 0.005);
-            const cosAlpha = Math.max(-1, Math.min(1, (L1 * L1 + targetDist * targetDist - L2 * L2) / (2 * L1 * targetDist)));
-            const alpha = Math.acos(cosAlpha);
-
-            const D_norm = D.clone().normalize();
-            const pole = new THREE.Vector3(0.5, -0.6, 0.4).normalize();
-            let n = pole.clone().sub(D_norm.clone().multiplyScalar(pole.dot(D_norm)));
-            if (n.lengthSq() < 0.001) n = new THREE.Vector3(1, 0, 0);
-            n.normalize();
-
-            const E = leftShoulderPos.clone()
-                .add(D_norm.clone().multiplyScalar(L1 * Math.cos(alpha)))
-                .add(n.clone().multiplyScalar(L1 * Math.sin(alpha)));
-
-            // Shoulder orientation (upper arm points to elbow E)
-            const vUpper = E.clone().sub(leftShoulderPos).normalize();
-            const qUpper = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, -1, 0), vUpper);
-            rig.leftArm.shoulder.quaternion.copy(qUpper);
-            rig.leftArm.shoulder.updateMatrixWorld(true);
-
-            // Elbow orientation (forearm points to gripTorso)
-            const vForearmTorso = gripTorso.clone().sub(E).normalize();
-            const vForearmShoulder = vForearmTorso.clone().applyQuaternion(qUpper.clone().invert());
-            const qForearm = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, -1, 0), vForearmShoulder);
-            rig.leftArm.elbow.quaternion.copy(qForearm);
-            rig.leftArm.elbow.updateMatrixWorld(true);
-            rig.leftArm.wrist.updateMatrixWorld(true);
         }
 
         // 3. Update Camera Position to follow player soldier

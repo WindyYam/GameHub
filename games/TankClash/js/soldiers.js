@@ -2234,15 +2234,15 @@
     function spawnBattlefieldInfantry() {
         clearSoldiers();
 
-        const currentTank = window.currentTankId || 'tiger';
-        const { allied, enemy } = getFactionsForPlayerTank(currentTank);
-
         // Spawn soldiers always clustered around enemy tanks (Panzergrenadiers / Infantry escorts)
         const tanks = window.activeEnemyTanks || [];
         if (tanks.length > 0) {
             const escortCount = Math.min(tanks.length, 4);
             for (let i = 0; i < escortCount; i++) {
-                spawnSoldierEscortForTank(tanks[i], enemy);
+                const tank = tanks[i];
+                const tType = (tank && tank.tankType) ? tank.tankType : 'tiger';
+                const f = (tType === 'sherman') ? 'us' : ((tType === 't34') ? 'soviet' : 'german');
+                spawnSoldierEscortForTank(tank, f);
             }
         }
 

@@ -106,9 +106,6 @@ function initControls(renderer) {
         if (k === 'e') { if (typeof window.triggerInteract === 'function') window.triggerInteract(); }
         if (k === 'r') { if (typeof window.restartGame === 'function') window.restartGame(); }
         if (k === 't') { if (window.dayNight && window.dayNight.cycleNext) window.dayNight.cycleNext(); }
-        if (k === '1') { if (window.playerMode !== 'soldier' && typeof window.switchTank === 'function') window.switchTank('tiger'); }
-        if (k === '2') { if (window.playerMode !== 'soldier' && typeof window.switchTank === 'function') window.switchTank('sherman'); }
-        if (k === '3') { if (window.playerMode !== 'soldier' && typeof window.switchTank === 'function') window.switchTank('t34'); }
         if (k === '5' || k === 'v' || k === 'c') {
             if (window.playerMode !== 'soldier') {
                 setCameraMode(cameraMode === 'fpv' ? 'orbit' : 'fpv');
@@ -433,18 +430,6 @@ function initControls(renderer) {
     // ------------------------------------------------------------------------
     // 4. TOP VIEWS & AUDIO CONTROLS
     // ------------------------------------------------------------------------
-    // Tank Selector Buttons in HUD
-    document.querySelectorAll('.tank-select-btn').forEach((btn) => {
-        btn.onclick = (e) => {
-            e.preventDefault();
-            if (window.playerMode === 'soldier') return;
-            const tid = btn.getAttribute('data-tank');
-            if (tid && typeof window.switchTank === 'function') {
-                window.switchTank(tid);
-            }
-        };
-    });
-
     const btnOrbit = document.getElementById('cam-orbit');
     if (btnOrbit) btnOrbit.onclick = () => setCameraMode('orbit');
 

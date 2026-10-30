@@ -1812,12 +1812,23 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             float tuftRandom = fract(sin(dot(aInstanceData.xy, vec2(12.9898, 78.233))) * 43758.5453);
             float sizeVar = 0.92 + 0.38 * tuftRandom;
             vec2 meadowPos = worldXZ + uSeedOffset;
-            float flowerPatch = valueNoise2D_gpu(meadowPos * 0.025) * 0.5 + 0.5;
-            float flowerChance = mix(0.008, 0.22, smoothstep(0.35, 0.75, flowerPatch));
-            float flowerColor = valueNoise2D_gpu(meadowPos * 0.045 + vec2(31.0, 17.0));
+
+            // Original wildflower meadow look (baseline ~4.5% rising to ~16% in lush patches)
+            float flowerPatch = valueNoise2D_gpu(meadowPos * 0.015) * 0.5 + 0.5;
+            float origFlowerChance = mix(0.045, 0.16, smoothstep(0.35, 0.70, flowerPatch));
+
+            // Regional variation: preserve the original flower-rich look across most of the world,
+            // with natural variations including areas with only very few flowers
+            float regionVar = valueNoise2D_gpu(meadowPos * 0.008 + vec2(71.0, 93.0)) * 0.5 + 0.5;
+            float areaFlowerMod = smoothstep(0.28, 0.52, regionVar);
+
+            float flowerChance = mix(0.005, origFlowerChance, areaFlowerMod);
+            float flowerColor = valueNoise2D_gpu(meadowPos * 0.035 + vec2(31.0, 17.0));
+            float plumeThreshold = mix(0.90, 0.50, areaFlowerMod);
+
             float colIdx = aInstanceData.w < flowerChance
                 ? (flowerColor < 0.0 ? 2.0 : 3.0)
-                : (aInstanceData.w < 0.55 ? 0.0 : 1.0);
+                : (aInstanceData.w < plumeThreshold ? 0.0 : 1.0);
             float heightPatch = valueNoise2D_gpu(meadowPos * 0.035 + vec2(13.0, 47.0)) * 0.5 + 0.5;
             float heightVar = (0.68 + 0.62 * tuftRandom) * (0.78 + 0.44 * heightPatch);
             vGrassAtlasUv = vec2(
@@ -3050,6 +3061,12 @@ function restartGame(customSeed) {
     if (typeof window.resetSoldiers === 'function') window.resetSoldiers();
     if (typeof window.resetPlayerSoldier === 'function') window.resetPlayerSoldier();
     if (typeof window.hideKnockoutModal === 'function') window.hideKnockoutModal();
+
+    const ALL_CAMPAIGNS = ['tiger', 'sherman', 't34'];
+    const randCampaign = ALL_CAMPAIGNS[Math.floor(Math.random() * ALL_CAMPAIGNS.length)];
+    if (typeof window.switchTank === 'function') {
+        window.switchTank(randCampaign);
+    }
 
     const seedEl = document.getElementById('hud-seed-display');
     if (seedEl) seedEl.textContent = `Seed: ${seed}`;
