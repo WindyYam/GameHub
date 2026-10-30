@@ -105,11 +105,13 @@ const ALL_ZONES = ['meadow', 'desert', 'mountain', 'hills'];
 var currentZone = 'meadow';
 var currentZoneIndex = ZONE_CONFIGS[currentZone].typeIndex;
 var currentZoneConfig = ZONE_CONFIGS[currentZone];
+var spawnZoneIndex = 0;
 window.ZONE_CONFIGS = ZONE_CONFIGS;
 window.ALL_ZONES = ALL_ZONES;
 window.currentZone = currentZone;
 window.currentZoneIndex = currentZoneIndex;
 window.currentZoneConfig = currentZoneConfig;
+window.spawnZoneIndex = spawnZoneIndex;
 
 var currentSeed = Math.floor(Math.random() * 900000) + 100000;
 var seedOffset = { x: 0, z: 0 };
@@ -123,12 +125,23 @@ function syncZoneUniformsAndHUD() {
     if (terrainUniforms && terrainUniforms.uZoneType) {
         terrainUniforms.uZoneType.value = currentZoneIndex;
     }
+    if (terrainUniforms && terrainUniforms.uSpawnZone) {
+        terrainUniforms.uSpawnZone.value = spawnZoneIndex;
+    }
     if (grassUniforms && grassUniforms.uZoneType) {
         grassUniforms.uZoneType.value = currentZoneIndex;
     }
+    if (grassUniforms && grassUniforms.uSpawnZone) {
+        grassUniforms.uSpawnZone.value = spawnZoneIndex;
+    }
     if (waterMeshRef) {
-        if (waterMeshRef.material && waterMeshRef.material.uniforms && waterMeshRef.material.uniforms.uZoneType) {
-            waterMeshRef.material.uniforms.uZoneType.value = currentZoneIndex;
+        if (waterMeshRef.material && waterMeshRef.material.uniforms) {
+            if (waterMeshRef.material.uniforms.uZoneType) {
+                waterMeshRef.material.uniforms.uZoneType.value = currentZoneIndex;
+            }
+            if (waterMeshRef.material.uniforms.uSpawnZone) {
+                waterMeshRef.material.uniforms.uSpawnZone.value = spawnZoneIndex;
+            }
         }
     }
 
@@ -152,7 +165,7 @@ function setCurrentZone(zoneIndex) {
     syncZoneUniformsAndHUD();
 }
 
-function setWorldSeed(seed) {
+function setWorldSeed(seed, targetSpawnZone) {
     currentSeed = seed;
     window.currentSeed = currentSeed;
     seedOffset.x = (currentSeed % 289);
@@ -162,12 +175,24 @@ function setWorldSeed(seed) {
     road3BaseX = Math.sin(seedOffset.z * 0.014) * 20.0 + Math.cos(seedOffset.z * 0.028) * 7.0;
     road4BaseX = Math.sin(seedOffset.z * 0.012) * 18.0 + Math.cos(seedOffset.z * 0.025) * 6.0;
 
+    if (targetSpawnZone !== undefined && targetSpawnZone !== null) {
+        if (typeof targetSpawnZone === 'string') {
+            spawnZoneIndex = (ZONE_CONFIGS[targetSpawnZone] ? ZONE_CONFIGS[targetSpawnZone].typeIndex : 0);
+        } else {
+            spawnZoneIndex = Math.max(0, Math.min(3, Math.floor(targetSpawnZone)));
+        }
+    } else {
+        spawnZoneIndex = 0;
+    }
+    window.spawnZoneIndex = spawnZoneIndex;
+
     if (terrainUniforms && terrainUniforms.uSeedOffset) {
         terrainUniforms.uSeedOffset.value.set(seedOffset.x, seedOffset.z);
         terrainUniforms.uRoadBaseX.value = roadBaseX;
         terrainUniforms.uRoad2BaseZ.value = road2BaseZ;
         terrainUniforms.uRoad3BaseX.value = road3BaseX;
         terrainUniforms.uRoad4BaseX.value = road4BaseX;
+        if (terrainUniforms.uSpawnZone) terrainUniforms.uSpawnZone.value = spawnZoneIndex;
     }
     if (grassUniforms && grassUniforms.uSeedOffset) {
         grassUniforms.uSeedOffset.value.set(seedOffset.x, seedOffset.z);
@@ -175,6 +200,7 @@ function setWorldSeed(seed) {
         grassUniforms.uRoad2BaseZ.value = road2BaseZ;
         grassUniforms.uRoad3BaseX.value = road3BaseX;
         grassUniforms.uRoad4BaseX.value = road4BaseX;
+        if (grassUniforms.uSpawnZone) grassUniforms.uSpawnZone.value = spawnZoneIndex;
     }
     if (waterMeshRef && waterMeshRef.material && waterMeshRef.material.uniforms && waterMeshRef.material.uniforms.uSeedOffset) {
         if (waterMeshRef.material.uniforms.uSeedOffset.value && typeof waterMeshRef.material.uniforms.uSeedOffset.value.set === 'function') {
@@ -185,9 +211,12 @@ function setWorldSeed(seed) {
         if (waterMeshRef.material.uniforms.uRoadBaseX) {
             waterMeshRef.material.uniforms.uRoadBaseX.value = roadBaseX;
         }
+        if (waterMeshRef.material.uniforms.uSpawnZone) {
+            waterMeshRef.material.uniforms.uSpawnZone.value = spawnZoneIndex;
+        }
     }
 
-    setCurrentZone(0);
+    setCurrentZone(spawnZoneIndex);
     sessionFallenTrees.clear();
     sessionDestroyedTargets.clear();
 }
@@ -240,10 +269,11 @@ function getZoneWeights(x, z) {
     const tx = smoothstep(0.4, 0.6, gx - ix);
     const tz = smoothstep(0.4, 0.6, gz - iz);
     const weights = [0, 0, 0, 0];
+    const sz = (typeof spawnZoneIndex !== 'undefined') ? spawnZoneIndex : 0;
     const add = (cx, cz, weight) => {
         if (weight === 0) return;
         const zone = (cx === 0 && cz === 0)
-            ? 0
+            ? sz
             : Math.min(3, Math.floor(hash2D(cx + seedOffset.x, cz + seedOffset.z) * 4));
         weights[zone] += weight;
     };
@@ -304,6 +334,7 @@ const SHARED_TERRAIN_GLSL = `
     uniform vec2 uSeedOffset;
     uniform float uRoadBaseX;
     uniform int uZoneType;
+    uniform int uSpawnZone;
 
     float mod289_gpu(float x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
     vec2 mod289_gpu(vec2 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
@@ -316,7 +347,7 @@ const SHARED_TERRAIN_GLSL = `
     }
 
     vec4 zoneCell_gpu(vec2 cell) {
-        float zone = 0.0;
+        float zone = float(uSpawnZone);
         if (cell.x != 0.0 || cell.y != 0.0) {
             zone = min(3.0, floor(hash2D_gpu(cell + uSeedOffset) * 4.0));
         }
@@ -430,6 +461,14 @@ const SHARED_TERRAIN_GLSL = `
         vec2 zoneCenter = floor(getZoneGrid_gpu(vec2(x, z)) + 0.5) * 1600.0;
         float finalH = 0.0;
 
+        // Shared coastal slope and bay framing toward +Z ocean
+        float coastalDist = z + (fbm3_gpu(s * 0.009) * 28.0);
+        float coastalSlope = smoothstep(110.0, 360.0, coastalDist) * 12.8;
+        float headland = smoothstep(60.0, 200.0, abs(x)) * smoothstep(60.0, 420.0, coastalDist) * 6.5;
+        float coastalExtent = (1.0 - smoothstep(600.0, 900.0, abs(x))) * (1.0 - smoothstep(750.0, 1200.0, z));
+        float coastalDescent = (-coastalSlope + headland) * coastalExtent;
+        float bayOpen = (1.0 - smoothstep(90.0, 260.0, coastalDist) * (1.0 - smoothstep(220.0, 450.0, abs(x))));
+
         // ZONE 1: SAHARA DESERT DUNES, SANDSTONE MESAS & OASIS
         if (zoneType == 1) {
             float duneWarp = fbm3_gpu(s * 0.0055) * 2.2;
@@ -443,12 +482,14 @@ const SHARED_TERRAIN_GLSL = `
 
             // Flat-topped Sandstone Mesas / Buttes in the outer desert
             float mesaNoise = fbm3_gpu(s * 0.0042 + vec2(37.0, 61.0));
-            float mesaMask = smoothstep(0.34, 0.48, mesaNoise) * smoothstep(55.0, 105.0, dSpawn) * smoothstep(10.0, 32.0, roadDist);
+            float mesaMask = smoothstep(0.34, 0.48, mesaNoise) * smoothstep(55.0, 105.0, dSpawn) * smoothstep(10.0, 32.0, roadDist) * bayOpen;
             h += mesaMask * 13.5;
 
             float dOasis = length(vec2(x, z) - zoneCenter - vec2(58.0, 78.0));
             float oasisDip = (1.0 - smoothstep(14.0, 48.0, dOasis)) * 9.8;
             h -= oasisDip;
+
+            h += coastalDescent;
 
             float spawnClear = smoothstep(4.0, 18.0, dSpawn);
             h = mix(6.2, h, spawnClear);
@@ -478,11 +519,13 @@ const SHARED_TERRAIN_GLSL = `
 
             float passCorridor = smoothstep(9.0, 44.0, roadDist);
             float spawnCorridor = smoothstep(22.0, 78.0, dSpawn);
-            h += mountainHeight * passCorridor * spawnCorridor;
+            h += mountainHeight * passCorridor * spawnCorridor * bayOpen;
 
             float dTarn = length(vec2(x, z) - zoneCenter - vec2(-54.0, 92.0));
             float tarnDip = (1.0 - smoothstep(14.0, 46.0, dTarn)) * 11.5;
             h -= tarnDip;
+
+            h += coastalDescent;
 
             float spawnClear = smoothstep(4.0, 18.0, dSpawn);
             h = mix(7.2, h, spawnClear);
@@ -512,6 +555,8 @@ const SHARED_TERRAIN_GLSL = `
             float pondDip = (1.0 - smoothstep(12.0, 42.0, dPond)) * 11.2;
             h -= pondDip;
 
+            h += coastalDescent;
+
             float spawnClear = smoothstep(4.0, 18.0, dSpawn);
             h = mix(8.5, h, spawnClear);
 
@@ -535,14 +580,7 @@ const SHARED_TERRAIN_GLSL = `
             float ridgeElev = (1.0 - smoothstep(12.0, 95.0, dSpawn)) * 2.8;
             h += ridgeElev;
 
-            // Gentle rolling countryside slope descending toward the coastal ocean (+Z)
-            float coastalDist = z + (fbm3_gpu(s * 0.009) * 28.0);
-            float coastalSlope = smoothstep(110.0, 360.0, coastalDist) * 12.8;
-
-            // Rolling coastal headlands framing the bay on the left and right
-            float headland = smoothstep(60.0, 200.0, abs(x)) * smoothstep(60.0, 420.0, coastalDist) * 6.5;
-            float coastalExtent = (1.0 - smoothstep(600.0, 900.0, abs(x))) * (1.0 - smoothstep(750.0, 1200.0, z));
-            h += (-coastalSlope + headland) * coastalExtent;
+            h += coastalDescent;
 
             // Spawn pad clearing
             float spawnClear = smoothstep(3.5, 16.0, dSpawn);
@@ -638,6 +676,14 @@ function getZoneTerrainHeight(x, z, currentZoneIndex) {
     const roadF = getRoadFactor(x, z);
     const [zoneX, zoneZ] = getZoneCenter(x, z);
 
+    // Shared coastal slope and bay framing toward +Z ocean
+    const coastalDist = z + (fbm3(sx * 0.009, sz * 0.009) * 28.0);
+    const coastalSlope = smoothstep(110.0, 360.0, coastalDist) * 12.8;
+    const headland = smoothstep(60.0, 200.0, Math.abs(x)) * smoothstep(60.0, 420.0, coastalDist) * 6.5;
+    const coastalExtent = (1.0 - smoothstep(600.0, 900.0, Math.abs(x))) * (1.0 - smoothstep(750.0, 1200.0, z));
+    const coastalDescent = (-coastalSlope + headland) * coastalExtent;
+    const bayOpen = (1.0 - smoothstep(90.0, 260.0, coastalDist) * (1.0 - smoothstep(220.0, 450.0, Math.abs(x))));
+
     // ZONE 1: SAHARA DESERT DUNES, SANDSTONE MESAS & OASIS
     if (currentZoneIndex === 1) {
         const duneWarp = fbm3(sx * 0.0055, sz * 0.0055) * 2.2;
@@ -650,12 +696,14 @@ function getZoneTerrainHeight(x, z, currentZoneIndex) {
         let h = 5.8 + macroErg + duneWave + medDunes + microRipples;
 
         const mesaNoise = fbm3(sx * 0.0042 + 37.0, sz * 0.0042 + 61.0);
-        const mesaMask = smoothstep(0.34, 0.48, mesaNoise) * smoothstep(55.0, 105.0, dSpawn) * smoothstep(10.0, 32.0, roadDist);
+        const mesaMask = smoothstep(0.34, 0.48, mesaNoise) * smoothstep(55.0, 105.0, dSpawn) * smoothstep(10.0, 32.0, roadDist) * bayOpen;
         h += mesaMask * 13.5;
 
         const dOasis = Math.hypot(x - zoneX - 58.0, z - zoneZ - 78.0);
         const oasisDip = (1.0 - smoothstep(14.0, 48.0, dOasis)) * 9.8;
         h -= oasisDip;
+
+        h += coastalDescent;
 
         const spawnClear = smoothstep(4.0, 18.0, dSpawn);
         h = mix(6.2, h, spawnClear);
@@ -684,11 +732,13 @@ function getZoneTerrainHeight(x, z, currentZoneIndex) {
 
         const passCorridor = smoothstep(9.0, 44.0, roadDist);
         const spawnCorridor = smoothstep(22.0, 78.0, dSpawn);
-        h += mountainHeight * passCorridor * spawnCorridor;
+        h += mountainHeight * passCorridor * spawnCorridor * bayOpen;
 
         const dTarn = Math.hypot(x - zoneX + 54.0, z - zoneZ - 92.0);
         const tarnDip = (1.0 - smoothstep(14.0, 46.0, dTarn)) * 11.5;
         h -= tarnDip;
+
+        h += coastalDescent;
 
         const spawnClear = smoothstep(4.0, 18.0, dSpawn);
         h = mix(7.2, h, spawnClear);
@@ -718,6 +768,8 @@ function getZoneTerrainHeight(x, z, currentZoneIndex) {
         const pondDip = (1.0 - smoothstep(12.0, 42.0, dPond)) * 11.2;
         h -= pondDip;
 
+        h += coastalDescent;
+
         const spawnClear = smoothstep(4.0, 18.0, dSpawn);
         h = mix(8.5, h, spawnClear);
 
@@ -740,12 +792,7 @@ function getZoneTerrainHeight(x, z, currentZoneIndex) {
     const ridgeElev = (1.0 - smoothstep(12.0, 95.0, dSpawn)) * 2.8;
     h += ridgeElev;
 
-    const coastalDist = z + (fbm3(sx * 0.009, sz * 0.009) * 28.0);
-    const coastalSlope = smoothstep(110.0, 360.0, coastalDist) * 12.8;
-
-    const headland = smoothstep(60.0, 200.0, Math.abs(x)) * smoothstep(60.0, 420.0, coastalDist) * 6.5;
-    const coastalExtent = (1.0 - smoothstep(600.0, 900.0, Math.abs(x))) * (1.0 - smoothstep(750.0, 1200.0, z));
-    h += (-coastalSlope + headland) * coastalExtent;
+    h += coastalDescent;
 
     const spawnClear = smoothstep(3.5, 16.0, dSpawn);
     h = mix(7.2, h, spawnClear);
@@ -793,6 +840,7 @@ const terrainUniforms = {
     uRoad3BaseX: { value: 0 },
     uRoad4BaseX: { value: 0 },
     uZoneType: { value: currentZoneIndex },
+    uSpawnZone: { value: spawnZoneIndex },
     uBuildings: { value: Array.from({ length: 32 }, () => new THREE.Vector4(0, 0, 0, 0)) },
     uBuildingCount: { value: 0 },
     uSunDir: { value: new THREE.Vector3(0.45, 0.72, -0.52).normalize() },
@@ -820,6 +868,7 @@ terrainMat.onBeforeCompile = (shader) => {
     shader.uniforms.uRoad3BaseX = terrainUniforms.uRoad3BaseX;
     shader.uniforms.uRoad4BaseX = terrainUniforms.uRoad4BaseX;
     shader.uniforms.uZoneType = terrainUniforms.uZoneType;
+    shader.uniforms.uSpawnZone = terrainUniforms.uSpawnZone;
     shader.uniforms.uBuildings = terrainUniforms.uBuildings;
     shader.uniforms.uBuildingCount = terrainUniforms.uBuildingCount;
     shader.uniforms.uSunDir = terrainUniforms.uSunDir;
@@ -1004,21 +1053,21 @@ terrainMat.onBeforeCompile = (shader) => {
                     vec3 roadColor = mix(dryRoad, wetRut, rutMask * 0.88);
                     diffuseColor.rgb = mix(diffuseColor.rgb, roadColor, smoothstep(0.02, 0.48, roadMask));
                 }
-
-                // Coastal Shoreline: Golden beach sand right along the water edge (-2.6m to -1.35m)
-                float beachMask = 1.0 - smoothstep(-2.55, -1.35, vTerrainWorldPos.y);
-                if (beachMask > 0.001) {
-                    float wetZone = 1.0 - smoothstep(-2.65, -2.05, vTerrainWorldPos.y);
-                    vec3 drySand = mix(vec3(0.28, 0.23, 0.15), vec3(0.21, 0.17, 0.11), microNoise * 0.25);
-                    vec3 wetSand = vec3(0.08, 0.09, 0.08);
-                    vec3 sandCol = mix(drySand, wetSand, wetZone * 0.90);
-                    diffuseColor.rgb = mix(diffuseColor.rgb, sandCol, beachMask * (1.0 - roadMask * 0.8));
-                }
             }
 
             blendedZoneColor += diffuseColor.rgb * zoneWeight;
         }
         diffuseColor.rgb = blendedZoneColor;
+
+        // Coastal Shoreline: Golden beach sand right along the water edge (-2.6m to -1.35m) across all coastal biomes
+        float beachMask = 1.0 - smoothstep(-2.55, -1.35, vTerrainWorldPos.y);
+        if (beachMask > 0.001) {
+            float wetZone = 1.0 - smoothstep(-2.65, -2.05, vTerrainWorldPos.y);
+            vec3 drySand = mix(vec3(0.28, 0.23, 0.15), vec3(0.21, 0.17, 0.11), microNoise * 0.25);
+            vec3 wetSand = vec3(0.08, 0.09, 0.08);
+            vec3 sandCol = mix(drySand, wetSand, wetZone * 0.90);
+            diffuseColor.rgb = mix(diffuseColor.rgb, sandCol, beachMask * (1.0 - roadMask * 0.8));
+        }
 
         // Building Ground Contact Ambient Occlusion
         float buildingAO = 1.0;
@@ -1937,7 +1986,10 @@ var sharedRuinGeo = null;
 var sharedBarnGeo = null;
 var sharedStoneWallGeo = null;
 var sharedPalmGeo = null;
+var sharedPalmGeos = [];
+var sharedAcaciaGeo = null;
 var sharedCactusGeo = null;
+var sharedCactusGeos = [];
 var sharedSandstoneRockGeo = null;
 var sharedKasbahGeo = null;
 var sharedDesertRuinGeo = null;
@@ -2006,20 +2058,56 @@ function createStoneWallGeometry() {
     return mergeBufferGeometries(parts);
 }
 
-// 5J. Desert Oasis Date Palm Tree (Curved Ringed Trunk + Arching Frond Crown)
-function createDatePalmGeometry() {
+// 5J. Desert Oasis Date Palm Tree (4 Distinct Botanical Variants: Classic, Tall Royal, Windswept Leaning, Compact Fan)
+function createDatePalmGeometry(variant = 0) {
     const parts = [];
-    const trunkHeight = 11.8;
-    const trunk = new THREE.CylinderGeometry(0.16, 0.42, trunkHeight, 8, 9);
+    const varIdx = Math.abs(Math.floor(variant)) % 4;
+
+    const trunkHeight = (varIdx === 1) ? 14.2
+                      : (varIdx === 2) ? 10.2
+                      : (varIdx === 3) ? 7.8
+                      : 11.8;
+
+    const rTop = (varIdx === 1) ? 0.18 : (varIdx === 3) ? 0.20 : 0.16;
+    const rBot = (varIdx === 1) ? 0.46 : (varIdx === 3) ? 0.48 : (varIdx === 2) ? 0.40 : 0.42;
+    const trunk = new THREE.CylinderGeometry(rTop, rBot, trunkHeight, 8, 9);
     setGeometryUVBox(trunk, 0.52, 0.98, 0.02, 0.48);
+
+    function getCurve(ny) {
+        if (varIdx === 1) {
+            // Gentle upright majestic royal curve
+            return {
+                x: Math.sin(ny * Math.PI * 0.58) * 0.75,
+                z: Math.sin(ny * Math.PI * 0.85) * 0.45
+            };
+        } else if (varIdx === 2) {
+            // Deep windswept desert lean
+            return {
+                x: Math.pow(ny, 1.45) * 2.5,
+                z: Math.sin(ny * Math.PI * 0.88) * 0.85
+            };
+        } else if (varIdx === 3) {
+            // Compact fan palm curve
+            return {
+                x: Math.sin(ny * Math.PI * 0.72) * 0.55,
+                z: -Math.sin(ny * Math.PI * 0.60) * 0.35
+            };
+        } else {
+            // Classic arching curve
+            return {
+                x: Math.sin(ny * Math.PI * 0.82) * 1.15,
+                z: (1.0 - Math.cos(ny * Math.PI * 0.65)) * 0.55
+            };
+        }
+    }
+
     const tPos = trunk.attributes.position;
     for (let i = 0; i < tPos.count; i++) {
         const ny = (tPos.getY(i) + trunkHeight * 0.5) / trunkHeight;
         const ring = 1.0 + Math.sin(ny * 36.0) * 0.07;
-        const curveX = Math.sin(ny * Math.PI * 0.82) * 1.15;
-        const curveZ = (1.0 - Math.cos(ny * Math.PI * 0.65)) * 0.55;
-        tPos.setX(i, tPos.getX(i) * ring + curveX);
-        tPos.setZ(i, tPos.getZ(i) * ring + curveZ);
+        const c = getCurve(ny);
+        tPos.setX(i, tPos.getX(i) * ring + c.x);
+        tPos.setZ(i, tPos.getZ(i) * ring + c.z);
     }
     trunk.computeVertexNormals();
     trunk.translate(0, trunkHeight * 0.5, 0);
@@ -2037,15 +2125,17 @@ function createDatePalmGeometry() {
     trunk.setAttribute('color', new THREE.BufferAttribute(tCol, 3));
     parts.push(trunk);
 
-    const crownX = Math.sin(Math.PI * 0.82) * 1.15;
-    const crownZ = (1.0 - Math.cos(Math.PI * 0.65)) * 0.55;
+    const tipCurve = getCurve(1.0);
+    const crownX = tipCurve.x;
+    const crownZ = tipCurve.z;
     const crownY = trunkHeight - 0.15;
     const crownCenter = new THREE.Vector3(crownX, crownY - 0.6, crownZ);
 
-    // Date clusters beneath crown
-    for (let d = 0; d < 4; d++) {
-        const dAng = (d / 4) * Math.PI * 2.0 + 0.4;
-        const cluster = new THREE.DodecahedronGeometry(0.32, 0);
+    // Date fruit clusters beneath crown
+    const dateClusterCount = (varIdx === 1) ? 6 : (varIdx === 2) ? 3 : (varIdx === 3) ? 2 : 4;
+    for (let d = 0; d < dateClusterCount; d++) {
+        const dAng = (d / dateClusterCount) * Math.PI * 2.0 + 0.4;
+        const cluster = new THREE.DodecahedronGeometry((varIdx === 1 ? 0.36 : 0.30), 0);
         setGeometryUVBox(cluster, 0.52, 0.98, 0.02, 0.48);
         cluster.translate(crownX + Math.cos(dAng) * 0.36, crownY - 0.35, crownZ + Math.sin(dAng) * 0.36);
         const dCol = new Float32Array(cluster.attributes.position.count * 3);
@@ -2058,11 +2148,35 @@ function createDatePalmGeometry() {
         parts.push(cluster);
     }
 
-    // 14 Arching Date Palm Fronds in 2 Whorls (using Q0 Conifer/Frond Atlas)
-    const frondLayers = [
-        { count: 8, tilt: 0.58, arch: 1.45, len: 4.5, width: 1.95, yOff: -0.05, shade: 0.86 },
-        { count: 6, tilt: 0.32, arch: 1.15, len: 3.9, width: 1.75, yOff:  0.22, shade: 1.00 }
-    ];
+    // Botanical Frond Layers with variant-specific morphology, density and natural shading
+    let frondLayers;
+    if (varIdx === 1) {
+        // Tall Royal Palm: 3 dense tiers (18 fronds)
+        frondLayers = [
+            { count: 8, tilt: 0.72, arch: 1.65, len: 5.2, width: 2.15, yOff: -0.15, shade: 0.80, r: 0.64, g: 0.78, b: 0.40 },
+            { count: 6, tilt: 0.42, arch: 1.30, len: 4.6, width: 1.95, yOff:  0.18, shade: 0.96, r: 0.68, g: 0.84, b: 0.44 },
+            { count: 4, tilt: 0.18, arch: 0.90, len: 3.6, width: 1.65, yOff:  0.45, shade: 1.08, r: 0.72, g: 0.88, b: 0.46 }
+        ];
+    } else if (varIdx === 2) {
+        // Windswept Leaning Palm: amber dry skirt + sweeping upper fronds
+        frondLayers = [
+            { count: 6, tilt: 0.82, arch: 1.55, len: 4.8, width: 2.00, yOff: -0.28, shade: 0.75, r: 0.74, g: 0.60, b: 0.30 },
+            { count: 8, tilt: 0.46, arch: 1.25, len: 4.2, width: 1.85, yOff:  0.12, shade: 0.92, r: 0.66, g: 0.80, b: 0.40 }
+        ];
+    } else if (varIdx === 3) {
+        // Compact Fan Palm: wide spreading fresh fronds
+        frondLayers = [
+            { count: 7, tilt: 0.52, arch: 1.20, len: 3.6, width: 2.20, yOff: -0.05, shade: 0.90, r: 0.68, g: 0.86, b: 0.44 },
+            { count: 5, tilt: 0.25, arch: 0.92, len: 3.0, width: 1.85, yOff:  0.22, shade: 1.04, r: 0.72, g: 0.90, b: 0.46 }
+        ];
+    } else {
+        // Classic 14 arching fronds
+        frondLayers = [
+            { count: 8, tilt: 0.58, arch: 1.45, len: 4.5, width: 1.95, yOff: -0.05, shade: 0.86, r: 0.68, g: 0.82, b: 0.42 },
+            { count: 6, tilt: 0.32, arch: 1.15, len: 3.9, width: 1.75, yOff:  0.22, shade: 1.00, r: 0.70, g: 0.85, b: 0.44 }
+        ];
+    }
+
     frondLayers.forEach((layer, lIdx) => {
         for (let f = 0; f < layer.count; f++) {
             const ang = (f / layer.count) * Math.PI * 2.0 + lIdx * 0.42;
@@ -2073,9 +2187,9 @@ function createDatePalmGeometry() {
             applyCanopyVolumeShading(
                 frond,
                 crownCenter,
-                0.68 * layer.shade,
-                0.82 * layer.shade,
-                0.42 * layer.shade,
+                layer.r * layer.shade,
+                layer.g * layer.shade,
+                layer.b * layer.shade,
                 0.45
             );
             parts.push(frond);
@@ -2085,9 +2199,105 @@ function createDatePalmGeometry() {
     return mergeBufferGeometries(parts);
 }
 
-// 5K. Desert Saguaro & Prickly Pear Cactus Geometry (Solid Ribbed Columnar Mesh)
-function createDesertCactusGeometry() {
+// 5K. Sahara Desert Umbrella Thorn Acacia (Acacia tortilis / Vachellia tortilis)
+function createDesertAcaciaGeometry() {
     const parts = [];
+    const trunkHeight = 4.2;
+
+    // Gnarled lower trunk
+    const lowerTrunk = new THREE.CylinderGeometry(0.24, 0.44, trunkHeight, 8, 5);
+    setGeometryUVBox(lowerTrunk, 0.52, 0.98, 0.02, 0.48);
+    const ltPos = lowerTrunk.attributes.position;
+    for (let i = 0; i < ltPos.count; i++) {
+        const ny = (ltPos.getY(i) + trunkHeight * 0.5) / trunkHeight;
+        ltPos.setX(i, ltPos.getX(i) + Math.sin(ny * 2.8) * 0.28);
+        ltPos.setZ(i, ltPos.getZ(i) + Math.cos(ny * 2.4) * 0.20 - 0.20);
+    }
+    lowerTrunk.computeVertexNormals();
+    lowerTrunk.translate(0, trunkHeight * 0.5, 0);
+
+    const ltCol = new Float32Array(ltPos.count * 3);
+    for (let i = 0; i < ltPos.count; i++) {
+        const y = ltPos.getY(i);
+        const ao = Math.min(1.0, Math.max(0.35, y / 2.0));
+        ltCol[i * 3 + 0] = 0.48 * ao;
+        ltCol[i * 3 + 1] = 0.38 * ao;
+        ltCol[i * 3 + 2] = 0.26 * ao;
+    }
+    lowerTrunk.setAttribute('color', new THREE.BufferAttribute(ltCol, 3));
+    parts.push(lowerTrunk);
+
+    // Spreading tortuous boughs branching toward flat parasols
+    const boughs = [
+        { from: [0, 3.8, 0], to: [ 1.8, 6.2,  0.7], r: 0.18 },
+        { from: [0, 3.8, 0], to: [-1.6, 6.0,  0.8], r: 0.17 },
+        { from: [0, 3.8, 0], to: [ 0.1, 6.5, -1.8], r: 0.18 },
+        { from: [ 1.2, 5.2, 0.4], to: [ 2.8, 6.7, -0.4], r: 0.13 },
+        { from: [-1.0, 5.0, 0.5], to: [-2.5, 6.5, -0.3], r: 0.13 },
+        { from: [ 0.1, 5.4,-1.2], to: [-0.6, 6.8,  1.7], r: 0.13 }
+    ];
+
+    boughs.forEach(b => {
+        const p1 = new THREE.Vector3(...b.from);
+        const p2 = new THREE.Vector3(...b.to);
+        const dir = p2.clone().sub(p1);
+        const len = dir.length();
+        const bGeo = new THREE.CylinderGeometry(b.r * 0.75, b.r, len, 6, 2);
+        setGeometryUVBox(bGeo, 0.52, 0.98, 0.02, 0.48);
+        bGeo.translate(0, len * 0.5, 0);
+        const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+        bGeo.applyMatrix4(new THREE.Matrix4().makeRotationFromQuaternion(quat));
+        bGeo.translate(p1.x, p1.y, p1.z);
+
+        const bCol = new Float32Array(bGeo.attributes.position.count * 3);
+        for (let k = 0; k < bGeo.attributes.position.count; k++) {
+            bCol[k * 3 + 0] = 0.44;
+            bCol[k * 3 + 1] = 0.35;
+            bCol[k * 3 + 2] = 0.24;
+        }
+        bGeo.setAttribute('color', new THREE.BufferAttribute(bCol, 3));
+        parts.push(bGeo);
+    });
+
+    // Flat-topped horizontal parasol canopy disks (Acacia umbrella crown)
+    const parasolPads = [
+        { x:  0.0, y: 7.2, z:  0.0, rad: 2.6, cards: 5 },
+        { x:  2.5, y: 6.8, z:  0.5, rad: 2.4, cards: 5 },
+        { x: -2.3, y: 6.6, z:  0.6, rad: 2.4, cards: 5 },
+        { x:  0.2, y: 7.0, z: -2.2, rad: 2.3, cards: 5 },
+        { x: -0.6, y: 6.8, z:  1.8, rad: 2.2, cards: 4 },
+        { x:  2.4, y: 6.7, z: -0.8, rad: 2.1, cards: 4 },
+        { x: -2.2, y: 6.5, z: -0.7, rad: 2.0, cards: 4 }
+    ];
+
+    const acaciaCenter = new THREE.Vector3(0, 5.8, 0);
+    parasolPads.forEach((pad, pIdx) => {
+        for (let c = 0; c < pad.cards; c++) {
+            const ang = (c / pad.cards) * Math.PI * 2.0 + pIdx * 0.72;
+            const card = createCurvedFoliageCard(pad.rad * 0.95, pad.rad, 0.16, 0.52, 0.98, 0.52, 0.98);
+            card.rotateX(Math.PI * 0.5 + 0.08);
+            card.rotateY(ang);
+            card.translate(pad.x, pad.y, pad.z);
+            applyCanopyVolumeShading(
+                card,
+                acaciaCenter,
+                0.70,
+                0.78,
+                0.36,
+                0.42
+            );
+            parts.push(card);
+        }
+    });
+
+    return mergeBufferGeometries(parts);
+}
+
+// 5L. Desert Saguaro & Cactus Geometries (3 Morphological Variants: Classic 2-Arm, Giant 4-Arm, Multi-Column Organ Pipe)
+function createDesertCactusGeometry(variant = 0) {
+    const parts = [];
+    const varIdx = Math.abs(Math.floor(variant)) % 3;
+
     function tintCactusPart(geo, baseY, maxH) {
         const pos = geo.attributes.position;
         const col = new Float32Array(pos.count * 3);
@@ -2104,57 +2314,88 @@ function createDesertCactusGeometry() {
         return geo;
     }
 
-    // Main ribbed Saguaro stem
-    const mainH = 4.8;
-    const stem = new THREE.CylinderGeometry(0.28, 0.34, mainH, 10, 4);
+    if (varIdx === 2) {
+        // Multi-Column Organ Pipe / Cardon Cactus cluster
+        const columns = [
+            { x:  0.00, z:  0.00, h: 4.4, r: 0.28 },
+            { x:  0.46, z:  0.22, h: 3.4, r: 0.23 },
+            { x: -0.42, z: -0.18, h: 2.7, r: 0.20 },
+            { x:  0.18, z: -0.42, h: 2.0, r: 0.18 },
+            { x: -0.25, z:  0.38, h: 1.5, r: 0.16 }
+        ];
+        columns.forEach(col => {
+            const stem = new THREE.CylinderGeometry(col.r * 0.9, col.r, col.h, 9, 3);
+            stem.translate(col.x, col.h * 0.5, col.z);
+            parts.push(tintCactusPart(stem, 0, 4.5));
+
+            const cap = new THREE.SphereGeometry(col.r * 0.9, 9, 5);
+            cap.translate(col.x, col.h, col.z);
+            parts.push(tintCactusPart(cap, 0, 4.5));
+        });
+        return mergeBufferGeometries(parts);
+    }
+
+    // Main ribbed stem
+    const mainH = (varIdx === 1) ? 5.8 : 4.8;
+    const stemR = (varIdx === 1) ? 0.32 : 0.28;
+    const stem = new THREE.CylinderGeometry(stemR, stemR * 1.2, mainH, 10, 4);
     stem.translate(0, mainH * 0.5, 0);
     parts.push(tintCactusPart(stem, 0, mainH));
 
-    const cap = new THREE.SphereGeometry(0.28, 10, 6);
+    const cap = new THREE.SphereGeometry(stemR, 10, 6);
     cap.translate(0, mainH, 0);
     parts.push(tintCactusPart(cap, 0, mainH));
 
-    // Left upturned arm
-    const armLHoriz = new THREE.CylinderGeometry(0.19, 0.21, 0.95, 8);
-    armLHoriz.rotateZ(Math.PI * 0.5);
-    armLHoriz.translate(-0.55, 2.35, 0);
-    parts.push(tintCactusPart(armLHoriz, 0, mainH));
+    function addArm(horizLen, startY, elbowOffset, vertLen, rotY = 0) {
+        const armH = new THREE.CylinderGeometry(0.18, 0.20, horizLen, 8);
+        armH.rotateZ(Math.PI * 0.5);
+        armH.translate(horizLen * 0.5, startY, 0);
+        armH.rotateY(rotY);
+        parts.push(tintCactusPart(armH, 0, mainH));
 
-    const armLElbow = new THREE.SphereGeometry(0.20, 8, 6);
-    armLElbow.translate(-0.98, 2.38, 0);
-    parts.push(tintCactusPart(armLElbow, 0, mainH));
+        const armElb = new THREE.SphereGeometry(0.19, 8, 6);
+        armElb.translate(horizLen, startY, 0);
+        armElb.rotateY(rotY);
+        parts.push(tintCactusPart(armElb, 0, mainH));
 
-    const armLVert = new THREE.CylinderGeometry(0.18, 0.20, 1.75, 8);
-    armLVert.translate(-0.98, 3.25, 0);
-    parts.push(tintCactusPart(armLVert, 0, mainH));
+        const armV = new THREE.CylinderGeometry(0.17, 0.19, vertLen, 8);
+        armV.translate(horizLen, startY + vertLen * 0.5, 0);
+        armV.rotateY(rotY);
+        parts.push(tintCactusPart(armV, 0, mainH));
 
-    const armLCap = new THREE.SphereGeometry(0.18, 8, 6);
-    armLCap.translate(-0.98, 4.12, 0);
-    parts.push(tintCactusPart(armLCap, 0, mainH));
+        const armC = new THREE.SphereGeometry(0.17, 8, 6);
+        armC.translate(horizLen, startY + vertLen, 0);
+        armC.rotateY(rotY);
+        parts.push(tintCactusPart(armC, 0, mainH));
+    }
 
-    // Right upturned arm
-    const armRHoriz = new THREE.CylinderGeometry(0.18, 0.20, 0.85, 8);
-    armRHoriz.rotateZ(-Math.PI * 0.5);
-    armRHoriz.translate(0.50, 2.85, 0.12);
-    parts.push(tintCactusPart(armRHoriz, 0, mainH));
+    if (varIdx === 1) {
+        // Giant 4-Arm Saguaro
+        addArm(1.05, 2.2, 0, 1.8, Math.PI);       // Left
+        addArm(0.95, 3.2, 0, 1.6, 0);             // Right
+        addArm(0.85, 2.7, 0, 1.4, Math.PI * 0.5); // Forward
+        addArm(0.90, 3.8, 0, 1.3, -Math.PI * 0.5);// Back
 
-    const armRElbow = new THREE.SphereGeometry(0.19, 8, 6);
-    armRElbow.translate(0.90, 2.88, 0.12);
-    parts.push(tintCactusPart(armRElbow, 0, mainH));
+        // 2 Base barrels
+        const b1 = new THREE.SphereGeometry(0.40, 8, 6);
+        b1.scale(1.0, 1.2, 1.0);
+        b1.translate(0.55, 0.40, -0.45);
+        parts.push(tintCactusPart(b1, 0.4, mainH));
 
-    const armRVert = new THREE.CylinderGeometry(0.16, 0.19, 1.45, 8);
-    armRVert.translate(0.90, 3.60, 0.12);
-    parts.push(tintCactusPart(armRVert, 0, mainH));
+        const b2 = new THREE.SphereGeometry(0.35, 8, 6);
+        b2.scale(1.0, 1.2, 1.0);
+        b2.translate(-0.48, 0.35, 0.42);
+        parts.push(tintCactusPart(b2, 0.4, mainH));
+    } else {
+        // Classic 2-Arm Saguaro
+        addArm(0.98, 2.35, 0, 1.75, Math.PI);
+        addArm(0.90, 2.85, 0, 1.45, 0.15);
 
-    const armRCap = new THREE.SphereGeometry(0.16, 8, 6);
-    armRCap.translate(0.90, 4.32, 0.12);
-    parts.push(tintCactusPart(armRCap, 0, mainH));
-
-    // Base barrel cactus cluster
-    const barrel = new THREE.SphereGeometry(0.42, 8, 6);
-    barrel.scale(1.0, 1.25, 1.0);
-    barrel.translate(0.55, 0.42, -0.48);
-    parts.push(tintCactusPart(barrel, 0.5, mainH));
+        const barrel = new THREE.SphereGeometry(0.42, 8, 6);
+        barrel.scale(1.0, 1.25, 1.0);
+        barrel.translate(0.55, 0.42, -0.48);
+        parts.push(tintCactusPart(barrel, 0.5, mainH));
+    }
 
     return mergeBufferGeometries(parts);
 }
@@ -2421,8 +2662,28 @@ function ensureSharedGeometries() {
     if (!sharedRuinGeo) sharedRuinGeo = createRuinedHouseGeometry();
     if (!sharedBarnGeo) sharedBarnGeo = createBarnGeometry();
     if (!sharedStoneWallGeo) sharedStoneWallGeo = createStoneWallGeometry();
-    if (!sharedPalmGeo) sharedPalmGeo = createDatePalmGeometry();
-    if (!sharedCactusGeo) sharedCactusGeo = createDesertCactusGeometry();
+    if (!sharedPalmGeos || sharedPalmGeos.length === 0) {
+        sharedPalmGeos = [
+            createDatePalmGeometry(0),
+            createDatePalmGeometry(1),
+            createDatePalmGeometry(2),
+            createDatePalmGeometry(3)
+        ];
+        sharedPalmGeo = sharedPalmGeos[0];
+    } else if (!sharedPalmGeo) {
+        sharedPalmGeo = sharedPalmGeos[0];
+    }
+    if (!sharedAcaciaGeo) sharedAcaciaGeo = createDesertAcaciaGeometry();
+    if (!sharedCactusGeos || sharedCactusGeos.length === 0) {
+        sharedCactusGeos = [
+            createDesertCactusGeometry(0),
+            createDesertCactusGeometry(1),
+            createDesertCactusGeometry(2)
+        ];
+        sharedCactusGeo = sharedCactusGeos[0];
+    } else if (!sharedCactusGeo) {
+        sharedCactusGeo = sharedCactusGeos[0];
+    }
     if (!sharedSandstoneRockGeo) sharedSandstoneRockGeo = createSandstoneRockGeometry();
     if (!sharedKasbahGeo) sharedKasbahGeo = createDesertKasbahGeometry();
     if (!sharedDesertRuinGeo) sharedDesertRuinGeo = createDesertRuinGeometry();
@@ -2437,7 +2698,10 @@ function ensureSharedGeometries() {
     window.sharedCottageGeo = sharedCottageGeo;
     window.sharedRuinGeo = sharedRuinGeo;
     window.sharedPalmGeo = sharedPalmGeo;
+    window.sharedPalmGeos = sharedPalmGeos;
+    window.sharedAcaciaGeo = sharedAcaciaGeo;
     window.sharedCactusGeo = sharedCactusGeo;
+    window.sharedCactusGeos = sharedCactusGeos;
     window.sharedSandstoneRockGeo = sharedSandstoneRockGeo;
     window.sharedKasbahGeo = sharedKasbahGeo;
     window.sharedDesertRuinGeo = sharedDesertRuinGeo;
@@ -2545,6 +2809,7 @@ const grassUniforms = {
     uRoad3BaseX: terrainUniforms.uRoad3BaseX,
     uRoad4BaseX: terrainUniforms.uRoad4BaseX,
     uZoneType: terrainUniforms.uZoneType,
+    uSpawnZone: terrainUniforms.uSpawnZone,
     uBuildings: terrainUniforms.uBuildings,
     uBuildingCount: terrainUniforms.uBuildingCount,
     uSunDir: terrainUniforms.uSunDir,
@@ -2689,6 +2954,7 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
         shader.uniforms.uRoad3BaseX = grassUniforms.uRoad3BaseX;
         shader.uniforms.uRoad4BaseX = grassUniforms.uRoad4BaseX;
         shader.uniforms.uZoneType = grassUniforms.uZoneType;
+        shader.uniforms.uSpawnZone = grassUniforms.uSpawnZone;
         shader.uniforms.uBuildings = grassUniforms.uBuildings;
         shader.uniforms.uBuildingCount = grassUniforms.uBuildingCount;
         shader.uniforms.uSunDir = grassUniforms.uSunDir;
@@ -3466,18 +3732,32 @@ class TerrainChunk {
             let treeGeo, treeType, trunkH, chosenMat = treeMaterial, useTreeDepth = true;
 
             if (currentZoneIndex === 1) {
-                // Desert: Date Palms near oasis/villages/low wadis, Saguaro Cacti on dry dunes
+                // Desert: Varied Date Palms near oasis/villages/low wadis, Saguaro Cacti on dry dunes, & Umbrella Acacias
                 const nearOasis = Math.hypot(tx - 58.0, tz - 78.0) < 88.0;
                 if (nearOasis || isVillage || (ty < 1.8 && treeRoll < 0.65)) {
-                    treeGeo = sharedPalmGeo;
-                    treeType = 'palm';
-                    trunkH = 11.5;
+                    if (treeRoll < 0.78 || nearOasis) {
+                        const pVar = Math.floor(rng() * (sharedPalmGeos.length || 1));
+                        treeGeo = (sharedPalmGeos && sharedPalmGeos[pVar]) ? sharedPalmGeos[pVar] : sharedPalmGeo;
+                        treeType = 'palm';
+                        trunkH = (pVar === 1 ? 13.8 : pVar === 3 ? 7.8 : pVar === 2 ? 10.2 : 11.5);
+                    } else {
+                        treeGeo = sharedAcaciaGeo;
+                        treeType = 'acacia';
+                        trunkH = 7.8;
+                    }
                 } else {
-                    treeGeo = sharedCactusGeo;
-                    treeType = 'cactus';
-                    trunkH = 4.8;
-                    chosenMat = cactusMat;
-                    useTreeDepth = false;
+                    if (treeRoll < 0.65) {
+                        const cVar = Math.floor(rng() * (sharedCactusGeos.length || 1));
+                        treeGeo = (sharedCactusGeos && sharedCactusGeos[cVar]) ? sharedCactusGeos[cVar] : sharedCactusGeo;
+                        treeType = 'cactus';
+                        trunkH = (cVar === 1 ? 5.8 : cVar === 2 ? 4.4 : 4.8);
+                        chosenMat = cactusMat;
+                        useTreeDepth = false;
+                    } else {
+                        treeGeo = sharedAcaciaGeo;
+                        treeType = 'acacia';
+                        trunkH = 7.8;
+                    }
                 }
             } else if (currentZoneIndex === 2) {
                 // Alpine Mountains: Dominantly Nordic Spruce and Scots Pine
@@ -3548,12 +3828,13 @@ class TerrainChunk {
                 }
             }
 
-            const scale = 0.85 + rng() * 0.55;
+            const scale = (treeType === 'acacia') ? (0.80 + rng() * 0.45) : (0.85 + rng() * 0.55);
             const treeGroup = new THREE.Group();
             treeGroup.position.set(tx, ty, tz);
             treeGroup.scale.setScalar(scale);
 
             const treeMesh = new THREE.Mesh(treeGeo, chosenMat);
+            treeMesh.rotation.y = rng() * Math.PI * 2;
             treeMesh.castShadow = true;
             treeMesh.receiveShadow = true;
             if (useTreeDepth) {
@@ -3581,7 +3862,7 @@ class TerrainChunk {
                 angularVel: 0.0,
                 maxFallAngle: Math.PI * 0.48,
                 fallAxis: new THREE.Vector3(1, 0, 0),
-                radius: (treeType === 'cactus' ? 0.75 : 1.35) * scale,
+                radius: (treeType === 'cactus' ? 0.75 : treeType === 'acacia' ? 1.55 : 1.35) * scale,
                 trunkHeight: trunkH * scale,
                 type: treeType
             };
@@ -3877,6 +4158,7 @@ function createZoneWaterMaterial() {
             uRoad3BaseX: terrainUniforms.uRoad3BaseX,
             uRoad4BaseX: terrainUniforms.uRoad4BaseX,
             uZoneType: terrainUniforms.uZoneType,
+            uSpawnZone: terrainUniforms.uSpawnZone,
             uSunDir: terrainUniforms.uSunDir,
             uSunColor: terrainUniforms.uSunColor,
             uSkyColor: terrainUniforms.uSkyColor
@@ -4047,13 +4329,14 @@ function rebuildZoneStaticProps() {
     sigGroup.position.set(sigTx, sigTy, sigTz);
     sigGroup.scale.setScalar(sigScale);
 
-    const sigTreeGeo = (currentZoneIndex === 1) ? sharedPalmGeo
+    const sigTreeGeo = (currentZoneIndex === 1) ? ((sharedPalmGeos && sharedPalmGeos[1]) || sharedPalmGeo)
                      : (currentZoneIndex === 3) ? sharedDecidGeo
                      : sharedSpruceGeo;
     const sigTreeType = (currentZoneIndex === 1) ? 'palm'
                       : (currentZoneIndex === 3) ? 'beech'
                       : 'spruce';
     const sigMesh = new THREE.Mesh(sigTreeGeo, treeMaterial);
+    sigMesh.rotation.y = 1.15;
     sigMesh.castShadow = true;
     sigMesh.receiveShadow = true;
     sigMesh.customDepthMaterial = getTreeDepthMaterial();
@@ -4133,7 +4416,7 @@ function rebuildZoneStaticProps() {
 
     // 4. Desert Oasis / Alpine Tarn / Hills Pond Shoreline Landmark Trees
     if (currentZoneIndex === 1) {
-        // Ring of lush Date Palms framing the Desert Oasis at (58, 78)
+        // Ring of lush Date Palms framing the Desert Oasis at (58, 78) with distinct variants & natural radial rotation
         for (let p = 0; p < 8; p++) {
             const ang = (p / 8) * Math.PI * 2.0 + 0.25;
             const rad = 36.0 + (p % 2) * 5.0;
@@ -4141,11 +4424,16 @@ function rebuildZoneStaticProps() {
             const pz = 78.0 + Math.sin(ang) * rad;
             if (getRoadFactor(px, pz) > 0.2) continue;
             const py = getTerrainHeight(px, pz);
-            const pScale = 0.95 + (p % 3) * 0.18;
+            const pScale = 0.92 + (p % 3) * 0.20;
             const pGroup = new THREE.Group();
             pGroup.position.set(px, py, pz);
             pGroup.scale.setScalar(pScale);
-            const pMesh = new THREE.Mesh(sharedPalmGeo, treeMaterial);
+
+            const pGeo = (sharedPalmGeos && sharedPalmGeos.length > 0)
+                ? sharedPalmGeos[p % sharedPalmGeos.length]
+                : sharedPalmGeo;
+            const pMesh = new THREE.Mesh(pGeo, treeMaterial);
+            pMesh.rotation.y = ang + Math.PI * 0.5 + ((p % 2) ? 0.35 : -0.35);
             pMesh.castShadow = true;
             pMesh.receiveShadow = true;
             pMesh.customDepthMaterial = getTreeDepthMaterial();
@@ -4153,6 +4441,7 @@ function rebuildZoneStaticProps() {
             zoneStaticGroup.add(pGroup);
             aimRaycastMeshes.push(pMesh);
             zoneStaticRaycastMeshes.push(pMesh);
+            const pTrunkH = ((p % 4) === 1 ? 13.8 : (p % 4) === 3 ? 7.8 : (p % 4) === 2 ? 10.2 : 11.5);
             const palmObj = {
                 id: `oasis:palm:${p}`,
                 group: pGroup,
@@ -4164,7 +4453,7 @@ function rebuildZoneStaticProps() {
                 maxFallAngle: Math.PI * 0.48,
                 fallAxis: new THREE.Vector3(1, 0, 0),
                 radius: 1.3 * pScale,
-                trunkHeight: 11.5 * pScale,
+                trunkHeight: pTrunkH * pScale,
                 type: 'palm'
             };
             swayTrees.push(palmObj);
@@ -4405,14 +4694,21 @@ function updateEnvironment(dt, tankState) {
 }
 
 // ============================================================================
-// 11. GAME RESTART (NEW SEED, STARTING IN THE MEADOW)
+// 11. GAME RESTART (NEW SEED, RANDOMLY CHOOSING BIOME ZONE, STARTING FROM COASTLINE)
 // ============================================================================
-function restartGame(customSeed) {
+function restartGame(customSeed, customZone) {
     const seed = (customSeed !== undefined && customSeed !== null)
         ? customSeed
         : Math.floor(Math.random() * 900000) + 100000;
 
-    setWorldSeed(seed);
+    let nextZone = customZone;
+    if (nextZone === undefined || nextZone === null) {
+        // Randomly choose a biome zone on respawn, cycling away from current zone if possible
+        const otherZones = ALL_ZONES.filter(z => z !== currentZone);
+        nextZone = otherZones[Math.floor(Math.random() * otherZones.length)] || ALL_ZONES[Math.floor(Math.random() * ALL_ZONES.length)];
+    }
+
+    setWorldSeed(seed, nextZone);
     rebuildZoneStaticProps();
 
     if (window.tankState) {
@@ -4604,3 +4900,9 @@ window.updateEnvironment = updateEnvironment;
 window.restartGame = restartGame;
 window.setWorldSeed = setWorldSeed;
 window.currentSeed = currentSeed;
+window.spawnZoneIndex = spawnZoneIndex;
+window.sharedPalmGeo = sharedPalmGeo;
+window.sharedPalmGeos = sharedPalmGeos;
+window.sharedAcaciaGeo = sharedAcaciaGeo;
+window.sharedCactusGeo = sharedCactusGeo;
+window.sharedCactusGeos = sharedCactusGeos;

@@ -128,7 +128,7 @@ const TANK_SPECS = {
         caliberText: '85mm',
         shellVel: 740,
         reloadTime: 3.6,
-        spread: 0.018,        // Low precision: wide dispersion cone
+        spread: 0.006,        // Low precision: wide dispersion cone
         turretTurnSpeed: 1.00,
         blastRadius: 16.5,    // Massive projectile blast range & HE fragmentation!
         blastDamage: 150,
@@ -163,7 +163,7 @@ const TANK_SPECS = {
         caliberText: '152mm',
         shellVel: 380,        // Slowest projectile in the game with noticeable high-arc delay
         reloadTime: 6.5,      // Two-piece heavy 152mm ammunition reload time
-        spread: 0.0035,       // Precision is the same level as M4 Sherman
+        spread: 0.008,        // Precision is worse than M4 Sherman
         turretTurnSpeed: 0.45, // Slow turret traverse speed (massive 12-ton MT-1 turret)
         blastRadius: 24.0,    // Biggest explosion radius in the game (massive 152mm HE blast)
         blastDamage: 220,     // Heavy blast damage

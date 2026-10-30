@@ -24,13 +24,15 @@ function initPershingSharedBase() {
 
     const size = 512;
     const heightData = new Float32Array(size * size);
+    const castHeightData = new Float32Array(size * size);
+
     let pSeed = 9261;
     function pRand() {
         pSeed = (pSeed * 16807) % 2147483647;
         return (pSeed - 1) / 2147483646;
     }
 
-    // A. Multi-Frequency Fine Rolling Grain & High-Detail Surface Texture
+    // A. Multi-Frequency Fine Rolling Grain & High-Detail Surface Texture for Rolled Plate
     for (let y = 0; y < size; y++) {
         for (let x = 0; x < size; x++) {
             const idx = y * size + x;
@@ -39,122 +41,236 @@ function initPershingSharedBase() {
             const micro3 = Math.cos(x * 3.80 - y * 2.20) * 0.005;
             const rollingGrain = Math.sin(x * 0.55) * 0.006;
             heightData[idx] = 0.50 + micro1 + micro2 + micro3 + rollingGrain;
+
+            // Cast steel base: organic sand-casting porosity and rough surface flow
+            const castR1 = (Math.sin(x * 0.42 + y * 0.38) + Math.cos(x * 0.78 - y * 0.62)) * 0.024;
+            const castR2 = (Math.sin(x * 2.2 - y * 1.8) * Math.cos(x * 1.7 + y * 2.3)) * 0.018;
+            castHeightData[idx] = 0.50 + castR1 + castR2;
         }
     }
 
-    // B. Dense Cast Steel Micro-Stippling (Fine orange-peel cast texture, 1px - 2px scale)
-    for (let i = 0; i < 48000; i++) {
+    // B. Cast Steel Heavy Pitting & Stippling (Orange-peel cast texture for Turret, Mantlet & Blisters)
+    for (let i = 0; i < 64000; i++) {
         const x = Math.floor(pRand() * size);
         const y = Math.floor(pRand() * size);
-        const val = (pRand() - 0.5) * 0.08;
+        const val = (pRand() - 0.5) * 0.15;
+        const idx = y * size + x;
+        castHeightData[idx] = Math.max(0.12, Math.min(0.88, castHeightData[idx] + val));
+        const nx = (x + 1) % size;
+        const ny = (y + 1) % size;
+        castHeightData[y * size + nx] = Math.max(0.12, Math.min(0.88, castHeightData[y * size + nx] + val * 0.52));
+        castHeightData[ny * size + x] = Math.max(0.12, Math.min(0.88, castHeightData[ny * size + x] + val * 0.38));
+    }
+
+    // Fine stippling and micro-abrasions for rolled hull plate
+    for (let i = 0; i < 32000; i++) {
+        const x = Math.floor(pRand() * size);
+        const y = Math.floor(pRand() * size);
+        const val = (pRand() - 0.5) * 0.06;
         const idx = y * size + x;
         heightData[idx] = Math.max(0.2, Math.min(0.8, heightData[idx] + val));
-        const nx = (x + 1) % size;
-        heightData[y * size + nx] = Math.max(0.2, Math.min(0.8, heightData[y * size + nx] + val * 0.45));
     }
 
-    // C. Very Fine Scale Micro-Scratches & Hairline Scuffs
-    for (let s = 0; s < 180; s++) {
-        const sx = Math.floor(pRand() * size);
-        const sy = Math.floor(pRand() * size);
-        const angle = pRand() * Math.PI * 2;
-        const length = 8 + Math.floor(pRand() * 32);
-        const depth = 0.035 + pRand() * 0.045;
-        for (let step = 0; step < length; step++) {
-            const cx = Math.floor((sx + Math.cos(angle) * step + size) % size);
-            const cy = Math.floor((sy + Math.sin(angle) * step + size) % size);
-            const idx = cy * size + cx;
-            heightData[idx] = Math.max(0.2, heightData[idx] - depth);
+    // C. Realistic Multi-Tier Combat Scratches, Ricochet Gouges & Armor Abrasions
+    const scratches = [];
+    // 1. Major deep combat gouges (ricochets, sharp steel impacts)
+    for (let s = 0; s < 30; s++) {
+        scratches.push({
+            x0: Math.floor(pRand() * size),
+            y0: Math.floor(pRand() * size),
+            angle: pRand() * Math.PI * 2,
+            length: 32 + Math.floor(pRand() * 56),
+            curvature: (pRand() - 0.5) * 0.04,
+            depth: 0.16 + pRand() * 0.14,
+            width: 2.2,
+            isMajor: true
+        });
+    }
+    // 2. Medium abrasions, tree branch and shrapnel scrapes
+    for (let s = 0; s < 95; s++) {
+        scratches.push({
+            x0: Math.floor(pRand() * size),
+            y0: Math.floor(pRand() * size),
+            angle: pRand() * Math.PI * 2,
+            length: 16 + Math.floor(pRand() * 28),
+            curvature: (pRand() - 0.5) * 0.06,
+            depth: 0.08 + pRand() * 0.08,
+            width: 1.4,
+            isMajor: false
+        });
+    }
+    // 3. Fine hairline scratches (brush and field wear)
+    for (let s = 0; s < 280; s++) {
+        scratches.push({
+            x0: Math.floor(pRand() * size),
+            y0: Math.floor(pRand() * size),
+            angle: pRand() * Math.PI * 2,
+            length: 6 + Math.floor(pRand() * 16),
+            curvature: (pRand() - 0.5) * 0.08,
+            depth: 0.04 + pRand() * 0.04,
+            width: 0.8,
+            isMajor: false,
+            isHairline: true
+        });
+    }
+
+    // Carve 3D scratch grooves into heightData and castHeightData
+    scratches.forEach(sc => {
+        const steps = Math.floor(sc.length * 1.6);
+        let cx = sc.x0, cy = sc.y0, curAngle = sc.angle;
+        for (let step = 0; step < steps; step++) {
+            cx += Math.cos(curAngle) * 0.7;
+            cy += Math.sin(curAngle) * 0.7;
+            curAngle += sc.curvature;
+            const px = Math.floor((cx % size + size) % size);
+            const py = Math.floor((cy % size + size) % size);
+            const idx = py * size + px;
+
+            heightData[idx] = Math.max(0.12, heightData[idx] - sc.depth);
+            castHeightData[idx] = Math.max(0.10, castHeightData[idx] - sc.depth * 1.15);
+
+            if (sc.isMajor) {
+                // Raised pushed-metal lip along gouge edges
+                const perpX = -Math.sin(curAngle);
+                const perpY = Math.cos(curAngle);
+                const lx1 = Math.floor((px + perpX * 1.5 + size) % size);
+                const ly1 = Math.floor((py + perpY * 1.5 + size) % size);
+                const lx2 = Math.floor((px - perpX * 1.5 + size) % size);
+                const ly2 = Math.floor((py - perpY * 1.5 + size) % size);
+                heightData[ly1 * size + lx1] = Math.min(0.95, heightData[ly1 * size + lx1] + sc.depth * 0.45);
+                heightData[ly2 * size + lx2] = Math.min(0.95, heightData[ly2 * size + lx2] + sc.depth * 0.45);
+                castHeightData[ly1 * size + lx1] = Math.min(0.95, castHeightData[ly1 * size + lx1] + sc.depth * 0.50);
+                castHeightData[ly2 * size + lx2] = Math.min(0.95, castHeightData[ly2 * size + lx2] + sc.depth * 0.50);
+            }
         }
-    }
+    });
 
-    // D. Precise, Tight Weld Seams
-    function drawFineWeld(x0, y0, x1, y1, width = 2.2) {
+    // D. Heavy Beaded Weld Seams on Rolled Plates
+    function drawFineWeld(x0, y0, x1, y1, width = 2.4) {
         const dx = x1 - x0;
         const dy = y1 - y0;
         const len = Math.hypot(dx, dy);
-        const steps = Math.floor(len * 2.5);
+        const steps = Math.floor(len * 2.8);
         for (let s = 0; s < steps; s++) {
             const t = s / steps;
-            const wobble = Math.sin(s * 1.2) * 0.35;
+            const wobble = Math.sin(s * 1.3) * 0.45;
             const cx = Math.floor(x0 + dx * t + wobble);
             const cy = Math.floor(y0 + dy * t + wobble);
-            for (let rx = -width; rx <= width; rx++) {
-                for (let ry = -width; ry <= width; ry++) {
+            for (let rx = -Math.ceil(width); rx <= Math.ceil(width); rx++) {
+                for (let ry = -Math.ceil(width); ry <= Math.ceil(width); ry++) {
                     const px = (cx + rx + size) % size;
                     const py = (cy + ry + size) % size;
                     const dist = Math.hypot(rx, ry);
                     if (dist < width) {
                         const idx = py * size + px;
-                        const bead = Math.cos(dist / width * Math.PI * 0.5) * 0.12;
-                        heightData[idx] = Math.min(0.95, heightData[idx] + bead);
+                        const bead = Math.cos(dist / width * Math.PI * 0.5) * 0.16 * (0.85 + Math.sin(s * 0.8) * 0.15);
+                        heightData[idx] = Math.min(0.96, heightData[idx] + bead);
                     }
                 }
             }
         }
     }
-    drawFineWeld(14, 14, size - 14, 14, 2.2);
-    drawFineWeld(size - 14, 14, size - 14, size - 14, 2.2);
-    drawFineWeld(14, size - 14, size - 14, size - 14, 2.2);
-    drawFineWeld(14, 14, 14, size - 14, 2.2);
-    drawFineWeld(Math.floor(size * 0.38), 14, Math.floor(size * 0.38), size - 14, 2.0);
-    drawFineWeld(14, Math.floor(size * 0.65), size - 14, Math.floor(size * 0.65), 2.0);
+    drawFineWeld(14, 14, size - 14, 14, 2.5);
+    drawFineWeld(size - 14, 14, size - 14, size - 14, 2.5);
+    drawFineWeld(14, size - 14, size - 14, size - 14, 2.5);
+    drawFineWeld(14, 14, 14, size - 14, 2.5);
+    drawFineWeld(Math.floor(size * 0.38), 14, Math.floor(size * 0.38), size - 14, 2.2);
+    drawFineWeld(14, Math.floor(size * 0.65), size - 14, Math.floor(size * 0.65), 2.2);
 
-    // E. High-Detail, Reduced-Strength Tangent-Space Sobel Normal Filter
-    const normCanvas = document.createElement('canvas');
-    normCanvas.width = normCanvas.height = size;
-    const nCtx = normCanvas.getContext('2d');
-    const nImg = nCtx.createImageData(size, size);
-    const nData = nImg.data;
-    const normalStrength = 1.35; // Gentle, crisp scale-model strength
+    // E. High-Definition Tangent-Space Sobel Normal Filter
+    function computeSobelNormal(hData, strength) {
+        const c = document.createElement('canvas');
+        c.width = c.height = size;
+        const ctx = c.getContext('2d');
+        const img = ctx.createImageData(size, size);
+        const data = img.data;
 
-    for (let y = 0; y < size; y++) {
-        for (let x = 0; x < size; x++) {
-            const xm = (x - 1 + size) % size;
-            const xp = (x + 1) % size;
-            const ym = (y - 1 + size) % size;
-            const yp = (y + 1) % size;
+        for (let y = 0; y < size; y++) {
+            for (let x = 0; x < size; x++) {
+                const xm = (x - 1 + size) % size;
+                const xp = (x + 1) % size;
+                const ym = (y - 1 + size) % size;
+                const yp = (y + 1) % size;
 
-            const tl = heightData[ym * size + xm];
-            const l  = heightData[y  * size + xm];
-            const bl = heightData[yp * size + xm];
-            const t  = heightData[ym * size + x];
-            const b  = heightData[yp * size + x];
-            const tr = heightData[ym * size + xp];
-            const r  = heightData[y  * size + xp];
-            const br = heightData[yp * size + xp];
+                const tl = hData[ym * size + xm];
+                const l  = hData[y  * size + xm];
+                const bl = hData[yp * size + xm];
+                const t  = hData[ym * size + x];
+                const b  = hData[yp * size + x];
+                const tr = hData[ym * size + xp];
+                const r  = hData[y  * size + xp];
+                const br = hData[yp * size + xp];
 
-            const dX = ((tr + 2 * r + br) - (tl + 2 * l + bl)) * normalStrength;
-            const dY = ((bl + 2 * b + br) - (tl + 2 * t + tr)) * normalStrength;
-            const dZ = 1.0;
+                const dX = ((tr + 2 * r + br) - (tl + 2 * l + bl)) * strength;
+                const dY = ((bl + 2 * b + br) - (tl + 2 * t + tr)) * strength;
+                const dZ = 1.0;
 
-            const len = Math.hypot(dX, dY, dZ);
-            const idx = (y * size + x) * 4;
-            nData[idx]     = Math.floor(((dX / len) * 0.5 + 0.5) * 255);
-            nData[idx + 1] = Math.floor(((-dY / len) * 0.5 + 0.5) * 255);
-            nData[idx + 2] = Math.floor(((dZ / len) * 0.5 + 0.5) * 255);
-            nData[idx + 3] = 255;
+                const len = Math.hypot(dX, dY, dZ);
+                const idx = (y * size + x) * 4;
+                data[idx]     = Math.floor(((dX / len) * 0.5 + 0.5) * 255);
+                data[idx + 1] = Math.floor(((-dY / len) * 0.5 + 0.5) * 255);
+                data[idx + 2] = Math.floor(((dZ / len) * 0.5 + 0.5) * 255);
+                data[idx + 3] = 255;
+            }
         }
+        ctx.putImageData(img, 0, 0);
+        return c;
     }
-    nCtx.putImageData(nImg, 0, 0);
 
-    // Roughness Map (Matte military finish matching Tamiya scale model ~ 0.58-0.65)
-    const roughCanvas = document.createElement('canvas');
-    roughCanvas.width = roughCanvas.height = size;
-    const rCtx = roughCanvas.getContext('2d');
-    const rImg = rCtx.createImageData(size, size);
-    for (let i = 0; i < rImg.data.length; i += 4) {
-        const pixIdx = i / 4;
-        const hVal = heightData[pixIdx];
-        const v = Math.max(90, Math.min(210, Math.floor(155 - (hVal - 0.50) * 75)));
-        rImg.data[i] = rImg.data[i + 1] = rImg.data[i + 2] = v;
-        rImg.data[i + 3] = 255;
-    }
-    rCtx.putImageData(rImg, 0, 0);
+    const normCanvas = computeSobelNormal(heightData, 2.2);
+    const castNormCanvas = computeSobelNormal(castHeightData, 2.6);
 
     const normalTex = new THREE.CanvasTexture(normCanvas);
-    const roughTex  = new THREE.CanvasTexture(roughCanvas);
-    [normalTex, roughTex].forEach(t => {
+    const castNormalTex = new THREE.CanvasTexture(castNormCanvas);
+    [normalTex, castNormalTex].forEach(t => {
+        t.wrapS = THREE.RepeatWrapping;
+        t.wrapT = THREE.RepeatWrapping;
+        t.repeat.set(2, 2);
+    });
+
+    // F. Roughness Maps: PBR Matte Olive Drab finish with high-contrast scratches & burnished wear
+    function computeRoughness(hData, isCast = false) {
+        const c = document.createElement('canvas');
+        c.width = c.height = size;
+        const ctx = c.getContext('2d');
+        const img = ctx.createImageData(size, size);
+        for (let i = 0; i < img.data.length; i += 4) {
+            const pixIdx = i / 4;
+            const hVal = hData[pixIdx];
+            let rVal = Math.max(130, Math.min(210, Math.floor(172 - (hVal - 0.50) * 85)));
+            if (isCast) {
+                rVal = Math.max(120, Math.min(220, Math.floor(164 - (hVal - 0.50) * 110)));
+            }
+            img.data[i] = img.data[i + 1] = img.data[i + 2] = rVal;
+            img.data[i + 3] = 255;
+        }
+
+        // Apply low roughness (metallic sheen: 55-75) directly onto scratches
+        scratches.forEach(sc => {
+            const steps = Math.floor(sc.length * 1.6);
+            let cx = sc.x0, cy = sc.y0, curAngle = sc.angle;
+            for (let step = 0; step < steps; step++) {
+                cx += Math.cos(curAngle) * 0.7;
+                cy += Math.sin(curAngle) * 0.7;
+                curAngle += sc.curvature;
+                const px = Math.floor((cx % size + size) % size);
+                const py = Math.floor((cy % size + size) % size);
+                const p = (py * size + px) * 4;
+
+                const sheen = sc.isMajor ? 58 : sc.isHairline ? 110 : 78;
+                img.data[p] = img.data[p + 1] = img.data[p + 2] = sheen;
+            }
+        });
+
+        ctx.putImageData(img, 0, 0);
+        return c;
+    }
+
+    const roughCanvas = computeRoughness(heightData, false);
+    const castRoughCanvas = computeRoughness(castHeightData, true);
+    const roughTex = new THREE.CanvasTexture(roughCanvas);
+    const castRoughTex = new THREE.CanvasTexture(castRoughCanvas);
+    [roughTex, castRoughTex].forEach(t => {
         t.wrapS = THREE.RepeatWrapping;
         t.wrapT = THREE.RepeatWrapping;
         t.repeat.set(2, 2);
@@ -204,6 +320,19 @@ function initPershingSharedBase() {
     gCtx.font = 'bold 52px "Arial Black", sans-serif';
     gCtx.textAlign = 'center';
     gCtx.fillText('VANGUARD', 256, 405);
+
+    // Realistic combat scratches and paint chips cutting across decal stencil
+    for (let sc = 0; sc < 48; sc++) {
+        const sx = 140 + Math.random() * 230;
+        const sy = 100 + Math.random() * 320;
+        const sLen = 8 + Math.random() * 28;
+        gCtx.fillStyle = 'rgba(30, 36, 24, 0.92)';
+        gCtx.fillRect(sx, sy, sLen, 1.8);
+        if (sc % 2 === 0) {
+            gCtx.fillStyle = 'rgba(175, 178, 172, 0.78)';
+            gCtx.fillRect(sx + 2, sy + 0.4, sLen * 0.65, 1.0);
+        }
+    }
     const glacisDecalTex = new THREE.CanvasTexture(glacisCanvas);
 
     // Side Skirt Decal ("ARMORED" + Ordnance Technical Data)
@@ -219,6 +348,19 @@ function initPershingSharedBase() {
     skCtx.fillText('WT 92,000 LBS  90MM M3', 110, 94);
     skCtx.font = 'bold 54px "Arial Black", sans-serif';
     skCtx.fillText('ARMORED', 540, 82);
+
+    // Weathering scratches cutting across skirt markings
+    for (let sc = 0; sc < 28; sc++) {
+        const sx = 90 + Math.random() * 840;
+        const sy = 25 + Math.random() * 80;
+        const sLen = 6 + Math.random() * 24;
+        skCtx.fillStyle = 'rgba(28, 33, 22, 0.90)';
+        skCtx.fillRect(sx, sy, sLen, 1.6);
+        if (sc % 2 === 0) {
+            skCtx.fillStyle = 'rgba(165, 168, 164, 0.75)';
+            skCtx.fillRect(sx + 1, sy + 0.3, sLen * 0.6, 1.0);
+        }
+    }
     const skirtDecalTex = new THREE.CanvasTexture(skirtCanvas);
 
     // Turret Emblem (White Star with Yellow Armor Circle #26)
@@ -246,12 +388,25 @@ function initPershingSharedBase() {
     eCtx.textAlign = 'center';
     eCtx.fillText('26', 0, 14);
     eCtx.restore();
+
+    // Scratches on turret emblem
+    for (let sc = 0; sc < 18; sc++) {
+        const sx = 60 + Math.random() * 135;
+        const sy = 60 + Math.random() * 135;
+        const sLen = 5 + Math.random() * 18;
+        eCtx.fillStyle = 'rgba(26, 31, 20, 0.90)';
+        eCtx.fillRect(sx, sy, sLen, 1.5);
+    }
     const emblemTex = new THREE.CanvasTexture(emblemCanvas);
 
     pershingSharedBase = {
         heightData,
+        castHeightData,
+        scratches,
         normalTex,
+        castNormalTex,
         roughTex,
+        castRoughTex,
         crateTex,
         glacisDecalTex,
         skirtDecalTex,
@@ -262,7 +417,7 @@ function initPershingSharedBase() {
 
 // ============================================================================
 // 2. MATERIALS & VARIANT ASSETS (Prewarmed for zero-lag enemy spawns)
-//    Tone matching Tamiya 35254 Reference: Authentic US Army Olive Drab (XF-62)
+//    Tone matching Tamiya 35254 Reference: Authentic US Army Olive Drab (0x5a6048)
 // ============================================================================
 function getPershingSharedAssets(isEnemy) {
     const key = isEnemy ? 'enemy' : 'player';
@@ -271,50 +426,134 @@ function getPershingSharedAssets(isEnemy) {
     const base = initPershingSharedBase();
     const size = 512;
 
-    // Authentic WWII US Army Olive Drab (matching Tamiya 35254 reference photo):
-    // Desaturated military olive drab with earthy undertone: Red ~ 88-92, Green ~ 94-98, Blue ~ 72-76
-    const albedoCanvas = document.createElement('canvas');
-    albedoCanvas.width = albedoCanvas.height = size;
-    const aCtx = albedoCanvas.getContext('2d');
+    // Authentic WWII US Army Dark Olive Drab (Specification 3-1 / Tamiya XF-62, palette: 0x5a6048):
+    // Deep military olive drab with muted low-reflectance armor tone
+    const baseR = isEnemy ? 34 : 42;
+    const baseG = isEnemy ? 40 : 48;
+    const baseB = isEnemy ? 28 : 34;
 
-    const baseR = isEnemy ? 76 : 90;
-    const baseG = isEnemy ? 82 : 96;
-    const baseB = isEnemy ? 62 : 74;
+    function buildAlbedo(hData, isCast = false) {
+        const c = document.createElement('canvas');
+        c.width = c.height = size;
+        const ctx = c.getContext('2d');
+        const img = ctx.createImageData(size, size);
+        const data = img.data;
 
-    const aImg = aCtx.createImageData(size, size);
-    const aData = aImg.data;
-    for (let i = 0; i < aData.length; i += 4) {
-        const pixIdx = i / 4;
-        const hVal = base.heightData[pixIdx];
-        const hDiff = (hVal - 0.50) * 28;
-        const noise = (Math.random() - 0.5) * 6;
+        for (let i = 0; i < data.length; i += 4) {
+            const pixIdx = i / 4;
+            const hVal = hData[pixIdx];
+            const hDiff = (hVal - 0.50) * 22;
+            const noise = (Math.random() - 0.5) * 5;
 
-        aData[i]     = Math.max(0, Math.min(255, Math.floor(baseR + hDiff + noise)));
-        aData[i + 1] = Math.max(0, Math.min(255, Math.floor(baseG + hDiff * 1.05 + noise)));
-        aData[i + 2] = Math.max(0, Math.min(255, Math.floor(baseB + hDiff * 0.80 + noise)));
-        aData[i + 3] = 255;
+            // Micro-tonal variation across steel plate
+            let r = Math.max(0, Math.min(255, Math.floor(baseR + hDiff + noise)));
+            let g = Math.max(0, Math.min(255, Math.floor(baseG + hDiff * 1.05 + noise)));
+            let b = Math.max(0, Math.min(255, Math.floor(baseB + hDiff * 0.78 + noise)));
+
+            // Dark dirt wash in crevices / low cavities
+            if (hVal < 0.45) {
+                const cavity = (0.45 - hVal) * 75;
+                r = Math.max(12, r - cavity);
+                g = Math.max(14, g - cavity);
+                b = Math.max(10, b - cavity * 0.8);
+            }
+
+            // Weld seam burnt oxide & rust wash
+            if (!isCast && hVal > 0.68) {
+                const rustFactor = Math.min(1.0, (hVal - 0.68) * 4.0);
+                r = Math.floor(r * (1.0 - rustFactor * 0.3) + 48 * rustFactor * 0.3);
+                g = Math.floor(g * (1.0 - rustFactor * 0.4) + 30 * rustFactor * 0.4);
+                b = Math.floor(b * (1.0 - rustFactor * 0.4) + 20 * rustFactor * 0.4);
+            }
+
+            data[i]     = r;
+            data[i + 1] = g;
+            data[i + 2] = b;
+            data[i + 3] = 255;
+        }
+
+        // Render exposed metallic steel scratches & gouges
+        base.scratches.forEach(sc => {
+            const steps = Math.floor(sc.length * 1.6);
+            let cx = sc.x0, cy = sc.y0, curAngle = sc.angle;
+            for (let step = 0; step < steps; step++) {
+                cx += Math.cos(curAngle) * 0.7;
+                cy += Math.sin(curAngle) * 0.7;
+                curAngle += sc.curvature;
+                const px = Math.floor((cx % size + size) % size);
+                const py = Math.floor((cy % size + size) % size);
+                const p = (py * size + px) * 4;
+
+                // Bare metallic steel scratch core: bright silver glint
+                const steelVal = sc.isMajor ? (175 + Math.floor(Math.random() * 25))
+                               : sc.isHairline ? (115 + Math.floor(Math.random() * 18))
+                               : (145 + Math.floor(Math.random() * 22));
+
+                data[p]     = steelVal;
+                data[p + 1] = Math.min(255, steelVal + 2);
+                data[p + 2] = Math.min(255, steelVal + 4);
+
+                // Flanking dark oxidized paint & red oxide primer rim along scratch edges
+                if (sc.isMajor || !sc.isHairline) {
+                    const perpX = -Math.sin(curAngle);
+                    const perpY = Math.cos(curAngle);
+                    [-1, 1].forEach(offset => {
+                        const nx = Math.floor((px + perpX * offset + size) % size);
+                        const ny = Math.floor((py + perpY * offset + size) % size);
+                        const np = (ny * size + nx) * 4;
+
+                        // Red oxide primer / dark oxidized border
+                        data[np]     = Math.max(18, Math.min(52, Math.floor(data[np] * 0.55 + 16)));
+                        data[np + 1] = Math.max(16, Math.floor(data[np + 1] * 0.45));
+                        data[np + 2] = Math.max(12, Math.floor(data[np + 2] * 0.40));
+                    });
+                }
+            }
+        });
+
+        ctx.putImageData(img, 0, 0);
+
+        // Weathering grime, rain wash, and road dust gradients
+        for (let s = 0; s < 35; s++) {
+            const sx = Math.random() * size;
+            const sy = Math.random() * size;
+            const rad = 20 + Math.random() * 70;
+            const grad = ctx.createRadialGradient(sx, sy, 2, sx, sy, rad);
+            grad.addColorStop(0, 'rgba(24, 20, 16, 0.28)');
+            grad.addColorStop(0.6, 'rgba(32, 28, 20, 0.12)');
+            grad.addColorStop(1, 'rgba(42, 48, 34, 0)');
+            ctx.fillStyle = grad;
+            ctx.beginPath();
+            ctx.arc(sx, sy, rad, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        // Vertical oil streaks and rain wash
+        for (let str = 0; str < 18; str++) {
+            const stX = Math.random() * size;
+            const stY = Math.random() * (size * 0.4);
+            const stLen = 30 + Math.random() * 90;
+            const strGrad = ctx.createLinearGradient(stX, stY, stX, stY + stLen);
+            strGrad.addColorStop(0, 'rgba(16, 13, 9, 0.52)');
+            strGrad.addColorStop(0.5, 'rgba(24, 20, 14, 0.26)');
+            strGrad.addColorStop(1, 'rgba(34, 40, 28, 0)');
+            ctx.fillStyle = strGrad;
+            ctx.fillRect(stX - 1, stY, 2 + Math.random() * 2, stLen);
+        }
+
+        return c;
     }
-    aCtx.putImageData(aImg, 0, 0);
 
-    // Weathering dust gradients & micro-grime
-    for (let s = 0; s < 25; s++) {
-        const sx = Math.random() * size;
-        const sy = Math.random() * size;
-        const rad = 25 + Math.random() * 60;
-        const grad = aCtx.createRadialGradient(sx, sy, 2, sx, sy, rad);
-        grad.addColorStop(0, 'rgba(64, 68, 50, 0.22)');
-        grad.addColorStop(0.6, 'rgba(78, 84, 62, 0.08)');
-        grad.addColorStop(1, 'rgba(90, 96, 74, 0)');
-        aCtx.fillStyle = grad;
-        aCtx.beginPath();
-        aCtx.arc(sx, sy, rad, 0, Math.PI * 2);
-        aCtx.fill();
-    }
+    const albedoCanvas = buildAlbedo(base.heightData, false);
+    const castAlbedoCanvas = buildAlbedo(base.castHeightData, true);
 
     const albedoTex = new THREE.CanvasTexture(albedoCanvas);
-    albedoTex.wrapS = THREE.RepeatWrapping;
-    albedoTex.wrapT = THREE.RepeatWrapping;
-    albedoTex.repeat.set(2, 2);
+    const castAlbedoTex = new THREE.CanvasTexture(castAlbedoCanvas);
+    [albedoTex, castAlbedoTex].forEach(t => {
+        t.wrapS = THREE.RepeatWrapping;
+        t.wrapT = THREE.RepeatWrapping;
+        t.repeat.set(2, 2);
+    });
 
     // Muzzle Soot Barrel Texture
     const barrelCanvas = document.createElement('canvas');
@@ -322,10 +561,10 @@ function getPershingSharedAssets(isEnemy) {
     const barCtx = barrelCanvas.getContext('2d');
     barCtx.drawImage(albedoCanvas, 0, 0, 256, 256);
     const sootGrad = barCtx.createLinearGradient(0, 0, 0, 256);
-    sootGrad.addColorStop(0, '#161814');
-    sootGrad.addColorStop(0.20, '#2c3026');
-    sootGrad.addColorStop(0.40, 'rgba(56, 62, 46, 0.35)');
-    sootGrad.addColorStop(0.65, 'rgba(90, 96, 74, 0)');
+    sootGrad.addColorStop(0, '#0d0f0c');
+    sootGrad.addColorStop(0.20, '#181b14');
+    sootGrad.addColorStop(0.40, 'rgba(28, 34, 24, 0.45)');
+    sootGrad.addColorStop(0.65, 'rgba(38, 44, 30, 0)');
     barCtx.fillStyle = sootGrad;
     barCtx.fillRect(0, 0, 256, 256);
     const barrelTex = new THREE.CanvasTexture(barrelCanvas);
@@ -334,24 +573,22 @@ function getPershingSharedAssets(isEnemy) {
     // Color: #5a6048 (authentic semi-matte WWII US Army Olive Drab)
     const materials = {
         brownArmor: new THREE.MeshStandardMaterial({
-            color: isEnemy ? 0x4a503b : 0x5a6048,
             map: albedoTex,
             normalMap: base.normalTex,
-            normalScale: new THREE.Vector2(0.35, 0.35), // Reduced strength for refined, non-chunky surface
+            normalScale: new THREE.Vector2(0.65, 0.65),
             roughnessMap: base.roughTex,
             roughness: 0.62,
-            metalness: 0.20,
-            envMapIntensity: 0.28
+            metalness: 0.36,
+            envMapIntensity: 0.45
         }),
         castTurretArmor: new THREE.MeshStandardMaterial({
-            color: isEnemy ? 0x464c38 : 0x565c44,
-            map: albedoTex,
-            normalMap: base.normalTex,
-            normalScale: new THREE.Vector2(0.55, 0.55), // Fine stippled cast steel
-            roughnessMap: base.roughTex,
+            map: castAlbedoTex,
+            normalMap: base.castNormalTex,
+            normalScale: new THREE.Vector2(0.85, 0.85),
+            roughnessMap: base.castRoughTex,
             roughness: 0.58,
-            metalness: 0.24,
-            envMapIntensity: 0.30
+            metalness: 0.40,
+            envMapIntensity: 0.50
         }),
         darkRubber: new THREE.MeshStandardMaterial({
             color: 0x161718,
@@ -361,7 +598,8 @@ function getPershingSharedAssets(isEnemy) {
         trackSteel: new THREE.MeshStandardMaterial({
             color: 0x2e2f2c,
             normalMap: base.normalTex,
-            normalScale: new THREE.Vector2(0.40, 0.40),
+            normalScale: new THREE.Vector2(0.50, 0.50),
+            roughnessMap: base.roughTex,
             roughness: 0.52,
             metalness: 0.68
         }),
@@ -371,15 +609,15 @@ function getPershingSharedAssets(isEnemy) {
             metalness: 0.82
         }),
         barrelMuzzleMat: new THREE.MeshStandardMaterial({
-            color: isEnemy ? 0x4a503b : 0x5a6048,
+            color: isEnemy ? 0x242a1d : 0x5a6048,
             map: barrelTex,
             normalMap: base.normalTex,
-            normalScale: new THREE.Vector2(0.40, 0.40),
+            normalScale: new THREE.Vector2(0.50, 0.50),
             roughness: 0.58,
-            metalness: 0.25
+            metalness: 0.28
         }),
         sprocketHub: new THREE.MeshStandardMaterial({
-            color: isEnemy ? 0x3d5032 : 0x495e3c,
+            color: isEnemy ? 0x20281a : 0x2a3523,
             roughness: 0.55,
             metalness: 0.30
         }),
