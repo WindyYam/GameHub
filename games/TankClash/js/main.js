@@ -434,7 +434,8 @@ function updateSimulation(dt) {
             const kickPos = new THREE.Vector3(sideX, -0.85, -2.4);
             hullGroup.localToWorld(kickPos);
             const kickVel = new THREE.Vector3((Math.random() - 0.5) * 2.5, 1.8 + Math.random() * 2.0, (Math.random() - 0.5) * 2.5);
-            spawnParticle(kickPos, kickVel, 0x5c4d3c, 0.18, 0.65, 0.45, false, 'dirt');
+            const dustCol = (window.currentZoneConfig && window.currentZoneConfig.trackDustColor) ? window.currentZoneConfig.trackDustColor : 0x5c4d3c;
+            spawnParticle(kickPos, kickVel, dustCol, 0.18, 0.65, 0.45, false, 'dirt');
         });
     }
 
@@ -1041,24 +1042,32 @@ function updateSimulation(dt) {
     // Sun & Moonlight both cast dynamic battlefield shadows whenever celestial light is active
     sunLight.castShadow = (sunLight.intensity > 0.12) && (celestialDir.y > 0.02);
 
-    // Sky top & horizon colors calibrated from Maldive
+    // Sky top & horizon colors calibrated from Maldive + Zone atmospheric tinting
+    const zoneDayHor = (window.currentZoneConfig && window.currentZoneConfig.dayHorizonTint)
+        ? new THREE.Color(window.currentZoneConfig.dayHorizonTint)
+        : DAY_NIGHT_COLORS.dayHor;
+    const zoneGroundDay = (window.currentZoneConfig && window.currentZoneConfig.groundDayTint)
+        ? new THREE.Color(window.currentZoneConfig.groundDayTint)
+        : DAY_NIGHT_COLORS.groundDay;
+
     const skyHorizonColor = DAY_NIGHT_COLORS.nitHor.clone()
-        .lerp(DAY_NIGHT_COLORS.dayHor, dayFactor)
+        .lerp(zoneDayHor, dayFactor)
         .lerp(DAY_NIGHT_COLORS.sunHor, twilightFactor * 0.9);
 
     const skyTopColor = DAY_NIGHT_COLORS.nitTop.clone()
         .lerp(DAY_NIGHT_COLORS.dayTop, dayFactor)
         .lerp(DAY_NIGHT_COLORS.sunTop, twilightFactor * 0.8);
 
-    // Hemisphere natural bounce lighting (Earth meadow up + Sky down)
+    // Hemisphere natural bounce lighting (Zone ground up + Sky down)
     hemiLight.color.copy(skyHorizonColor);
-    hemiLight.groundColor.copy(DAY_NIGHT_COLORS.groundNight).lerp(DAY_NIGHT_COLORS.groundDay, dayFactor);
+    hemiLight.groundColor.copy(DAY_NIGHT_COLORS.groundNight).lerp(zoneGroundDay, dayFactor);
     hemiLight.intensity = 0.16 + dayFactor * 0.10 + twilightFactor * 0.10;
 
     // Fog & Background synced with horizon atmosphere
     if (scene.fog) {
         scene.fog.color.copy(skyHorizonColor);
-        scene.fog.density = 0.00085 + twilightFactor * 0.0006 + nightFactor * 0.0005;
+        const baseFogDens = (window.currentZoneConfig && window.currentZoneConfig.fogDensity) ? window.currentZoneConfig.fogDensity : 0.00085;
+        scene.fog.density = baseFogDens + twilightFactor * 0.0006 + nightFactor * 0.0005;
     }
     if (scene.background) {
         scene.background.copy(skyHorizonColor);
@@ -1168,7 +1177,8 @@ function updateSimulation(dt) {
 
     const hudSeedEl = document.getElementById('hud-seed-display');
     if (hudSeedEl && window.currentSeed) {
-        hudSeedEl.textContent = `Seed: ${window.currentSeed} • X:${Math.round(tankState.x)}m Z:${Math.round(tankState.z)}m`;
+        const zName = (window.currentZoneConfig && window.currentZoneConfig.shortName) ? `${window.currentZoneConfig.shortName} • ` : '';
+        hudSeedEl.textContent = `${zName}Seed: ${window.currentSeed} • X:${Math.round(tankState.x)}m Z:${Math.round(tankState.z)}m`;
     }
 
     // Mobile Mini HUD updates

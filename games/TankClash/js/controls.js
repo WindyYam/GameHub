@@ -103,6 +103,7 @@ function initControls(renderer) {
         if (k === 'x') { if (window.playerMode !== 'soldier') fireSmokeDischargers(); }
         if (k === 'h') { if (window.playerMode !== 'soldier') toggleHeadlights(); }
         if (k === 'b') { if (typeof window.toggleGrass === 'function') window.toggleGrass(); }
+        if (k === 'n') { if (typeof window.cycleZone === 'function') window.cycleZone(); }
         if (k === 'e') { if (typeof window.triggerInteract === 'function') window.triggerInteract(); }
         if (k === 'r') { if (typeof window.restartGame === 'function') window.restartGame(); }
         if (k === 't') { if (window.dayNight && window.dayNight.cycleNext) window.dayNight.cycleNext(); }
@@ -435,6 +436,13 @@ function initControls(renderer) {
 
     const btnFpv = document.getElementById('cam-fpv');
     if (btnFpv) btnFpv.onclick = () => { if (window.playerMode !== 'soldier') setCameraMode('fpv'); };
+
+    const btnZoneCycle = document.getElementById('btn-zone-cycle');
+    if (btnZoneCycle) {
+        btnZoneCycle.onclick = () => {
+            if (typeof window.cycleZone === 'function') window.cycleZone();
+        };
+    }
 
     const audioBtn = document.getElementById('audio-toggle');
     if (audioBtn) {
