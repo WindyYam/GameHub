@@ -250,6 +250,7 @@ if (window.TANK_SPECS && window.TANK_SPECS[initialCampaign]) {
     tankState.CANNON_SPREAD = initSpec.spread;
     tankState.BLAST_RADIUS = initSpec.blastRadius;
     tankState.BLAST_DAMAGE = initSpec.blastDamage;
+    tankState.CANNON_DAMAGE = initSpec.cannonDamage || (initialCampaign === 'tiger' ? 2 : 1);
     tankState.MAX_SPEED = initSpec.maxSpeed;
     tankState.REVERSE_SPEED = initSpec.reverseSpeed;
     tankState.TURN_SPEED = initSpec.turnSpeed;

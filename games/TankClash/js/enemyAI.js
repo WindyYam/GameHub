@@ -228,15 +228,16 @@
             burningSmokeTimer: 0,
             plumePuffs: [],
 
-            onHit(impactPos, hitDir) {
+            onHit(impactPos, hitDir, damage = 1) {
                 if (this.isDestroyed) return;
 
                 if (this.armor === undefined) {
                     this.armor = this.maxArmor || (this.spec.enemyArmor !== undefined ? this.spec.enemyArmor : (this.tankType === 'tiger' ? 2 : 1));
                 }
-                this.armor--;
+                const dmg = (typeof damage === 'number') ? damage : 1;
+                this.armor = Math.max(0, this.armor - dmg);
 
-                // If enemy tank still has armor remaining (e.g. Tiger tank absorbs 1st hit):
+                // If enemy tank still has armor remaining (e.g. Tiger tank absorbs 1st hit from 1-dmg gun):
                 if (this.armor > 0) {
                     if (typeof window.spawnDynamicFlash === 'function') {
                         window.spawnDynamicFlash(impactPos, 0xfff08a, 20.0, 38.0, 0.14);
@@ -697,18 +698,20 @@
     // ========================================================================
     // 4. PLAYER DAMAGE & KNOCKOUT SYSTEM (2x Armor Points vs Enemy)
     // ========================================================================
-    function onPlayerHit(impactPos, hitDir) {
+    function onPlayerHit(impactPos, hitDir, damage = 1) {
         if (!window.tankState || window.tankState.isKnockedOut) return;
 
         const maxArmor = getPlayerMaxArmor();
-        playerHitsTaken++;
+        const dmg = (typeof damage === 'number') ? damage : 1;
+        playerHitsTaken += dmg;
+        window.playerHitsTaken = playerHitsTaken;
         const remainingArmor = Math.max(0, maxArmor - playerHitsTaken);
 
         // Screen Shake & Hull Recoil Impulse
         if (window.tankState) {
-            window.tankState.pitchVel += (Math.random() - 0.5) * 0.55;
-            window.tankState.rollVel  += (Math.random() - 0.5) * 0.45;
-            window.tankState.heaveVel -= 0.85;
+            window.tankState.pitchVel += (Math.random() - 0.5) * 0.55 * dmg;
+            window.tankState.rollVel  += (Math.random() - 0.5) * 0.45 * dmg;
+            window.tankState.heaveVel -= 0.85 * dmg;
             window.tankState.speed    *= 0.40;
         }
 
@@ -760,7 +763,7 @@
                 showKillFeedBanner('💥 TANK WRECK DESTROYED!');
             }
         } else {
-            showKillFeedBanner(`⚠️ ARMOR COMPROMISED! (${remainingArmor}/${maxArmor} HITS REMAINING)`);
+            showKillFeedBanner(`⚠️ ARMOR COMPROMISED! (${remainingArmor}/${maxArmor} ARMOR REMAINING)`);
         }
     }
     window.onPlayerHit = onPlayerHit;

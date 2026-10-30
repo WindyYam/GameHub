@@ -526,6 +526,8 @@ function fireMainCannon(tankModel) {
     if (shellGroup.parent !== window.scene) window.scene.add(shellGroup);
 
     const shellSpeed = tankState.SHELL_VELOCITY || 773;
+    const currentId = window.currentTankId || 'tiger';
+    const cDmg = (typeof tankState.CANNON_DAMAGE === 'number') ? tankState.CANNON_DAMAGE : ((currentId === 'tiger') ? 2 : 1);
     shells.push({
         mesh: shellGroup,
         pos: muzzlePos.clone(),
@@ -534,7 +536,8 @@ function fireMainCannon(tankModel) {
         isEnemy: false,
         blastRadius: (typeof tankState.BLAST_RADIUS === 'number') ? tankState.BLAST_RADIUS : 8.0,
         blastDamage: (typeof tankState.BLAST_DAMAGE === 'number') ? tankState.BLAST_DAMAGE : 100,
-        tankType: window.currentTankId || 'tiger'
+        cannonDamage: cDmg,
+        tankType: currentId
     });
 }
 
@@ -846,6 +849,8 @@ function testSegmentVsTank(prevPos, nextPos, tankX, tankY, tankZ, heading, halfW
 function spawnEnemyShell(muzzlePos, fireDir, shellSpeed, enemyTank) {
     const spec = (enemyTank && enemyTank.spec) || {};
     const spd = shellSpeed || spec.shellVel || 750;
+    const tankType = spec.id || (enemyTank && enemyTank.tankType) || 'tiger';
+    const cDmg = (typeof spec.cannonDamage === 'number') ? spec.cannonDamage : ((tankType === 'tiger') ? 2 : 1);
 
     const shellGroup = shellPool.pop() || createShellObject();
     shellGroup.visible = true;
@@ -863,7 +868,8 @@ function spawnEnemyShell(muzzlePos, fireDir, shellSpeed, enemyTank) {
         sourceTank: enemyTank,
         blastRadius: (typeof spec.blastRadius === 'number') ? spec.blastRadius : 8.0,
         blastDamage: (typeof spec.blastDamage === 'number') ? spec.blastDamage : 100,
-        tankType: spec.id || 'tiger'
+        cannonDamage: cDmg,
+        tankType: tankType
     });
 }
 window.spawnEnemyShell = spawnEnemyShell;
@@ -1108,11 +1114,11 @@ function updateProjectiles(dt) {
 
                 if (closestHit.type === 'enemyTank') {
                     if (typeof closestHit.targetObj.onHit === 'function') {
-                        closestHit.targetObj.onHit(imp, velDir);
+                        closestHit.targetObj.onHit(imp, velDir, s.cannonDamage || 1);
                     }
                 } else if (closestHit.type === 'playerTank') {
                     if (typeof window.onPlayerHit === 'function') {
-                        window.onPlayerHit(imp, velDir);
+                        window.onPlayerHit(imp, velDir, s.cannonDamage || 1);
                     }
                 } else if (closestHit.type === 'tree') {
                     if (window.hitTree) window.hitTree(closestHit.targetObj, s.vel.clone().normalize(), 7.5);

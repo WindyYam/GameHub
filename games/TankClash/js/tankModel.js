@@ -18,6 +18,7 @@ const TANK_SPECS = {
         enginePowerKW: 515,
         enemyArmor: 2,        // Enemy Tiger tank has 2 armor points
         playerArmor: 4,       // Player's tank has 2x armor points (4)
+        cannonDamage: 2,      // Tiger 8.8cm KwK 36 cannon deals 2 HP damage
         gunName: '8.8 cm KwK 36 L/56',
         caliberText: '8.8cm',
         shellVel: 810,
@@ -32,10 +33,10 @@ const TANK_SPECS = {
         minElevDeg: -8,
         maxElevDeg: 15,
         hasMuzzleBrake: true,
-        sightName: 'TZF 9b — 8.8cm KwK 36 L/56 (810 m/s • Ultra-Precision)',
-        sightSubtitle: '8.8cm KwK 36 L/56 • 810 M/S • PINPOINT SNIPER',
+        sightName: 'TZF 9b — 8.8cm KwK 36 L/56 (810 m/s • 2 HP Damage • Ultra-Precision)',
+        sightSubtitle: '8.8cm KwK 36 L/56 • 810 M/S • 2 HP DAMAGE • PINPOINT SNIPER',
         fpvZoomText: 'OPTICAL 2.5× [HOLD RMB: 5.0× ZOOM]',
-        description: 'German Heavy Tank • 8.8cm KwK 36 L/56 • Pinpoint Sniper Precision'
+        description: 'German Heavy Tank • 8.8cm KwK 36 (2 HP Damage) • Pinpoint Sniper Precision'
     },
     sherman: {
         id: 'sherman',
@@ -51,6 +52,7 @@ const TANK_SPECS = {
         enginePowerKW: 375,
         enemyArmor: 1,        // Enemy Sherman tank has 1 armor point
         playerArmor: 2,       // Player's tank has 2x armor points (2)
+        cannonDamage: 1,      // 75mm Gun M3 deals 1 HP damage
         gunName: '75 mm Gun M3',
         caliberText: '75mm',
         shellVel: 460,        // Slower projectile with noticeable arc and flight delay
@@ -84,6 +86,7 @@ const TANK_SPECS = {
         enginePowerKW: 425,
         enemyArmor: 1,        // Enemy T-34 tank has 1 armor point
         playerArmor: 2,       // Player's tank has 2x armor points (2)
+        cannonDamage: 1,      // 85mm ZiS-S-53 deals 1 HP damage
         gunName: '85 mm ZiS-S-53',
         caliberText: '85mm',
         shellVel: 740,
@@ -284,6 +287,7 @@ function switchTank(newTankId) {
         window.tankState.CANNON_SPREAD = spec.spread;
         window.tankState.BLAST_RADIUS = spec.blastRadius;
         window.tankState.BLAST_DAMAGE = spec.blastDamage;
+        window.tankState.CANNON_DAMAGE = (typeof spec.cannonDamage === 'number') ? spec.cannonDamage : ((newTankId === 'tiger') ? 2 : 1);
         window.tankState.MAX_SPEED = spec.maxSpeed;
         window.tankState.REVERSE_SPEED = spec.reverseSpeed;
         window.tankState.TURN_SPEED = spec.turnSpeed;
