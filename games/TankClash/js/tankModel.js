@@ -24,6 +24,7 @@ const TANK_SPECS = {
         shellVel: 810,
         reloadTime: 4.8,
         spread: 0.0003,       // Most precise cannon: pinpoint sniper accuracy
+        turretTurnSpeed: 0.85,
         blastRadius: 8.0,     // Standard 8.8cm HE-AP blast radius
         blastDamage: 100,
         recoilOffset: 0.56,
@@ -37,6 +38,41 @@ const TANK_SPECS = {
         sightSubtitle: '8.8cm KwK 36 L/56 • 810 M/S • 2 HP DAMAGE • PINPOINT SNIPER',
         fpvZoomText: 'OPTICAL 2.5× [HOLD RMB: 5.0× ZOOM]',
         description: 'German Heavy Tank • 8.8cm KwK 36 (2 HP Damage) • Pinpoint Sniper Precision'
+    },
+    kingtiger: {
+        id: 'kingtiger',
+        name: 'Pz.Kpfw. VI Ausf. B King Tiger ("323")',
+        shortName: 'King Tiger',
+        flag: '🇩🇪',
+        badge: '323',
+        subBadge: 'KÖNIGSTIGER',
+        nation: 'Germany',
+        year: '1944',
+        weight: '69.8 t',
+        massKg: 69800,
+        enginePowerKW: 515,
+        enemyArmor: 3,        // Enemy King Tiger tank has 3 armor points (Super-Heavy Boss)
+        playerArmor: 6,       // Player's tank has 2x armor points (6)
+        cannonDamage: 3,      // 8.8cm KwK 43 L/71 cannon deals 3 HP damage (devastating firepower)
+        gunName: '8.8 cm KwK 43 L/71',
+        caliberText: '8.8cm L/71',
+        shellVel: 1000,       // Historic 1000 m/s high velocity
+        reloadTime: 5.6,      // Heavy two-piece long ammo reload
+        spread: 0.00010,      // Pinpoint sniper precision
+        turretTurnSpeed: 0.70,
+        blastRadius: 9.5,     // Heavy 8.8cm HE-AP blast radius
+        blastDamage: 120,
+        recoilOffset: 0.62,
+        maxSpeed: 10.0,       // ~35 km/h
+        reverseSpeed: 3.8,
+        turnSpeed: 1.05,
+        minElevDeg: -8,
+        maxElevDeg: 17,
+        hasMuzzleBrake: true,
+        sightName: 'TZF 9d/1 — 8.8cm KwK 43 L/71 (1000 m/s • 3 HP Damage • Camouflaged)',
+        sightSubtitle: '8.8cm KwK 43 L/71 • 1000 M/S • 3 HP DAMAGE • AMBUSH CAMO',
+        fpvZoomText: 'OPTICAL 2.5× [HOLD RMB: 5.0× ZOOM]',
+        description: 'German Super-Heavy Tank • 8.8cm KwK 43 L/71 (3 HP Damage) • Ambush Camo • 150mm Sloped Glacis'
     },
     sherman: {
         id: 'sherman',
@@ -58,6 +94,7 @@ const TANK_SPECS = {
         shellVel: 460,        // Slower projectile with noticeable arc and flight delay
         reloadTime: 2.7,      // High reload rate: rapid-fire 2.7s reload
         spread: 0.0035,       // Moderate precision
+        turretTurnSpeed: 1.25,
         blastRadius: 6.5,     // Compact 75mm HE blast radius
         blastDamage: 85,
         recoilOffset: 0.38,
@@ -92,6 +129,7 @@ const TANK_SPECS = {
         shellVel: 740,
         reloadTime: 3.6,
         spread: 0.018,        // Low precision: wide dispersion cone
+        turretTurnSpeed: 1.00,
         blastRadius: 16.5,    // Massive projectile blast range & HE fragmentation!
         blastDamage: 150,
         recoilOffset: 0.46,
@@ -105,8 +143,85 @@ const TANK_SPECS = {
         sightSubtitle: '85mm ZiS-S-53 • 740 M/S • WIDE BLAST (16.5M)',
         fpvZoomText: 'OPTICAL 4.0× [HOLD RMB: 4.0× ZOOM]',
         description: 'Soviet Medium Tank • 85mm ZiS-S-53 • Massive High-Explosive Blast Area'
+    },
+    kv2: {
+        id: 'kv2',
+        name: 'KV-2 Heavy Artillery Tank ("ЗА РОДИНУ")',
+        shortName: 'KV-2',
+        flag: '🇷🇺',
+        badge: '152',
+        subBadge: 'KV-2',
+        nation: 'Soviet Union',
+        year: '1940',
+        weight: '52 t',
+        massKg: 52000,
+        enginePowerKW: 441,
+        enemyArmor: 2,        // Enemy KV-2 heavy tank has 2 armor points
+        playerArmor: 4,       // Player's tank has 2x armor points (4)
+        cannonDamage: 4,      // 152mm M-10T Howitzer deals 4 HP damage (devastating one-shot firepower)
+        gunName: '152 mm Howitzer M-10T',
+        caliberText: '152mm',
+        shellVel: 380,        // Slowest projectile in the game with noticeable high-arc delay
+        reloadTime: 6.5,      // Two-piece heavy 152mm ammunition reload time
+        spread: 0.0035,       // Precision is the same level as M4 Sherman
+        turretTurnSpeed: 0.45, // Slow turret traverse speed (massive 12-ton MT-1 turret)
+        blastRadius: 24.0,    // Biggest explosion radius in the game (massive 152mm HE blast)
+        blastDamage: 220,     // Heavy blast damage
+        recoilOffset: 0.72,   // Colossal howitzer recoil kick
+        maxSpeed: 10.6,       // Same speed as tiger tank
+        reverseSpeed: 4.2,    // Same reverse speed as tiger tank
+        turnSpeed: 1.15,      // Same turn speed as tiger tank
+        minElevDeg: -5,
+        maxElevDeg: 12,
+        hasMuzzleBrake: false,
+        sightName: 'TOD-9 — 152mm M-10T (380 m/s • 4 HP Damage • 24m Blast)',
+        sightSubtitle: '152mm M-10T • 380 M/S • 4 HP DAMAGE • COLOSSAL 24M BLAST',
+        fpvZoomText: 'OPTICAL 2.5× [HOLD RMB: 4.0× ZOOM]',
+        description: 'Soviet Heavy Artillery Tank • 152mm M-10T (4 HP Damage) • Colossal 24m HE Blast • 75mm All-Around Armor'
+    },
+    pershing: {
+        id: 'pershing',
+        name: 'M26 Pershing Heavy Tank ("VANGUARD")',
+        shortName: 'M26 Pershing',
+        flag: '🇺🇸',
+        badge: 'M26',
+        subBadge: 'PERSHING',
+        color: '#4e4630',
+        nation: 'United States',
+        year: '1945',
+        weight: '41.7 t',
+        massKg: 41700,
+        enginePowerKW: 373,
+        enemyArmor: 2,        // Enemy Pershing has 2 HP armor
+        playerArmor: 4,       // Player's tank has 2x armor points (4)
+        cannonDamage: 2,      // 90mm Gun M3 deals 2 HP damage (same as Tiger I KwK 36)
+        gunName: '90 mm Gun M3',
+        caliberText: '90mm',
+        shellVel: 810,        // Same velocity as Tiger I KwK 36 (810 m/s)
+        reloadTime: 2.7,      // Same reload speed as M4 Sherman (2.7s)
+        spread: 0.0003,       // Same precision as Tiger I
+        turretTurnSpeed: 0.85,
+        blastRadius: 8.0,     // Same blast radius as Tiger I (8.0m)
+        blastDamage: 100,     // Same blast damage as Tiger I
+        recoilOffset: 0.52,
+        maxSpeed: 15.2,       // Slightly faster than M4 Sherman (13.6 -> 15.2)
+        reverseSpeed: 5.4,
+        turnSpeed: 1.35,
+        minElevDeg: -10,
+        maxElevDeg: 20,
+        hasMuzzleBrake: true,
+        sightName: 'M71C — 90mm Gun M3 (810 m/s • 2 HP Damage • Rapid-Fire 2.7s)',
+        sightSubtitle: '90mm Gun M3 • 810 M/S • 2 HP DAMAGE • RAPID-FIRE (2.7s)',
+        fpvZoomText: 'OPTICAL 2.5× [HOLD RMB: 5.0× ZOOM]',
+        description: 'American Heavy Tank • 90mm Gun M3 (2 HP Damage) • Rapid 2.7s Reload • Sloped Glacis • Olive-Dirt Brown'
     }
 };
+
+TANK_SPECS.m26 = TANK_SPECS.pershing;
+TANK_SPECS.m26_pershing = TANK_SPECS.pershing;
+
+TANK_SPECS.tiger2 = TANK_SPECS.kingtiger;
+TANK_SPECS.king_tiger = TANK_SPECS.kingtiger;
 
 window.TANK_SPECS = TANK_SPECS;
 window.currentTankId = 'tiger';
@@ -234,8 +349,14 @@ function buildTankById(tankId, scene, mats) {
     let model = null;
     if (tankId === 'sherman') {
         model = window.buildShermanTank(s, m);
+    } else if (tankId === 'pershing' || tankId === 'm26' || tankId === 'm26_pershing') {
+        model = (typeof window.buildPershingTank === 'function') ? window.buildPershingTank(s, m) : window.buildShermanTank(s, m);
     } else if (tankId === 't34') {
         model = window.buildT34Tank(s, m);
+    } else if (tankId === 'kv2' && typeof window.buildKV2Tank === 'function') {
+        model = window.buildKV2Tank(s, m);
+    } else if ((tankId === 'kingtiger' || tankId === 'tiger2' || tankId === 'king_tiger') && typeof window.buildKingTigerTank === 'function') {
+        model = window.buildKingTigerTank(s, m);
     } else {
         model = window.buildTigerTank(s, m);
     }
@@ -287,10 +408,11 @@ function switchTank(newTankId) {
         window.tankState.CANNON_SPREAD = spec.spread;
         window.tankState.BLAST_RADIUS = spec.blastRadius;
         window.tankState.BLAST_DAMAGE = spec.blastDamage;
-        window.tankState.CANNON_DAMAGE = (typeof spec.cannonDamage === 'number') ? spec.cannonDamage : ((newTankId === 'tiger') ? 2 : 1);
+        window.tankState.CANNON_DAMAGE = (typeof spec.cannonDamage === 'number') ? spec.cannonDamage : ((newTankId === 'kingtiger' || newTankId === 'tiger2' || newTankId === 'king_tiger') ? 3 : ((newTankId === 'tiger') ? 2 : 1));
         window.tankState.MAX_SPEED = spec.maxSpeed;
         window.tankState.REVERSE_SPEED = spec.reverseSpeed;
         window.tankState.TURN_SPEED = spec.turnSpeed;
+        window.tankState.TURRET_TURN_SPEED = spec.turretTurnSpeed || 1.0;
         window.tankState.RECOIL_OFFSET = spec.recoilOffset;
         window.tankState.MIN_ELEV_RAD = THREE.MathUtils.degToRad(spec.minElevDeg);
         window.tankState.MAX_ELEV_RAD = THREE.MathUtils.degToRad(spec.maxElevDeg);
@@ -349,6 +471,9 @@ function switchTank(newTankId) {
 
     return newModel;
 }
+
+TANK_SPECS.tiger2 = TANK_SPECS.kingtiger;
+TANK_SPECS.king_tiger = TANK_SPECS.kingtiger;
 
 window.TANK_SPECS = TANK_SPECS;
 window.bindTankGlobals = bindTankGlobals;

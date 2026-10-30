@@ -47,14 +47,19 @@ function setCameraMode(mode) {
     const fpvEl = document.getElementById('fpv-overlay');
     if (fpvEl) fpvEl.classList.toggle('hidden', mode !== 'fpv');
     const extReticle = document.getElementById('external-reticle');
-    if (extReticle) extReticle.classList.toggle('hidden', mode === 'fpv');
+    if (extReticle) extReticle.classList.remove('hidden');
 
     if (window.perspCamera) {
         if (mode === 'fpv') {
             isFpvZoomed = false;
             window.perspCamera.fov = 46;
+            if (window.tankState) {
+                camOrbit.theta = tankState.heading + (tankState.turretYaw || 0) + Math.PI;
+                camOrbit.phi = THREE.MathUtils.clamp(Math.PI / 2 + (tankState.gunElevation || 0), 0.95, 2.20);
+            }
         } else {
             window.perspCamera.fov = 42;
+            camOrbit.phi = THREE.MathUtils.clamp(camOrbit.phi, 0.45, 1.85);
         }
         window.perspCamera.updateProjectionMatrix();
     }
@@ -106,7 +111,33 @@ function initControls(renderer) {
         if (k === 'e') { if (typeof window.triggerInteract === 'function') window.triggerInteract(); }
         if (k === 'r') { if (typeof window.restartGame === 'function') window.restartGame(); }
         if (k === 't') { if (window.dayNight && window.dayNight.cycleNext) window.dayNight.cycleNext(); }
-        if (k === '5' || k === 'v' || k === 'c') {
+        if (window.playerMode !== 'soldier' && typeof window.switchTank === 'function') {
+            if (k === '1') {
+                window.switchTank('tiger');
+                if (typeof window.showKillFeedBanner === 'function') window.showKillFeedBanner('Switched to Pz.VI Tiger Ausf. E', '#fbbf24');
+            }
+            if (k === '2') {
+                window.switchTank('kingtiger');
+                if (typeof window.showKillFeedBanner === 'function') window.showKillFeedBanner('Switched to Pz.VI Ausf. B King Tiger (Ambush Camo)', '#fbbf24');
+            }
+            if (k === '3') {
+                window.switchTank('sherman');
+                if (typeof window.showKillFeedBanner === 'function') window.showKillFeedBanner('Switched to M4 Sherman', '#84cc16');
+            }
+            if (k === '4') {
+                window.switchTank('t34');
+                if (typeof window.showKillFeedBanner === 'function') window.showKillFeedBanner('Switched to T-34-85', '#ef4444');
+            }
+            if (k === '5') {
+                window.switchTank('kv2');
+                if (typeof window.showKillFeedBanner === 'function') window.showKillFeedBanner('Switched to KV-2 Heavy Tank ("ЗА РОДИНУ")', '#ef4444');
+            }
+            if (k === '6') {
+                window.switchTank('pershing');
+                if (typeof window.showKillFeedBanner === 'function') window.showKillFeedBanner('Switched to M26 Pershing Heavy Tank', '#d97706');
+            }
+        }
+        if (k === 'v' || k === 'c') {
             if (window.playerMode !== 'soldier') {
                 setCameraMode(cameraMode === 'fpv' ? 'orbit' : 'fpv');
             }
@@ -209,14 +240,11 @@ function initControls(renderer) {
 
         if (dx !== 0 || dy !== 0) {
             if (cameraMode === 'fpv') {
-                const sens = isFpvZoomed ? 0.0010 : 0.0024;
-                tankState.targetTurretYaw -= dx * sens;
-                tankState.targetGunElevation = THREE.MathUtils.clamp(
-                    tankState.targetGunElevation - dy * sens,
-                    tankState.MIN_ELEV_RAD,
-                    tankState.MAX_ELEV_RAD
-                );
-                camOrbit.theta = tankState.heading + tankState.targetTurretYaw + Math.PI;
+                const sens = isFpvZoomed ? 0.0012 : 0.0028;
+                camOrbit.theta -= dx * sens;
+                const minPhi = 0.95;
+                const maxPhi = 2.20;
+                camOrbit.phi = THREE.MathUtils.clamp(camOrbit.phi - dy * sens, minPhi, maxPhi);
             } else {
                 const sens = 0.0032;
                 camOrbit.theta -= dx * sens;
@@ -369,14 +397,11 @@ function initControls(renderer) {
                     touchAimLastY = t.clientY;
 
                     if (cameraMode === 'fpv') {
-                        const sens = isFpvZoomed ? 0.0015 : 0.0035;
-                        tankState.targetTurretYaw -= dx * sens;
-                        tankState.targetGunElevation = THREE.MathUtils.clamp(
-                            tankState.targetGunElevation - dy * sens,
-                            tankState.MIN_ELEV_RAD,
-                            tankState.MAX_ELEV_RAD
-                        );
-                        camOrbit.theta = tankState.heading + tankState.targetTurretYaw + Math.PI;
+                        const sens = isFpvZoomed ? 0.0020 : 0.0045;
+                        camOrbit.theta -= dx * sens;
+                        const minPhi = 0.95;
+                        const maxPhi = 2.20;
+                        camOrbit.phi = THREE.MathUtils.clamp(camOrbit.phi - dy * sens, minPhi, maxPhi);
                     } else {
                         const sens = 0.0055;
                         camOrbit.theta -= dx * sens;
@@ -430,6 +455,19 @@ function initControls(renderer) {
     // ------------------------------------------------------------------------
     // 4. TOP VIEWS & AUDIO CONTROLS
     // ------------------------------------------------------------------------
+    // ------------------------------------------------------------------------
+    // 4b. TANK SELECTOR BUTTONS
+    // ------------------------------------------------------------------------
+    document.querySelectorAll('.tank-select-btn').forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+            e.preventDefault();
+            const tid = btn.getAttribute('data-tank');
+            if (tid && typeof window.switchTank === 'function') {
+                window.switchTank(tid);
+            }
+        });
+    });
+
     const btnOrbit = document.getElementById('cam-orbit');
     if (btnOrbit) btnOrbit.onclick = () => setCameraMode('orbit');
 

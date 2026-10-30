@@ -2022,7 +2022,7 @@
                 const groundPos = new THREE.Vector3(this.x, this.y + 0.1, this.z);
                 for (let i = 0; i < 6; i++) {
                     const dVel = new THREE.Vector3((Math.random() - 0.5) * 2.5, 0.4 + Math.random() * 0.8, (Math.random() - 0.5) * 2.5);
-                    window.spawnParticle(groundPos, dVel, 0x5a4d41, 0.20, 0.75, 0.85, false, 'dirt');
+                    window.spawnParticle(groundPos, dVel, 0x5a4d41, 0.20, 0.95, 0.85, false, 'dust', { maxOpacity: 0.75 });
                 }
                 const bPos = new THREE.Vector3(this.x, this.y + 0.35, this.z);
                 window.spawnParticle(bPos, new THREE.Vector3(0, 0.5, 0), 0x7f1d1d, 0.18, 0.35, 0.8, false, 'smoke');
@@ -2196,9 +2196,9 @@
     // 7. BATTLEFIELD SPAWNER & CAMPAIGN COORDINATOR
     // ------------------------------------------------------------------------
     function getFactionsForPlayerTank(playerTankId) {
-        if (playerTankId === 'tiger') {
+        if (playerTankId === 'tiger' || playerTankId === 'kingtiger' || playerTankId === 'tiger2' || playerTankId === 'king_tiger') {
             return { allied: 'german', enemy: 'us' };
-        } else if (playerTankId === 'sherman') {
+        } else if (playerTankId === 'sherman' || playerTankId === 'pershing' || playerTankId === 'm26' || playerTankId === 'm26_pershing') {
             return { allied: 'us', enemy: 'german' };
         } else {
             return { allied: 'soviet', enemy: 'german' };
@@ -2222,7 +2222,7 @@
             for (let i = 0; i < escortCount; i++) {
                 const tank = tanks[i];
                 const tType = (tank && tank.tankType) ? tank.tankType : 'tiger';
-                const f = (tType === 'sherman') ? 'us' : ((tType === 't34') ? 'soviet' : 'german');
+                const f = (tType === 'sherman' || tType === 'pershing') ? 'us' : ((tType === 't34' || tType === 'kv2') ? 'soviet' : 'german');
                 spawnSoldierEscortForTank(tank, f);
             }
         }
@@ -2254,7 +2254,7 @@
             const pPos = new THREE.Vector3(sx, gy + 0.8, sz);
             for (let i = 0; i < 6; i++) {
                 const pVel = new THREE.Vector3((Math.random() - 0.5) * 3, 1.2 + Math.random() * 2, (Math.random() - 0.5) * 3);
-                window.spawnParticle(pPos, pVel, 0x8c7853, 0.2, 0.8, 0.6, false, 'dirt');
+                window.spawnParticle(pPos, pVel, 0x8c7853, 0.2, 1.1, 0.75, false, 'dust', { maxOpacity: 0.72 });
             }
         }
 

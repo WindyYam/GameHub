@@ -12,7 +12,7 @@
         if (window.TANK_SPECS && window.TANK_SPECS[id] && typeof window.TANK_SPECS[id].playerArmor === 'number') {
             return window.TANK_SPECS[id].playerArmor;
         }
-        return id === 'tiger' ? 4 : 2;
+        return (id === 'kingtiger' || id === 'tiger2' || id === 'king_tiger') ? 6 : (id === 'tiger' ? 4 : 2);
     }
     window.getPlayerMaxArmor = getPlayerMaxArmor;
 
@@ -56,9 +56,9 @@
 
     // ========================================================================
     // 1. ALL CAMPAIGNS FACTION ASSIGNMENT
-    // Enemies spawn from all campaigns: Tiger I (German), Sherman (US), T-34-85 (Soviet)
+    // Enemies spawn from all campaigns: Tiger I & King Tiger (German), Sherman & Pershing (US), T-34-85 & KV-2 (Soviet)
     // ========================================================================
-    const ALL_CAMPAIGNS = ['tiger', 'sherman', 't34'];
+    const ALL_CAMPAIGNS = ['tiger', 'kingtiger', 'sherman', 'pershing', 't34', 'kv2'];
     function getRandomCampaignTankType() {
         return ALL_CAMPAIGNS[Math.floor(Math.random() * ALL_CAMPAIGNS.length)];
     }
@@ -160,8 +160,14 @@
         let model = null;
         if (tankType === 'sherman' && typeof window.buildShermanTank === 'function') {
             model = window.buildShermanTank(enemyRoot, m, { isEnemy: true });
+        } else if (tankType === 'pershing' && typeof window.buildPershingTank === 'function') {
+            model = window.buildPershingTank(enemyRoot, m, { isEnemy: true });
         } else if (tankType === 't34' && typeof window.buildT34Tank === 'function') {
             model = window.buildT34Tank(enemyRoot, m, { isEnemy: true });
+        } else if (tankType === 'kv2' && typeof window.buildKV2Tank === 'function') {
+            model = window.buildKV2Tank(enemyRoot, m, { isEnemy: true });
+        } else if ((tankType === 'kingtiger' || tankType === 'tiger2' || tankType === 'king_tiger') && typeof window.buildKingTigerTank === 'function') {
+            model = window.buildKingTigerTank(enemyRoot, m, { isEnemy: true });
         } else if (typeof window.buildTigerTank === 'function') {
             model = window.buildTigerTank(enemyRoot, m, { isEnemy: true });
         }
@@ -223,8 +229,8 @@
             aimErrorTimer: 0,
             speed: 0,
             isDestroyed: false,
-            maxArmor: (spec.enemyArmor !== undefined ? spec.enemyArmor : (tankType === 'tiger' ? 2 : 1)),
-            armor: (spec.enemyArmor !== undefined ? spec.enemyArmor : (tankType === 'tiger' ? 2 : 1)),
+            maxArmor: (spec.enemyArmor !== undefined ? spec.enemyArmor : ((tankType === 'kingtiger' || tankType === 'tiger2' || tankType === 'king_tiger') ? 3 : (tankType === 'tiger' ? 2 : 1))),
+            armor: (spec.enemyArmor !== undefined ? spec.enemyArmor : ((tankType === 'kingtiger' || tankType === 'tiger2' || tankType === 'king_tiger') ? 3 : (tankType === 'tiger' ? 2 : 1))),
             burningSmokeTimer: 0,
             plumePuffs: [],
 
@@ -520,8 +526,10 @@
             const rawDesiredLocalTurretYaw = normalizeAngle(worldAngleToPlayer - e.heading);
             const desiredLocalTurretYaw = normalizeAngle(rawDesiredLocalTurretYaw + (e.aimErrorYaw || 0));
 
-            // Slew turret towards target with authentic traverse speed (~0.85 rad/s)
-            const turretTurnSpeed = (e.tankType === 'sherman') ? 1.15 : (e.tankType === 't34' ? 0.95 : 0.75);
+            // Slew turret towards target with authentic traverse speed
+            const turretTurnSpeed = (e.spec && typeof e.spec.turretTurnSpeed === 'number')
+                ? e.spec.turretTurnSpeed
+                : ((e.tankType === 'sherman') ? 1.25 : (e.tankType === 't34' ? 1.00 : (e.tankType === 'kv2' ? 0.45 : 0.85)));
             e.turretYaw = THREE.MathUtils.lerp(e.turretYaw, desiredLocalTurretYaw, dt * turretTurnSpeed * 1.5);
             if (e.model.turretGroup) e.model.turretGroup.rotation.y = e.turretYaw;
 
@@ -617,9 +625,29 @@
                     e.enemyRoot.position.set(e.x, e.y, e.z);
 
                     // Animate road wheels & track links while moving
-                    if (typeof e.model.updateTracksGeometry === 'function') {
+                                        if (typeof e.model.updateTracksGeometry === 'function') {
                         const trackAnim = e.speed * 0.9;
                         e.model.updateTracksGeometry(nowSec * trackAnim * 1.5, nowSec * trackAnim * 1.5);
+                    }
+
+                    // Track dust plumes kicked up by moving enemy tank
+                    if (Math.abs(e.speed) > 0.3 && typeof window.spawnParticle === 'function' && Math.random() < 1.0 - Math.exp(-4.0 * dt)) {
+                        const enemyTrackWidth = (e.tankType === 'kingtiger') ? 1.48 : ((e.tankType === 'tiger') ? 1.38 : 1.20);
+                        const dustCol = (window.currentZoneConfig && window.currentZoneConfig.trackDustColor) ? window.currentZoneConfig.trackDustColor : 0x5c4d3c;
+                        [-enemyTrackWidth, enemyTrackWidth].forEach((sideX) => {
+                            const kickOffset = new THREE.Vector3(sideX, -0.85, -2.3).applyAxisAngle(new THREE.Vector3(0, 1, 0), e.heading);
+                            const kickPos = kickOffset.add(e.enemyRoot.position);
+                            const backDir = new THREE.Vector3(-Math.sin(e.heading), 0, -Math.cos(e.heading));
+                            const kickVel = backDir.multiplyScalar(Math.abs(e.speed) * 0.4 + 0.6);
+                            kickVel.x += (Math.random() - 0.5) * 1.2;
+                            kickVel.y = 0.4 + Math.random() * 0.8;
+                            kickVel.z += (Math.random() - 0.5) * 1.2;
+                            window.spawnParticle(kickPos, kickVel, dustCol, 0.35, 2.5 + Math.random() * 0.8, 1.1 + Math.random() * 0.6, false, 'dust', {
+                                maxOpacity: 0.70,
+                                drag: 0.91,
+                                buoyancy: -0.08
+                            });
+                        });
                     }
                 }
             }
@@ -674,9 +702,31 @@
                 }
 
                 // Blast fire & smoke plume VFX
-                if (typeof window.spawnParticle === 'function') {
+                                if (typeof window.spawnParticle === 'function') {
                     window.spawnParticle(muzzlePos, fireDir.clone().multiplyScalar(14), 0xfffbeb, 0.6, 2.4, 0.12, true, 'fire');
                     window.spawnParticle(muzzlePos, fireDir.clone().multiplyScalar(6), 0x94a3b8, 0.45, 3.2, 0.50, false, 'smoke');
+
+                    // Ground dust shockwave under enemy muzzle
+                    if (typeof window.getTerrainHeight === 'function') {
+                        const groundUnderMuzzle = muzzlePos.clone();
+                        groundUnderMuzzle.y = window.getTerrainHeight(muzzlePos.x, muzzlePos.z) + 0.12;
+                        const groundDustCol = (window.currentZoneConfig && window.currentZoneConfig.trackDustColor)
+                            ? window.currentZoneConfig.trackDustColor : 0x785e46;
+                        for (let d = 0; d < 12; d++) {
+                            const dAng = (d / 12) * Math.PI * 2;
+                            const dSpd = 4.2 + Math.random() * 3.5;
+                            const dVel = new THREE.Vector3(
+                                Math.cos(dAng) * dSpd + fireDir.x * 2.8,
+                                0.3 + Math.random() * 0.75,
+                                Math.sin(dAng) * dSpd + fireDir.z * 2.8
+                            );
+                            window.spawnParticle(groundUnderMuzzle, dVel, groundDustCol, 0.38, 3.4, 0.85 + Math.random() * 0.35, false, 'dust', {
+                                maxOpacity: 0.78,
+                                drag: 0.90,
+                                buoyancy: -0.06
+                            });
+                        }
+                    }
                 }
 
                 // Cannon Sound FX
@@ -722,11 +772,6 @@
             window.soundFX.playExplosion(impactPos);
         }
 
-        // Heavy detonation at impact position on player tank
-        if (typeof window.triggerHeavyDetonation === 'function') {
-            window.triggerHeavyDetonation(impactPos);
-        }
-
         // Red damage screen flash vignette
         showDamageFlash(playerHitsTaken >= maxArmor ? 0.75 : 0.45);
 
@@ -747,18 +792,18 @@
                 window.turretGroup.position.y += 0.18;
             }
 
-            // Catastrophic secondary ammunition explosion
+            // Catastrophic secondary ammunition explosion (ignorePlayer = true so wreck explosion doesn't kill bailed out soldier)
             if (typeof window.triggerHeavyDetonation === 'function') {
                 const playerHullPos = new THREE.Vector3(window.tankState.x, (window.tankState.y || 0) + 1.5, window.tankState.z);
-                window.triggerHeavyDetonation(playerHullPos);
+                window.triggerHeavyDetonation(playerHullPos, true);
             }
 
             // When killed as tank, allow player to continue fighting as infantry!
             if (window.playerMode !== 'soldier') {
                 if (typeof window.dismountTank === 'function') {
-                    window.dismountTank();
+                    window.dismountTank(true);
                 }
-                showKillFeedBanner('💥 TANK DESTROYED! BAILED OUT AS INFANTRY! SNEAK & HIJACK AN ENEMY TANK [E]');
+                showKillFeedBanner('💥 TANK DESTROYED! BAILED OUT AS INFANTRY! [INVINCIBLE 1s]');
             } else {
                 showKillFeedBanner('💥 TANK WRECK DESTROYED!');
             }
@@ -904,7 +949,7 @@
         if (activeEnemyTanks.length >= MAX_ZONE_ENEMIES) return null;
 
         const currentTank = window.currentTankId || 'tiger';
-        const isPlayerGerman = (currentTank === 'tiger');
+        const isPlayerGerman = (currentTank === 'tiger' || currentTank === 'kingtiger' || currentTank === 'tiger2' || currentTank === 'king_tiger');
 
         // Golden angle offset (~2.3999 rad) to distribute spawns evenly around 360 degrees
         lastSpawnAngle += 2.39996 + (Math.random() - 0.5) * 0.4;
@@ -981,7 +1026,7 @@
         if (enemy && typeof window.spawnSoldierEscortForTank === 'function') {
             const currentSoldiers = window.activeSoldiers ? window.activeSoldiers.length : 0;
             if (currentSoldiers < 14) {
-                const enemyFaction = (tankType === 'sherman') ? 'us' : ((tankType === 't34') ? 'soviet' : 'german');
+                const enemyFaction = (tankType === 'sherman' || tankType === 'pershing') ? 'us' : ((tankType === 't34' || tankType === 'kv2') ? 'soviet' : 'german');
                 window.spawnSoldierEscortForTank(enemy, enemyFaction);
             }
         }

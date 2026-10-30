@@ -3979,6 +3979,7 @@ function createCoastalOceanMesh() {
     const oceanMesh = new THREE.Mesh(oceanGeo, oceanMat);
     oceanMesh.position.set(0, -2.5, 0);
     oceanMesh.receiveShadow = true;
+    oceanMesh.renderOrder = -10; // Environmental water surface: always render before transparent particle effects
     return oceanMesh;
 }
 
@@ -4350,6 +4351,7 @@ function updateEnvironment(dt, tankState) {
     if (waterMeshRef && waterMeshRef.material && waterMeshRef.material.uniforms && waterMeshRef.material.uniforms.uTime) {
         waterMeshRef.material.uniforms.uTime.value = timeSec;
         waterMeshRef.position.set(px, -2.5, pz);
+        waterMeshRef.renderOrder = -10;
     }
 
     // Update building positions near player for real-time grass & terrain contact culling
@@ -4475,7 +4477,7 @@ function restartGame(customSeed) {
     if (typeof window.resetPlayerSoldier === 'function') window.resetPlayerSoldier();
     if (typeof window.hideKnockoutModal === 'function') window.hideKnockoutModal();
 
-    const ALL_CAMPAIGNS = ['tiger', 'sherman', 't34'];
+    const ALL_CAMPAIGNS = ['tiger', 'kingtiger', 'sherman', 'pershing', 't34', 'kv2'];
     const randCampaign = ALL_CAMPAIGNS[Math.floor(Math.random() * ALL_CAMPAIGNS.length)];
     if (typeof window.switchTank === 'function') {
         window.switchTank(randCampaign);

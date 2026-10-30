@@ -9,6 +9,7 @@
 
     function onPlayerSoldierDamage(amount) {
         if (!playerSoldier || playerSoldier.isDead) return;
+        if (playerSoldier.invulnerableTimer > 0) return;
         playerSoldier.health = Math.max(0, playerSoldier.health - Math.round(amount));
 
         // Flinch / kickback impulse
@@ -158,8 +159,8 @@
 
     function getPlayerFaction() {
         const tid = window.currentTankId || 'tiger';
-        if (tid === 'tiger') return 'german';
-        if (tid === 'sherman') return 'us';
+        if (tid === 'tiger' || tid === 'kingtiger' || tid === 'tiger2' || tid === 'king_tiger') return 'german';
+        if (tid === 'sherman' || tid === 'pershing' || tid === 'm26' || tid === 'm26_pershing') return 'us';
         return 'soviet';
     }
 
@@ -533,9 +534,11 @@
     // ------------------------------------------------------------------------
     // 1. DISMOUNT TANK (Become Infantry)
     // ------------------------------------------------------------------------
-    function dismountTank() {
+    function dismountTank(isBailout = false) {
         if (playerMode === 'soldier') return;
         if (!window.tankState) return;
+
+        const isTankDestroyed = Boolean(isBailout || (window.tankState && window.tankState.isKnockedOut));
 
         // Bring tank to a standstill and clear all weapon firing flags
         window.tankState.speed = 0;
@@ -596,6 +599,7 @@
             health: 100,
             maxHealth: 100,
             isDead: false,
+            invulnerableTimer: isTankDestroyed ? 1.0 : 0.0, // 1s invincibility when tank is destroyed
             animTime: 0,
             recoilKick: 0,
             fireCooldown: 0,
@@ -721,7 +725,7 @@
         }
 
         // Eject the enemy driver soldier out onto the battlefield!
-        const enemyFaction = enemyTank.faction || (capturedType === 'tiger' ? 'german' : (capturedType === 't34' ? 'soviet' : 'us'));
+        const enemyFaction = enemyTank.faction || ((capturedType === 'tiger' || capturedType === 'kingtiger' || capturedType === 'tiger2' || capturedType === 'king_tiger') ? 'german' : ((capturedType === 't34' || capturedType === 'kv2') ? 'soviet' : 'us'));
         if (typeof window.spawnEjectedDriver === 'function') {
             window.spawnEjectedDriver(capturedX, capturedZ, capturedHeading, enemyFaction);
         }
@@ -849,6 +853,21 @@
         s.animTime += dt;
         s.fireCooldown = Math.max(0, s.fireCooldown - dt);
         s.recoilKick = Math.max(0, s.recoilKick - dt * 5.0);
+
+        if (s.invulnerableTimer > 0) {
+            s.invulnerableTimer = Math.max(0, s.invulnerableTimer - dt);
+            const hudArmor = document.getElementById('hud-armor');
+            if (hudArmor) {
+                if (s.invulnerableTimer > 0) {
+                    const sec = s.invulnerableTimer.toFixed(1);
+                    hudArmor.textContent = `HP: ${s.health}/100 🛡️ [${sec}s]`;
+                    hudArmor.className = 'text-amber-300 font-bold';
+                } else {
+                    hudArmor.textContent = `HP: ${s.health}/100`;
+                    hudArmor.className = 'text-emerald-400 font-bold';
+                }
+            }
+        }
 
         // 1. WASD Input relative to Camera Look Direction
         const stickForward = window.touchDrive ? (window.touchDrive.forward || 0) : 0;

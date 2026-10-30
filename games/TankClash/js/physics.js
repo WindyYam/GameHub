@@ -93,6 +93,27 @@ const PROJECTILE_POOL_LIMIT = 64;
 const smokePool = [];
 window.smokePool = smokePool;
 const reusableParticlePools = new Map();
+// Reusable volumetric dust particle pool for realistic track dust plumes & blast shockwaves
+const dustPool = [];
+window.dustPool = dustPool;
+let _dirtClodGeo = null;
+function createDirtClodGeometry() {
+    if (_dirtClodGeo) return _dirtClodGeo;
+    const geo = new THREE.DodecahedronGeometry(0.85, 0);
+    const pos = geo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+        const x = pos.getX(i);
+        const y = pos.getY(i);
+        const z = pos.getZ(i);
+        const len = Math.hypot(x, y, z) || 1.0;
+        const disp = 0.72 + (Math.sin(x * 6.5 + y * 11.2) * Math.cos(z * 7.4) * 0.5 + 0.5) * 0.56;
+        pos.setXYZ(i, (x / len) * disp, (y / len) * disp * 0.82, (z / len) * disp * 1.15);
+    }
+    geo.computeVertexNormals();
+    _dirtClodGeo = geo;
+    return geo;
+}
+
 const PARTICLE_POOL_LIMIT = 128;
 let particlePoolsPrewarmed = false;
 
@@ -102,15 +123,31 @@ function getParticlePoolKey(type, isAdditive) {
 
 function createParticleObject(type, isAdditive, colorHex) {
     const isSpark = type === 'spark';
-    const isFire = type === 'fire';
-    const mat = new THREE.MeshBasicMaterial({
-        color: colorHex,
-        transparent: true,
-        opacity: isFire ? 0.95 : (isAdditive ? 0.9 : 0.85),
-        blending: isAdditive || isFire ? THREE.AdditiveBlending : THREE.NormalBlending,
-        depthWrite: false
-    });
-    const mesh = new THREE.Mesh(isSpark ? sparkParticleGeo : sphereParticleGeo, mat);
+    const isDirt  = type === 'dirt';
+    const isFire  = type === 'fire';
+
+    let geo;
+    if (isSpark) geo = sparkParticleGeo;
+    else if (isDirt) geo = createDirtClodGeometry();
+    else geo = sphereParticleGeo;
+
+    const mat = isDirt
+        ? new THREE.MeshLambertMaterial({
+            color: colorHex,
+            transparent: true,
+            opacity: 0.90,
+            depthWrite: false
+        })
+        : new THREE.MeshBasicMaterial({
+            color: colorHex,
+            transparent: true,
+            opacity: isFire ? 0.95 : (isAdditive ? 0.9 : 0.85),
+            blending: isAdditive || isFire ? THREE.AdditiveBlending : THREE.NormalBlending,
+            depthWrite: false
+        });
+
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.renderOrder = (type === 'fire') ? 30 : ((type === 'spark') ? 40 : 20);
     if (window.excludeFromSSAO) window.excludeFromSSAO(mesh);
     return { mesh, mat };
 }
@@ -133,6 +170,7 @@ function prewarmParticlePools() {
     for (let i = 0; i < 64; i++) {
         const mat = (window.createHaltonSmokeMaterial || window.createMaldiveSmokeMaterial)(0x94a3b8);
         const mesh = new THREE.Mesh(smokeGeometry, mat);
+        mesh.renderOrder = 20;
         if (window.excludeFromSSAO) window.excludeFromSSAO(mesh);
         mesh.visible = false;
         smokePool.push({ mesh, mat });
@@ -151,20 +189,39 @@ function prewarmParticlePools() {
 
     warmParticleType('fire', true, 24);
     warmParticleType('spark', true, 32);
-    warmParticleType('spark', false, 8);
+        warmParticleType('spark', false, 8);
     warmParticleType('dirt', false, 16);
+
+    const dustGeometry = window.createVolumetricDustGeometry
+        ? window.createVolumetricDustGeometry()
+        : sphereParticleGeo;
+    for (let i = 0; i < 64; i++) {
+        const mat = window.createVolumetricDustMaterial
+            ? window.createVolumetricDustMaterial(0x5c4d3c)
+            : ((window.createHaltonSmokeMaterial || window.createMaldiveSmokeMaterial)
+                ? (window.createHaltonSmokeMaterial || window.createMaldiveSmokeMaterial)(0x5c4d3c)
+                : createParticleObject('dirt', false, 0x5c4d3c).mat);
+        const mesh = new THREE.Mesh(dustGeometry, mat);
+        mesh.renderOrder = 15;
+        if (window.excludeFromSSAO) window.excludeFromSSAO(mesh);
+        mesh.visible = false;
+        dustPool.push({ mesh, mat });
+    }
 }
 window.prewarmParticlePools = prewarmParticlePools;
 
 function createShellObject() {
     const group = new THREE.Group();
+    group.renderOrder = 35;
     const core = new THREE.Mesh(shellCoreGeo, shellCoreMaterial);
     core.rotation.x = Math.PI / 2;
+    core.renderOrder = 35;
     group.add(core);
 
     const flame = new THREE.Mesh(shellFlameGeo, shellFlameMaterial);
     flame.rotation.x = Math.PI / 2;
     flame.position.z = -0.7;
+    flame.renderOrder = 35;
     group.add(flame);
 
     if (window.excludeFromSSAO) window.excludeFromSSAO(group);
@@ -173,8 +230,10 @@ function createShellObject() {
 
 function createTracerObject() {
     const group = new THREE.Group();
+    group.renderOrder = 35;
     const mesh = new THREE.Mesh(tracerGeo, tracerMaterial);
     mesh.rotation.x = Math.PI / 2;
+    mesh.renderOrder = 35;
     group.add(mesh);
     if (window.excludeFromSSAO) window.excludeFromSSAO(group);
     return group;
@@ -203,6 +262,7 @@ function prewarmParticleShaders(renderer, camera) {
     };
 
     if (smokePool.length > 0) includeMesh(smokePool[0].mesh);
+    if (dustPool.length > 0) includeMesh(dustPool[0].mesh);
     for (const pool of reusableParticlePools.values()) {
         if (pool.length > 0) includeMesh(pool[0].mesh);
     }
@@ -295,6 +355,7 @@ function spawnShockwave(pos, maxRadius, duration, colorHex = 0xfde68a) {
         blending: THREE.AdditiveBlending
     });
     const mesh = pooled ? pooled.mesh : new THREE.Mesh(shockwaveGeo, mat);
+    mesh.renderOrder = 25;
     mat.color.setHex(colorHex);
     mat.opacity = 0.85;
     mesh.visible = true;
@@ -316,6 +377,71 @@ function spawnShockwave(pos, maxRadius, duration, colorHex = 0xfde68a) {
 function spawnParticle(pos, vel, colorHex, startSize, endSize, life, isAdditive = false, type = 'smoke', extraOpts = null) {
     const currentScene = window.scene;
     if (!currentScene) return;
+
+        // High-Fidelity Volumetric Feathered Dust Plume (Zero Hard Circles)
+    if (type === 'dust') {
+        let mesh, mat;
+        if (dustPool.length > 0) {
+            const pooled = dustPool.pop();
+            mesh = pooled.mesh;
+            mat = pooled.mat;
+            if (mat && mat.uniforms && mat.uniforms.diffuse) {
+                if (typeof colorHex === 'number') {
+                    mat.uniforms.diffuse.value.setHex(colorHex);
+                } else if (colorHex && colorHex.isColor) {
+                    mat.uniforms.diffuse.value.copy(colorHex);
+                }
+            } else if (mat && mat.color) {
+                if (typeof colorHex === 'number') mat.color.setHex(colorHex);
+                else if (colorHex && colorHex.isColor) mat.color.copy(colorHex);
+            }
+            if (mat && mat.uniforms && mat.uniforms.uAgeProgress) mat.uniforms.uAgeProgress.value = 0.0;
+            if (mat && mat.uniforms && mat.uniforms.opacity) {
+                mat.uniforms.opacity.value = (extraOpts && extraOpts.maxOpacity !== undefined) ? extraOpts.maxOpacity : 0.78;
+            }
+            mesh.visible = true;
+        } else {
+            mat = window.createVolumetricDustMaterial
+                ? window.createVolumetricDustMaterial(colorHex)
+                : ((window.createHaltonSmokeMaterial || window.createMaldiveSmokeMaterial)
+                    ? (window.createHaltonSmokeMaterial || window.createMaldiveSmokeMaterial)(colorHex)
+                    : createParticleObject('dirt', false, colorHex).mat);
+            const dustGeo = window.createVolumetricDustGeometry ? window.createVolumetricDustGeometry() : sphereParticleGeo;
+            mesh = new THREE.Mesh(dustGeo, mat);
+            if (window.excludeFromSSAO) window.excludeFromSSAO(mesh);
+            currentScene.add(mesh);
+        }
+
+        if (window.excludeFromSSAO) window.excludeFromSSAO(mesh);
+        if (mesh.parent !== currentScene) currentScene.add(mesh);
+        mesh.renderOrder = 20;
+        mesh.position.copy(pos);
+        mesh.scale.setScalar(startSize);
+        mesh.rotation.set(Math.random() * 6.28, Math.random() * 6.28, Math.random() * 6.28);
+
+        particles.push({
+            mesh,
+            mat,
+            vel: vel.clone(),
+            startSize,
+            endSize,
+            age: 0,
+            life,
+            type,
+            rotVel: new THREE.Vector3(
+                (Math.random() - 0.5) * 1.8,
+                (Math.random() - 0.5) * 1.8,
+                (Math.random() - 0.5) * 1.8
+            ),
+            drag: (extraOpts && extraOpts.drag !== undefined) ? extraOpts.drag : 0.90,
+            buoyancy: (extraOpts && extraOpts.buoyancy !== undefined) ? extraOpts.buoyancy : -0.08,
+            maxOpacity: (extraOpts && extraOpts.maxOpacity !== undefined) ? extraOpts.maxOpacity : 0.78,
+            gravity: 0.0,
+            isPooled: true,
+            isDust: true
+        });
+        return;
+    }
 
     // Low-Discrepancy 64x64 Halton Sequence Sampling Volumetric Smoke
     if (type === 'smoke') {
@@ -349,6 +475,7 @@ function spawnParticle(pos, vel, colorHex, startSize, endSize, life, isAdditive 
 
         if (window.excludeFromSSAO) window.excludeFromSSAO(mesh);
         if (mesh.parent !== currentScene) currentScene.add(mesh);
+        mesh.renderOrder = 20;
         mesh.position.copy(pos);
         mesh.scale.setScalar(startSize);
         mesh.rotation.set(Math.random() * 6.28, Math.random() * 6.28, Math.random() * 6.28);
@@ -390,6 +517,7 @@ function spawnParticle(pos, vel, colorHex, startSize, endSize, life, isAdditive 
         mat.opacity = isFire ? 0.95 : (isAdditive ? 0.9 : 0.85);
         mesh.visible = true;
     }
+    mesh.renderOrder = (type === 'fire') ? 30 : ((type === 'spark') ? 40 : 20);
     mesh.position.copy(pos);
     mesh.scale.setScalar(startSize);
     if (isSpark && vel.lengthSq() > 0.1) {
@@ -494,17 +622,26 @@ function fireMainCannon(tankModel) {
         spawnParticle(muzzlePos, smokeVel, 0x64748b, 0.45, 3.6, 0.50, false, 'smoke');
     }
 
-    // 7. Ground Dust Shockwave Kick-up Under Gun Muzzle
+        // 7. Ground Dust Shockwave Kick-up Under Gun Muzzle
     const groundUnderMuzzle = muzzlePos.clone();
     groundUnderMuzzle.y = getTerrainHeight(muzzlePos.x, muzzlePos.z) + 0.12;
-    spawnShockwave(groundUnderMuzzle, 4.8, 0.35, 0xd4a373);
-    for (let i = 0; i < 8; i++) {
+    spawnShockwave(groundUnderMuzzle, 5.2, 0.40, 0xd4a373);
+    const dustCount = 18;
+    const groundDustCol = (window.currentZoneConfig && window.currentZoneConfig.trackDustColor)
+        ? window.currentZoneConfig.trackDustColor : 0x785e46;
+    for (let i = 0; i < dustCount; i++) {
+        const dustAng = (i / dustCount) * Math.PI * 2 + (Math.random() - 0.5) * 0.25;
+        const dustSpd = 5.2 + Math.random() * 4.2;
         const dustVel = new THREE.Vector3(
-            (Math.random() - 0.5) * 9,
-            0.6 + Math.random() * 1.8,
-            (Math.random() - 0.5) * 9
+            Math.cos(dustAng) * dustSpd + shootDir.x * 3.2,
+            0.35 + Math.random() * 0.85,
+            Math.sin(dustAng) * dustSpd + shootDir.z * 3.2
         );
-        spawnParticle(groundUnderMuzzle, dustVel, 0x785e46, 0.35, 2.4, 0.50, false, 'smoke');
+        spawnParticle(groundUnderMuzzle, dustVel, groundDustCol, 0.45, 3.8 + Math.random() * 1.2, 0.95 + Math.random() * 0.45, false, 'dust', {
+            maxOpacity: 0.82,
+            drag: 0.89,
+            buoyancy: -0.06
+        });
     }
 
     // 8. Spawn High-Velocity Armor-Piercing Tracer Shell with Tank Dispersion & Ballistics
@@ -694,7 +831,26 @@ function triggerHeavyDetonation(pos, ignorePlayer = false, customBlastRadius = 8
             (Math.random() - 0.5) * (9.5 * fireScale)
         );
         const col = (i % 2 === 0) ? 0x1e242b : 0x475569;
-        spawnParticle(pos, smokeVel, col, 0.65 * fireScale, 4.2 * fireScale, 0.50 * fireScale, false, 'smoke');
+                spawnParticle(pos, smokeVel, col, 0.65 * fireScale, 4.2 * fireScale, 0.50 * fireScale, false, 'smoke');
+    }
+
+    // 4b. Expanding Ground Dust Crater Eruption Plume
+    const blastDustCount = isLargeBlast ? 14 : 8;
+    const blastDustCol = (window.currentZoneConfig && window.currentZoneConfig.trackDustColor)
+        ? window.currentZoneConfig.trackDustColor : 0x6e5843;
+    for (let i = 0; i < blastDustCount; i++) {
+        const dustAng = Math.random() * Math.PI * 2;
+        const dustSpd = (3.5 + Math.random() * 6.5) * fireScale;
+        const dustVel = new THREE.Vector3(
+            Math.cos(dustAng) * dustSpd,
+            (1.0 + Math.random() * 3.2) * fireScale,
+            Math.sin(dustAng) * dustSpd
+        );
+        spawnParticle(pos, dustVel, blastDustCol, 0.55 * fireScale, 4.6 * fireScale, (1.2 + Math.random() * 0.7) * fireScale, false, 'dust', {
+            maxOpacity: 0.85,
+            drag: 0.90,
+            buoyancy: -0.05
+        });
     }
 
     // 5. Fountain of Incandescent Shrapnel Sparks
@@ -711,7 +867,9 @@ function triggerHeavyDetonation(pos, ignorePlayer = false, customBlastRadius = 8
     // Blast wave shrapnel damage to nearby soldiers
     const blastSols = [...(window.activeSoldiers || [])];
     if (!ignorePlayer && window.playerMode === 'soldier' && window.playerSoldier && !window.playerSoldier.isDead) {
-        blastSols.push(window.playerSoldier);
+        if (!window.playerSoldier.invulnerableTimer || window.playerSoldier.invulnerableTimer <= 0) {
+            blastSols.push(window.playerSoldier);
+        }
     }
     for (let bsi = 0; bsi < blastSols.length; bsi++) {
         const bsol = blastSols[bsi];
@@ -1118,10 +1276,12 @@ function updateProjectiles(dt) {
                     if (typeof closestHit.targetObj.onHit === 'function') {
                         closestHit.targetObj.onHit(imp, velDir, s.cannonDamage || 1);
                     }
+                    triggerHeavyDetonation(imp, false, bRad, bDmg);
                 } else if (closestHit.type === 'playerTank') {
                     if (typeof window.onPlayerHit === 'function') {
                         window.onPlayerHit(imp, velDir, s.cannonDamage || 1);
                     }
+                    triggerHeavyDetonation(imp, false, bRad, bDmg);
                 } else if (closestHit.type === 'tree') {
                     if (window.hitTree) window.hitTree(closestHit.targetObj, s.vel.clone().normalize(), 7.5);
                     triggerHeavyDetonation(imp, false, bRad, bDmg);
@@ -1363,7 +1523,8 @@ function updateProjectiles(dt) {
                     const spkVel = new THREE.Vector3((Math.random() - 0.5) * 8, 2.5 + Math.random() * 5, (Math.random() - 0.5) * 8);
                     spawnParticle(impactPos, spkVel, 0xfde047, 0.12, 0.05, 0.25 + Math.random() * 0.2, true, 'spark');
                 }
-                spawnParticle(impactPos, new THREE.Vector3(0, 1.2, 0), 0x785e46, 0.22, 0.95, 0.45, false, 'smoke');
+                const pDustCol = (window.currentZoneConfig && window.currentZoneConfig.trackDustColor) ? window.currentZoneConfig.trackDustColor : 0x785e46;
+                spawnParticle(impactPos, new THREE.Vector3(0, 1.2, 0), pDustCol, 0.22, 1.15, 0.65, false, 'dust');
             }
             tr.mesh.visible = false;
             if (tracerPool.length < PROJECTILE_POOL_LIMIT) tracerPool.push(tr.mesh);
@@ -1401,8 +1562,16 @@ function updateParticles(dt) {
     for (let i = particles.length - 1; i >= 0; i--) {
         const p = particles[i];
         p.age += dt;
-        if (p.age >= p.life) {
-            if (p.isPooled) {
+                if (p.age >= p.life) {
+            if (p.isDust) {
+                p.mesh.visible = false;
+                if (dustPool.length < PARTICLE_POOL_LIMIT) {
+                    dustPool.push({ mesh: p.mesh, mat: p.mat });
+                } else {
+                    window.scene.remove(p.mesh);
+                    if (p.mat && p.mat.dispose) p.mat.dispose();
+                }
+            } else if (p.isPooled) {
                 p.mesh.visible = false;
                 if (smokePool.length < PARTICLE_POOL_LIMIT) {
                     smokePool.push({ mesh: p.mesh, mat: p.mat });
@@ -1410,7 +1579,7 @@ function updateParticles(dt) {
                     window.scene.remove(p.mesh);
                     p.mat.dispose();
                 }
-            } else {
+            } else if (p.poolKey) {
                 const pool = reusableParticlePools.get(p.poolKey);
                 if (pool && pool.length < PARTICLE_POOL_LIMIT) {
                     p.mesh.visible = false;
@@ -1419,6 +1588,9 @@ function updateParticles(dt) {
                     window.scene.remove(p.mesh);
                     if (p.mat && p.mat.dispose) p.mat.dispose();
                 }
+            } else {
+                window.scene.remove(p.mesh);
+                if (p.mat && p.mat.dispose) p.mat.dispose();
             }
             particles.splice(i, 1);
             continue;
@@ -1463,8 +1635,36 @@ function updateParticles(dt) {
             p.mesh.rotation.z += p.rotVel.z * dt;
         }
 
-        // Scale & lifecycle curve
-        if (p.type === 'smoke') {
+                // Scale & lifecycle curve
+        if (p.type === 'dust') {
+            const currentScale = THREE.MathUtils.lerp(p.startSize, p.endSize, Math.pow(progress, 0.52));
+            p.mesh.scale.setScalar(currentScale);
+
+            if (p.mat && p.mat.uniforms) {
+                if (p.mat.uniforms.uAgeProgress) {
+                    p.mat.uniforms.uAgeProgress.value = progress;
+                }
+                if (p.mat.uniforms.opacity) {
+                    const fadeIn = Math.min(1.0, progress * 8.0);
+                    const fadeOut = Math.max(0.0, (1.0 - progress) / 0.65);
+                    const maxOp = (p.maxOpacity !== undefined) ? p.maxOpacity : 0.78;
+                    p.mat.uniforms.opacity.value = Math.min(1.0, fadeIn * Math.pow(fadeOut, 1.3)) * maxOp;
+                }
+            } else if (p.mat) {
+                p.mat.opacity = Math.max(0, (1.0 - progress) * (p.maxOpacity || 0.78));
+            }
+
+            // Soft ground cushion: dust spreads along the terrain surface
+            if (typeof getTerrainHeight === 'function') {
+                const groundY = getTerrainHeight(p.mesh.position.x, p.mesh.position.z);
+                if (p.mesh.position.y < groundY + 0.16) {
+                    p.mesh.position.y = groundY + 0.16;
+                    p.vel.y = Math.max(0, p.vel.y * -0.15);
+                    p.vel.x *= 0.95;
+                    p.vel.z *= 0.95;
+                }
+            }
+        } else if (p.type === 'smoke') {
             // Billowing expansion and volumetric dissipation via Halton sampling
             const currentScale = THREE.MathUtils.lerp(p.startSize, p.endSize, Math.pow(progress, 0.65));
             p.mesh.scale.setScalar(currentScale);

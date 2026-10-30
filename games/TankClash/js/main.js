@@ -267,7 +267,7 @@ buildEnvironment();
 prewarmParticlePools();
 prewarmParticleShaders(renderer, activeCamera);
 
-const ALL_CAMPAIGNS = ['tiger', 'sherman', 't34'];
+const ALL_CAMPAIGNS = ['tiger', 'kingtiger', 'sherman', 'pershing', 't34', 'kv2'];
 const initialCampaign = ALL_CAMPAIGNS[Math.floor(Math.random() * ALL_CAMPAIGNS.length)];
 window.currentTankId = initialCampaign;
 
@@ -283,15 +283,16 @@ if (window.TANK_SPECS && window.TANK_SPECS[initialCampaign]) {
     tankState.CANNON_SPREAD = initSpec.spread;
     tankState.BLAST_RADIUS = initSpec.blastRadius;
     tankState.BLAST_DAMAGE = initSpec.blastDamage;
-    tankState.CANNON_DAMAGE = initSpec.cannonDamage || (initialCampaign === 'tiger' ? 2 : 1);
+    tankState.CANNON_DAMAGE = initSpec.cannonDamage || (initialCampaign === 'kingtiger' ? 3 : (initialCampaign === 'tiger' ? 2 : 1));
     tankState.MAX_SPEED = initSpec.maxSpeed;
     tankState.REVERSE_SPEED = initSpec.reverseSpeed;
     tankState.TURN_SPEED = initSpec.turnSpeed;
+    tankState.TURRET_TURN_SPEED = initSpec.turretTurnSpeed || 1.0;
     tankState.RECOIL_OFFSET = initSpec.recoilOffset;
     tankState.MIN_ELEV_RAD = THREE.MathUtils.degToRad(initSpec.minElevDeg);
     tankState.MAX_ELEV_RAD = THREE.MathUtils.degToRad(initSpec.maxElevDeg);
     tankState.hasMuzzleBrake = initSpec.hasMuzzleBrake;
-    tankState.playerArmor = initSpec.playerArmor || (initialCampaign === 'tiger' ? 4 : 2);
+    tankState.playerArmor = initSpec.playerArmor || (initialCampaign === 'kingtiger' ? 6 : (initialCampaign === 'tiger' ? 4 : 2));
     tankState.maxArmor = tankState.playerArmor;
     window.playerHitsTaken = 0;
 
@@ -461,15 +462,60 @@ function updateSimulation(dt) {
     tankState.x += Math.sin(tankState.heading) * horizSpeed * dt;
     tankState.z += Math.cos(tankState.heading) * horizSpeed * dt;
 
-    // Kick up muddy track dirt particles when driving in the wild
-    if (window.environmentMode === 'wild' && (Math.abs(tankState.speed) > 1.2 || Math.abs(tankState.turnRate) > 0.2) && Math.random() < 1.0 - Math.exp(-3.0 * dt)) {
-        [-1.38, 1.38].forEach((sideX) => {
-            const kickPos = new THREE.Vector3(sideX, -0.85, -2.4);
-            hullGroup.localToWorld(kickPos);
-            const kickVel = new THREE.Vector3((Math.random() - 0.5) * 2.5, 1.8 + Math.random() * 2.0, (Math.random() - 0.5) * 2.5);
-            const dustCol = (window.currentZoneConfig && window.currentZoneConfig.trackDustColor) ? window.currentZoneConfig.trackDustColor : 0x5c4d3c;
-            spawnParticle(kickPos, kickVel, dustCol, 0.18, 0.65, 0.45, false, 'dirt');
-        });
+        // Kick up realistic billowing track dust plumes and dirt clods when driving in the wild
+    if (window.environmentMode === 'wild') {
+        const absSpeed = Math.abs(tankState.speed);
+        const absTurn = Math.abs(tankState.turnRate);
+        const isMoving = absSpeed > 0.25 || absTurn > 0.08;
+
+        if (isMoving) {
+            const moveIntensity = Math.min(1.0, absSpeed / 8.0 + absTurn * 0.9);
+            const dustSpawnRate = 3.5 + moveIntensity * 9.5;
+            if (Math.random() < 1.0 - Math.exp(-dustSpawnRate * dt)) {
+                const trackOffset = (tankState.currentTankSpec && tankState.currentTankSpec.id === 'kingtiger') ? 1.48 : ((tankState.currentTankSpec && tankState.currentTankSpec.id === 'tiger') ? 1.38 : ((tankState.currentTankSpec && (tankState.currentTankSpec.id === 'pershing' || tankState.currentTankSpec.id === 'kv2')) ? 1.36 : 1.20));
+                const baseDustCol = (window.currentZoneConfig && window.currentZoneConfig.trackDustColor) ? window.currentZoneConfig.trackDustColor : 0x5c4d3c;
+
+                [-trackOffset, trackOffset].forEach((sideX) => {
+                    // Rear track ground kick-up contact point
+                    const kickZ = -2.35 - Math.random() * 0.5;
+                    const kickPos = new THREE.Vector3(sideX + (Math.random() - 0.5) * 0.15, -0.85, kickZ);
+                    hullGroup.localToWorld(kickPos);
+
+                    // Direction of kick: backward relative to tank motion + sideways wake dispersion
+                    const heading = tankState.heading;
+                    const fwdSign = Math.sign(tankState.speed || 1);
+                    const kickVel = new THREE.Vector3(
+                        -Math.sin(heading) * fwdSign * (absSpeed * 0.45 + 0.6) + (sideX > 0 ? 0.7 : -0.7) * (absTurn * 1.8 + 0.4) + (Math.random() - 0.5) * 1.2,
+                        0.45 + Math.random() * 0.95 + absSpeed * 0.10,
+                        -Math.cos(heading) * fwdSign * (absSpeed * 0.45 + 0.6) + (Math.random() - 0.5) * 1.2
+                    );
+
+                    // Color variation per puff for visual richness
+                    const colVar = 0.94 + Math.random() * 0.12;
+                    const r = Math.min(255, Math.floor(((baseDustCol >> 16) & 255) * colVar));
+                    const g = Math.min(255, Math.floor(((baseDustCol >> 8) & 255) * colVar));
+                    const b = Math.min(255, Math.floor((baseDustCol & 255) * colVar));
+                    const puffCol = (r << 16) | (g << 8) | b;
+
+                    const startSize = 0.32 + Math.random() * 0.25;
+                    const endSize = 2.0 + moveIntensity * 2.2 + Math.random() * 0.8;
+                    const life = 1.1 + Math.random() * 0.7;
+
+                    spawnParticle(kickPos, kickVel, puffCol, startSize, endSize, life, false, 'dust', {
+                        maxOpacity: 0.72 + moveIntensity * 0.14,
+                        drag: 0.91,
+                        buoyancy: -0.08
+                    });
+
+                    // Occasional heavier coarse dirt clods tumbling from tracks
+                    if (Math.random() < 0.20 && absSpeed > 1.2) {
+                        const clodVel = kickVel.clone().multiplyScalar(1.5);
+                        clodVel.y = 1.6 + Math.random() * 2.0;
+                        spawnParticle(kickPos, clodVel, baseDustCol, 0.12, 0.30, 0.75 + Math.random() * 0.5, false, 'dirt');
+                    }
+                });
+            }
+        }
     }
 
     // Realistic Twin Armored Exhaust Puffs (Maybach HL230 V12 Engine)
@@ -647,15 +693,25 @@ function updateSimulation(dt) {
         currentActiveCam.lookAt(lookPivot);
         currentActiveCam.updateMatrixWorld();
     } else if (cameraMode === 'fpv') {
-        const sightLocal = new THREE.Vector3(0.0, 0.40, 0.45);
-        gunElevationPivot.localToWorld(sightLocal);
+        const sightPos = new THREE.Vector3();
+        if (window.gunElevationPivot) {
+            window.gunElevationPivot.getWorldPosition(sightPos);
+            sightPos.y += 0.38;
+        } else if (window.turretGroup) {
+            window.turretGroup.getWorldPosition(sightPos);
+            sightPos.y += 0.95;
+        } else {
+            sightPos.set(tankState.x, tankState.y + 2.4, tankState.z);
+        }
 
-        const barrelQuat = new THREE.Quaternion();
-        gunElevationPivot.getWorldQuaternion(barrelQuat);
-        const forwardDir = new THREE.Vector3(0, 0, 1).applyQuaternion(barrelQuat).normalize();
-        const sightTarget = sightLocal.clone().addScaledVector(forwardDir, 100.0);
+        const lookDir = new THREE.Vector3(
+            -Math.sin(camOrbit.phi) * Math.sin(camOrbit.theta),
+            -Math.cos(camOrbit.phi),
+            -Math.sin(camOrbit.phi) * Math.cos(camOrbit.theta)
+        ).normalize();
 
-        currentActiveCam.position.copy(sightLocal);
+        const sightTarget = sightPos.clone().addScaledVector(lookDir, 100.0);
+        currentActiveCam.position.copy(sightPos);
         currentActiveCam.lookAt(sightTarget);
         currentActiveCam.updateMatrixWorld();
     } else if (cameraMode === 'sniper') {
@@ -682,7 +738,8 @@ function updateSimulation(dt) {
     const manualElev = (keys['arrowup']   || keys['i'] ? 1 : 0) - (keys['arrowdown']  || keys['k'] ? 1 : 0);
 
     if (manualTurn !== 0 || manualElev !== 0) {
-        tankState.targetTurretYaw += manualTurn * 0.95 * dt;
+        const tSpeed = (tankState.TURRET_TURN_SPEED !== undefined) ? tankState.TURRET_TURN_SPEED : 1.0;
+        tankState.targetTurretYaw += manualTurn * 0.95 * tSpeed * dt;
         tankState.targetGunElevation = THREE.MathUtils.clamp(
             tankState.targetGunElevation + manualElev * 0.55 * dt,
             tankState.MIN_ELEV_RAD,
@@ -690,8 +747,9 @@ function updateSimulation(dt) {
         );
         if (cameraMode === 'sniper' || cameraMode === 'fpv') {
             camOrbit.theta = tankState.heading + tankState.targetTurretYaw + Math.PI;
+            camOrbit.phi = THREE.MathUtils.clamp(Math.PI / 2 + tankState.targetGunElevation, 0.95, 2.20);
         }
-    } else if (cameraMode === 'orbit') {
+    } else if (cameraMode === 'orbit' || cameraMode === 'fpv') {
         // WAR THUNDER / WoT 3D RAYCAST AIMING:
         raycaster.setFromCamera(aimCursorNDC, currentActiveCam);
         let foundHit = false;
@@ -743,7 +801,8 @@ function updateSimulation(dt) {
     // Shortest-angle hydraulic turret traverse smoothing
     let yawError = tankState.targetTurretYaw - tankState.turretYaw;
     yawError = Math.atan2(Math.sin(yawError), Math.cos(yawError));
-    const maxTraverseStep = (cameraMode === 'fpv' ? 1.45 : 1.15) * dt;
+    const tSpeed = (tankState.TURRET_TURN_SPEED !== undefined) ? tankState.TURRET_TURN_SPEED : 1.0;
+    const maxTraverseStep = (cameraMode === 'fpv' ? 1.45 : 1.15) * tSpeed * dt;
     tankState.turretYaw += THREE.MathUtils.clamp(yawError, -maxTraverseStep, maxTraverseStep);
     tankState.turretYaw = Math.atan2(Math.sin(tankState.turretYaw), Math.cos(tankState.turretYaw));
 
@@ -824,7 +883,7 @@ function updateSimulation(dt) {
         if (camReticleEl) camReticleEl.style.opacity = '0';
         const boreReticleEl = document.getElementById('gun-bore-reticle');
         if (boreReticleEl) boreReticleEl.style.opacity = '0';
-    } else if (cameraMode === 'orbit' || cameraMode === 'inspect') {
+    } else if (cameraMode === 'orbit' || cameraMode === 'fpv' || cameraMode === 'inspect') {
         const camAimScreen = worldAimPoint.clone().project(currentActiveCam);
         const camReticleEl = document.getElementById('camera-aim-reticle');
         if (camAimScreen.z < 1.0) {
@@ -832,7 +891,7 @@ function updateSimulation(dt) {
             const cy = (-camAimScreen.y * 0.5 + 0.5) * window.innerHeight;
             camReticleEl.style.left = `${cx}px`;
             camReticleEl.style.top  = `${cy}px`;
-            camReticleEl.style.opacity = '1';
+            camReticleEl.style.opacity = (cameraMode === 'fpv') ? '0' : '1';
             const rangeTag = document.getElementById('aim-range-tag');
             if (rangeTag) rangeTag.textContent = `${Math.round(boreDist)}m`;
         } else {
@@ -993,13 +1052,18 @@ function updateSimulation(dt) {
                     const tipX = st.x + hDirX * tipDist;
                     const tipZ = st.z + hDirZ * tipDist;
                     const tipY = getTerrainHeight(tipX, tipZ);
+                                        const treeDustCol = (window.currentZoneConfig && window.currentZoneConfig.trackDustColor) ? window.currentZoneConfig.trackDustColor : 0x5a4d41;
                     for (let p = 0; p < 9; p++) {
                         const dVel = new THREE.Vector3(
                             (Math.random() - 0.5) * 4.2,
                             0.5 + Math.random() * 1.5,
                             (Math.random() - 0.5) * 4.2
                         );
-                        spawnParticle(new THREE.Vector3(tipX, tipY + 0.15, tipZ), dVel, 0x5a4d41, 0.45, 2.2, 1.4, false, 'dirt');
+                        spawnParticle(new THREE.Vector3(tipX, tipY + 0.15, tipZ), dVel, treeDustCol, 0.45, 2.6, 1.3 + Math.random() * 0.5, false, 'dust', {
+                            maxOpacity: 0.78,
+                            drag: 0.90,
+                            buoyancy: -0.05
+                        });
                     }
                 }
                 st.group.quaternion.setFromAxisAngle(st.fallAxis, st.fallAngle);

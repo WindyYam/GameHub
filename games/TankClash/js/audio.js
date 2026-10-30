@@ -124,6 +124,10 @@ const soundFX = {
             baseFreq = 42 + speedRatio * 64 + (isDriving ? 8 : 0);
         } else if (this.currentProfile === 't34') {
             baseFreq = 28 + speedRatio * 52 + (isDriving ? 7 : 0);
+        } else if (this.currentProfile === 'kv2') {
+            baseFreq = 24 + speedRatio * 44 + (isDriving ? 6 : 0);
+        } else if (this.currentProfile === 'pershing') {
+            baseFreq = 38 + speedRatio * 60 + (isDriving ? 8 : 0);
         }
         this.engineOsc.frequency.setTargetAtTime(baseFreq, this.ctx.currentTime, 0.08);
         this.engineSub.frequency.setTargetAtTime(baseFreq * 0.5, this.ctx.currentTime, 0.08);
@@ -136,6 +140,8 @@ const soundFX = {
             this.playShermanCannon(posOrDist);
         } else if (id === 't34') {
             this.playT34Cannon(posOrDist);
+        } else if (id === 'kv2') {
+            this.playKV2Howitzer(posOrDist);
         } else {
             this.play88mmCannon(posOrDist);
         }
@@ -223,6 +229,50 @@ const soundFX = {
         oscGain.connect(spatial.input);
         osc.start(now);
         osc.stop(now + 0.45);
+    },
+
+    playKV2Howitzer(posOrDist = 0) {
+        this.init();
+        if (!this.enabled || !this.ctx) return;
+        const now = this.ctx.currentTime;
+        const spatial = this.createSpatialGain(posOrDist, 55.0, 1.45, 0.08, 9500);
+
+        // Colossal 152mm M-10T Howitzer Concussion: deep seismic boom + thunderous rolling echo
+        const bufferSize = Math.floor(this.ctx.sampleRate * 2.2);
+        const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+        const data = noiseBuffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+            data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (this.ctx.sampleRate * 0.42));
+        }
+        const noise = this.ctx.createBufferSource();
+        noise.buffer = noiseBuffer;
+
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(1100, now);
+        filter.frequency.exponentialRampToValueAtTime(45, now + 1.8);
+
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(0.85, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 2.1);
+
+        noise.connect(filter);
+        filter.connect(gain);
+        gain.connect(spatial.input);
+        noise.start(now);
+
+        // Sub-bass thump (38Hz -> 18Hz) shaking the ground
+        const subOsc = this.ctx.createOscillator();
+        const subGain = this.ctx.createGain();
+        subOsc.type = 'sine';
+        subOsc.frequency.setValueAtTime(95, now);
+        subOsc.frequency.exponentialRampToValueAtTime(20, now + 0.65);
+        subGain.gain.setValueAtTime(0.75, now);
+        subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.70);
+        subOsc.connect(subGain);
+        subGain.connect(spatial.input);
+        subOsc.start(now);
+        subOsc.stop(now + 0.70);
     },
 
     play88mmCannon(posOrDist = 0) {

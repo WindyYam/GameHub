@@ -198,16 +198,16 @@
     </div>
 
     <!-- TOP BAR: Status on Left, Camera & Display Controls on Right -->
-    <div class="fixed top-2 left-2 right-2 md:top-3 md:left-3 md:right-3 z-20 flex items-center justify-between gap-2 pointer-events-none">
-        <!-- Combat Status HUD Pill (Left) -->
-        <div id="combat-mini-hud" class="hud-panel pointer-events-auto flex items-center gap-1.5 md:gap-2 px-2.5 md:px-3.5 py-1 rounded-full md:rounded-xl text-[10px] md:text-[11px] mono text-slate-200 shadow-md whitespace-nowrap overflow-x-auto">
-            <span>🛡️ <strong id="hud-armor" class="text-emerald-400 font-bold">ARMOR: --</strong></span>
+    <div class="fixed top-2 left-2 right-2 md:top-3 md:left-3 md:right-3 z-20 flex items-center justify-between gap-3 pointer-events-none">
+        <!-- Combat Status HUD Pill (Left / Center with Expanded Room) -->
+        <div id="combat-mini-hud" class="hud-panel pointer-events-auto flex items-center gap-2.5 md:gap-4 px-3.5 md:px-5 py-1.5 md:py-2 rounded-full md:rounded-2xl text-[11px] md:text-[12px] mono text-slate-200 shadow-lg whitespace-nowrap overflow-x-auto flex-1 max-w-2xl mr-2">
+            <span class="flex items-center gap-1">🛡️ <strong id="hud-armor" class="text-emerald-400 font-bold">ARMOR: --</strong></span>
             <span class="text-slate-600">|</span>
-            <span>⚡ <strong id="mob-speed" class="text-white font-bold">0.0</strong> km/h</span>
+            <span class="flex items-center gap-1">⚡ <strong id="mob-speed" class="text-white font-bold">0.0</strong> km/h</span>
             <span class="text-slate-600">|</span>
-            <span>💥 <strong id="mob-reload" class="text-emerald-400 font-bold">READY</strong></span>
+            <span class="flex items-center gap-1">💥 <strong id="mob-reload" class="text-emerald-400 font-bold">READY</strong></span>
             <span class="text-slate-600">|</span>
-            <span>🎯 <strong id="mob-hits" class="text-amber-300 font-bold">Enemies: 0/15 • Kills: 0</strong></span>
+            <span class="flex items-center gap-1">🎯 <strong id="mob-hits" class="text-amber-300 font-bold">Enemies: 0/15 • Kills: 0</strong></span>
         </div>
 
         <!-- Mode & Camera Switchers (Right) -->
@@ -301,17 +301,20 @@
 
     <!-- Modularized Tiger Tank Simulation Scripts -->
     <script src="js/audio.js?v=v2_camp10"></script>
-    <script src="js/shaders.js?v=v2_camp9"></script>
-    <script src="js/environment.js?v=v2_world1"></script>
+    <script src="js/shaders.js?v=v2_dust2"></script>
+    <script src="js/environment.js?v=v2_water1"></script>
     <script src="js/tankTiger.js?v=v2_camp9"></script>
+    <script src="js/tankKingTiger.js?v=v2_kingtiger6"></script>
     <script src="js/tankSherman.js?v=v2_camp9"></script>
+    <script src="js/tankPershing.js?v=pershing_1"></script>
     <script src="js/tankT34.js?v=v2_camp9"></script>
+    <script src="js/tankKV2.js?v=kv2_2"></script>
     <script src="js/tankModel.js?v=v2_camp9"></script>
-    <script src="js/physics.js?v=v2_rifle1"></script>
-    <script src="js/enemyAI.js?v=v2_camp9"></script>
-    <script src="js/soldiers.js?v=v2_rifle2"></script>
-    <script src="js/playerSoldier.js?v=v2_rifle2"></script>
-    <script src="js/controls.js?v=v2_world1"></script>
-    <script src="js/main.js?v=v2_shadow1"></script>
+    <script src="js/physics.js?v=v2_kv2_4"></script>
+    <script src="js/enemyAI.js?v=v2_dust3"></script>
+    <script src="js/soldiers.js?v=v2_dust1"></script>
+    <script src="js/playerSoldier.js?v=v2_invinc1"></script>
+    <script src="js/controls.js?v=v2_fpv1"></script>
+    <script src="js/main.js?v=v2_fpv1"></script>
 </body>
 </html>

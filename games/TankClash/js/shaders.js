@@ -841,6 +841,83 @@ function createVolumetricSmokeGeometry() {
     _volumetricSmokeGeo = geo;
     return geo;
 }
+// Procedural Asymmetric Multi-Lobed Volumetric Dust Puff Geometry
+let _volumetricDustGeo = null;
+
+function createVolumetricDustGeometry() {
+    if (_volumetricDustGeo) return _volumetricDustGeo;
+
+    // Subdivided welded geodesic sphere (162 shared vertices, 320 indexed faces)
+    const { vertices, faces } = buildWeldedGeodesicSphere(2);
+
+    // 8 Low-spreading, asymmetric billowing dust lobes (flattened bottom, sprawling flanks)
+    const lobes = [
+        { x:  0.68, y:  0.12, z:  0.28, r: 0.62 },
+        { x: -0.64, y:  0.16, z:  0.32, r: 0.58 },
+        { x:  0.18, y:  0.42, z: -0.52, r: 0.54 },
+        { x: -0.32, y: -0.12, z:  0.58, r: 0.50 },
+        { x:  0.52, y: -0.08, z: -0.42, r: 0.55 },
+        { x: -0.12, y:  0.52, z:  0.22, r: 0.46 },
+        { x:  0.00, y: -0.28, z:  0.12, r: 0.38 },
+        { x: -0.45, y:  0.28, z: -0.45, r: 0.52 }
+    ];
+
+    const positions = new Float32Array(vertices.length * 3);
+
+    for (let i = 0; i < vertices.length; i++) {
+        const v = vertices[i];
+        const nx = v[0];
+        const ny = v[1];
+        const nz = v[2];
+
+        // Proximity displacement from billowing lobes
+        let lobeDisp = 0.0;
+        for (let j = 0; j < lobes.length; j++) {
+            const lb = lobes[j];
+            const dot = Math.max(0, nx * lb.x + ny * lb.y + nz * lb.z);
+            lobeDisp += lb.r * Math.pow(dot, 2.0);
+        }
+
+        // Multi-frequency 3D sinusoidal turbulence for organic dust ridges & powdery wisps
+        const turb = (
+            Math.sin(nx * 4.2 + ny * 1.5) * Math.cos(nz * 3.8) * 0.16 +
+            Math.cos(ny * 6.2 - nz * 3.1) * 0.09 +
+            Math.sin(nx * 9.5 + nz * 8.2) * 0.05
+        );
+
+        // Ground-hugging sprawl: slightly flatten bottom and broaden horizontal axes
+        const horizontalSpread = 1.0 + (1.0 - Math.abs(ny)) * 0.18;
+        const r = (1.0 + lobeDisp * 0.60 + turb) * horizontalSpread;
+        positions[i * 3]     = nx * r;
+        positions[i * 3 + 1] = ny * r * 0.82; // flattened base
+        positions[i * 3 + 2] = nz * r;
+    }
+
+    const indices = [];
+    for (let i = 0; i < faces.length; i++) {
+        indices.push(faces[i][0], faces[i][1], faces[i][2]);
+    }
+
+    const uvs = new Float32Array(vertices.length * 2);
+    for (let i = 0; i < vertices.length; i++) {
+        const v = vertices[i];
+        const nx = v[0];
+        const ny = v[1];
+        const nz = v[2];
+        uvs[i * 2]     = Math.atan2(nz, nx) / (2.0 * Math.PI) + 0.5;
+        uvs[i * 2 + 1] = Math.asin(Math.max(-1.0, Math.min(1.0, ny))) / Math.PI + 0.5;
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+    geo.setIndex(indices);
+    geo.computeVertexNormals();
+
+    _volumetricDustGeo = geo;
+    return geo;
+}
+
 
 // ============================================================================
 // ============================================================================
@@ -1284,6 +1361,369 @@ function createHaltonSmokeMaterial(colorHex = 0x94a3b8) {
     return mat;
 }
 
+
+
+// ============================================================================
+// Procedural Seamless Dust Normal Map & Diffuse Texture Generators
+// Fine mineral grit, wind filaments, soft billow folds & porosity feathering
+// ============================================================================
+
+let _dustDiffuseTex = null;
+let _dustNormalTex = null;
+
+function createDustDiffuseTexture() {
+    if (_dustDiffuseTex) return _dustDiffuseTex;
+    if (typeof document === 'undefined') return null;
+
+    const size = 256;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    const imgData = ctx.createImageData(size, size);
+    const data = imgData.data;
+
+    const { periodicFBM } = _createSmokeNoisePermutation();
+
+    for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+            const u = x / size;
+            const v = y / size;
+
+            // Billowing dust lobes (smooth, low-frequency puffy folds)
+            const n1 = periodicFBM(u * 3.0, v * 3.0, 3, 4);
+            const billow = 1.0 - Math.abs(n1);
+
+            // Fine airborne mineral dust grit & grain
+            const n2 = periodicFBM(u * 12.0 + 0.23, v * 12.0 + 0.47, 12, 3);
+            const grit = Math.max(0.0, Math.min(1.0, n2 * 0.5 + 0.5));
+
+            // Horizontal wind streak filaments
+            const n3 = periodicFBM(u * 14.0 + 1.15, v * 4.0 + 0.85, 4, 3);
+            const streak = Math.max(0.0, Math.min(1.0, n3 * 0.5 + 0.5));
+
+            const rVal = Math.floor(Math.min(255, Math.max(0, (billow * 0.65 + streak * 0.20 + grit * 0.15) * 255)));
+            const gVal = Math.floor(streak * 255);
+            const bVal = Math.floor(grit * 255);
+            // Porosity mask for feathered edge dissolution (never hard circles!)
+            const aVal = Math.floor(Math.min(255, Math.max(0, (billow * 0.55 + streak * 0.25 + grit * 0.20) * 255)));
+
+            const idx = (y * size + x) * 4;
+            data[idx]     = rVal; // R: Diffuse billow luminance
+            data[idx + 1] = gVal; // G: Wind streak filaments
+            data[idx + 2] = bVal; // B: Fine mineral dust grit
+            data[idx + 3] = aVal; // A: Micro-porosity feathering
+        }
+    }
+
+    ctx.putImageData(imgData, 0, 0);
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.anisotropy = 4;
+    _dustDiffuseTex = tex;
+    return tex;
+}
+
+function getDustDiffuseTexture() {
+    return _dustDiffuseTex || createDustDiffuseTexture();
+}
+
+function createDustNormalTexture() {
+    if (_dustNormalTex) return _dustNormalTex;
+    if (typeof document === 'undefined') return null;
+
+    const size = 256;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    const imgData = ctx.createImageData(size, size);
+    const data = imgData.data;
+
+    const { periodicFBM } = _createSmokeNoisePermutation();
+    const height = new Float32Array(size * size);
+
+    for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+            const u = x / size;
+            const v = y / size;
+
+            const n1 = periodicFBM(u * 3.0, v * 3.0, 3, 4);
+            const billow = 1.0 - Math.abs(n1);
+
+            const n2 = periodicFBM(u * 8.0 + 0.35, v * 8.0 + 0.65, 8, 3);
+            const micro = n2 * 0.5 + 0.5;
+
+            height[y * size + x] = billow * 0.70 + micro * 0.30;
+        }
+    }
+
+    const normalStrength = 2.2;
+    for (let y = 0; y < size; y++) {
+        const yPrev = (y - 1 + size) % size;
+        const yNext = (y + 1) % size;
+        for (let x = 0; x < size; x++) {
+            const xPrev = (x - 1 + size) % size;
+            const xNext = (x + 1) % size;
+
+            const dhdx = (
+                (height[yPrev * size + xNext] + 2.0 * height[y * size + xNext] + height[yNext * size + xNext]) -
+                (height[yPrev * size + xPrev] + 2.0 * height[y * size + xPrev] + height[yNext * size + xPrev])
+            ) / 8.0;
+
+            const dhdy = (
+                (height[yNext * size + xPrev] + 2.0 * height[yNext * size + x] + height[yNext * size + xNext]) -
+                (height[yPrev * size + xPrev] + 2.0 * height[yPrev * size + x] + height[yPrev * size + xNext])
+            ) / 8.0;
+
+            let nx = -dhdx * normalStrength;
+            let ny = -dhdy * normalStrength;
+            let nz = 1.0;
+            const len = Math.sqrt(nx * nx + ny * ny + nz * nz);
+            nx /= len; ny /= len; nz /= len;
+
+            const idx = (y * size + x) * 4;
+            data[idx]     = Math.floor((nx * 0.5 + 0.5) * 255);
+            data[idx + 1] = Math.floor((ny * 0.5 + 0.5) * 255);
+            data[idx + 2] = Math.floor((nz * 0.5 + 0.5) * 255);
+            data[idx + 3] = 255;
+        }
+    }
+
+    ctx.putImageData(imgData, 0, 0);
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.anisotropy = 4;
+    _dustNormalTex = tex;
+    return tex;
+}
+
+function getDustNormalTexture() {
+    return _dustNormalTex || createDustNormalTexture();
+}
+
+// ============================================================================
+// Realistic Volumetric Billowing Dust Material
+// Feathered Perimeter (Zero Circles), Forward Mie Sunlight Glow, Triplanar Normal Mapping
+// ============================================================================
+
+function createVolumetricDustMaterial(colorHex = 0x5c4d3c) {
+    const diffuseTex = getDustDiffuseTexture();
+    const normalTex = getDustNormalTexture();
+    const color = (colorHex && colorHex.isColor) ? colorHex.clone() : new THREE.Color(colorHex);
+
+    const mat = new THREE.ShaderMaterial({
+        uniforms: {
+            diffuse:            { value: color },
+            opacity:            { value: 0.78 },
+            uAgeProgress:       { value: 0.0 },
+            dustDiffuseMap:     { value: diffuseTex },
+            dustNormalMap:      { value: normalTex },
+            uNormalScale:       { value: 0.85 },
+            uDiffuseNoiseScale: { value: 1.25 },
+            uTime:              celestialLighting.time,
+            sunDirection:       celestialLighting.sunDirection,
+            sunColor:           celestialLighting.sunColor,
+            skyColor:           celestialLighting.skyColor,
+            groundColor:        celestialLighting.groundColor
+        },
+        vertexShader: `
+            uniform float uAgeProgress;
+            uniform float uTime;
+            varying vec3 vNormal;
+            varying vec3 vViewDir;
+            varying vec3 vLocalPos;
+            varying vec3 vLocalNormal;
+            varying vec3 vWorldViewDir;
+            varying mat3 vLocalToWorld;
+            varying vec2 vUv;
+
+            void main() {
+                vec3 pos = position;
+
+                // Dust expansion: horizontal billow expansion as dust cloud moves through air
+                float swell = sin(clamp(uAgeProgress / 0.65, 0.0, 1.0) * 3.14159);
+                pos.xz += normal.xz * (0.16 * swell);
+                pos.y += normal.y * (0.07 * swell);
+
+                vLocalPos = pos;
+                vLocalNormal = normalize(normal);
+                vUv = uv;
+
+                vec4 worldPos = modelMatrix * vec4(pos, 1.0);
+                vWorldViewDir = normalize(cameraPosition - worldPos.xyz);
+                vLocalToWorld = mat3(modelMatrix);
+
+                vNormal = normalize(normalMatrix * normal);
+                vec4 mvPos = modelViewMatrix * vec4(pos, 1.0);
+                vViewDir = -normalize(mvPos.xyz);
+
+                gl_Position = projectionMatrix * mvPos;
+            }
+        `,
+        fragmentShader: `
+            uniform vec3 diffuse;
+            uniform float opacity;
+            uniform float uAgeProgress;
+            uniform sampler2D dustDiffuseMap;
+            uniform sampler2D dustNormalMap;
+            uniform float uNormalScale;
+            uniform float uDiffuseNoiseScale;
+            uniform float uTime;
+            uniform vec3 sunDirection;
+            uniform vec3 sunColor;
+            uniform vec3 skyColor;
+            uniform vec3 groundColor;
+
+            varying vec3 vNormal;
+            varying vec3 vViewDir;
+            varying vec3 vLocalPos;
+            varying vec3 vLocalNormal;
+            varying vec3 vWorldViewDir;
+            varying mat3 vLocalToWorld;
+            varying vec2 vUv;
+
+            float hashDust(vec3 p) {
+                p = fract(p * 0.1031);
+                p += dot(p, p.yzx + 33.33);
+                return fract((p.x + p.y) * p.z);
+            }
+
+            float noiseDust(vec3 p) {
+                vec3 i = floor(p);
+                vec3 f = fract(p);
+                f = f * f * (3.0 - 2.0 * f);
+                float n000 = hashDust(i);
+                float n100 = hashDust(i + vec3(1.0, 0.0, 0.0));
+                float n010 = hashDust(i + vec3(0.0, 1.0, 0.0));
+                float n110 = hashDust(i + vec3(1.0, 1.0, 0.0));
+                float n001 = hashDust(i + vec3(0.0, 0.0, 1.0));
+                float n101 = hashDust(i + vec3(1.0, 0.0, 1.0));
+                float n011 = hashDust(i + vec3(0.0, 1.0, 1.0));
+                float n111 = hashDust(i + vec3(1.0, 1.0, 1.0));
+                float nx00 = mix(n000, n100, f.x);
+                float nx10 = mix(n010, n110, f.x);
+                float nx01 = mix(n001, n101, f.x);
+                float nx11 = mix(n011, n111, f.x);
+                float nxy0 = mix(nx00, nx10, f.y);
+                float nxy1 = mix(nx01, nx11, f.y);
+                return mix(nxy0, nxy1, f.z);
+            }
+
+            float fbmDust(vec3 p) {
+                float v = 0.0;
+                float a = 0.55;
+                for (int i = 0; i < 2; i++) {
+                    v += a * noiseDust(p);
+                    p = p * 2.15 + vec3(1.7, 3.1, 2.4);
+                    a *= 0.45;
+                }
+                return v;
+            }
+
+            void main() {
+                // 1. Triplanar Sampling for Diffuse and Normal Maps
+                vec3 dustCoord = vLocalPos * uDiffuseNoiseScale + vec3(uTime * 0.025, uTime * 0.01 + uAgeProgress * 0.15, uTime * 0.02);
+                vec3 blendWeights = pow(abs(vLocalNormal), vec3(3.0));
+                blendWeights = max(blendWeights, vec3(0.001));
+                blendWeights /= (blendWeights.x + blendWeights.y + blendWeights.z);
+
+                vec4 diffSampleX = texture2D(dustDiffuseMap, dustCoord.yz);
+                vec4 diffSampleY = texture2D(dustDiffuseMap, dustCoord.zx);
+                vec4 diffSampleZ = texture2D(dustDiffuseMap, dustCoord.xy);
+                vec4 dustDiff = diffSampleX * blendWeights.x + diffSampleY * blendWeights.y + diffSampleZ * blendWeights.z;
+
+                vec3 normSampleX = texture2D(dustNormalMap, dustCoord.yz).xyz * 2.0 - 1.0;
+                vec3 normSampleY = texture2D(dustNormalMap, dustCoord.zx).xyz * 2.0 - 1.0;
+                vec3 normSampleZ = texture2D(dustNormalMap, dustCoord.xy).xyz * 2.0 - 1.0;
+
+                vec3 localNormX = vec3(normSampleX.z * sign(vLocalNormal.x), normSampleX.y, -normSampleX.x * sign(vLocalNormal.x));
+                vec3 localNormY = vec3(normSampleY.x, normSampleY.z * sign(vLocalNormal.y), -normSampleY.y * sign(vLocalNormal.y));
+                vec3 localNormZ = vec3(normSampleZ.x, normSampleZ.y, normSampleZ.z * sign(vLocalNormal.z));
+
+                vec3 perturbedLocal = normalize(localNormX * blendWeights.x + localNormY * blendWeights.y + localNormZ * blendWeights.z);
+                vec3 finalLocalNormal = normalize(mix(vLocalNormal, perturbedLocal, clamp(uNormalScale, 0.0, 1.0)));
+                vec3 worldNormal = normalize(vLocalToWorld * finalLocalNormal);
+
+                // 2. Volumetric Ray Thickness & Soft Feathered Perimeter (Zero Hard Circles)
+                float r = length(vLocalPos);
+                float NdotV = clamp(dot(worldNormal, vWorldViewDir), 0.0, 1.0);
+
+                // Smooth core-to-perimeter decay: fades smoothly towards edges
+                float pathThickness = smoothstep(1.42, 0.15, r) * pow(NdotV, 0.45);
+
+                // 3D fractal billowing turbulence for organic wisps & powder puffs
+                float billowNoise = fbmDust(vLocalPos * 2.2 + vec3(0.0, uTime * 0.08, 0.0));
+
+                // Porosity modulation from diffuse texture alpha
+                float microPorosity = mix(0.60, 1.40, dustDiff.a);
+                float turbulentDensity = pathThickness * (0.60 + billowNoise * 0.50) * microPorosity;
+
+                // Lifecycle dissipation curve: rapid puff onset, gentle lingering dissipation
+                float fadeIn = smoothstep(0.0, 0.10, uAgeProgress);
+                float fadeOut = 1.0 - smoothstep(0.35, 1.0, uAgeProgress);
+                float finalDensity = clamp(turbulentDensity * opacity * fadeIn * fadeOut * 1.7, 0.0, 1.0);
+
+                // Feathered edge threshold (smoothly discards near zero, no hard boundary)
+                if (finalDensity < 0.015) discard;
+
+                // 3. Forward Mie Scattering (Golden sunlit halo when backlit by sun)
+                float cosTheta = dot(-vWorldViewDir, sunDirection);
+                float g1 = 0.72;
+                float mieForward = (1.0 - g1 * g1) / pow(1.0 + g1 * g1 - 2.0 * g1 * cosTheta, 1.5) / 12.56637;
+                float g2 = -0.18;
+                float mieBack = (1.0 - g2 * g2) / pow(1.0 + g2 * g2 - 2.0 * g2 * cosTheta, 1.5) / 12.56637;
+                float miePhase = mix(mieForward, mieBack, 0.20) * 3.14159;
+
+                // 4. Wrap Lighting & Sun Illumination
+                float NdotL = dot(worldNormal, sunDirection);
+                float wrapL = clamp((NdotL + 0.65) / 1.65, 0.0, 1.0);
+                vec3 directLight = sunColor * (wrapL * 0.85 + miePhase * 0.65);
+
+                // 5. Environmental Ambient (Ground loam/sand below, Sky above)
+                float upFactor = clamp(worldNormal.y * 0.5 + 0.5, 0.0, 1.0);
+                vec3 ambientLight = mix(groundColor * 0.95, skyColor * 0.65, upFactor);
+
+                // 6. Diffuse mineral tint modulation
+                vec3 baseColor = diffuse * mix(vec3(0.85), vec3(1.15), dustDiff.r);
+                baseColor *= (0.92 + dustDiff.b * 0.16);
+
+                vec3 finalColor = baseColor * (directLight * 0.75 + ambientLight);
+
+                // Alpha blending with smooth falloff
+                float smoothAlpha = clamp(smoothstep(0.015, 0.60, finalDensity) * opacity * fadeOut, 0.0, 0.82);
+
+                gl_FragColor = vec4(finalColor, smoothAlpha);
+            }
+        `,
+        transparent: true,
+        depthWrite: false,
+        depthTest: true,
+        blending: THREE.NormalBlending
+    });
+
+    Object.defineProperty(mat, 'opacity', {
+        get() { return this.uniforms.opacity.value; },
+        set(v) { this.uniforms.opacity.value = v; }
+    });
+
+    Object.defineProperty(mat, 'color', {
+        get() { return this.uniforms.diffuse.value; },
+        set(v) {
+            if (typeof v === 'number') this.uniforms.diffuse.value.setHex(v);
+            else if (v && v.isColor) this.uniforms.diffuse.value.copy(v);
+        }
+    });
+
+    Object.defineProperty(mat, 'normalScale', {
+        get() { return this.uniforms.uNormalScale.value; },
+        set(v) { this.uniforms.uNormalScale.value = v; }
+    });
+
+    return mat;
+}
 
 const createMaldiveSmokeMaterial = createHaltonSmokeMaterial;
 const createOpaqueVolumetricSmokeMaterial = createHaltonSmokeMaterial;
@@ -1771,7 +2211,7 @@ function createCoastalOceanMaterial(seedOffsetVec, roadBaseXVal) {
             }
         `,
         transparent: true,
-        depthWrite: true
+        depthWrite: false
     });
 }
 
@@ -3533,3 +3973,9 @@ window.createBotanicalFoliageAtlas = createBotanicalFoliageAtlas;
 window.createGrassTuftAtlasTexture = createGrassTuftAtlasTexture;
 window.getGrassTuftEdgeTexture = getGrassTuftEdgeTexture;
 window.createVillagePBRAtlas = createVillagePBRAtlas;
+window.createVolumetricDustGeometry = createVolumetricDustGeometry;
+window.createVolumetricDustMaterial = createVolumetricDustMaterial;
+window.createDustDiffuseTexture = createDustDiffuseTexture;
+window.getDustDiffuseTexture = getDustDiffuseTexture;
+window.createDustNormalTexture = createDustNormalTexture;
+window.getDustNormalTexture = getDustNormalTexture;
