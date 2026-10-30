@@ -2,6 +2,7 @@
 // TigerTank Audio Synthesizer (Web Audio API)
 // Maybach HL230 V12 Engine, 8.8cm KwK 36 Cannon, MG34, Low-Pitch Reload Sequence
 // ============================================================================
+const RELOAD_PITCH = 0.75;
 
 const soundFX = {
     ctx: null,
@@ -739,7 +740,7 @@ const soundFX = {
         snapSrc.buffer = snapBuf;
         const snapFilter = this.ctx.createBiquadFilter();
         snapFilter.type = 'bandpass';
-        snapFilter.frequency.setValueAtTime(2400, now);
+        snapFilter.frequency.setValueAtTime(2400 * RELOAD_PITCH, now);
         snapFilter.Q.value = 3.5;
         const snapGain = this.ctx.createGain();
         snapGain.gain.setValueAtTime(0.42, now);
@@ -760,8 +761,8 @@ const soundFX = {
         scrapeSrc.buffer = scrapeBuf;
         const scrapeFilter = this.ctx.createBiquadFilter();
         scrapeFilter.type = 'bandpass';
-        scrapeFilter.frequency.setValueAtTime(1550, now);
-        scrapeFilter.frequency.exponentialRampToValueAtTime(850, now + 0.075);
+        scrapeFilter.frequency.setValueAtTime(1550 * RELOAD_PITCH, now);
+        scrapeFilter.frequency.exponentialRampToValueAtTime(850 * RELOAD_PITCH, now + 0.075);
         scrapeFilter.Q.value = 2.8;
         const scrapeGain = this.ctx.createGain();
         scrapeGain.gain.setValueAtTime(0.35, now);
@@ -774,9 +775,9 @@ const soundFX = {
         // 2. Heavy hollow brass casing resonant clinking & bouncing off deflector
         // Metallic modal ringing of heavy brass shell casing:
         const bounces = [
-            { time: now + 0.025, baseFreq: 820, decay: 0.26, vol: 0.45 },
-            { time: now + 0.130, baseFreq: 940, decay: 0.20, vol: 0.35 },
-            { time: now + 0.245, baseFreq: 760, decay: 0.16, vol: 0.25 }
+            { time: now + 0.025, baseFreq: 820 * RELOAD_PITCH, decay: 0.26, vol: 0.45 },
+            { time: now + 0.130, baseFreq: 940 * RELOAD_PITCH, decay: 0.20, vol: 0.35 },
+            { time: now + 0.245, baseFreq: 760 * RELOAD_PITCH, decay: 0.16, vol: 0.25 }
         ];
 
         bounces.forEach(b => {
@@ -791,7 +792,7 @@ const soundFX = {
             pingSrc.buffer = pingBuf;
             const pingFilter = this.ctx.createBiquadFilter();
             pingFilter.type = 'bandpass';
-            pingFilter.frequency.setValueAtTime(2800, b.time);
+            pingFilter.frequency.setValueAtTime(2800 * RELOAD_PITCH, b.time);
             pingFilter.Q.value = 3.0;
             const pingGain = this.ctx.createGain();
             pingGain.gain.setValueAtTime(b.vol * 0.65, b.time);
@@ -823,8 +824,8 @@ const soundFX = {
         const thud = this.ctx.createOscillator();
         const thudGain = this.ctx.createGain();
         thud.type = 'triangle';
-        thud.frequency.setValueAtTime(160, now + 0.03);
-        thud.frequency.exponentialRampToValueAtTime(45, now + 0.22);
+        thud.frequency.setValueAtTime(160 * RELOAD_PITCH, now + 0.03);
+        thud.frequency.exponentialRampToValueAtTime(45 * RELOAD_PITCH, now + 0.22);
         thudGain.gain.setValueAtTime(0.35, now + 0.03);
         thudGain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
         thud.connect(thudGain);
@@ -855,19 +856,19 @@ const soundFX = {
         // Low-mid bandpass filters modeling deep chamber cavity (warm, zero high-pitched hiss)
         const bp1 = this.ctx.createBiquadFilter();
         bp1.type = 'bandpass';
-        bp1.frequency.setValueAtTime(180, now);
-        bp1.frequency.exponentialRampToValueAtTime(360, now + slideDuration);
+        bp1.frequency.setValueAtTime(180 * RELOAD_PITCH, now);
+        bp1.frequency.exponentialRampToValueAtTime(360 * RELOAD_PITCH, now + slideDuration);
         bp1.Q.value = 2.8;
 
         const bp2 = this.ctx.createBiquadFilter();
         bp2.type = 'bandpass';
-        bp2.frequency.setValueAtTime(420, now);
-        bp2.frequency.exponentialRampToValueAtTime(680, now + slideDuration);
+        bp2.frequency.setValueAtTime(420 * RELOAD_PITCH, now);
+        bp2.frequency.exponentialRampToValueAtTime(680 * RELOAD_PITCH, now + slideDuration);
         bp2.Q.value = 2.2;
 
         const lp = this.ctx.createBiquadFilter();
         lp.type = 'lowpass';
-        lp.frequency.setValueAtTime(820, now);
+        lp.frequency.setValueAtTime(820 * RELOAD_PITCH, now);
 
         const slideGain = this.ctx.createGain();
         slideGain.gain.setValueAtTime(0.42, now);
@@ -889,8 +890,8 @@ const soundFX = {
         const rimSnap = this.ctx.createOscillator();
         const rimGain = this.ctx.createGain();
         rimSnap.type = 'triangle';
-        rimSnap.frequency.setValueAtTime(380, tSeat);
-        rimSnap.frequency.exponentialRampToValueAtTime(110, tSeat + 0.08);
+        rimSnap.frequency.setValueAtTime(380 * RELOAD_PITCH, tSeat);
+        rimSnap.frequency.exponentialRampToValueAtTime(110 * RELOAD_PITCH, tSeat + 0.08);
         rimGain.gain.setValueAtTime(0.58, tSeat);
         rimGain.gain.exponentialRampToValueAtTime(0.001, tSeat + 0.09);
         rimSnap.connect(rimGain);
@@ -902,8 +903,8 @@ const soundFX = {
         const barrel = this.ctx.createOscillator();
         const barrelGain = this.ctx.createGain();
         barrel.type = 'sine';
-        barrel.frequency.setValueAtTime(125, tSeat);
-        barrel.frequency.exponentialRampToValueAtTime(42, tSeat + 0.28);
+        barrel.frequency.setValueAtTime(125 * RELOAD_PITCH, tSeat);
+        barrel.frequency.exponentialRampToValueAtTime(42 * RELOAD_PITCH, tSeat + 0.28);
         barrelGain.gain.setValueAtTime(0.65, tSeat);
         barrelGain.gain.exponentialRampToValueAtTime(0.001, tSeat + 0.30);
         barrel.connect(barrelGain);
@@ -928,8 +929,8 @@ const soundFX = {
         rushSrc.buffer = rushBuf;
         const rushFilter = this.ctx.createBiquadFilter();
         rushFilter.type = 'bandpass';
-        rushFilter.frequency.setValueAtTime(750, now);
-        rushFilter.frequency.linearRampToValueAtTime(1650, now + 0.038);
+        rushFilter.frequency.setValueAtTime(750 * RELOAD_PITCH, now);
+        rushFilter.frequency.linearRampToValueAtTime(1650 * RELOAD_PITCH, now + 0.038);
         rushFilter.Q.value = 2.4;
         const rushGain = this.ctx.createGain();
         rushGain.gain.setValueAtTime(0.38, now);
@@ -946,8 +947,8 @@ const soundFX = {
         const sub = this.ctx.createOscillator();
         const subGain = this.ctx.createGain();
         sub.type = 'sine';
-        sub.frequency.setValueAtTime(125, tSlam);
-        sub.frequency.exponentialRampToValueAtTime(28, tSlam + 0.32);
+        sub.frequency.setValueAtTime(125 * RELOAD_PITCH, tSlam);
+        sub.frequency.exponentialRampToValueAtTime(28 * RELOAD_PITCH, tSlam + 0.32);
         subGain.gain.setValueAtTime(0.85, tSlam);
         subGain.gain.exponentialRampToValueAtTime(0.001, tSlam + 0.35);
         sub.connect(subGain);
@@ -966,7 +967,7 @@ const soundFX = {
         strikeSrc.buffer = strikeBuf;
         const strikeBp = this.ctx.createBiquadFilter();
         strikeBp.type = 'bandpass';
-        strikeBp.frequency.setValueAtTime(2500, tSlam);
+        strikeBp.frequency.setValueAtTime(2500 * RELOAD_PITCH, tSlam);
         strikeBp.Q.value = 3.6;
         const strikeGain = this.ctx.createGain();
         strikeGain.gain.setValueAtTime(0.75, tSlam);
@@ -981,10 +982,10 @@ const soundFX = {
         const midFilter = this.ctx.createBiquadFilter();
         const midGain = this.ctx.createGain();
         mid.type = 'sawtooth';
-        mid.frequency.setValueAtTime(320, tSlam);
-        mid.frequency.exponentialRampToValueAtTime(95, tSlam + 0.18);
+        mid.frequency.setValueAtTime(320 * RELOAD_PITCH, tSlam);
+        mid.frequency.exponentialRampToValueAtTime(95 * RELOAD_PITCH, tSlam + 0.18);
         midFilter.type = 'lowpass';
-        midFilter.frequency.setValueAtTime(1150, tSlam);
+        midFilter.frequency.setValueAtTime(1150 * RELOAD_PITCH, tSlam);
         midGain.gain.setValueAtTime(0.65, tSlam);
         midGain.gain.exponentialRampToValueAtTime(0.001, tSlam + 0.20);
         mid.connect(midFilter);
@@ -994,7 +995,7 @@ const soundFX = {
         mid.stop(tSlam + 0.20);
 
         // D. High-tensile steel anvil / breech ring modal chime (distinct metallic ring-out)
-        const steelModes = [680, 1280, 1980, 2920, 4150];
+        const steelModes = [680, 1280, 1980, 2920, 4150].map(frequency => frequency * RELOAD_PITCH);
         const modeWeights = [0.42, 0.34, 0.24, 0.15, 0.08];
         const modeDecays = [0.38, 0.32, 0.25, 0.18, 0.12];
         steelModes.forEach((rf, idx) => {
@@ -1023,7 +1024,7 @@ const soundFX = {
         latchClickSrc.buffer = latchClickBuf;
         const latchClickFilter = this.ctx.createBiquadFilter();
         latchClickFilter.type = 'bandpass';
-        latchClickFilter.frequency.setValueAtTime(3200, tLatch);
+        latchClickFilter.frequency.setValueAtTime(3200 * RELOAD_PITCH, tLatch);
         latchClickFilter.Q.value = 4.0;
         const latchClickGain = this.ctx.createGain();
         latchClickGain.gain.setValueAtTime(0.50, tLatch);

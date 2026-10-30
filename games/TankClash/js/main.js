@@ -220,6 +220,39 @@ sunLight.shadow.radius = 2.5; // Soften PCF shadow filter kernel for large-scale
 scene.add(sunLight);
 window.sunLight = sunLight;
 
+function updateCelestialShadows(shadowsActive) {
+    const shadow = sunLight.shadow;
+    if (shadowsActive) {
+        shadow.autoUpdate = true;
+        return;
+    }
+    if (!shadow.autoUpdate || !shadow.map) return;
+
+    // Keep the shadow shader variant stable and clear its map to fully lit at the horizon.
+    const oldTarget = renderer.getRenderTarget();
+    const oldFace = renderer.getActiveCubeFace();
+    const oldMipmap = renderer.getActiveMipmapLevel();
+    const oldClearColor = renderer.getClearColor(new THREE.Color());
+    const oldClearAlpha = renderer.getClearAlpha();
+    const oldScissorTest = renderer.getScissorTest();
+    try {
+        renderer.setRenderTarget(shadow.map);
+        renderer.setScissorTest(false);
+        renderer.setClearColor(0xffffff, 1);
+        renderer.clear(true, true, false);
+    } finally {
+        renderer.setRenderTarget(oldTarget, oldFace, oldMipmap);
+        renderer.setClearColor(oldClearColor, oldClearAlpha);
+        renderer.setScissorTest(oldScissorTest);
+    }
+    shadow.autoUpdate = false;
+    shadow.needsUpdate = false;
+}
+
+renderer.domElement.addEventListener('webglcontextrestored', () => {
+    sunLight.shadow.autoUpdate = true;
+});
+
 // Moon color used by the shared directional light at night
 const MOON_LIGHT_COLOR = new THREE.Color(0x8ab4f8);
 
@@ -1039,8 +1072,8 @@ function updateSimulation(dt) {
     sunLight.color.copy(isSunActive ? sunCol : MOON_LIGHT_COLOR);
     sunLight.intensity = isSunActive ? sunIntensity : moonIntensity;
 
-    // Sun & Moonlight both cast dynamic battlefield shadows whenever celestial light is active
-    sunLight.castShadow = (sunLight.intensity > 0.12) && (celestialDir.y > 0.02);
+    // Sun and moon cast shadows when the celestial light is above the horizon.
+    updateCelestialShadows((sunLight.intensity > 0.12) && (celestialDir.y > 0.02));
 
     // Sky top & horizon colors calibrated from Maldive + Zone atmospheric tinting
     const zoneDayHor = (window.currentZoneConfig && window.currentZoneConfig.dayHorizonTint)

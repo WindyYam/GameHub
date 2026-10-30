@@ -1733,7 +1733,12 @@
         }
 
         update(dt, playerX, playerZ, nowSec) {
-            if (this.isDead) return;
+            if (this.isDead) {
+                if (typeof window.updateSoldierDeathAnimation === 'function') {
+                    window.updateSoldierDeathAnimation(this, dt);
+                }
+                return;
+            }
 
             this.animTime += dt;
             this.fireCooldown = Math.max(0, this.fireCooldown - dt);
@@ -2008,23 +2013,9 @@
             this.currentTarget = null;
             if (this.targetCursor) this.targetCursor.visible = false;
 
-            // Collapsed limp ragdoll pose on ground
-            this.rig.hips.position.y = 0.14;
-            this.rig.hips.rotation.x = -Math.PI * 0.48;
-            this.rig.hips.rotation.z = (Math.random() - 0.5) * 0.6;
-            this.rig.head.rotation.x = -0.3;
-
-            // Sprawl limp arms and legs
-            this.rig.rightArm.shoulder.rotation.set(-0.25, 0, -1.2);
-            this.rig.leftArm.shoulder.rotation.set(-0.35, 0, 1.15);
-            this.rig.rightLeg.hipJoint.rotation.set(0.12, 0, 0.25);
-            this.rig.leftLeg.hipJoint.rotation.set(-0.18, 0, -0.3);
-            this.rig.rightLeg.kneeJoint.rotation.x = 0.05;
-            this.rig.leftLeg.kneeJoint.rotation.x = 0.1;
-
-            // Drop rifle from hands onto ground
-            this.rig.rifle.position.set(0.25, 0.05, 0.2);
-            this.rig.rifle.rotation.set(0, (Math.random() - 0.5) * 2, 1.57);
+            if (typeof window.startSoldierDeathAnimation === 'function') {
+                window.startSoldierDeathAnimation(this);
+            }
 
             // Dust and blood puff on collapse
             if (typeof window.spawnParticle === 'function') {

@@ -51,34 +51,104 @@
     }
     window.damagePlayerSoldier = onPlayerSoldierDamage;
 
+    function startSoldierDeathAnimation(soldier) {
+        const rig = soldier && soldier.rig;
+        if (!rig) return;
+        const pose = [
+            [rig.hips.position, 'y', 0.14],
+            [rig.hips.rotation, 'x', -Math.PI * 0.48],
+            [rig.hips.rotation, 'z', (Math.random() - 0.5) * 0.35],
+            [rig.torso.rotation, 'x', 0],
+            [rig.torso.rotation, 'y', 0],
+            [rig.head.rotation, 'x', -0.3],
+            [rig.head.rotation, 'y', 0],
+            [rig.rightArm.shoulder.rotation, 'x', -0.25],
+            [rig.rightArm.shoulder.rotation, 'y', 0],
+            [rig.rightArm.shoulder.rotation, 'z', -1.2],
+            [rig.leftArm.shoulder.rotation, 'x', -0.35],
+            [rig.leftArm.shoulder.rotation, 'y', 0],
+            [rig.leftArm.shoulder.rotation, 'z', 1.15],
+            [rig.rightLeg.hipJoint.rotation, 'x', 0.12],
+            [rig.rightLeg.hipJoint.rotation, 'z', 0.25],
+            [rig.leftLeg.hipJoint.rotation, 'x', -0.18],
+            [rig.leftLeg.hipJoint.rotation, 'z', -0.3],
+            [rig.rightLeg.kneeJoint.rotation, 'x', 0.05],
+            [rig.leftLeg.kneeJoint.rotation, 'x', 0.1]
+        ];
+        if (rig.rifle && rig.rifle.position) {
+            pose.push(
+                [rig.rifle.position, 'x', 0.25],
+                [rig.rifle.position, 'y', 0.05],
+                [rig.rifle.position, 'z', 0.2]
+            );
+        }
+        if (rig.rifle && rig.rifle.rotation) {
+            pose.push(
+                [rig.rifle.rotation, 'x', 0],
+                [rig.rifle.rotation, 'y', (Math.random() - 0.5) * 2],
+                [rig.rifle.rotation, 'z', 1.57]
+            );
+        }
+        soldier.deathAnimation = {
+            elapsed: 0,
+            pose: pose.map(([object, axis, target]) => ({ object, axis, start: object[axis], target }))
+        };
+        if (rig.handGrenade) rig.handGrenade.visible = false;
+        if (rig.rifle) rig.rifle.visible = true;
+    }
+    window.startSoldierDeathAnimation = startSoldierDeathAnimation;
+
+    function updateSoldierDeathAnimation(s, dt, camera) {
+        const animation = s.deathAnimation;
+        if (animation) {
+            animation.elapsed = Math.min(animation.elapsed + dt, 0.8);
+            const progress = animation.elapsed / 0.8;
+            const eased = progress * progress * (3 - 2 * progress);
+            for (const joint of animation.pose) {
+                joint.object[joint.axis] = joint.start + (joint.target - joint.start) * eased;
+            }
+        }
+
+        if (s.isGrounded === false) {
+            s.vy -= 18.0 * dt;
+            s.y += s.vy * dt;
+            const ground = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(s.x, s.z) : 0;
+            if (s.y <= ground) {
+                s.y = ground;
+                s.vy = 0;
+                s.isGrounded = true;
+            }
+            s.rig.root.position.set(s.x, s.y, s.z);
+        }
+
+        if (camera) {
+            camera.lookAt(new THREE.Vector3(s.x, s.y + s.rig.hips.position.y + 0.25, s.z));
+            camera.updateMatrixWorld();
+        }
+    }
+    window.updateSoldierDeathAnimation = updateSoldierDeathAnimation;
+
     function onPlayerSoldierDie() {
         if (!playerSoldier || playerSoldier.isDead) return;
         playerSoldier.isDead = true;
         playerSoldier.speed = 0;
 
-        // Sprawl limp ragdoll pose on ground
-        if (playerSoldier.rig) {
-            playerSoldier.rig.hips.position.y = 0.14;
-            playerSoldier.rig.hips.rotation.x = -Math.PI * 0.48;
-            playerSoldier.rig.hips.rotation.z = (Math.random() - 0.5) * 0.6;
-            playerSoldier.rig.head.rotation.x = -0.3;
-            if (playerSoldier.rig.handGrenade) playerSoldier.rig.handGrenade.visible = false;
-            if (playerSoldier.rig.rifle) playerSoldier.rig.rifle.visible = true;
-            if (playerSoldier.rig.rightArm && playerSoldier.rig.rightArm.shoulder) {
-                playerSoldier.rig.rightArm.shoulder.rotation.set(-0.25, 0, -1.2);
-            }
-        }
+        const soldier = playerSoldier;
+        startSoldierDeathAnimation(soldier);
+        currentInteractAction = null;
+        hideInteractPrompt();
+        if (crosshairEl) crosshairEl.classList.add('hidden');
 
         if (typeof window.showKillFeedBanner === 'function') {
             window.showKillFeedBanner('☠️ KILLED IN ACTION (INFANTRY CASUALTY)');
         }
 
         setTimeout(() => {
-            if (typeof window.showKnockoutModal === 'function') {
-                window.showKnockoutModal();
+            if (playerSoldier === soldier && typeof window.showKnockoutModal === 'function') {
+                window.                showKnockoutModal();
             }
         }, 1200);
-    }
+        }
     let currentInteractAction = null; // null, { type: 'mount' }, { type: 'hijack', enemyTank }, { type: 'dismount' }
     let lastInteractCheck = 0;
 
@@ -561,7 +631,7 @@
     // 2. MOUNT TANK (Return to Tank Command)
     // ------------------------------------------------------------------------
     function mountTank() {
-        if (playerMode !== 'soldier' || !playerSoldier) return;
+        if (playerMode !== 'soldier' || !playerSoldier || playerSoldier.isDead) return;
         if (window.tankState && window.tankState.isKnockedOut) {
             if (typeof window.showKillFeedBanner === 'function') {
                 window.showKillFeedBanner('⚠️ TANK IS DESTROYED! SNEAK & HIJACK AN ENEMY TANK [E]');
@@ -609,7 +679,7 @@
     // 3. HIJACK ENEMY TANK (Sneak up & Capture Enemy Vehicle)
     // ------------------------------------------------------------------------
     function hijackTank(enemyTank) {
-        if (playerMode !== 'soldier' || !enemyTank || enemyTank.isDestroyed) return;
+        if (playerMode !== 'soldier' || !playerSoldier || playerSoldier.isDead || !enemyTank || enemyTank.isDestroyed) return;
 
         const capturedType = enemyTank.tankType || 'sherman';
         const capturedX = enemyTank.x;
@@ -771,7 +841,10 @@
         if (playerMode !== 'soldier' || !playerSoldier) return;
 
         const s = playerSoldier;
-        if (s.isDead) return;
+        if (s.isDead) {
+            updateSoldierDeathAnimation(s, dt, currentActiveCam);
+            return;
+        }
 
         s.animTime += dt;
         s.fireCooldown = Math.max(0, s.fireCooldown - dt);
@@ -1117,6 +1190,7 @@
 
     // Triggered when pressing 'E' or tapping interact button
     function triggerInteract() {
+        if (playerSoldier && playerSoldier.isDead) return;
         if (!currentInteractAction) {
             // Fallback default based on playerMode
             if (playerMode === 'tank') dismountTank();
