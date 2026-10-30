@@ -247,6 +247,9 @@ if (window.TANK_SPECS && window.TANK_SPECS[initialCampaign]) {
     tankState.currentTankSpec = initSpec;
     tankState.RELOAD_TIME = initSpec.reloadTime;
     tankState.SHELL_VELOCITY = initSpec.shellVel;
+    tankState.CANNON_SPREAD = initSpec.spread;
+    tankState.BLAST_RADIUS = initSpec.blastRadius;
+    tankState.BLAST_DAMAGE = initSpec.blastDamage;
     tankState.MAX_SPEED = initSpec.maxSpeed;
     tankState.REVERSE_SPEED = initSpec.reverseSpeed;
     tankState.TURN_SPEED = initSpec.turnSpeed;
@@ -254,9 +257,15 @@ if (window.TANK_SPECS && window.TANK_SPECS[initialCampaign]) {
     tankState.MIN_ELEV_RAD = THREE.MathUtils.degToRad(initSpec.minElevDeg);
     tankState.MAX_ELEV_RAD = THREE.MathUtils.degToRad(initSpec.maxElevDeg);
     tankState.hasMuzzleBrake = initSpec.hasMuzzleBrake;
+    tankState.playerArmor = initSpec.playerArmor || (initialCampaign === 'tiger' ? 4 : 2);
+    tankState.maxArmor = tankState.playerArmor;
+    window.playerHitsTaken = 0;
 
     if (typeof window.updateTankHUD === 'function') {
         window.updateTankHUD(initSpec);
+    }
+    if (typeof window.updateArmorHUD === 'function') {
+        window.updateArmorHUD(tankState.playerArmor, tankState.playerArmor);
     }
     if (window.soundFX && typeof window.soundFX.setTankSoundProfile === 'function') {
         window.soundFX.setTankSoundProfile(initSpec);
@@ -824,14 +833,15 @@ function updateSimulation(dt) {
     barrelRecoilGroup.position.z = -tankState.barrelRecoilOffset;
 
     if (tankState.reloadTimer > 0) {
-        const timeElapsed = tankState.RELOAD_TIME - tankState.reloadTimer;
-        // 1. Spent brass casing clatters out at ~0.8s
-        if (tankState.reloadStage === 1 && timeElapsed >= 0.8) {
+        const totalReload = Math.max(0.2, tankState.RELOAD_TIME);
+        const timeElapsed = totalReload - tankState.reloadTimer;
+        // 1. Spent brass casing clatters out at ~20% of reload time
+        if (tankState.reloadStage === 1 && timeElapsed >= totalReload * 0.20) {
             soundFX.playShellEject();
             tankState.reloadStage = 2;
         }
-        // 2. Heavy 8.8cm shell sliding into breech tray at ~2.3s
-        if (tankState.reloadStage === 2 && timeElapsed >= 2.3) {
+        // 2. Shell sliding into breech tray at ~55% of reload time
+        if (tankState.reloadStage === 2 && timeElapsed >= totalReload * 0.55) {
             soundFX.playShellSlide();
             tankState.reloadStage = 3;
         }

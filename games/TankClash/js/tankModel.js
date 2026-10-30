@@ -16,10 +16,15 @@ const TANK_SPECS = {
         weight: '57 t',
         massKg: 57000,
         enginePowerKW: 515,
+        enemyArmor: 2,        // Enemy Tiger tank has 2 armor points
+        playerArmor: 4,       // Player's tank has 2x armor points (4)
         gunName: '8.8 cm KwK 36 L/56',
         caliberText: '8.8cm',
-        shellVel: 773,
-        reloadTime: 4.2,
+        shellVel: 810,
+        reloadTime: 4.8,
+        spread: 0.0003,       // Most precise cannon: pinpoint sniper accuracy
+        blastRadius: 8.0,     // Standard 8.8cm HE-AP blast radius
+        blastDamage: 100,
         recoilOffset: 0.56,
         maxSpeed: 10.6, // ~38 km/h realistic top road speed
         reverseSpeed: 4.2,
@@ -27,10 +32,10 @@ const TANK_SPECS = {
         minElevDeg: -8,
         maxElevDeg: 15,
         hasMuzzleBrake: true,
-        sightName: 'TZF 9b — 8.8cm KwK 36 L/56 (773 m/s)',
-        sightSubtitle: '8.8cm KwK 36 L/56 • 773 M/S',
+        sightName: 'TZF 9b — 8.8cm KwK 36 L/56 (810 m/s • Ultra-Precision)',
+        sightSubtitle: '8.8cm KwK 36 L/56 • 810 M/S • PINPOINT SNIPER',
         fpvZoomText: 'OPTICAL 2.5× [HOLD RMB: 5.0× ZOOM]',
-        description: 'German Heavy Tank • 8.8cm KwK 36 L/56 • Schachtellaufwerk Suspension'
+        description: 'German Heavy Tank • 8.8cm KwK 36 L/56 • Pinpoint Sniper Precision'
     },
     sherman: {
         id: 'sherman',
@@ -43,22 +48,27 @@ const TANK_SPECS = {
         year: '1944',
         weight: '30 t',
         massKg: 30000,
-        enginePowerKW: 335,
+        enginePowerKW: 375,
+        enemyArmor: 1,        // Enemy Sherman tank has 1 armor point
+        playerArmor: 2,       // Player's tank has 2x armor points (2)
         gunName: '75 mm Gun M3',
         caliberText: '75mm',
-        shellVel: 619,
-        reloadTime: 3.2,
+        shellVel: 460,        // Slower projectile with noticeable arc and flight delay
+        reloadTime: 2.7,      // High reload rate: rapid-fire 2.7s reload
+        spread: 0.0035,       // Moderate precision
+        blastRadius: 6.5,     // Compact 75mm HE blast radius
+        blastDamage: 85,
         recoilOffset: 0.38,
-        maxSpeed: 11.8, // ~42 km/h top road speed
-        reverseSpeed: 4.5,
-        turnSpeed: 1.35,
+        maxSpeed: 13.6, // ~49 km/h agile top speed
+        reverseSpeed: 5.2,
+        turnSpeed: 1.45,
         minElevDeg: -10,
         maxElevDeg: 25,
         hasMuzzleBrake: false,
-        sightName: 'M70G — 75mm Gun M3 (619 m/s)',
-        sightSubtitle: '75mm Gun M3 • 619 M/S',
+        sightName: 'M70G — 75mm Gun M3 (460 m/s • Rapid-Fire 2.7s)',
+        sightSubtitle: '75mm Gun M3 • 460 M/S • HIGH RATE OF FIRE (2.7s)',
         fpvZoomText: 'OPTICAL 1.5× [HOLD RMB: 3.0× ZOOM]',
-        description: 'American Medium Tank • 75mm Gun M3 • VVSS Bogie Suspension'
+        description: 'American Medium Tank • 75mm Gun M3 • Rapid-Fire Reload & High-Arc Shell'
     },
     t34: {
         id: 't34',
@@ -71,22 +81,27 @@ const TANK_SPECS = {
         year: '1944',
         weight: '32 t',
         massKg: 32000,
-        enginePowerKW: 373,
+        enginePowerKW: 425,
+        enemyArmor: 1,        // Enemy T-34 tank has 1 armor point
+        playerArmor: 2,       // Player's tank has 2x armor points (2)
         gunName: '85 mm ZiS-S-53',
         caliberText: '85mm',
-        shellVel: 792,
+        shellVel: 740,
         reloadTime: 3.6,
+        spread: 0.018,        // Low precision: wide dispersion cone
+        blastRadius: 16.5,    // Massive projectile blast range & HE fragmentation!
+        blastDamage: 150,
         recoilOffset: 0.46,
-        maxSpeed: 14.5, // ~52 km/h top road speed
-        reverseSpeed: 4.8,
-        turnSpeed: 1.45,
+        maxSpeed: 16.8, // ~60 km/h high-speed Christie suspension
+        reverseSpeed: 5.6,
+        turnSpeed: 1.55,
         minElevDeg: -5,
         maxElevDeg: 22,
         hasMuzzleBrake: false,
-        sightName: 'TSh-16 — 85mm ZiS-S-53 (792 m/s)',
-        sightSubtitle: '85mm ZiS-S-53 • 792 M/S',
+        sightName: 'TSh-16 — 85mm ZiS-S-53 (740 m/s • Heavy HE Blast)',
+        sightSubtitle: '85mm ZiS-S-53 • 740 M/S • WIDE BLAST (16.5M)',
         fpvZoomText: 'OPTICAL 4.0× [HOLD RMB: 4.0× ZOOM]',
-        description: 'Soviet Medium Tank • 85mm ZiS-S-53 • Christie Suspension'
+        description: 'Soviet Medium Tank • 85mm ZiS-S-53 • Massive High-Explosive Blast Area'
     }
 };
 
@@ -201,6 +216,12 @@ function updateTankHUD(spec) {
             btn.classList.add('opacity-70');
         }
     });
+
+    // 5. Update Armor HUD for player's current vehicle
+    if (typeof window.updateArmorHUD === 'function') {
+        const pMaxArmor = spec.playerArmor || (spec.id === 'tiger' ? 4 : 2);
+        window.updateArmorHUD(pMaxArmor, pMaxArmor);
+    }
 }
 
 function buildTankById(tankId, scene, mats) {
@@ -260,6 +281,9 @@ function switchTank(newTankId) {
         window.tankState.currentTankSpec = spec;
         window.tankState.RELOAD_TIME = spec.reloadTime;
         window.tankState.SHELL_VELOCITY = spec.shellVel;
+        window.tankState.CANNON_SPREAD = spec.spread;
+        window.tankState.BLAST_RADIUS = spec.blastRadius;
+        window.tankState.BLAST_DAMAGE = spec.blastDamage;
         window.tankState.MAX_SPEED = spec.maxSpeed;
         window.tankState.REVERSE_SPEED = spec.reverseSpeed;
         window.tankState.TURN_SPEED = spec.turnSpeed;
@@ -298,6 +322,16 @@ function switchTank(newTankId) {
 
     // Update HUD
     updateTankHUD(spec);
+    if (window.tankState) {
+        window.tankState.playerArmor = spec.playerArmor || 2;
+        window.tankState.maxArmor = spec.playerArmor || 2;
+        window.playerHitsTaken = 0;
+        window.tankState.isKnockedOut = false;
+    }
+    if (typeof window.updateArmorHUD === 'function') {
+        const pMax = spec.playerArmor || 2;
+        window.updateArmorHUD(pMax, pMax);
+    }
 
     // Update Sound Profile
     if (window.soundFX && typeof window.soundFX.setTankSoundProfile === 'function') {

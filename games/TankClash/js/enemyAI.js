@@ -7,7 +7,15 @@
 (function() {
     'use strict';
 
-    const MAX_PLAYER_HITS = 3;
+    function getPlayerMaxArmor(tankId) {
+        const id = tankId || window.currentTankId || (window.tankState && window.tankState.currentTankSpec && window.tankState.currentTankSpec.id) || 'tiger';
+        if (window.TANK_SPECS && window.TANK_SPECS[id] && typeof window.TANK_SPECS[id].playerArmor === 'number') {
+            return window.TANK_SPECS[id].playerArmor;
+        }
+        return id === 'tiger' ? 4 : 2;
+    }
+    window.getPlayerMaxArmor = getPlayerMaxArmor;
+
     let playerHitsTaken = 0;
     const sessionDestroyedEnemyTanks = new Set();
     const activeEnemyTanks = [];
@@ -23,7 +31,10 @@
 
     window.activeEnemyTanks = activeEnemyTanks;
     window.sessionDestroyedEnemyTanks = sessionDestroyedEnemyTanks;
-    window.MAX_PLAYER_HITS = MAX_PLAYER_HITS;
+    Object.defineProperty(window, 'MAX_PLAYER_HITS', {
+        get: () => getPlayerMaxArmor(),
+        configurable: true
+    });
     window.TOTAL_ZONE_ENEMIES = MAX_ZONE_ENEMIES;
 
     // Track when player fired to dynamically alert nearby enemy crews
@@ -205,18 +216,51 @@
             tacticTimer: 1.5 + Math.random() * 2.5,
             targetSpeed: 0,
             detectionTimer: 0,
-            reloadTimer: 2.0 + Math.random() * 2.5,
+            reloadTimer: 1.5 + Math.random() * (spec.reloadTime || 3.5),
             barrelRecoil: 0,
-            aimErrorYaw: (Math.random() - 0.5) * 0.16,
-            aimErrorElev: (Math.random() - 0.5) * 0.10,
+            aimErrorYaw: (Math.random() - 0.5) * ((spec.spread || 0.005) * 8.0),
+            aimErrorElev: (Math.random() - 0.5) * ((spec.spread || 0.005) * 5.0),
             aimErrorTimer: 0,
             speed: 0,
             isDestroyed: false,
+            maxArmor: (spec.enemyArmor !== undefined ? spec.enemyArmor : (tankType === 'tiger' ? 2 : 1)),
+            armor: (spec.enemyArmor !== undefined ? spec.enemyArmor : (tankType === 'tiger' ? 2 : 1)),
             burningSmokeTimer: 0,
             plumePuffs: [],
 
             onHit(impactPos, hitDir) {
                 if (this.isDestroyed) return;
+
+                if (this.armor === undefined) {
+                    this.armor = this.maxArmor || (this.spec.enemyArmor !== undefined ? this.spec.enemyArmor : (this.tankType === 'tiger' ? 2 : 1));
+                }
+                this.armor--;
+
+                // If enemy tank still has armor remaining (e.g. Tiger tank absorbs 1st hit):
+                if (this.armor > 0) {
+                    if (typeof window.spawnDynamicFlash === 'function') {
+                        window.spawnDynamicFlash(impactPos, 0xfff08a, 20.0, 38.0, 0.14);
+                    }
+                    if (typeof window.spawnParticle === 'function') {
+                        for (let s = 0; s < 14; s++) {
+                            const spkVel = new THREE.Vector3((Math.random() - 0.5) * 18, 2.0 + Math.random() * 14, (Math.random() - 0.5) * 18);
+                            window.spawnParticle(impactPos, spkVel, 0xfbbf24, 0.16, 0.08, 0.6, true, 'spark');
+                        }
+                        for (let m = 0; m < 6; m++) {
+                            const smkVel = new THREE.Vector3((Math.random() - 0.5) * 4, 1.5 + Math.random() * 4, (Math.random() - 0.5) * 4);
+                            window.spawnParticle(impactPos, smkVel, 0x475569, 0.45, 2.8, 1.8, false, 'smoke');
+                        }
+                    }
+                    if (window.soundFX && typeof window.soundFX.playArmorRicochet === 'function') {
+                        window.soundFX.playArmorRicochet(impactPos);
+                    } else if (window.soundFX && typeof window.soundFX.playExplosion === 'function') {
+                        window.soundFX.playExplosion(impactPos);
+                    }
+                    showKillFeedBanner(`💥 HIT ENEMY ${this.spec.shortName.toUpperCase()}! ARMOR DAMAGED (${this.armor}/${this.maxArmor} REMAINING)`);
+                    return;
+                }
+
+                // Armor fully depleted (armor <= 0): Catastrophic vehicle destruction!
                 this.isDestroyed = true;
                 if (this.targetCursor) this.targetCursor.visible = false;
                 this.state = 'DESTROYED';
@@ -461,12 +505,13 @@
             // ----------------------------------------------------------------
             // State: ENGAGING (Turret Slew, Ballistic Elevation, Cannon Fire)
             // ----------------------------------------------------------------
-            // Drift aim error over time so enemy gunners exhibit human imperfection and wandering aim
+            // Drift aim error over time based on tank cannon precision profile
             e.aimErrorTimer = (e.aimErrorTimer || 0) + dt;
             if (e.aimErrorTimer > 2.8) {
                 e.aimErrorTimer = 0;
-                e.aimErrorYaw = (Math.random() - 0.5) * 0.16;   // ~±4.6° error
-                e.aimErrorElev = (Math.random() - 0.5) * 0.10;  // ~±2.9° error
+                const spr = (e.spec && typeof e.spec.spread === 'number') ? e.spec.spread : 0.005;
+                e.aimErrorYaw = (Math.random() - 0.5) * (spr * 8.0);
+                e.aimErrorElev = (Math.random() - 0.5) * (spr * 5.0);
             }
 
             // 1. Calculate Target Turret Angle in enemy local space (with crew aim error)
@@ -492,6 +537,7 @@
 
             // 3. Dynamic Combat Maneuvering: Randomly alternate between shooting in place and moving/flanking
             e.tacticTimer = (e.tacticTimer || 2.0) - dt;
+            const spdFactor = (e.spec && e.spec.maxSpeed) ? (e.spec.maxSpeed / 10.6) : 1.0;
             if (e.tacticTimer <= 0) {
                 const roll = Math.random();
                 if (roll < 0.35) {
@@ -503,22 +549,22 @@
                     // Move around: flank left around player
                     e.combatTactic = 'FLANK_LEFT';
                     e.tacticTimer = 3.0 + Math.random() * 3.5;
-                    e.targetSpeed = 3.2 + Math.random() * 1.0;
+                    e.targetSpeed = (3.2 + Math.random() * 1.0) * spdFactor;
                 } else if (roll < 0.80) {
                     // Move around: flank right around player
                     e.combatTactic = 'FLANK_RIGHT';
                     e.tacticTimer = 3.0 + Math.random() * 3.5;
-                    e.targetSpeed = 3.2 + Math.random() * 1.0;
+                    e.targetSpeed = (3.2 + Math.random() * 1.0) * spdFactor;
                 } else if (distToPlayer > 42) {
                     // Move around: close in aggressively
                     e.combatTactic = 'ADVANCE';
                     e.tacticTimer = 2.5 + Math.random() * 3.0;
-                    e.targetSpeed = 3.6 + Math.random() * 0.8;
+                    e.targetSpeed = (3.6 + Math.random() * 0.8) * spdFactor;
                 } else {
                     // Move around: reverse away
                     e.combatTactic = 'REVERSE';
                     e.tacticTimer = 2.0 + Math.random() * 2.5;
-                    e.targetSpeed = -2.4;
+                    e.targetSpeed = -2.4 * spdFactor;
                 }
             }
 
@@ -615,9 +661,10 @@
                     Math.cos(shotYaw) * cosElev
                 ).normalize();
 
-                // Re-randomize aim error for subsequent shots
-                e.aimErrorYaw = (Math.random() - 0.5) * 0.18;
-                e.aimErrorElev = (Math.random() - 0.5) * 0.12;
+                // Re-randomize aim error for subsequent shots based on tank precision
+                const shotSpr = (e.spec && typeof e.spec.spread === 'number') ? e.spec.spread : 0.005;
+                e.aimErrorYaw = (Math.random() - 0.5) * (shotSpr * 9.0);
+                e.aimErrorElev = (Math.random() - 0.5) * (shotSpr * 6.0);
                 e.aimErrorTimer = 0;
 
                 // Dynamic Muzzle Flash Light
@@ -648,13 +695,14 @@
     window.updateEnemyTanks = updateEnemyTanks;
 
     // ========================================================================
-    // 4. PLAYER DAMAGE & KNOCKOUT SYSTEM (3 Hits Sustained)
+    // 4. PLAYER DAMAGE & KNOCKOUT SYSTEM (2x Armor Points vs Enemy)
     // ========================================================================
     function onPlayerHit(impactPos, hitDir) {
         if (!window.tankState || window.tankState.isKnockedOut) return;
 
+        const maxArmor = getPlayerMaxArmor();
         playerHitsTaken++;
-        const remainingArmor = Math.max(0, MAX_PLAYER_HITS - playerHitsTaken);
+        const remainingArmor = Math.max(0, maxArmor - playerHitsTaken);
 
         // Screen Shake & Hull Recoil Impulse
         if (window.tankState) {
@@ -677,13 +725,13 @@
         }
 
         // Red damage screen flash vignette
-        showDamageFlash(playerHitsTaken >= MAX_PLAYER_HITS ? 0.75 : 0.45);
+        showDamageFlash(playerHitsTaken >= maxArmor ? 0.75 : 0.45);
 
         // Update HUD
-        updateArmorHUD(remainingArmor);
+        updateArmorHUD(remainingArmor, maxArmor);
 
-        // Critical Vehicle Knockout on 3rd hit
-        if (playerHitsTaken >= MAX_PLAYER_HITS) {
+        // Critical Vehicle Knockout when all armor depleted
+        if (playerHitsTaken >= maxArmor) {
             window.tankState.isKnockedOut = true;
 
             // Turret slumps sideways on player tank
@@ -712,13 +760,14 @@
                 showKillFeedBanner('💥 TANK WRECK DESTROYED!');
             }
         } else {
-            showKillFeedBanner(`⚠️ ARMOR COMPROMISED! (${remainingArmor}/${MAX_PLAYER_HITS} HITS REMAINING)`);
+            showKillFeedBanner(`⚠️ ARMOR COMPROMISED! (${remainingArmor}/${maxArmor} HITS REMAINING)`);
         }
     }
     window.onPlayerHit = onPlayerHit;
 
     function resetPlayerHealth() {
         playerHitsTaken = 0;
+        window.playerHitsTaken = 0;
         if (window.tankState) {
             window.tankState.isKnockedOut = false;
         }
@@ -737,7 +786,8 @@
         if (window.gunElevationPivot) {
             window.gunElevationPivot.rotation.x = 0;
         }
-        updateArmorHUD(MAX_PLAYER_HITS);
+        const maxA = getPlayerMaxArmor();
+        updateArmorHUD(maxA, maxA);
         hideKnockoutModal();
     }
     window.resetPlayerHealth = resetPlayerHealth;
@@ -745,20 +795,27 @@
     // ========================================================================
     // 5. HUD, BANNER & DAMAGE OVERLAY INTEGRATION
     // ========================================================================
-    function updateArmorHUD(remaining) {
+    function updateArmorHUD(remaining, maxArmor) {
         const armorEl = document.getElementById('hud-armor');
         if (!armorEl) return;
 
-        armorEl.textContent = `ARMOR: ${remaining}/${MAX_PLAYER_HITS}`;
-        if (remaining === 3) {
-            armorEl.className = 'text-emerald-400 font-bold';
-        } else if (remaining === 2) {
-            armorEl.className = 'text-amber-400 font-bold';
-        } else if (remaining === 1) {
-            armorEl.className = 'text-red-500 font-bold animate-pulse';
-        } else {
+        const maxA = (typeof maxArmor === 'number') ? maxArmor : getPlayerMaxArmor();
+        const rem = (typeof remaining === 'number') ? remaining : Math.max(0, maxA - playerHitsTaken);
+
+        if (rem <= 0) {
             armorEl.textContent = 'DESTROYED';
             armorEl.className = 'text-rose-600 font-extrabold';
+            return;
+        }
+
+        armorEl.textContent = `ARMOR: ${rem}/${maxA}`;
+        const ratio = rem / maxA;
+        if (ratio >= 0.75) {
+            armorEl.className = 'text-emerald-400 font-bold';
+        } else if (ratio >= 0.50) {
+            armorEl.className = 'text-amber-400 font-bold';
+        } else {
+            armorEl.className = 'text-red-500 font-bold animate-pulse';
         }
     }
 
@@ -947,7 +1004,9 @@
 
     // Called when player switches to another tank (e.g., via hijacking)
     function onPlayerTankChanged(newPlayerTankId) {
-        // Enemy tanks exist in all campaigns across the battlefield
+        playerHitsTaken = 0;
+        const pMax = getPlayerMaxArmor(newPlayerTankId);
+        updateArmorHUD(pMax, pMax);
     }
     window.onPlayerTankChanged = onPlayerTankChanged;
 
@@ -956,6 +1015,7 @@
     window.updateArmorHUD = updateArmorHUD;
 
     // Auto-update Armor HUD on boot
-    updateArmorHUD(MAX_PLAYER_HITS);
+    const initMax = getPlayerMaxArmor();
+    updateArmorHUD(initMax, initMax);
 
 })();

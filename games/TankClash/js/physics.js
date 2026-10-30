@@ -35,8 +35,11 @@ var tankState = {
     barrelRecoilVel: 0,
     reloadTimer: 0,
     reloadStage: 0,         // 0: ready, 1: ejecting, 2: sliding, 3: ready to latch
-    RELOAD_TIME: 4.2,       // 4.2s reload for 8.8cm KwK 36
-    SHELL_VELOCITY: 773,
+    RELOAD_TIME: 4.8,       // Default KwK 36 reload
+    SHELL_VELOCITY: 810,
+    CANNON_SPREAD: 0.0003,  // Pinpoint sniper precision
+    BLAST_RADIUS: 8.0,      // Blast radius in meters
+    BLAST_DAMAGE: 100,      // Base blast damage
     MAX_SPEED: 10.6,
     REVERSE_SPEED: 4.2,
     TURN_SPEED: 1.15,
@@ -504,20 +507,34 @@ function fireMainCannon(tankModel) {
         spawnParticle(groundUnderMuzzle, dustVel, 0x785e46, 0.35, 2.4, 0.50, false, 'smoke');
     }
 
-    // 8. Spawn High-Velocity Armor-Piercing Tracer Shell
+    // 8. Spawn High-Velocity Armor-Piercing Tracer Shell with Tank Dispersion & Ballistics
+    const spreadAngle = (typeof tankState.CANNON_SPREAD === 'number') ? tankState.CANNON_SPREAD : 0.001;
+    let finalShootDir = shootDir.clone();
+    if (spreadAngle > 0.0001) {
+        const spreadRad = Math.sqrt(-2.0 * Math.log(Math.max(0.0001, 1.0 - Math.random()))) * spreadAngle;
+        const spreadTheta = Math.random() * Math.PI * 2.0;
+        finalShootDir.addScaledVector(rightVec, Math.cos(spreadTheta) * spreadRad);
+        finalShootDir.addScaledVector(upVec, Math.sin(spreadTheta) * spreadRad);
+        finalShootDir.normalize();
+    }
+
+    const fireQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), finalShootDir);
     const shellGroup = shellPool.pop() || createShellObject();
     shellGroup.visible = true;
     shellGroup.position.copy(muzzlePos);
-    shellGroup.quaternion.copy(barrelQuat);
+    shellGroup.quaternion.copy(fireQuat);
     if (shellGroup.parent !== window.scene) window.scene.add(shellGroup);
 
     const shellSpeed = tankState.SHELL_VELOCITY || 773;
     shells.push({
         mesh: shellGroup,
         pos: muzzlePos.clone(),
-        vel: shootDir.clone().multiplyScalar(shellSpeed),
+        vel: finalShootDir.clone().multiplyScalar(shellSpeed),
         life: 5.0,
-        isEnemy: false
+        isEnemy: false,
+        blastRadius: (typeof tankState.BLAST_RADIUS === 'number') ? tankState.BLAST_RADIUS : 8.0,
+        blastDamage: (typeof tankState.BLAST_DAMAGE === 'number') ? tankState.BLAST_DAMAGE : 100,
+        tankType: window.currentTankId || 'tiger'
     });
 }
 
@@ -633,43 +650,55 @@ function fireSmokeDischargers(tankModel) {
 }
 
 // High-Fidelity Multi-Stage Shell Detonation (Fireball, Shockwave, Sparks, Smoke Column)
-function triggerHeavyDetonation(pos, ignorePlayer = false) {
+function triggerHeavyDetonation(pos, ignorePlayer = false, customBlastRadius = 8.5, customBlastDamage = 100) {
+    const blastRad = (typeof customBlastRadius === 'number') ? customBlastRadius : 8.5;
+    const blastDmg = (typeof customBlastDamage === 'number') ? customBlastDamage : 100;
+    const isLargeBlast = blastRad > 12.0;
+
     soundFX.playImpactExplosion(pos);
 
     // 1. Blinding Detonation Flash Light
-    spawnDynamicFlash(pos, 0xfff08a, 24.0, 55.0, 0.18);
+    const flashRadius = Math.round(blastRad * 6.0);
+    spawnDynamicFlash(pos, 0xfff08a, isLargeBlast ? 36.0 : 24.0, flashRadius, isLargeBlast ? 0.25 : 0.18);
 
     // 2. Expanding Ground Blast Shockwave Ring
-    spawnShockwave(pos, 8.5, 0.45, 0xfef08a);
+    spawnShockwave(pos, blastRad, isLargeBlast ? 0.60 : 0.45, 0xfef08a);
+    if (isLargeBlast) {
+        spawnShockwave(pos, blastRad * 1.35, 0.75, 0xf97316);
+    }
 
     // 3. Central White-Hot to Fiery Orange Fireball Plume
-    for (let i = 0; i < 7; i++) {
+    const fireCount = isLargeBlast ? 12 : 7;
+    const fireScale = isLargeBlast ? 1.45 : 1.0;
+    for (let i = 0; i < fireCount; i++) {
         const fireVel = new THREE.Vector3(
-            (Math.random() - 0.5) * 8.0,
-            3.5 + Math.random() * 8.5,
-            (Math.random() - 0.5) * 8.0
+            (Math.random() - 0.5) * (8.0 * fireScale),
+            (3.5 + Math.random() * 8.5) * fireScale,
+            (Math.random() - 0.5) * (8.0 * fireScale)
         );
         const col = (i % 3 === 0) ? 0xfffbeb : ((i % 3 === 1) ? 0xf59e0b : 0xd97706);
-        spawnParticle(pos, fireVel, col, 0.85, 4.6, 0.35 + Math.random() * 0.25, true, 'fire');
+        spawnParticle(pos, fireVel, col, 0.85 * fireScale, 4.6 * fireScale, (0.35 + Math.random() * 0.25) * fireScale, true, 'fire');
     }
 
     // 4. Giant Billowing Charcoal/Black Smoke Plume that rises into sky
-    for (let i = 0; i < 8; i++) {
+    const smokeCount = isLargeBlast ? 14 : 8;
+    for (let i = 0; i < smokeCount; i++) {
         const smokeVel = new THREE.Vector3(
-            (Math.random() - 0.5) * 9.5,
-            2.5 + Math.random() * 7.5,
-            (Math.random() - 0.5) * 9.5
+            (Math.random() - 0.5) * (9.5 * fireScale),
+            (2.5 + Math.random() * 7.5) * fireScale,
+            (Math.random() - 0.5) * (9.5 * fireScale)
         );
         const col = (i % 2 === 0) ? 0x1e242b : 0x475569;
-        spawnParticle(pos, smokeVel, col, 0.65, 4.2, 0.50, false, 'smoke');
+        spawnParticle(pos, smokeVel, col, 0.65 * fireScale, 4.2 * fireScale, 0.50 * fireScale, false, 'smoke');
     }
 
     // 5. Fountain of Incandescent Shrapnel Sparks
-    for (let i = 0; i < 16; i++) {
+    const sparkCount = isLargeBlast ? 26 : 16;
+    for (let i = 0; i < sparkCount; i++) {
         const sparkVel = new THREE.Vector3(
-            (Math.random() - 0.5) * 26.0,
-            6.0 + Math.random() * 22.0,
-            (Math.random() - 0.5) * 26.0
+            (Math.random() - 0.5) * (26.0 * fireScale),
+            (6.0 + Math.random() * 22.0) * fireScale,
+            (Math.random() - 0.5) * (26.0 * fireScale)
         );
         spawnParticle(pos, sparkVel, (Math.random() > 0.3) ? 0xfbbf24 : 0xf97316, 0.18, 0.08, 0.8 + Math.random() * 1.1, true, 'spark');
     }
@@ -683,8 +712,9 @@ function triggerHeavyDetonation(pos, ignorePlayer = false) {
         const bsol = blastSols[bsi];
         if (!bsol || bsol.isDead) continue;
         const blastDist = Math.hypot(bsol.x - pos.x, bsol.z - pos.z);
-        if (blastDist < 8.5) {
-            const dmg = blastDist < 3.8 ? 100 : Math.round(100 * (1 - (blastDist - 3.8) / 4.7));
+        if (blastDist < blastRad) {
+            const innerRadius = blastRad * 0.45;
+            const dmg = blastDist < innerRadius ? blastDmg : Math.round(blastDmg * (1 - (blastDist - innerRadius) / (blastRad - innerRadius)));
             if (typeof bsol.takeDamage === 'function') {
                 bsol.takeDamage(dmg);
             }
@@ -692,19 +722,20 @@ function triggerHeavyDetonation(pos, ignorePlayer = false) {
     }
 
     // 6. Heavy Clods of Earth & Shrapnel Debris
-    for (let i = 0; i < 7; i++) {
+    const dirtCount = isLargeBlast ? 12 : 7;
+    for (let i = 0; i < dirtCount; i++) {
         const dirtVel = new THREE.Vector3(
-            (Math.random() - 0.5) * 16.0,
-            4.0 + Math.random() * 14.0,
-            (Math.random() - 0.5) * 16.0
+            (Math.random() - 0.5) * (16.0 * fireScale),
+            (4.0 + Math.random() * 14.0) * fireScale,
+            (Math.random() - 0.5) * (16.0 * fireScale)
         );
-        spawnParticle(pos, dirtVel, 0x3d3126, 0.32, 0.95, 1.2 + Math.random() * 0.8, false, 'dirt');
+        spawnParticle(pos, dirtVel, 0x3d3126, 0.32 * fireScale, 0.95 * fireScale, 1.2 + Math.random() * 0.8, false, 'dirt');
     }
 
     // 7. Powerful Blast Wave Topples Nearby Trees Radially Along Explosion Force
     const blastTrees = window.swayTrees || [];
-    const blastRadius = 12.0;
-    const blastRadiusSq = blastRadius * blastRadius;
+    const treeBlastRadius = blastRad * 1.35;
+    const blastRadiusSq = treeBlastRadius * treeBlastRadius;
     for (let tr = 0; tr < blastTrees.length; tr++) {
         const tree = blastTrees[tr];
         if (tree.isFallen) continue;
@@ -714,7 +745,7 @@ function triggerHeavyDetonation(pos, ignorePlayer = false) {
         if (dSq < blastRadiusSq) {
             const dist = Math.sqrt(dSq);
             const blastDir = (dist > 0.1) ? new THREE.Vector3(dx / dist, 0, dz / dist) : new THREE.Vector3(0, 0, 1);
-            const blastForce = (1.0 - dist / blastRadius) * 4.5;
+            const blastForce = (1.0 - dist / treeBlastRadius) * (isLargeBlast ? 7.5 : 4.5);
             if (window.hitTree) {
                 window.hitTree(tree, blastDir, blastForce);
             }
@@ -813,6 +844,9 @@ function testSegmentVsTank(prevPos, nextPos, tankX, tankY, tankZ, heading, halfW
 
 // Spawns shell projectile from Enemy Tank toward Player
 function spawnEnemyShell(muzzlePos, fireDir, shellSpeed, enemyTank) {
+    const spec = (enemyTank && enemyTank.spec) || {};
+    const spd = shellSpeed || spec.shellVel || 750;
+
     const shellGroup = shellPool.pop() || createShellObject();
     shellGroup.visible = true;
     shellGroup.position.copy(muzzlePos);
@@ -820,14 +854,16 @@ function spawnEnemyShell(muzzlePos, fireDir, shellSpeed, enemyTank) {
     shellGroup.quaternion.copy(quat);
     if (shellGroup.parent !== window.scene) window.scene.add(shellGroup);
 
-    const spd = shellSpeed || 750;
     shells.push({
         mesh: shellGroup,
         pos: muzzlePos.clone(),
         vel: fireDir.clone().multiplyScalar(spd),
         life: 5.0,
         isEnemy: true,
-        sourceTank: enemyTank
+        sourceTank: enemyTank,
+        blastRadius: (typeof spec.blastRadius === 'number') ? spec.blastRadius : 8.0,
+        blastDamage: (typeof spec.blastDamage === 'number') ? spec.blastDamage : 100,
+        tankType: spec.id || 'tiger'
     });
 }
 window.spawnEnemyShell = spawnEnemyShell;
@@ -1067,6 +1103,9 @@ function updateProjectiles(dt) {
         if (closestHit || s.life <= 0) {
             if (closestHit) {
                 const imp = closestHit.impactPos;
+                const bRad = (typeof s.blastRadius === 'number') ? s.blastRadius : 8.5;
+                const bDmg = (typeof s.blastDamage === 'number') ? s.blastDamage : 100;
+
                 if (closestHit.type === 'enemyTank') {
                     if (typeof closestHit.targetObj.onHit === 'function') {
                         closestHit.targetObj.onHit(imp, velDir);
@@ -1077,20 +1116,47 @@ function updateProjectiles(dt) {
                     }
                 } else if (closestHit.type === 'tree') {
                     if (window.hitTree) window.hitTree(closestHit.targetObj, s.vel.clone().normalize(), 7.5);
-                    triggerHeavyDetonation(imp);
+                    triggerHeavyDetonation(imp, false, bRad, bDmg);
                 } else if (closestHit.type === 'soldier') {
                     if (typeof closestHit.targetObj.takeDamage === 'function') {
-                        closestHit.targetObj.takeDamage(100);
+                        closestHit.targetObj.takeDamage(bDmg);
                     }
-                    triggerHeavyDetonation(imp);
+                    triggerHeavyDetonation(imp, false, bRad, bDmg);
                 } else if (closestHit.type === 'target') {
                     closestHit.targetObj.hitAngle = -Math.PI * 0.46;
                     closestHit.targetObj.recoverTimer = 4.5;
                     closestHit.targetObj.plateMat.color.setHex(0xf59e0b);
                     tankState.hitsCount++;
-                    triggerHeavyDetonation(imp);
+                    triggerHeavyDetonation(imp, false, bRad, bDmg);
                 } else if (closestHit.type === 'obstacle' || closestHit.type === 'terrain') {
-                    triggerHeavyDetonation(imp);
+                    triggerHeavyDetonation(imp, false, bRad, bDmg);
+                }
+
+                // Explosive Splash Wave Damage to nearby Tanks
+                if (!s.isEnemy) {
+                    const enemies = window.activeEnemyTanks || [];
+                    const tankSplashRadius = bRad * 0.65;
+                    for (let ei = 0; ei < enemies.length; ei++) {
+                        const en = enemies[ei];
+                        if (!en || en.isDestroyed || en === closestHit.targetObj) continue;
+                        const distToTank = Math.hypot(en.x - imp.x, en.z - imp.z);
+                        if (distToTank <= tankSplashRadius) {
+                            if (typeof en.onHit === 'function') {
+                                const splashDir = new THREE.Vector3(en.x - imp.x, 0.4, en.z - imp.z).normalize();
+                                en.onHit(imp, splashDir);
+                            }
+                        }
+                    }
+                } else if (s.isEnemy && window.tankState && !window.tankState.isKnockedOut && closestHit.type !== 'playerTank') {
+                    const ts = window.tankState;
+                    const distToPlayer = Math.hypot(ts.x - imp.x, ts.z - imp.z);
+                    const playerSplashRadius = bRad * 0.55;
+                    if (distToPlayer <= playerSplashRadius) {
+                        if (typeof window.onPlayerHit === 'function') {
+                            const splashDir = new THREE.Vector3(ts.x - imp.x, 0.4, ts.z - imp.z).normalize();
+                            window.onPlayerHit(imp, splashDir);
+                        }
+                    }
                 }
             }
 
