@@ -25,8 +25,8 @@ function getKV2SharedAssets(isEnemy) {
     const nCtx = normalCanvas.getContext('2d');
     const rCtx = roughCanvas.getContext('2d');
 
-    // Base Soviet 4BO Olive Green coat
-    const baseColor = isEnemy ? '#4b5e3e' : '#526945';
+    // Base Soviet 4BO Olive Green coat (deep matte dark green-brown)
+    const baseColor = isEnemy ? '#172214' : '#1f2b1b';
     aCtx.fillStyle = baseColor;
     aCtx.fillRect(0, 0, size, size);
 
@@ -50,7 +50,7 @@ function getKV2SharedAssets(isEnemy) {
         const r = 1 + rand() * 5;
         const val = (rand() - 0.5) * 0.35;
 
-        aCtx.fillStyle = val > 0 ? 'rgba(110, 138, 92, 0.08)' : 'rgba(48, 62, 38, 0.10)';
+        aCtx.fillStyle = val > 0 ? 'rgba(38, 52, 32, 0.12)' : 'rgba(10, 16, 8, 0.18)';
         aCtx.beginPath();
         aCtx.arc(x, y, r * 2.2, 0, Math.PI * 2);
         aCtx.fill();
@@ -68,9 +68,9 @@ function getKV2SharedAssets(isEnemy) {
         const y = rand() * size;
         const rad = 30 + rand() * 85;
         const grad = aCtx.createRadialGradient(x, y, 2, x, y, rad);
-        grad.addColorStop(0, 'rgba(44, 36, 28, 0.22)');
-        grad.addColorStop(0.5, 'rgba(52, 45, 34, 0.10)');
-        grad.addColorStop(1, 'rgba(82, 105, 69, 0)');
+        grad.addColorStop(0, 'rgba(14, 11, 8, 0.38)');
+        grad.addColorStop(0.5, 'rgba(20, 16, 12, 0.18)');
+        grad.addColorStop(1, 'rgba(31, 43, 27, 0)');
         aCtx.fillStyle = grad;
         aCtx.beginPath();
         aCtx.arc(x, y, rad, 0, Math.PI * 2);
@@ -83,8 +83,8 @@ function getKV2SharedAssets(isEnemy) {
             const rx = Math.floor(x);
             const ry = Math.floor(yPos);
             const rGrad = aCtx.createRadialGradient(rx, ry, 1, rx, ry, 12);
-            rGrad.addColorStop(0, 'rgba(32, 28, 22, 0.40)');
-            rGrad.addColorStop(1, 'rgba(82, 105, 69, 0)');
+            rGrad.addColorStop(0, 'rgba(12, 10, 8, 0.55)');
+            rGrad.addColorStop(1, 'rgba(31, 43, 27, 0)');
             aCtx.fillStyle = rGrad;
             aCtx.beginPath();
             aCtx.arc(rx, ry, 12, 0, Math.PI * 2);
@@ -104,6 +104,34 @@ function getKV2SharedAssets(isEnemy) {
     };
     drawRivetRow(32, 64);
     drawRivetRow(size - 32, 64);
+
+    // 3b. Armor Scratches & Bare Steel Gouges
+    for (let s = 0; s < 75; s++) {
+        const x0 = rand() * size;
+        const y0 = rand() * size;
+        const angle = rand() * Math.PI * 2;
+        const len = 10 + rand() * 38;
+        const isMajor = (s < 20);
+        const steps = Math.floor(len * 1.5);
+
+        for (let st = 0; st < steps; st++) {
+            const t = st / steps;
+            const px = (x0 + Math.cos(angle) * len * t + size) % size;
+            const py = (y0 + Math.sin(angle) * len * t + size) % size;
+
+            // Dark oxidized primer border
+            aCtx.fillStyle = 'rgba(10, 14, 8, 0.85)';
+            aCtx.fillRect(px - 0.8, py - 0.8, 1.6, 1.6);
+
+            // Bright bare steel core
+            aCtx.fillStyle = isMajor ? 'rgba(175, 182, 172, 0.85)' : 'rgba(135, 144, 134, 0.65)';
+            aCtx.fillRect(px - 0.4, py - 0.4, 0.8, 0.8);
+
+            // Carve into heightfield for normal map
+            const idx = Math.floor(py) * size + Math.floor(px);
+            heightData[idx] -= isMajor ? 0.35 : 0.18;
+        }
+    }
 
     // Convert Height Map to Tangent-Space RGB Normal Map
     const nImg = nCtx.createImageData(size, size);
@@ -151,42 +179,49 @@ function getKV2SharedAssets(isEnemy) {
     tlCtx.drawImage(albedoCanvas, 0, 0, 1024, 512);
 
     const edgeGradTop = tlCtx.createLinearGradient(0, 0, 0, 85);
-    edgeGradTop.addColorStop(0, 'rgba(40, 32, 24, 0.55)');
-    edgeGradTop.addColorStop(1, 'rgba(82, 105, 69, 0)');
+    edgeGradTop.addColorStop(0, 'rgba(16, 13, 9, 0.65)');
+    edgeGradTop.addColorStop(1, 'rgba(31, 43, 27, 0)');
     tlCtx.fillStyle = edgeGradTop;
     tlCtx.fillRect(0, 0, 1024, 85);
 
     const edgeGradBottom = tlCtx.createLinearGradient(0, 430, 0, 512);
-    edgeGradBottom.addColorStop(0, 'rgba(82, 105, 69, 0)');
-    edgeGradBottom.addColorStop(1, 'rgba(36, 28, 20, 0.60)');
+    edgeGradBottom.addColorStop(0, 'rgba(31, 43, 27, 0)');
+    edgeGradBottom.addColorStop(1, 'rgba(12, 10, 7, 0.70)');
     tlCtx.fillStyle = edgeGradBottom;
     tlCtx.fillRect(0, 430, 1024, 82);
 
     // Vertical soot smudge
     const smudgeGrad = tlCtx.createRadialGradient(410, 250, 20, 410, 250, 190);
-    smudgeGrad.addColorStop(0, 'rgba(48, 38, 30, 0.42)');
-    smudgeGrad.addColorStop(0.6, 'rgba(54, 44, 34, 0.20)');
-    smudgeGrad.addColorStop(1, 'rgba(82, 105, 69, 0)');
+    smudgeGrad.addColorStop(0, 'rgba(18, 15, 11, 0.52)');
+    smudgeGrad.addColorStop(0.6, 'rgba(24, 20, 15, 0.25)');
+    smudgeGrad.addColorStop(1, 'rgba(31, 43, 27, 0)');
     tlCtx.fillStyle = smudgeGrad;
     tlCtx.fillRect(200, 30, 420, 450);
 
-    // Bold White Cyrillic Inscription "ЗА РОДИНУ"
+    // Bold Cyrillic Inscription "ЗА РОДИНУ"
     tlCtx.save();
     tlCtx.font = '900 92px "Arial Narrow", "Impact", sans-serif';
-    tlCtx.fillStyle = '#f0f4ed';
+    tlCtx.fillStyle = '#ededeb';
     tlCtx.textAlign = 'center';
     tlCtx.textBaseline = 'middle';
     tlCtx.translate(710, 275);
     tlCtx.scale(0.76, 1.18);
-    tlCtx.shadowColor = 'rgba(25, 30, 20, 0.45)';
+    tlCtx.shadowColor = 'rgba(10, 14, 8, 0.75)';
     tlCtx.shadowBlur = 4;
     tlCtx.fillText('ЗА РОДИНУ', 0, 0);
     tlCtx.restore();
 
-    // Paint wear scratches
-    tlCtx.fillStyle = 'rgba(82, 105, 69, 0.22)';
-    for (let i = 0; i < 40; i++) {
-        tlCtx.fillRect(530 + rand() * 360, 210 + rand() * 130, 1 + rand() * 8, 1.5);
+    // Paint wear scratches cutting across lettering
+    for (let i = 0; i < 45; i++) {
+        const sx = 530 + rand() * 360;
+        const sy = 210 + rand() * 130;
+        const sl = 2 + rand() * 14;
+        tlCtx.fillStyle = 'rgba(16, 22, 13, 0.90)';
+        tlCtx.fillRect(sx, sy, sl, 1.8);
+        if (i % 2 === 0) {
+            tlCtx.fillStyle = 'rgba(150, 158, 150, 0.65)';
+            tlCtx.fillRect(sx + 1, sy + 0.3, sl * 0.6, 1.0);
+        }
     }
     const turretLeftTex = new THREE.CanvasTexture(turretLeftCanvas);
 
@@ -203,19 +238,26 @@ function getKV2SharedAssets(isEnemy) {
 
     trCtx.save();
     trCtx.font = '900 92px "Arial Narrow", "Impact", sans-serif';
-    trCtx.fillStyle = '#f0f4ed';
+    trCtx.fillStyle = '#ededeb';
     trCtx.textAlign = 'center';
     trCtx.textBaseline = 'middle';
     trCtx.translate(315, 275);
     trCtx.scale(0.76, 1.18);
-    trCtx.shadowColor = 'rgba(25, 30, 20, 0.45)';
+    trCtx.shadowColor = 'rgba(10, 14, 8, 0.75)';
     trCtx.shadowBlur = 4;
     trCtx.fillText('ЗА РОДИНУ', 0, 0);
     trCtx.restore();
 
-    trCtx.fillStyle = 'rgba(82, 105, 69, 0.22)';
-    for (let i = 0; i < 40; i++) {
-        trCtx.fillRect(140 + rand() * 360, 210 + rand() * 130, 1 + rand() * 8, 1.5);
+    for (let i = 0; i < 45; i++) {
+        const sx = 140 + rand() * 360;
+        const sy = 210 + rand() * 130;
+        const sl = 2 + rand() * 14;
+        trCtx.fillStyle = 'rgba(16, 22, 13, 0.90)';
+        trCtx.fillRect(sx, sy, sl, 1.8);
+        if (i % 2 === 0) {
+            trCtx.fillStyle = 'rgba(150, 158, 150, 0.65)';
+            trCtx.fillRect(sx + 1, sy + 0.3, sl * 0.6, 1.0);
+        }
     }
     const turretRightTex = new THREE.CanvasTexture(turretRightCanvas);
 
@@ -226,10 +268,10 @@ function getKV2SharedAssets(isEnemy) {
     const bCtx = barrelCanvas.getContext('2d');
     bCtx.drawImage(albedoCanvas, 0, 0, 512, 512);
     const sootGrad = bCtx.createLinearGradient(0, 0, 0, 512);
-    sootGrad.addColorStop(0, '#1a1816');
-    sootGrad.addColorStop(0.16, '#2e2722');
-    sootGrad.addColorStop(0.32, 'rgba(56, 48, 40, 0.35)');
-    sootGrad.addColorStop(0.50, 'rgba(82, 105, 69, 0)');
+    sootGrad.addColorStop(0, '#0a0a08');
+    sootGrad.addColorStop(0.16, '#141310');
+    sootGrad.addColorStop(0.32, 'rgba(24, 22, 18, 0.45)');
+    sootGrad.addColorStop(0.50, 'rgba(31, 43, 27, 0)');
     bCtx.fillStyle = sootGrad;
     bCtx.fillRect(0, 0, 512, 512);
     const barrelTex = new THREE.CanvasTexture(barrelCanvas);
@@ -242,16 +284,16 @@ function getKV2SharedAssets(isEnemy) {
             normalScale: new THREE.Vector2(0.60, 0.60),
             roughnessMap: armorRoughTex,
             roughness: 0.62,
-            metalness: 0.24,
-            envMapIntensity: 0.30
+            metalness: 0.32,
+            envMapIntensity: 0.38
         }),
         darkAccent: new THREE.MeshStandardMaterial({
             map: armorAlbedoTex,
-            color: isEnemy ? 0x3d4e33 : 0x435639,
+            color: isEnemy ? 0x141a11 : 0x1a2317,
             normalMap: armorNormalTex,
             normalScale: new THREE.Vector2(0.50, 0.50),
             roughness: 0.68,
-            metalness: 0.26,
+            metalness: 0.28,
             envMapIntensity: 0.30
         }),
         turretLeftMat: new THREE.MeshStandardMaterial({
@@ -260,8 +302,8 @@ function getKV2SharedAssets(isEnemy) {
             normalScale: new THREE.Vector2(0.55, 0.55),
             roughnessMap: armorRoughTex,
             roughness: 0.62,
-            metalness: 0.24,
-            envMapIntensity: 0.30
+            metalness: 0.32,
+            envMapIntensity: 0.38
         }),
         turretRightMat: new THREE.MeshStandardMaterial({
             map: turretRightTex,
@@ -269,16 +311,16 @@ function getKV2SharedAssets(isEnemy) {
             normalScale: new THREE.Vector2(0.55, 0.55),
             roughnessMap: armorRoughTex,
             roughness: 0.62,
-            metalness: 0.24,
-            envMapIntensity: 0.30
+            metalness: 0.32,
+            envMapIntensity: 0.38
         }),
         barrelMat: new THREE.MeshStandardMaterial({
             map: barrelTex,
             normalMap: armorNormalTex,
             normalScale: new THREE.Vector2(0.40, 0.40),
             roughness: 0.54,
-            metalness: 0.38,
-            envMapIntensity: 0.30
+            metalness: 0.42,
+            envMapIntensity: 0.35
         }),
         trackMetal: new THREE.MeshStandardMaterial({
             color: 0x252726,
@@ -289,9 +331,9 @@ function getKV2SharedAssets(isEnemy) {
             envMapIntensity: 0.30
         }),
         wheelHubSteel: new THREE.MeshStandardMaterial({
-            color: 0x9fa6ad,
-            roughness: 0.38,
-            metalness: 0.82,
+            color: 0x54585c,
+            roughness: 0.42,
+            metalness: 0.78,
             envMapIntensity: 0.30
         }),
         rubberRim: new THREE.MeshStandardMaterial({
