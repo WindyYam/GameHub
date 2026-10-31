@@ -378,7 +378,7 @@
                 if (window.tankState) window.tankState.hitsCount++;
 
                 const maxHp = (this.maxArmor !== undefined) ? this.maxArmor : (this.spec && this.spec.enemyArmor !== undefined ? this.spec.enemyArmor : 1);
-                const tankReward = maxHp === 1 ? 25 : (maxHp === 2 ? 30 : 40);
+                const tankReward = window.UNIT_KILL_REWARDS.tank.byArmor[maxHp] ?? window.UNIT_KILL_REWARDS.tank.default;
 
                 if (!this.rewardAwarded) {
                     this.rewardAwarded = true;

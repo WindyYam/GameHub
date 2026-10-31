@@ -60,9 +60,17 @@ var tankState = {
 // ============================================================================
 // MONEY SYSTEM
 // Starting funds: $500
-// Rewards: Kill soldier +$5, Kill 1 HP tank +$25, 2 HP tank +$30, 3 HP tank +$40
 // When died: Funds preserved (no halving)
 // ============================================================================
+const UNIT_KILL_REWARDS = Object.freeze({
+    soldier: 10,
+    tank: Object.freeze({
+        byArmor: Object.freeze({ 1: 50, 2: 65, 3: 80 }),
+        default: 50
+    })
+});
+window.UNIT_KILL_REWARDS = UNIT_KILL_REWARDS;
+
 var playerMoney = 500;
 var playerIsDead = false;
 

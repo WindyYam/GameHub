@@ -458,7 +458,8 @@
                     const sTypeLabel = (es.soldierType === 'smg' || es.soldierType === 'submachine_gunner')
                         ? 'Infantry (SMG)'
                         : 'Infantry';
-                    window.showKillFeedBanner(`TARGET DESTROYED: ${sTypeLabel} (+$5)`);
+                    const reward = window.UNIT_KILL_REWARDS.soldier;
+                    window.showKillFeedBanner(`TARGET DESTROYED: ${sTypeLabel} (+$${reward})`);
                 }
             }
         }
@@ -1168,7 +1169,8 @@
                         const sTypeLabel = targetSol && (targetSol.soldierType === 'smg' || targetSol.soldierType === 'submachine_gunner')
                             ? 'Infantry (SMG)'
                             : 'Infantry';
-                        window.showKillFeedBanner(`TARGET DESTROYED: ${sTypeLabel} (+$5)`);
+                        const reward = window.UNIT_KILL_REWARDS.soldier;
+                        window.showKillFeedBanner(`TARGET DESTROYED: ${sTypeLabel} (+$${reward})`);
                     }
                 }
             });
@@ -1223,7 +1225,8 @@
                         const sTypeLabel = targetSol && (targetSol.soldierType === 'smg' || targetSol.soldierType === 'submachine_gunner')
                             ? 'Infantry (SMG)'
                             : 'Infantry';
-                        window.showKillFeedBanner(`TARGET DESTROYED: ${sTypeLabel} (+$5)`);
+                        const reward = window.UNIT_KILL_REWARDS.soldier;
+                        window.showKillFeedBanner(`TARGET DESTROYED: ${sTypeLabel} (+$${reward})`);
                     }
                 }
             });

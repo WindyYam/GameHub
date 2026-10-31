@@ -2403,17 +2403,17 @@
             this.currentTarget = null;
             if (this.targetCursor) this.targetCursor.visible = false;
 
-            // Reward money when an enemy soldier is killed ($5)
             if (this.isEnemy && !this.rewardAwarded) {
                 this.rewardAwarded = true;
                 const sTypeLabel = (this.soldierType === 'smg' || this.soldierType === 'submachine_gunner')
                     ? 'Infantry (SMG)'
                     : 'Infantry';
+                const reward = window.UNIT_KILL_REWARDS.soldier;
                 if (typeof window.addPlayerMoney === 'function') {
-                    window.addPlayerMoney(5, 'SOLDIER KILL (+$5)');
+                    window.addPlayerMoney(reward, `SOLDIER KILL (+$${reward})`);
                 }
                 if (typeof window.showKillFeedBanner === 'function') {
-                    window.showKillFeedBanner(`TARGET DESTROYED: ${sTypeLabel} (+$5)`);
+                    window.showKillFeedBanner(`TARGET DESTROYED: ${sTypeLabel} (+$${reward})`);
                 }
                 if (window.tankState) window.tankState.hitsCount++;
             }
