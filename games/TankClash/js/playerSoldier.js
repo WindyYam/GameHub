@@ -8,15 +8,18 @@
     let playerSoldier = null;
 
     function onPlayerSoldierDamage(amount) {
-        if (!playerSoldier || playerSoldier.isDead) return;
+        const s = playerSoldier || window.playerSoldier;
+        if (!s || s.isDead) return;
+        if (!playerSoldier) playerSoldier = s;
         if (playerSoldier.invulnerableTimer > 0) return;
-        playerSoldier.health = Math.max(0, playerSoldier.health - Math.round(amount));
+        s.health = Math.max(0, s.health - Math.round(amount));
+        s.healTimer = 0;
 
         // Flinch / kickback impulse
-        playerSoldier.speed = -0.8;
-        playerSoldier.recoilKick = 0.45;
+        s.speed = -0.8;
+        s.recoilKick = 0.45;
 
-        const pPos = new THREE.Vector3(playerSoldier.x, playerSoldier.y + 1.1, playerSoldier.z);
+        const pPos = new THREE.Vector3(s.x, s.y + 1.1, s.z);
         // Blood/impact dust particles
         if (typeof window.spawnParticle === 'function') {
             for (let i = 0; i < 4; i++) {
@@ -27,7 +30,7 @@
 
         // Red damage screen flash
         if (typeof window.showDamageFlash === 'function') {
-            window.showDamageFlash(playerSoldier.health <= 0 ? 0.8 : 0.45);
+            window.showDamageFlash(s.health <= 0 ? 0.8 : 0.45);
         }
 
         // Ricochet / hit sound
@@ -38,15 +41,15 @@
         // Update HUD
         const hudArmor = document.getElementById('hud-armor');
         if (hudArmor) {
-            hudArmor.textContent = `HP: ${playerSoldier.health}/100`;
-            hudArmor.className = playerSoldier.health > 40 ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold';
+            hudArmor.textContent = `HP: ${s.health}/100`;
+            hudArmor.className = s.health > 40 ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold';
         }
 
-        if (playerSoldier.health <= 0) {
+        if (s.health <= 0) {
             onPlayerSoldierDie();
         } else {
             if (typeof window.showKillFeedBanner === 'function') {
-                window.showKillFeedBanner(`⚠️ INFANTRY HIT! (HP: ${playerSoldier.health}/100)`);
+                window.showKillFeedBanner(`⚠️ INFANTRY HIT! (HP: ${s.health}/100)`);
             }
         }
     }
@@ -490,17 +493,24 @@
                 }
             }
 
-            // 2. Explode immediately upon hitting enemy tanks or player tank
+            // 2. Explode immediately upon hitting enemy tanks, player tank, or tank wrecks
             if (!shouldExplode) {
                 const enemies = window.activeEnemyTanks || [];
                 for (let eIdx = 0; eIdx < enemies.length; eIdx++) {
                     const et = enemies[eIdx];
-                    if (!et || et.isDestroyed) continue;
+                    if (!et) continue;
                     const d = Math.hypot(g.pos.x - et.x, g.pos.z - et.z);
                     if (d < 2.8 && Math.abs(g.pos.y - et.y) < 2.6) {
                         shouldExplode = true;
                         break;
                     }
+                }
+            }
+            if (!shouldExplode && window.tankState && window.tankState.hasTank !== false && (!window.tankRoot || window.tankRoot.visible !== false)) {
+                const ts = window.tankState;
+                const d = Math.hypot(g.pos.x - ts.x, g.pos.z - ts.z);
+                if (d < 2.8 && Math.abs(g.pos.y - (ts.y || 0)) < 2.6) {
+                    shouldExplode = true;
                 }
             }
 
@@ -616,15 +626,17 @@
             const obs = obstacles[i];
             if (!obs || typeof obs.x !== 'number' || typeof obs.z !== 'number') continue;
 
+            const minClearance = (obs.radius || 3.5) + soldierRadius;
+            const dx = s.x - obs.x;
+            if (Math.abs(dx) > minClearance) continue;
+            const dz = s.z - obs.z;
+            if (Math.abs(dz) > minClearance) continue;
+
             const obsY = (typeof obs.y === 'number') ? obs.y : 0;
             const obsH = (typeof obs.height === 'number') ? obs.height : 6.5;
             if (s.y < obsY - 1.0 || s.y > obsY + obsH + 0.5) continue;
 
-            const dx = s.x - obs.x;
-            const dz = s.z - obs.z;
             const dist = Math.hypot(dx, dz);
-            const minClearance = (obs.radius || 3.5) + soldierRadius;
-
             if (dist < minClearance && dist > 0.0001) {
                 const overlap = minClearance - dist;
                 s.x += (dx / dist) * overlap;
@@ -637,11 +649,14 @@
         for (let i = 0; i < buildings.length; i++) {
             const b = buildings[i];
             if (!b || typeof b.x !== 'number' || typeof b.z !== 'number') continue;
-            const dx = s.x - b.x;
-            const dz = s.z - b.z;
-            const dist = Math.hypot(dx, dz);
-            const minClearance = (b.radius || 3.5) + soldierRadius;
 
+            const minClearance = (b.radius || 3.5) + soldierRadius;
+            const dx = s.x - b.x;
+            if (Math.abs(dx) > minClearance) continue;
+            const dz = s.z - b.z;
+            if (Math.abs(dz) > minClearance) continue;
+
+            const dist = Math.hypot(dx, dz);
             if (dist < minClearance && dist > 0.0001) {
                 const overlap = minClearance - dist;
                 s.x += (dx / dist) * overlap;
@@ -655,20 +670,100 @@
             const tree = trees[i];
             if (!tree || tree.isFallen || typeof tree.x !== 'number' || typeof tree.z !== 'number') continue;
 
+            const trunkRadius = Math.max(0.40, Math.min(1.0, (tree.radius || 1.2) * 0.45 * (tree.scale || 1.0)));
+            const minTreeClearance = trunkRadius + soldierRadius;
+            const dx = s.x - tree.x;
+            if (Math.abs(dx) > minTreeClearance) continue;
+            const dz = s.z - tree.z;
+            if (Math.abs(dz) > minTreeClearance) continue;
+
             const treeY = (typeof tree.y === 'number') ? tree.y : 0;
             const treeH = ((typeof tree.trunkHeight === 'number') ? tree.trunkHeight : 5.0) * (tree.scale || 1.0) + 3.0;
             if (s.y < treeY - 0.5 || s.y > treeY + treeH) continue;
 
-            const trunkRadius = Math.max(0.40, Math.min(1.0, (tree.radius || 1.2) * 0.45 * (tree.scale || 1.0)));
-            const minTreeClearance = trunkRadius + soldierRadius;
-            const dx = s.x - tree.x;
-            const dz = s.z - tree.z;
             const dist = Math.hypot(dx, dz);
-
             if (dist < minTreeClearance && dist > 0.0001) {
                 const overlap = minTreeClearance - dist;
                 s.x += (dx / dist) * overlap;
                 s.z += (dz / dist) * overlap;
+            }
+        }
+
+        // 3. Tank Wrecks and World Tanks
+        const checkTanks = [];
+        const enemyTanks = window.activeEnemyTanks || [];
+        for (let i = 0; i < enemyTanks.length; i++) {
+            const et = enemyTanks[i];
+            if (et && typeof et.x === 'number' && typeof et.z === 'number') {
+                checkTanks.push(et);
+            }
+        }
+        if (window.tankState && typeof window.tankState.x === 'number' && typeof window.tankState.z === 'number') {
+            if (window.tankState.isKnockedOut || window.playerMode === 'soldier') {
+                if (window.tankState.hasTank !== false && (!window.tankRoot || window.tankRoot.visible !== false)) {
+                    checkTanks.push(window.tankState);
+                }
+            }
+        }
+
+        for (let i = 0; i < checkTanks.length; i++) {
+            const t = checkTanks[i];
+            const tY = (typeof t.y === 'number') ? t.y : 0;
+            const dims = (typeof window.getTankHitboxDims === 'function')
+                ? window.getTankHitboxDims(t.tankType || t.spec || window.currentTankId || 'tiger')
+                : { halfW: 1.80, halfH: 1.40, halfL: 3.30 };
+            const tankH = (dims.halfH || 1.40) * 2;
+            if (s.y < tY - 0.5 || s.y > tY + tankH + 0.8) continue;
+
+            const tHeading = (typeof t.heading === 'number') ? t.heading : 0;
+            const cosH = Math.cos(tHeading);
+            const sinH = Math.sin(tHeading);
+
+            const dx = s.x - t.x;
+            const dz = s.z - t.z;
+
+            // Longitudinal offset along tank heading
+            const v = dx * sinH + dz * cosH;
+            // Lateral offset along tank right flank
+            const u = dx * cosH - dz * sinH;
+
+            const halfW = dims.halfW || 1.80;
+            const halfL = dims.halfL || 3.30;
+
+            const clampedU = Math.max(-halfW, Math.min(halfW, u));
+            const clampedV = Math.max(-halfL, Math.min(halfL, v));
+
+            const diffU = u - clampedU;
+            const diffV = v - clampedV;
+            const distSq = diffU * diffU + diffV * diffV;
+
+            if (distSq < soldierRadius * soldierRadius) {
+                let pushU = 0;
+                let pushV = 0;
+                if (distSq > 1e-6) {
+                    const dist = Math.sqrt(distSq);
+                    const overlap = soldierRadius - dist;
+                    pushU = (diffU / dist) * overlap;
+                    pushV = (diffV / dist) * overlap;
+                } else {
+                    const penLeft = u - (-halfW);
+                    const penRight = halfW - u;
+                    const penBack = v - (-halfL);
+                    const penFront = halfL - v;
+                    const minPenW = Math.min(penLeft, penRight);
+                    const minPenL = Math.min(penBack, penFront);
+
+                    if (minPenW < minPenL) {
+                        pushU = (penLeft < penRight ? -penLeft : penRight) + (penLeft < penRight ? -soldierRadius : soldierRadius);
+                    } else {
+                        pushV = (penBack < penFront ? -penBack : penFront) + (penBack < penFront ? -soldierRadius : soldierRadius);
+                    }
+                }
+
+                const pushX = pushU * cosH + pushV * sinH;
+                const pushZ = -pushU * sinH + pushV * cosH;
+                s.x += pushX;
+                s.z += pushZ;
             }
         }
     }
@@ -756,6 +851,7 @@
             speed: 0,
             health: 100,
             maxHealth: 100,
+            healTimer: 0,
             isDead: false,
             invulnerableTimer: isTankDestroyed ? 1.0 : 0.0, // 1s invincibility when tank is destroyed
             animTime: 0,
@@ -1103,9 +1199,10 @@
     // 5. UPDATE PLAYER SOLDIER (Simulation Frame)
     // ------------------------------------------------------------------------
     function updatePlayerSoldier(dt, currentActiveCam, keys) {
-        if (playerMode !== 'soldier' || !playerSoldier) return;
+        const currentMode = (typeof window !== 'undefined' && window.playerMode) ? window.playerMode : playerMode;
+        const s = (typeof window !== 'undefined' && window.playerSoldier) ? window.playerSoldier : playerSoldier;
+        if (currentMode !== 'soldier' || !s) return;
 
-        const s = playerSoldier;
         if (s.isDead) {
             updateSoldierDeathAnimation(s, dt, currentActiveCam);
             return;
@@ -1229,6 +1326,26 @@
             resolveSoldierObstacleCollisions(s);
             s.speed = THREE.MathUtils.lerp(s.speed, 0, dt * 10.0);
             s.heading = Math.atan2(camFwdX, camFwdZ);
+        }
+
+        // Natural Health Regeneration: heal 1 HP every 1 second when no enemy has detected the player AND player stands still
+        const isDetected = (typeof window.isPlayerDetected === 'function') ? window.isPlayerDetected() : isPlayerDetected();
+        const isStandingStill = (moveLen <= 0.05) && (Math.abs(s.speed || 0) < 0.15);
+        if (!isDetected && isStandingStill && s.health < (s.maxHealth || 100)) {
+            s.healTimer = (s.healTimer || 0) + dt;
+            if (s.healTimer >= 1.0) {
+                const healAmount = Math.floor(s.healTimer);
+                s.healTimer -= healAmount;
+                s.health = Math.min(s.maxHealth || 100, s.health + healAmount);
+
+                const hudArmor = document.getElementById('hud-armor');
+                if (hudArmor && (!s.invulnerableTimer || s.invulnerableTimer <= 0)) {
+                    hudArmor.textContent = `HP: ${s.health}/100`;
+                    hudArmor.className = s.health > 40 ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold';
+                }
+            }
+        } else {
+            s.healTimer = 0;
         }
 
         // Vertical physics (gravity and jump clearance)
@@ -1551,6 +1668,73 @@
     }
 
     // ------------------------------------------------------------------------
+    // DETECTION CHECK & HEALTH REGENERATION
+    // ------------------------------------------------------------------------
+    function isPlayerDetected() {
+        const s = playerSoldier || window.playerSoldier;
+        if (!s || s.isDead) return false;
+
+        // 1. Check active enemy tanks
+        const enemyTanks = window.activeEnemyTanks || [];
+        for (let i = 0; i < enemyTanks.length; i++) {
+            const et = enemyTanks[i];
+            if (!et || et.isDestroyed) continue;
+            // Engaging state, alert or active detection timer indicates tank detected player
+            if (et.state === 'ENGAGING' || (et.detectionTimer && et.detectionTimer >= 0.8) || et.wasHitAlert) {
+                return true;
+            }
+        }
+
+        // 2. Check active enemy soldiers
+        const soldiers = window.activeSoldiers || [];
+        for (let i = 0; i < soldiers.length; i++) {
+            const es = soldiers[i];
+            if (!es || !es.isEnemy || es.isDead) continue;
+            // Target set or alerted/provoked indicates soldier detected player
+            if ((es.currentTarget && (!es.currentTarget.ref || es.currentTarget.ref === s || es.currentTarget.ref === window.playerSoldier)) ||
+                (es.alertOnHitTimer && es.alertOnHitTimer > 0) ||
+                (es.provokedTimer && es.provokedTimer > 0)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+    window.isPlayerDetected = isPlayerDetected;
+
+    function healPlayerSoldier(amount = 1) {
+        const s = playerSoldier || window.playerSoldier;
+        if (!s || s.isDead) return 0;
+        const maxH = s.maxHealth || 100;
+        if (s.health >= maxH) return 0;
+        const prev = s.health;
+        s.health = Math.min(maxH, s.health + amount);
+        const hudArmor = document.getElementById('hud-armor');
+        if (hudArmor && (!s.invulnerableTimer || s.invulnerableTimer <= 0)) {
+            hudArmor.textContent = `HP: ${s.health}/100`;
+            hudArmor.className = s.health > 40 ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold';
+        }
+        return s.health - prev;
+    }
+    window.healPlayerSoldier = healPlayerSoldier;
+
+    function isPlayerStandingStill() {
+        const s = (typeof window !== 'undefined' && window.playerSoldier) ? window.playerSoldier : playerSoldier;
+        if (!s || s.isDead) return false;
+        if (Math.abs(s.speed || 0) >= 0.15) return false;
+        const k = (typeof window !== 'undefined' && window.keys) ? window.keys : {};
+        if (k['w'] || k['s'] || k['a'] || k['d']) return false;
+        if (typeof window !== 'undefined' && window.touchDrive) {
+            const td = window.touchDrive;
+            if ((td.magnitude || 0) > 0.05 || Math.abs(td.forward || 0) > 0.05 || Math.abs(td.turn || 0) > 0.05 || Math.abs(td.strafe || 0) > 0.05) {
+                return false;
+            }
+        }
+        return true;
+    }
+    window.isPlayerStandingStill = isPlayerStandingStill;
+
+    // ------------------------------------------------------------------------
     // WINDOW EXPORTS
     // ------------------------------------------------------------------------
     function resetPlayerSoldier() {
@@ -1574,6 +1758,9 @@
     window.firePlayerRifle = firePlayerRifle;
     window.firePlayerSoldierWeapon = firePlayerRifle;
     window.updatePlayerSoldier = updatePlayerSoldier;
+    window.isPlayerDetected = isPlayerDetected;
+    window.isPlayerStandingStill = isPlayerStandingStill;
+    window.healPlayerSoldier = healPlayerSoldier;
     window.triggerInteract = triggerInteract;
     window.initPlayerSoldierUI = initPlayerSoldierUI;
 

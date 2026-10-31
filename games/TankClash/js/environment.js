@@ -102,10 +102,11 @@ const ZONE_CONFIGS = {
 };
 
 const ALL_ZONES = ['meadow', 'desert', 'mountain', 'hills'];
-var currentZone = 'meadow';
-var currentZoneIndex = ZONE_CONFIGS[currentZone].typeIndex;
+var initialRandomZoneIndex = Math.floor(Math.random() * ALL_ZONES.length);
+var currentZone = ALL_ZONES[initialRandomZoneIndex];
+var currentZoneIndex = initialRandomZoneIndex;
 var currentZoneConfig = ZONE_CONFIGS[currentZone];
-var spawnZoneIndex = 0;
+var spawnZoneIndex = initialRandomZoneIndex;
 window.ZONE_CONFIGS = ZONE_CONFIGS;
 window.ALL_ZONES = ALL_ZONES;
 window.currentZone = currentZone;
@@ -4587,7 +4588,7 @@ function buildEnvironment(scene) {
         window.waterMeshRef = waterMeshRef;
     }
 
-    setWorldSeed(currentSeed);
+    setWorldSeed(currentSeed, currentZone);
     rebuildZoneStaticProps();
 
     updateTerrainChunks(0, 0, true);

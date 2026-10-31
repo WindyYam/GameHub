@@ -445,7 +445,19 @@ function spawnParticle(pos, vel, colorHex, startSize, endSize, life, isAdditive 
     const currentScene = window.scene;
     if (!currentScene) return;
 
-        // High-Fidelity Volumetric Feathered Dust Plume (Zero Hard Circles)
+    // Hard particle cap: prevents CPU/GPU stalling during intense firefights
+    if (particles.length >= 180) {
+        if (type === 'dust' || type === 'smoke') return;
+        const oldP = particles.shift();
+        if (oldP && oldP.mesh) {
+            oldP.mesh.visible = false;
+            if (oldP.isDust && dustPool.length < PARTICLE_POOL_LIMIT) dustPool.push({ mesh: oldP.mesh, mat: oldP.mat });
+            else if (oldP.isPooled && smokePool.length < PARTICLE_POOL_LIMIT) smokePool.push({ mesh: oldP.mesh, mat: oldP.mat });
+            else { currentScene.remove(oldP.mesh); if (oldP.mat && oldP.mat.dispose) oldP.mat.dispose(); }
+        }
+    }
+
+    // High-Fidelity Volumetric Feathered Dust Plume (Zero Hard Circles)
     if (type === 'dust') {
         let mesh, mat;
         if (dustPool.length > 0) {
@@ -1130,7 +1142,7 @@ function updateProjectiles(dt) {
             const enemies = window.activeEnemyTanks || [];
             for (let eIdx = 0; eIdx < enemies.length; eIdx++) {
                 const enemy = enemies[eIdx];
-                if (!enemy || enemy.isDestroyed) continue;
+                if (!enemy) continue;
 
                 const midX = (prevPos.x + s.pos.x) * 0.5;
                 const midZ = (prevPos.z + s.pos.z) * 0.5;
@@ -1143,15 +1155,14 @@ function updateProjectiles(dt) {
                 if (hitResult && (!closestHit || hitResult.tHit < closestHit.t)) {
                     closestHit = {
                         t: hitResult.tHit,
-                        type: 'enemyTank',
+                        type: enemy.isDestroyed ? 'wreck' : 'enemyTank',
                         impactPos: hitResult.impact,
                         targetObj: enemy
                     };
                 }
             }
-        } else {
-            // Enemy shell vs Player Tank
-            if (window.tankState && !window.tankState.isKnockedOut && window.tankState.hasTank !== false && (!window.tankRoot || window.tankRoot.visible !== false)) {
+            // Player shell vs Player Tank Wreck (if bailed out / destroyed)
+            if (window.tankState && window.tankState.isKnockedOut && window.tankState.hasTank !== false && (!window.tankRoot || window.tankRoot.visible !== false)) {
                 const ts = window.tankState;
                 const midX = (prevPos.x + s.pos.x) * 0.5;
                 const midZ = (prevPos.z + s.pos.z) * 0.5;
@@ -1163,11 +1174,55 @@ function updateProjectiles(dt) {
                     if (hitResult && (!closestHit || hitResult.tHit < closestHit.t)) {
                         closestHit = {
                             t: hitResult.tHit,
-                            type: 'playerTank',
+                            type: 'wreck',
                             impactPos: hitResult.impact,
                             targetObj: ts
                         };
                     }
+                }
+            }
+        } else {
+            // Enemy shell vs Player Tank
+            if (window.tankState && window.tankState.hasTank !== false && (!window.tankRoot || window.tankRoot.visible !== false)) {
+                const ts = window.tankState;
+                const midX = (prevPos.x + s.pos.x) * 0.5;
+                const midZ = (prevPos.z + s.pos.z) * 0.5;
+                const dCenterSq = (midX - ts.x) ** 2 + (midZ - ts.z) ** 2;
+                const maxRange = 5.5 + segLen * 0.5;
+                if (dCenterSq <= maxRange * maxRange) {
+                    const dims = getTankHitboxDims(window.currentTankId || 'tiger');
+                    const hitResult = testSegmentVsTank(prevPos, s.pos, ts.x, ts.y, ts.z, ts.heading, dims.halfW, dims.halfH, dims.halfL);
+                    if (hitResult && (!closestHit || hitResult.tHit < closestHit.t)) {
+                        closestHit = {
+                            t: hitResult.tHit,
+                            type: ts.isKnockedOut ? 'wreck' : 'playerTank',
+                            impactPos: hitResult.impact,
+                            targetObj: ts
+                        };
+                    }
+                }
+            }
+            // Enemy shell vs Enemy Tank Wrecks
+            const enemies = window.activeEnemyTanks || [];
+            for (let eIdx = 0; eIdx < enemies.length; eIdx++) {
+                const enemy = enemies[eIdx];
+                if (!enemy || !enemy.isDestroyed) continue;
+
+                const midX = (prevPos.x + s.pos.x) * 0.5;
+                const midZ = (prevPos.z + s.pos.z) * 0.5;
+                const dCenterSq = (midX - enemy.x) ** 2 + (midZ - enemy.z) ** 2;
+                const maxRange = 5.5 + segLen * 0.5;
+                if (dCenterSq > maxRange * maxRange) continue;
+
+                const dims = getTankHitboxDims(enemy.tankType || enemy.spec);
+                const hitResult = testSegmentVsTank(prevPos, s.pos, enemy.x, enemy.y, enemy.z, enemy.heading, dims.halfW, dims.halfH, dims.halfL);
+                if (hitResult && (!closestHit || hitResult.tHit < closestHit.t)) {
+                    closestHit = {
+                        t: hitResult.tHit,
+                        type: 'wreck',
+                        impactPos: hitResult.impact,
+                        targetObj: enemy
+                    };
                 }
             }
         }
@@ -1357,6 +1412,11 @@ function updateProjectiles(dt) {
                         closestHit.targetObj.takeDamage(bDmg);
                     }
                     triggerHeavyDetonation(imp, false, bRad, bDmg);
+                } else if (closestHit.type === 'wreck') {
+                    if (window.soundFX && typeof window.soundFX.playArmorRicochet === 'function') {
+                        window.soundFX.playArmorRicochet(imp);
+                    }
+                    triggerHeavyDetonation(imp, false, bRad, bDmg);
                 } else if (closestHit.type === 'target') {
                     closestHit.targetObj.hitAngle = -Math.PI * 0.46;
                     closestHit.targetObj.recoverTimer = 4.5;
@@ -1423,8 +1483,12 @@ function updateProjectiles(dt) {
         const obstacles = window.worldObstacles || [];
         for (let ob = 0; ob < obstacles.length; ob++) {
             const obs = obstacles[ob];
-            const dSqXZ = (tr.pos.x - obs.x) ** 2 + (tr.pos.z - obs.z) ** 2;
             const maxR = obs.radius + trSegLen + 1.0;
+            const dxObs = tr.pos.x - obs.x;
+            if (Math.abs(dxObs) > maxR) continue;
+            const dzObs = tr.pos.z - obs.z;
+            if (Math.abs(dzObs) > maxR) continue;
+            const dSqXZ = dxObs * dxObs + dzObs * dzObs;
             if (dSqXZ > maxR * maxR) continue;
 
             let distance = null;
@@ -1460,7 +1524,12 @@ function updateProjectiles(dt) {
         for (const tree of (window.swayTrees || [])) {
             if (tree.isFallen) continue;
             const dx = prevPos.x - tree.x;
+            if (Math.abs(dx) > 18.0) continue;
             const dz = prevPos.z - tree.z;
+            if (Math.abs(dz) > 18.0) continue;
+            const maxTreeR = (tree.radius || 1.2) + trSegLen + 0.5;
+            if (dx * dx + dz * dz > maxTreeR * maxTreeR) continue;
+
             const a = trSegDir.x * trSegDir.x + trSegDir.z * trSegDir.z;
             const b = 2 * (dx * trSegDir.x + dz * trSegDir.z);
             const c = dx * dx + dz * dz - tree.radius * tree.radius;
@@ -1506,7 +1575,7 @@ function updateProjectiles(dt) {
         // Check tracers against opposing tanks (sparks and armor ricochet sound)
         const tanks = tr.isEnemy
             ? (window.tankState && !window.tankState.isKnockedOut && window.tankState.hasTank !== false && (!window.tankRoot || window.tankRoot.visible !== false) ? [window.tankState] : [])
-            : (window.activeEnemyTanks || []);
+            : (window.activeEnemyTanks || []).filter(t => t && !t.isDestroyed);
         for (let eIdx = 0; eIdx < tanks.length; eIdx++) {
             const tank = tanks[eIdx];
             if (!tank || tank.isDestroyed) continue;
@@ -1517,6 +1586,24 @@ function updateProjectiles(dt) {
             const hitResult = testSegmentVsTank(prevPos, tr.pos, tank.x, tank.y, tank.z, tank.heading, dims.halfW, dims.halfH, dims.halfL);
             if (hitResult && (!closestActor || hitResult.tHit < closestActor.t)) {
                 closestActor = { t: hitResult.tHit, type: 'tank', point: hitResult.impact, tank };
+            }
+        }
+
+        // Check tracers against Tank Wrecks (Enemy wrecks and Player tank wreck)
+        const wrecks = (window.activeEnemyTanks || []).filter(t => t && t.isDestroyed);
+        if (window.tankState && window.tankState.isKnockedOut && window.tankState.hasTank !== false && (!window.tankRoot || window.tankRoot.visible !== false)) {
+            wrecks.push(window.tankState);
+        }
+        for (let wIdx = 0; wIdx < wrecks.length; wIdx++) {
+            const wreck = wrecks[wIdx];
+            if (!wreck) continue;
+            const dCenterSq = (prevPos.x - wreck.x) ** 2 + (prevPos.z - wreck.z) ** 2;
+            if (dCenterSq > (5.0 + trSegLen) ** 2) continue;
+
+            const dims = getTankHitboxDims(wreck === window.tankState ? (window.currentTankId || 'tiger') : (wreck.tankType || wreck.spec));
+            const hitResult = testSegmentVsTank(prevPos, tr.pos, wreck.x, wreck.y, wreck.z, wreck.heading, dims.halfW, dims.halfH, dims.halfL);
+            if (hitResult && (!closestActor || hitResult.tHit < closestActor.t)) {
+                closestActor = { t: hitResult.tHit, type: 'wreck', point: hitResult.impact, tank: wreck };
             }
         }
 
@@ -1563,6 +1650,14 @@ function updateProjectiles(dt) {
                 }
                 if (closestActor.tank && typeof closestActor.tank.onHit === 'function') {
                     closestActor.tank.onHit(impactPos, tr.vel.clone().normalize(), 0);
+                }
+            } else if (closestActor.type === 'wreck') {
+                for (let sp = 0; sp < 6; sp++) {
+                    const sVel = new THREE.Vector3((Math.random() - 0.5) * 12, 1.5 + Math.random() * 8, (Math.random() - 0.5) * 12);
+                    spawnParticle(impactPos, sVel, 0xfff08a, 0.12, 0.06, 0.4, true, 'spark');
+                }
+                if (window.soundFX && typeof window.soundFX.playArmorRicochet === 'function') {
+                    window.soundFX.playArmorRicochet(impactPos);
                 }
             } else if (closestActor.type === 'soldier') {
                 const soldier = closestActor.soldier;
@@ -1682,8 +1777,8 @@ function updateParticles(dt) {
         // Advance position
         p.mesh.position.addScaledVector(p.vel, dt);
 
-        // Ground collision & bounce for sparks and dirt
-        if (p.gravity > 0) {
+        // Ground collision & bounce for sparks and dirt (skip terrain query when airborne high)
+        if (p.gravity > 0 && p.mesh.position.y < 3.5) {
             const groundY = getTerrainHeight(p.mesh.position.x, p.mesh.position.z);
             if (p.mesh.position.y <= groundY + 0.06) {
                 p.mesh.position.y = groundY + 0.06;
@@ -1878,5 +1973,7 @@ window.fireMainCannon = fireMainCannon;
 window.fireCoaxMG = fireCoaxMG;
 window.fireBowMG = fireBowMG;
 window.fireSmokeDischargers = fireSmokeDischargers;
+window.testSegmentVsTank = testSegmentVsTank;
+window.getTankHitboxDims = getTankHitboxDims;
 window.updateProjectiles = updateProjectiles;
 window.updateParticles = updateParticles;

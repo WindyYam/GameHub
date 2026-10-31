@@ -372,14 +372,23 @@ const soundFX = {
         punch.stop(now + 0.065);
 
         // 2. High-Pressure Muzzle Blast & Supersonic Bullet Snap (Fast, biting transient)
-        const snapLen = Math.floor(this.ctx.sampleRate * 0.05);
-        const snapBuf = this.ctx.createBuffer(1, snapLen, this.ctx.sampleRate);
-        const snapData = snapBuf.getChannelData(0);
-        for (let i = 0; i < snapLen; i++) {
-            snapData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (snapLen * 0.22));
+        if (!this.cachedSnapBuf || this.cachedSnapRate !== this.ctx.sampleRate) {
+            const snapLen = Math.floor(this.ctx.sampleRate * 0.05);
+            this.cachedSnapBuf = this.ctx.createBuffer(1, snapLen, this.ctx.sampleRate);
+            const snapData = this.cachedSnapBuf.getChannelData(0);
+            for (let i = 0; i < snapLen; i++) {
+                snapData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (snapLen * 0.22));
+            }
+            const clickLen = Math.floor(this.ctx.sampleRate * 0.025);
+            this.cachedClickBuf = this.ctx.createBuffer(1, clickLen, this.ctx.sampleRate);
+            const clickData = this.cachedClickBuf.getChannelData(0);
+            for (let i = 0; i < clickLen; i++) {
+                clickData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (clickLen * 0.15));
+            }
+            this.cachedSnapRate = this.ctx.sampleRate;
         }
         const snapSrc = this.ctx.createBufferSource();
-        snapSrc.buffer = snapBuf;
+        snapSrc.buffer = this.cachedSnapBuf;
         const snapFilt = this.ctx.createBiquadFilter();
         snapFilt.type = 'bandpass';
         snapFilt.frequency.setValueAtTime(1650, now);
@@ -393,14 +402,8 @@ const soundFX = {
         snapSrc.start(now);
 
         // 3. Metallic Receiver / Bolt Action Click
-        const clickLen = Math.floor(this.ctx.sampleRate * 0.025);
-        const clickBuf = this.ctx.createBuffer(1, clickLen, this.ctx.sampleRate);
-        const clickData = clickBuf.getChannelData(0);
-        for (let i = 0; i < clickLen; i++) {
-            clickData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (clickLen * 0.15));
-        }
         const clickSrc = this.ctx.createBufferSource();
-        clickSrc.buffer = clickBuf;
+        clickSrc.buffer = this.cachedClickBuf;
         const clickFilt = this.ctx.createBiquadFilter();
         clickFilt.type = 'highpass';
         clickFilt.frequency.setValueAtTime(2800, now);
@@ -447,14 +450,29 @@ const soundFX = {
         boom.stop(now + 0.16);
 
         // 2. High-Velocity Supersonic Bullet Whip & Muzzle Crack (Sharp, biting crack: 2200Hz bandpass)
-        const crackLen = Math.floor(this.ctx.sampleRate * 0.08);
-        const crackBuf = this.ctx.createBuffer(1, crackLen, this.ctx.sampleRate);
-        const crackData = crackBuf.getChannelData(0);
-        for (let i = 0; i < crackLen; i++) {
-            crackData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (crackLen * 0.18));
+        if (!this.cachedCrackBuf || this.cachedRifleRate !== this.ctx.sampleRate) {
+            const crackLen = Math.floor(this.ctx.sampleRate * 0.08);
+            this.cachedCrackBuf = this.ctx.createBuffer(1, crackLen, this.ctx.sampleRate);
+            const crackData = this.cachedCrackBuf.getChannelData(0);
+            for (let i = 0; i < crackLen; i++) {
+                crackData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (crackLen * 0.18));
+            }
+            const roarLen = Math.floor(this.ctx.sampleRate * 0.22);
+            this.cachedRoarBuf = this.ctx.createBuffer(1, roarLen, this.ctx.sampleRate);
+            const roarData = this.cachedRoarBuf.getChannelData(0);
+            for (let i = 0; i < roarLen; i++) {
+                roarData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (roarLen * 0.25));
+            }
+            const tailLen = Math.floor(this.ctx.sampleRate * 0.42);
+            this.cachedTailBuf = this.ctx.createBuffer(1, tailLen, this.ctx.sampleRate);
+            const tailData = this.cachedTailBuf.getChannelData(0);
+            for (let i = 0; i < tailLen; i++) {
+                tailData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (tailLen * 0.35));
+            }
+            this.cachedRifleRate = this.ctx.sampleRate;
         }
         const crackSrc = this.ctx.createBufferSource();
-        crackSrc.buffer = crackBuf;
+        crackSrc.buffer = this.cachedCrackBuf;
         const crackFilt = this.ctx.createBiquadFilter();
         crackFilt.type = 'bandpass';
         crackFilt.frequency.setValueAtTime(2200, now);
@@ -468,14 +486,8 @@ const soundFX = {
         crackSrc.start(now);
 
         // 3. Gunpowder Combustion Body & Steel Receiver Ring (Thick mid-range roar)
-        const roarLen = Math.floor(this.ctx.sampleRate * 0.22);
-        const roarBuf = this.ctx.createBuffer(1, roarLen, this.ctx.sampleRate);
-        const roarData = roarBuf.getChannelData(0);
-        for (let i = 0; i < roarLen; i++) {
-            roarData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (roarLen * 0.25));
-        }
         const roarSrc = this.ctx.createBufferSource();
-        roarSrc.buffer = roarBuf;
+        roarSrc.buffer = this.cachedRoarBuf;
         const roarFilt = this.ctx.createBiquadFilter();
         roarFilt.type = 'lowpass';
         roarFilt.frequency.setValueAtTime(850, now);
@@ -489,14 +501,8 @@ const soundFX = {
         roarSrc.start(now);
 
         // 4. Open-Field Rolling Acoustic Reverb Tail (Diffuse distant report)
-        const tailLen = Math.floor(this.ctx.sampleRate * 0.42);
-        const tailBuf = this.ctx.createBuffer(1, tailLen, this.ctx.sampleRate);
-        const tailData = tailBuf.getChannelData(0);
-        for (let i = 0; i < tailLen; i++) {
-            tailData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (tailLen * 0.35));
-        }
         const tailSrc = this.ctx.createBufferSource();
-        tailSrc.buffer = tailBuf;
+        tailSrc.buffer = this.cachedTailBuf;
         const tailFilt = this.ctx.createBiquadFilter();
         tailFilt.type = 'lowpass';
         tailFilt.frequency.setValueAtTime(450, now + 0.04);

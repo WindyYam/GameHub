@@ -52,7 +52,7 @@
             if (e.isDestroyed) continue;
             if (Math.hypot(e.x - pX, e.z - pZ) < 300) {
                 e.wasHitAlert = true;
-                e.provokedTimer = 10.0;
+                e.provokedTimer = 5.0;
                 e.state = 'ENGAGING';
                 e.detectionTimer = Math.max(e.detectionTimer, 1.2);
             }
@@ -86,8 +86,14 @@
         const segLenSq = dx * dx + dz * dz;
         if (segLenSq < 1.0) return true; // too close, clear
 
+        const minX = Math.min(x0, x1) - 6.0;
+        const maxX = Math.max(x0, x1) + 6.0;
+        const minZ = Math.min(z0, z1) - 6.0;
+        const maxZ = Math.max(z0, z1) + 6.0;
+
         for (let i = 0; i < obstacles.length; i++) {
             const obs = obstacles[i];
+            if (obs.x < minX || obs.x > maxX || obs.z < minZ || obs.z > maxZ) continue;
             const toObsX = obs.x - x0;
             const toObsZ = obs.z - z0;
             const t = THREE.MathUtils.clamp((toObsX * dx + toObsZ * dz) / segLenSq, 0.05, 0.95);
@@ -99,8 +105,42 @@
                 return false; // Obstructed by tactical cover!
             }
         }
+
+        // Tank wrecks as tactical cover
+        const enemies = (window.activeEnemyTanks && window.activeEnemyTanks.length > 0) ? window.activeEnemyTanks : activeEnemyTanks;
+        for (let i = 0; i < enemies.length; i++) {
+            const et = enemies[i];
+            if (!et || !et.isDestroyed || typeof et.x !== 'number') continue;
+            if (et.x < minX || et.x > maxX || et.z < minZ || et.z > maxZ) continue;
+            const toWreckX = et.x - x0;
+            const toWreckZ = et.z - z0;
+            const t = THREE.MathUtils.clamp((toWreckX * dx + toWreckZ * dz) / segLenSq, 0.05, 0.95);
+            const closeX = x0 + dx * t;
+            const closeZ = z0 + dz * t;
+            const distSq = (closeX - et.x) ** 2 + (closeZ - et.z) ** 2;
+            const hitRadius = 2.4;
+            if (distSq < hitRadius * hitRadius) {
+                return false; // Obstructed by tank wreck cover!
+            }
+        }
+        if (window.tankState && window.tankState.isKnockedOut && window.tankState.hasTank !== false && (!window.tankRoot || window.tankRoot.visible !== false)) {
+            const pt = window.tankState;
+            if (!(pt.x < minX || pt.x > maxX || pt.z < minZ || pt.z > maxZ)) {
+                const toPtX = pt.x - x0;
+                const toPtZ = pt.z - z0;
+                const t = THREE.MathUtils.clamp((toPtX * dx + toPtZ * dz) / segLenSq, 0.05, 0.95);
+                const closeX = x0 + dx * t;
+                const closeZ = z0 + dz * t;
+                const distSq = (closeX - pt.x) ** 2 + (closeZ - pt.z) ** 2;
+                const hitRadius = 2.4;
+                if (distSq < hitRadius * hitRadius) {
+                    return false; // Obstructed by player tank wreck cover!
+                }
+            }
+        }
         return true; // Clear line of sight
     }
+    window.checkObstacleLineOfSight = checkObstacleLineOfSight;
 
     // ========================================================================
     // 2. ENEMY TANK FACTORY (Real 3D Tank Models)
@@ -247,7 +287,7 @@
 
                 // Alert and detect player on hit until losing track
                 this.wasHitAlert = true;
-                this.provokedTimer = 10.0;
+                this.provokedTimer = 5.0;
                 this.detectionTimer = Math.max(this.detectionTimer || 0, 7.0);
                 this.state = 'ENGAGING';
 
@@ -653,13 +693,29 @@
                         }
                     }
 
+                    if (canMove && window.activeEnemyTanks) {
+                        for (let ei = 0; ei < window.activeEnemyTanks.length; ei++) {
+                            const wreck = window.activeEnemyTanks[ei];
+                            if (!wreck || !wreck.isDestroyed || wreck === e) continue;
+                            const dW = Math.hypot(nextX - wreck.x, nextZ - wreck.z);
+                            if (dW < 4.8) {
+                                canMove = false;
+                                e.patrolState = 'SCAN';
+                                e.patrolTimer = 2.0;
+                                e.patrolHeading = normalizeAngle(e.heading + Math.PI * 0.65);
+                                e.targetSpeed = 0;
+                                break;
+                            }
+                        }
+                    }
+
                     if (canMove) {
                         e.x = nextX;
                         e.z = nextZ;
                         e.enemyRoot.position.set(e.x, e.y, e.z);
 
-                        // Animate road wheels & track links while wandering
-                        if (typeof e.model.updateTracksGeometry === 'function') {
+                        // Animate road wheels & track links while wandering (culled when far)
+                        if (distToPlayer < 85 && typeof e.model.updateTracksGeometry === 'function') {
                             const trackAnim = e.speed * 0.9;
                             e.model.updateTracksGeometry(nowSec * trackAnim * 1.5, nowSec * trackAnim * 1.5);
                         }
@@ -803,8 +859,8 @@
                     e.z = nextZ;
                     e.enemyRoot.position.set(e.x, e.y, e.z);
 
-                    // Animate road wheels & track links while moving
-                                        if (typeof e.model.updateTracksGeometry === 'function') {
+                    // Animate road wheels & track links while moving (culled when far)
+                    if (distToPlayer < 85 && typeof e.model.updateTracksGeometry === 'function') {
                         const trackAnim = e.speed * 0.9;
                         e.model.updateTracksGeometry(nowSec * trackAnim * 1.5, nowSec * trackAnim * 1.5);
                     }

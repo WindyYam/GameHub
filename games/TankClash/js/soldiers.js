@@ -1993,21 +1993,46 @@
                     const obs = obstacles[ob];
                     if (!obs || typeof obs.x !== 'number' || typeof obs.z !== 'number') continue;
                     const minR = (obs.radius || 3.5) + 0.45;
-                    const d = Math.hypot(this.x - obs.x, this.z - obs.z);
+                    const dx = this.x - obs.x;
+                    if (Math.abs(dx) > minR) continue;
+                    const dz = this.z - obs.z;
+                    if (Math.abs(dz) > minR) continue;
+                    const d = Math.hypot(dx, dz);
                     if (d < minR && d > 0.001) {
-                        this.x += ((this.x - obs.x) / d) * (minR - d);
-                        this.z += ((this.z - obs.z) / d) * (minR - d);
+                        this.x += (dx / d) * (minR - d);
+                        this.z += (dz / d) * (minR - d);
                     }
                 }
                 const trees = window.swayTrees || [];
                 for (let tr = 0; tr < trees.length; tr++) {
                     const tree = trees[tr];
                     if (!tree || tree.isFallen || typeof tree.x !== 'number' || typeof tree.z !== 'number') continue;
+                    const dx = this.x - tree.x;
+                    if (Math.abs(dx) > 2.0) continue;
+                    const dz = this.z - tree.z;
+                    if (Math.abs(dz) > 2.0) continue;
                     const minTrunkR = Math.max(0.40, Math.min(1.0, (tree.radius || 1.2) * 0.45 * (tree.scale || 1.0))) + 0.40;
-                    const td = Math.hypot(this.x - tree.x, this.z - tree.z);
+                    const td = Math.hypot(dx, dz);
                     if (td < minTrunkR && td > 0.001) {
-                        this.x += ((this.x - tree.x) / td) * (minTrunkR - td);
-                        this.z += ((this.z - tree.z) / td) * (minTrunkR - td);
+                        this.x += (dx / td) * (minTrunkR - td);
+                        this.z += (dz / td) * (minTrunkR - td);
+                    }
+                }
+
+                // Tank Wrecks
+                const enemyTanks = window.activeEnemyTanks || [];
+                for (let ti = 0; ti < enemyTanks.length; ti++) {
+                    const wreck = enemyTanks[ti];
+                    if (!wreck || !wreck.isDestroyed || typeof wreck.x !== 'number') continue;
+                    const dx = this.x - wreck.x;
+                    if (Math.abs(dx) > 2.8) continue;
+                    const dz = this.z - wreck.z;
+                    if (Math.abs(dz) > 2.8) continue;
+                    const dW = Math.hypot(dx, dz);
+                    const minWreckR = 2.6;
+                    if (dW < minWreckR && dW > 0.001) {
+                        this.x += (dx / dW) * (minWreckR - dW);
+                        this.z += (dz / dW) * (minWreckR - dW);
                     }
                 }
 
@@ -2027,8 +2052,8 @@
             this.rig.root.position.set(this.x, this.y, this.z);
             this.rig.root.rotation.y = this.heading;
 
-            // 4. Procedural Joint Animation (Cull detailed bones if far away on mobile and not engaging)
-            const isFar = distToPlayer > 135 && !this.currentTarget;
+            // 4. Procedural Joint Animation (Cull detailed bones if far away or off-camera)
+            const isFar = (distToPlayer > 135 && !this.currentTarget) || (distToPlayer > 60);
             this.animateJoints(isFar, dt);
         }
 
@@ -2040,9 +2065,14 @@
                 const pX = (window.playerMode === 'soldier' && window.playerSoldier) ? window.playerSoldier.x : playerX;
                 const pZ = (window.playerMode === 'soldier' && window.playerSoldier) ? window.playerSoldier.z : playerZ;
                 const dP = Math.hypot(pX - this.x, pZ - this.z);
-                const hasLOS = (typeof window.checkObstacleLineOfSight === 'function')
-                    ? window.checkObstacleLineOfSight(this.x, this.z, pX, pZ)
-                    : true;
+                this.losTimer = (this.losTimer || 0) - dt;
+                if (this.losTimer <= 0 || this.cachedHasLOS === undefined) {
+                    this.cachedHasLOS = (typeof window.checkObstacleLineOfSight === 'function')
+                        ? window.checkObstacleLineOfSight(this.x, this.z, pX, pZ)
+                        : true;
+                    this.losTimer = 0.12 + Math.random() * 0.05;
+                }
+                const hasLOS = this.cachedHasLOS;
 
                 const isPlayerOnFoot = (window.playerMode === 'soldier' && window.playerSoldier && !window.playerSoldier.isDead);
                 const nowSec = (window.performance && window.performance.now) ? window.performance.now() * 0.001 : Date.now() * 0.001;
@@ -2337,6 +2367,7 @@
                 // Standard AI logic governs firing cadence (fireCooldown) and facing alignment.
                 this.alertOnHitTimer = 8.0;
                 this.provokedTimer = 5.0;
+                this.losTimer = 0;
                 if (window.playerMode === 'soldier' && window.playerSoldier && !window.playerSoldier.isDead) {
                     const ps = window.playerSoldier;
                     this.currentTarget = {

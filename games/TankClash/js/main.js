@@ -557,6 +557,23 @@ function updateSimulation(dt) {
         }
     }
 
+    // --- 1c. TANK VS TANK WRECK COLLISION (Stop player tank at tank wrecks) ---
+    const activeEnemyList = window.activeEnemyTanks || [];
+    for (let ei = 0; ei < activeEnemyList.length; ei++) {
+        const wreck = activeEnemyList[ei];
+        if (!wreck || !wreck.isDestroyed) continue;
+        const wdx = tankState.x - wreck.x;
+        const wdz = tankState.z - wreck.z;
+        const wDist = Math.hypot(wdx, wdz);
+        const minClearance = 3.8;
+        if (wDist < minClearance && wDist > 0.001) {
+            const overlap = minClearance - wDist;
+            tankState.x += (wdx / wDist) * overlap;
+            tankState.z += (wdz / wDist) * overlap;
+            tankState.speed *= 0.6;
+        }
+    }
+
     // --- 2. MULTI-WHEEL GROUND PLANE FITTING & SUSPENSION DYNAMICS ---
     const cosH = Math.cos(tankState.heading);
     const sinH = Math.sin(tankState.heading);
