@@ -4772,6 +4772,8 @@ function restartGame(customSeed, customZone) {
     if (typeof window.resetSoldiers === 'function') window.resetSoldiers();
     if (typeof window.resetPlayerSoldier === 'function') window.resetPlayerSoldier();
     if (typeof window.hideKnockoutModal === 'function') window.hideKnockoutModal();
+    window.playerIsDead = false;
+    if (typeof window.updateMoneyHUD === 'function') window.updateMoneyHUD();
 
     const ALL_CAMPAIGNS = ['tiger', 'kingtiger', 'sherman', 'pershing', 't34', 'kv2'];
     const randCampaign = ALL_CAMPAIGNS[Math.floor(Math.random() * ALL_CAMPAIGNS.length)];

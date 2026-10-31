@@ -1281,20 +1281,9 @@ function updateSimulation(dt) {
     // Mobile Mini HUD updates
     const mobSpeedEl = document.getElementById('mob-speed');
     if (mobSpeedEl) mobSpeedEl.textContent = kmh;
-    const mobHitsEl = document.getElementById('mob-hits');
-    if (mobHitsEl) {
-        const count = window.activeEnemyTanks ? window.activeEnemyTanks.length : 0;
-        mobHitsEl.textContent = `Enemies: ${count}/15 • Kills: ${tankState.hitsCount}`;
-    }
-    const mobReloadEl = document.getElementById('mob-reload');
-    if (mobReloadEl) {
-        if (tankState.reloadTimer <= 0) {
-            mobReloadEl.textContent = 'READY';
-            mobReloadEl.className = 'text-emerald-400 font-bold';
-        } else {
-            mobReloadEl.textContent = `${tankState.reloadTimer.toFixed(1)}s`;
-            mobReloadEl.className = 'text-amber-400 font-bold';
-        }
+    const mobMoneyEl = document.getElementById('hud-money');
+    if (mobMoneyEl) {
+        mobMoneyEl.textContent = `$${window.playerMoney || 0}`;
     }
 
     const reloadBar = document.getElementById('hud-reload-bar');

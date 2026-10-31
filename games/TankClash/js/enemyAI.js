@@ -311,7 +311,17 @@
 
                 // Update score & kill feed
                 if (window.tankState) window.tankState.hitsCount++;
-                showKillFeedBanner(`TARGET DESTROYED: ${this.spec.shortName}`);
+
+                const maxHp = (this.maxArmor !== undefined) ? this.maxArmor : (this.spec && this.spec.enemyArmor !== undefined ? this.spec.enemyArmor : 1);
+                const tankReward = maxHp === 1 ? 25 : (maxHp === 2 ? 30 : 40);
+
+                if (!this.rewardAwarded) {
+                    this.rewardAwarded = true;
+                    if (typeof window.addPlayerMoney === 'function') {
+                        window.addPlayerMoney(tankReward, `TANK KILL (+$$${tankReward})`);
+                    }
+                }
+                showKillFeedBanner(`TARGET DESTROYED: ${this.spec.shortName} (+$${tankReward})`);
             },
 
             dispose() {
@@ -816,6 +826,7 @@
     function resetPlayerHealth() {
         playerHitsTaken = 0;
         window.playerHitsTaken = 0;
+        window.playerIsDead = false;
         if (window.tankState) {
             window.tankState.isKnockedOut = false;
         }
@@ -904,6 +915,9 @@
     }
 
     function showKnockoutModal(titleText) {
+        if (typeof window.onPlayerDeath === 'function') {
+            window.onPlayerDeath();
+        }
         let modal = document.getElementById('knockout-modal');
         if (!modal) {
             modal = document.createElement('div');

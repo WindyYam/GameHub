@@ -2007,11 +2007,24 @@
         }
 
         die() {
+            if (this.isDead) return;
             this.isDead = true;
             this.deathTime = (window.performance && window.performance.now) ? window.performance.now() * 0.001 : Date.now() * 0.001;
             this.speed = 0;
             this.currentTarget = null;
             if (this.targetCursor) this.targetCursor.visible = false;
+
+            // Reward money when an enemy soldier is killed ($5)
+            if (this.isEnemy && !this.rewardAwarded) {
+                this.rewardAwarded = true;
+                if (typeof window.addPlayerMoney === 'function') {
+                    window.addPlayerMoney(5, 'SOLDIER KILL (+$5)');
+                }
+                if (typeof window.showKillFeedBanner === 'function') {
+                    window.showKillFeedBanner('🎯 ENEMY SOLDIER ELIMINATED (+$5)');
+                }
+                if (window.tankState) window.tankState.hitsCount++;
+            }
 
             if (typeof window.startSoldierDeathAnimation === 'function') {
                 window.startSoldierDeathAnimation(this);

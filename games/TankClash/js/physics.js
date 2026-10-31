@@ -53,8 +53,66 @@ var tankState = {
     mgHeat: 0,
     headlightsOn: false,
     hitsCount: 0,
+    money: 0,
     isKnockedOut: false
 };
+
+// ============================================================================
+// MONEY SYSTEM
+// Rewards: Kill soldier +$5, Kill 1 HP tank +$25, 2 HP tank +$30, 3 HP tank +$40
+// Penalty: Halved on player death
+// ============================================================================
+var playerMoney = 0;
+var playerIsDead = false;
+
+function updateMoneyHUD() {
+    const el = document.getElementById('hud-money');
+    if (el) {
+        el.textContent = `$${playerMoney}`;
+    }
+}
+
+function getPlayerMoney() {
+    return playerMoney;
+}
+
+function setPlayerMoney(val) {
+    playerMoney = Math.max(0, Math.floor(Number(val) || 0));
+    tankState.money = playerMoney;
+    window.playerMoney = playerMoney;
+    updateMoneyHUD();
+    return playerMoney;
+}
+
+function addPlayerMoney(amount, reason = '') {
+    if (amount <= 0) return playerMoney;
+    playerMoney += Math.floor(amount);
+    tankState.money = playerMoney;
+    window.playerMoney = playerMoney;
+    updateMoneyHUD();
+    return playerMoney;
+}
+
+function onPlayerDeath() {
+    if (playerIsDead) return;
+    playerIsDead = true;
+    window.playerIsDead = true;
+    const current = playerMoney;
+    const halved = Math.floor(current / 2);
+    const lost = current - halved;
+    setPlayerMoney(halved);
+    if (lost > 0 && typeof window.showKillFeedBanner === 'function') {
+        window.showKillFeedBanner(`☠️ KILLED IN ACTION! -$${lost} (FUNDS HALVED: $${halved})`);
+    }
+}
+
+window.playerMoney = playerMoney;
+window.playerIsDead = playerIsDead;
+window.getPlayerMoney = getPlayerMoney;
+window.setPlayerMoney = setPlayerMoney;
+window.addPlayerMoney = addPlayerMoney;
+window.onPlayerDeath = onPlayerDeath;
+window.updateMoneyHUD = updateMoneyHUD;
 
 // Active projectiles, VFX particles, shockwaves and dynamic lights
 var shells = [];

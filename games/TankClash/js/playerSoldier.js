@@ -134,6 +134,10 @@
         playerSoldier.isDead = true;
         playerSoldier.speed = 0;
 
+        if (typeof window.onPlayerDeath === 'function') {
+            window.onPlayerDeath();
+        }
+
         const soldier = playerSoldier;
         startSoldierDeathAnimation(soldier);
         currentInteractAction = null;
@@ -1238,6 +1242,7 @@
         window.playerMode = 'tank';
         if (crosshairEl) crosshairEl.classList.add('hidden');
         syncInfantryUI(false);
+        window.playerIsDead = false;
         if (typeof window.hideKnockoutModal === 'function') window.hideKnockoutModal();
     }
     window.resetPlayerSoldier = resetPlayerSoldier;
