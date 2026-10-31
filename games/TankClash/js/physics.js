@@ -1254,37 +1254,43 @@ function updateProjectiles(dt) {
                 }
             }
 
-            // Analytical ray-cylinder entry point
-            const dx = prevPos.x - obs.x;
-            const dz = prevPos.z - obs.z;
-            const vx = segDir.x;
-            const vz = segDir.z;
-            const a = vx * vx + vz * vz;
-            const b = 2 * (dx * vx + dz * vz);
-            const c = dx * dx + dz * dz - obs.radius * obs.radius;
-            const disc = b * b - 4 * a * c;
+            // Analytical entry point against the measured footprint (oriented box or circle)
+            let tHitDist = -1;
+            if (typeof obstacleSegmentEntry === 'function') {
+                const s = obstacleSegmentEntry(obs, prevPos.x, prevPos.z,
+                    prevPos.x + segDir.x * segLen, prevPos.z + segDir.z * segLen, 0);
+                if (s >= 0) tHitDist = s * segLen;
+            } else {
+                const dx = prevPos.x - obs.x;
+                const dz = prevPos.z - obs.z;
+                const vx = segDir.x;
+                const vz = segDir.z;
+                const a = vx * vx + vz * vz;
+                const b = 2 * (dx * vx + dz * vz);
+                const c = dx * dx + dz * dz - obs.radius * obs.radius;
+                const disc = b * b - 4 * a * c;
+                if (disc >= 0 && a > 0.0001) {
+                    const sqrtD = Math.sqrt(disc);
+                    const t0 = (-b - sqrtD) / (2 * a);
+                    const t1 = (-b + sqrtD) / (2 * a);
+                    if (t0 <= segLen + 0.2 && t1 >= -0.2) tHitDist = Math.max(0, t0);
+                }
+            }
 
-            if (disc >= 0 && a > 0.0001) {
-                const sqrtD = Math.sqrt(disc);
-                const t0 = (-b - sqrtD) / (2 * a);
-                const t1 = (-b + sqrtD) / (2 * a);
+            if (tHitDist >= 0) {
+                const tNorm = tHitDist / (segLen || 1);
+                const testPt = prevPos.clone().addScaledVector(segDir, tHitDist);
+                const obsTop = obs.y + (obs.height || 4.5);
+                const obsBottom = obs.y - 0.5;
 
-                if (t0 <= segLen + 0.2 && t1 >= -0.2) {
-                    const tHitDist = Math.max(0, t0);
-                    const tNorm = tHitDist / (segLen || 1);
-                    const testPt = prevPos.clone().addScaledVector(segDir, tHitDist);
-                    const obsTop = obs.y + (obs.height || 4.5);
-                    const obsBottom = obs.y - 0.5;
-
-                    if (testPt.y >= obsBottom && testPt.y <= obsTop) {
-                        if (!closestHit || tNorm < closestHit.t) {
-                            closestHit = {
-                                t: tNorm,
-                                type: 'obstacle',
-                                impactPos: testPt,
-                                targetObj: obs
-                            };
-                        }
+                if (testPt.y >= obsBottom && testPt.y <= obsTop) {
+                    if (!closestHit || tNorm < closestHit.t) {
+                        closestHit = {
+                            t: tNorm,
+                            type: 'obstacle',
+                            impactPos: testPt,
+                            targetObj: obs
+                        };
                     }
                 }
             }
@@ -1499,19 +1505,29 @@ function updateProjectiles(dt) {
                 if (hits.length > 0 && hits[0].distance <= trSegLen) distance = hits[0].distance;
             }
             if (distance === null) {
-                const dx = prevPos.x - obs.x;
-                const dz = prevPos.z - obs.z;
-                const a = trSegDir.x * trSegDir.x + trSegDir.z * trSegDir.z;
-                const b = 2 * (dx * trSegDir.x + dz * trSegDir.z);
-                const c = dx * dx + dz * dz - obs.radius * obs.radius;
-                const disc = b * b - 4 * a * c;
-                if (disc >= 0 && a > 0.0001) {
-                    const t0 = (-b - Math.sqrt(disc)) / (2 * a);
-                    const t1 = (-b + Math.sqrt(disc)) / (2 * a);
-                    if (t0 <= trSegLen && t1 >= 0) {
-                        const entry = Math.max(0, t0);
+                if (typeof obstacleSegmentEntry === 'function') {
+                    const s = obstacleSegmentEntry(obs, prevPos.x, prevPos.z,
+                        prevPos.x + trSegDir.x * trSegLen, prevPos.z + trSegDir.z * trSegLen, 0);
+                    if (s >= 0) {
+                        const entry = s * trSegLen;
                         const y = prevPos.y + trSegDir.y * entry;
                         if (y >= obs.y - 0.5 && y <= obs.y + (obs.height || 4.5)) distance = entry;
+                    }
+                } else {
+                    const dx = prevPos.x - obs.x;
+                    const dz = prevPos.z - obs.z;
+                    const a = trSegDir.x * trSegDir.x + trSegDir.z * trSegDir.z;
+                    const b = 2 * (dx * trSegDir.x + dz * trSegDir.z);
+                    const c = dx * dx + dz * dz - obs.radius * obs.radius;
+                    const disc = b * b - 4 * a * c;
+                    if (disc >= 0 && a > 0.0001) {
+                        const t0 = (-b - Math.sqrt(disc)) / (2 * a);
+                        const t1 = (-b + Math.sqrt(disc)) / (2 * a);
+                        if (t0 <= trSegLen && t1 >= 0) {
+                            const entry = Math.max(0, t0);
+                            const y = prevPos.y + trSegDir.y * entry;
+                            if (y >= obs.y - 0.5 && y <= obs.y + (obs.height || 4.5)) distance = entry;
+                        }
                     }
                 }
             }

@@ -569,12 +569,25 @@
                     }
 
                     if (!hitPoint) {
-                        const dNow = Math.hypot(g.pos.x - obs.x, g.pos.z - obs.z);
-                        if (dNow <= obsR && g.pos.y >= obsY - 0.5 && g.pos.y <= obsY + obsH + 0.5) {
-                            hitPoint = g.pos.clone();
-                            if (dNow > 0.001) {
-                                hitPoint.x = obs.x + ((g.pos.x - obs.x) / dNow) * obsR;
-                                hitPoint.z = obs.z + ((g.pos.z - obs.z) / dNow) * obsR;
+                        const inY = g.pos.y >= obsY - 0.5 && g.pos.y <= obsY + obsH + 0.5;
+                        if (typeof obstacleSegmentEntry === 'function') {
+                            // Measured footprint: find where the flight segment enters the box.
+                            const entry = obstacleSegmentEntry(obs, prevPos.x, prevPos.z, g.pos.x, g.pos.z, 0);
+                            if (entry >= 0 && inY) {
+                                hitPoint = new THREE.Vector3(
+                                    prevPos.x + (g.pos.x - prevPos.x) * entry,
+                                    g.pos.y,
+                                    prevPos.z + (g.pos.z - prevPos.z) * entry
+                                );
+                            }
+                        } else {
+                            const dNow = Math.hypot(g.pos.x - obs.x, g.pos.z - obs.z);
+                            if (dNow <= obsR && inY) {
+                                hitPoint = g.pos.clone();
+                                if (dNow > 0.001) {
+                                    hitPoint.x = obs.x + ((g.pos.x - obs.x) / dNow) * obsR;
+                                    hitPoint.z = obs.z + ((g.pos.z - obs.z) / dNow) * obsR;
+                                }
                             }
                         }
                     }
@@ -640,6 +653,12 @@
             const obsH = (typeof obs.height === 'number') ? obs.height : 6.5;
             if (s.y < obsY - 1.0 || s.y > obsY + obsH + 0.5) continue;
 
+            if (typeof obstaclePushOut === 'function') {
+                const push = obstaclePushOut(obs, s.x, s.z, soldierRadius);
+                if (push) { s.x += push.x; s.z += push.z; }
+                continue;
+            }
+
             const dist = Math.hypot(dx, dz);
             if (dist < minClearance && dist > 0.0001) {
                 const overlap = minClearance - dist;
@@ -653,6 +672,12 @@
         for (let i = 0; i < buildings.length; i++) {
             const b = buildings[i];
             if (!b || typeof b.x !== 'number' || typeof b.z !== 'number') continue;
+
+            if (typeof obstaclePushOut === 'function') {
+                const push = obstaclePushOut(b, s.x, s.z, soldierRadius);
+                if (push) { s.x += push.x; s.z += push.z; }
+                continue;
+            }
 
             const minClearance = (b.radius || 3.5) + soldierRadius;
             const dx = s.x - b.x;

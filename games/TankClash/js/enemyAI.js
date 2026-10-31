@@ -94,6 +94,12 @@
         for (let i = 0; i < obstacles.length; i++) {
             const obs = obstacles[i];
             if (obs.x < minX || obs.x > maxX || obs.z < minZ || obs.z > maxZ) continue;
+            if (typeof obstacleSegmentEntry === 'function' && obs.box) {
+                // Measured footprint: blocked if the sight line crosses the box between its ends.
+                const entry = obstacleSegmentEntry(obs, x0, z0, x1, z1, 0);
+                if (entry >= 0.05 && entry <= 0.95) return false; // Obstructed by tactical cover!
+                continue;
+            }
             const toObsX = obs.x - x0;
             const toObsZ = obs.z - z0;
             const t = THREE.MathUtils.clamp((toObsX * dx + toObsZ * dz) / segLenSq, 0.05, 0.95);
@@ -681,8 +687,10 @@
                     if (canMove && window.worldObstacles) {
                         for (let ob = 0; ob < window.worldObstacles.length; ob++) {
                             const obs = window.worldObstacles[ob];
-                            const dObs = Math.hypot(nextX - obs.x, nextZ - obs.z);
-                            if (dObs < (obs.radius || 3.0) + 2.5) {
+                            const blocked = (typeof obstaclePushOut === 'function')
+                                ? obstaclePushOut(obs, nextX, nextZ, 2.5) !== null
+                                : Math.hypot(nextX - obs.x, nextZ - obs.z) < (obs.radius || 3.0) + 2.5;
+                            if (blocked) {
                                 canMove = false;
                                 e.patrolState = 'SCAN';
                                 e.patrolTimer = 2.0;
@@ -1226,7 +1234,10 @@
             const obstacles = window.worldObstacles || [];
             for (let o = 0; o < obstacles.length; o++) {
                 const obs = obstacles[o];
-                if (Math.hypot(testX - obs.x, testZ - obs.z) < (obs.radius || 4.5) + 4.5) {
+                const tooClose = (typeof obstaclePushOut === 'function')
+                    ? obstaclePushOut(obs, testX, testZ, 4.5) !== null
+                    : Math.hypot(testX - obs.x, testZ - obs.z) < (obs.radius || 4.5) + 4.5;
+                if (tooClose) {
                     collidesObstacle = true;
                     break;
                 }

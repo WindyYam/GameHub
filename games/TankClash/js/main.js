@@ -545,14 +545,10 @@ function updateSimulation(dt) {
     const worldBldgs = window.worldBuildings || [];
     for (let bi = 0; bi < worldBldgs.length; bi++) {
         const b = worldBldgs[bi];
-        const bdx = tankState.x - b.x;
-        const bdz = tankState.z - b.z;
-        const bDist = Math.hypot(bdx, bdz);
-        const minClearance = (b.radius || 3.5) + 1.8;
-        if (bDist < minClearance && bDist > 0.001) {
-            const overlap = minClearance - bDist;
-            tankState.x += (bdx / bDist) * overlap;
-            tankState.z += (bdz / bDist) * overlap;
+        const push = obstaclePushOut(b, tankState.x, tankState.z, 1.8);
+        if (push) {
+            tankState.x += push.x;
+            tankState.z += push.z;
             tankState.speed *= 0.6;
         }
     }

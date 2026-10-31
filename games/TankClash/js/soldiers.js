@@ -1992,6 +1992,11 @@
                 for (let ob = 0; ob < obstacles.length; ob++) {
                     const obs = obstacles[ob];
                     if (!obs || typeof obs.x !== 'number' || typeof obs.z !== 'number') continue;
+                    if (typeof obstaclePushOut === 'function') {
+                        const push = obstaclePushOut(obs, this.x, this.z, 0.45);
+                        if (push) { this.x += push.x; this.z += push.z; }
+                        continue;
+                    }
                     const minR = (obs.radius || 3.5) + 0.45;
                     const dx = this.x - obs.x;
                     if (Math.abs(dx) > minR) continue;

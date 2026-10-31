@@ -2653,6 +2653,146 @@ function createMountainBunkerGeometry() {
 }
 
 
+// ---------------------------------------------------------------------------
+// OBSTACLE FOOTPRINTS
+// Building collision uses an oriented XZ box measured from the model geometry
+// (scaled and rotated with its mesh) instead of a hard-coded isotropic circle.
+// Rocks use a circle measured from their geometry's furthest vertex.
+// `obs.radius` stays as a bounding circle for broadphase and legacy callers.
+// ---------------------------------------------------------------------------
+function getGeometryFootprint(geo) {
+    if (!geo.__footprint) {
+        geo.computeBoundingBox();
+        const bb = geo.boundingBox;
+        const pos = geo.attributes.position;
+        let maxR = 0;
+        for (let i = 0; i < pos.count; i++) {
+            const r = Math.hypot(pos.getX(i), pos.getZ(i));
+            if (r > maxR) maxR = r;
+        }
+        geo.__footprint = { minX: bb.min.x, maxX: bb.max.x, minZ: bb.min.z, maxZ: bb.max.z, maxR: maxR };
+    }
+    return geo.__footprint;
+}
+
+function makeObstacleShape(geo, scale, rot) {
+    const f = getGeometryFootprint(geo);
+    const shape = {
+        minX: f.minX * scale, maxX: f.maxX * scale,
+        minZ: f.minZ * scale, maxZ: f.maxZ * scale,
+        rot: rot, c: Math.cos(rot), s: Math.sin(rot), radius: 0
+    };
+    shape.radius = Math.max(
+        Math.hypot(shape.minX, shape.minZ), Math.hypot(shape.maxX, shape.minZ),
+        Math.hypot(shape.minX, shape.maxZ), Math.hypot(shape.maxX, shape.maxZ)
+    );
+    return shape;
+}
+
+// Attach an oriented box (buildings, walls). Sets obs.box and obs.radius.
+function attachObstacleBox(obj, geo, scale, rot) {
+    obj.box = makeObstacleShape(geo, scale, rot);
+    obj.radius = obj.box.radius;
+    return obj;
+}
+
+// Attach a measured circle (rocks). Sets obs.radius from the furthest vertex.
+function attachObstacleCircle(obj, geo, scale) {
+    obj.radius = getGeometryFootprint(geo).maxR * scale;
+    return obj;
+}
+
+// World XZ offset -> obstacle local (un-rotated) coordinates.
+function obstacleLocalCoords(obs, x, z) {
+    const b = obs.box;
+    const dx = x - obs.x, dz = z - obs.z;
+    return { x: dx * b.c - dz * b.s, z: dx * b.s + dz * b.c };
+}
+
+// Returns the world XZ displacement that moves (x, z) out of the obstacle
+// expanded by `pad`, or null if the point is already clear.
+function obstaclePushOut(obs, x, z, pad) {
+    const p = pad || 0;
+    if (!obs.box) {
+        const dx = x - obs.x, dz = z - obs.z;
+        const d = Math.hypot(dx, dz);
+        const R = obs.radius + p;
+        if (d >= R) return null;
+        if (d < 1e-6) return { x: R, z: 0 };
+        const k = (R - d) / d;
+        return { x: dx * k, z: dz * k };
+    }
+    const b = obs.box;
+    const l = obstacleLocalCoords(obs, x, z);
+    const minX = b.minX - p, maxX = b.maxX + p;
+    const minZ = b.minZ - p, maxZ = b.maxZ + p;
+    if (l.x <= minX || l.x >= maxX || l.z <= minZ || l.z >= maxZ) return null;
+    // Exit through the nearest face.
+    const dL = l.x - minX, dR = maxX - l.x, dB = l.z - minZ, dF = maxZ - l.z;
+    const m = Math.min(dL, dR, dB, dF);
+    let lx = l.x, lz = l.z;
+    if (m === dL) lx = minX;
+    else if (m === dR) lx = maxX;
+    else if (m === dB) lz = minZ;
+    else lz = maxZ;
+    const px = lx - l.x, pz = lz - l.z;
+    return { x: px * b.c + pz * b.s, z: -px * b.s + pz * b.c };
+}
+
+// Fraction t in [0, 1] where segment A->B first enters the obstacle expanded by
+// `pad`, or -1 if it never does. Starting inside returns 0.
+function obstacleSegmentEntry(obs, ax, az, bx, bz, pad) {
+    const p = pad || 0;
+    if (!obs.box) {
+        const R = obs.radius + p;
+        const fx = ax - obs.x, fz = az - obs.z;
+        const c = fx * fx + fz * fz - R * R;
+        if (c <= 0) return 0;
+        const dx = bx - ax, dz = bz - az;
+        const a = dx * dx + dz * dz;
+        if (a < 1e-9) return -1;
+        const bq = 2 * (fx * dx + fz * dz);
+        const disc = bq * bq - 4 * a * c;
+        if (disc < 0) return -1;
+        const t = (-bq - Math.sqrt(disc)) / (2 * a);
+        return (t >= 0 && t <= 1) ? t : -1;
+    }
+    const b = obs.box;
+    const A = obstacleLocalCoords(obs, ax, az);
+    const B = obstacleLocalCoords(obs, bx, bz);
+    const minX = b.minX - p, maxX = b.maxX + p;
+    const minZ = b.minZ - p, maxZ = b.maxZ + p;
+    const dx = B.x - A.x, dz = B.z - A.z;
+    let t0 = 0, t1 = 1;
+    // Slab test on each axis.
+    if (Math.abs(dx) < 1e-9) {
+        if (A.x <= minX || A.x >= maxX) return -1;
+    } else {
+        let ta = (minX - A.x) / dx, tb = (maxX - A.x) / dx;
+        if (ta > tb) { const tmp = ta; ta = tb; tb = tmp; }
+        t0 = Math.max(t0, ta);
+        t1 = Math.min(t1, tb);
+        if (t0 > t1) return -1;
+    }
+    if (Math.abs(dz) < 1e-9) {
+        if (A.z <= minZ || A.z >= maxZ) return -1;
+    } else {
+        let ta = (minZ - A.z) / dz, tb = (maxZ - A.z) / dz;
+        if (ta > tb) { const tmp = ta; ta = tb; tb = tmp; }
+        t0 = Math.max(t0, ta);
+        t1 = Math.min(t1, tb);
+        if (t0 > t1) return -1;
+    }
+    return t0;
+}
+
+window.getGeometryFootprint = getGeometryFootprint;
+window.attachObstacleBox = attachObstacleBox;
+window.attachObstacleCircle = attachObstacleCircle;
+window.obstacleLocalCoords = obstacleLocalCoords;
+window.obstaclePushOut = obstaclePushOut;
+window.obstacleSegmentEntry = obstacleSegmentEntry;
+
 function ensureSharedGeometries() {
     if (!sharedSpruceGeo) sharedSpruceGeo = createDetailedSpruceGeometry();
     if (!sharedPineGeo) sharedPineGeo = createDetailedPineGeometry();
@@ -3436,21 +3576,18 @@ class TerrainChunk {
                 const minNormY = (currentZoneIndex === 2) ? 0.80 : 0.85;
                 if (by < -1.8 || norm.y < minNormY || (currentZoneIndex === 2 && by > 16.5)) return;
 
-                let bldgGeo, radius, height, isRuin = false, isWall = false;
+                let bldgGeo, height, isRuin = false, isWall = false;
                 if (currentZoneIndex === 1) {
                     // Desert Kasbah & Mud-Brick Settlement
                     if (struct.type === 'cottage' || struct.type === 'barn') {
                         bldgGeo = sharedKasbahGeo;
-                        radius = 5.8 * struct.scale;
                         height = 6.8 * struct.scale;
                     } else if (struct.type === 'ruin') {
                         bldgGeo = sharedDesertRuinGeo;
-                        radius = 4.9 * struct.scale;
                         height = 4.2 * struct.scale;
                         isRuin = true;
                     } else {
                         bldgGeo = sharedStoneWallGeo;
-                        radius = 3.2 * struct.scale;
                         height = 1.4 * struct.scale;
                         isWall = true;
                     }
@@ -3458,20 +3595,16 @@ class TerrainChunk {
                     // Alpine Mountain Bunkers & Stone Chalets
                     if (struct.type === 'cottage') {
                         bldgGeo = sharedMountainBunkerGeo;
-                        radius = 5.6 * struct.scale;
                         height = 6.2 * struct.scale;
                     } else if (struct.type === 'barn') {
                         bldgGeo = sharedCottageGeo;
-                        radius = 5.6 * struct.scale;
                         height = 6.6 * struct.scale;
                     } else if (struct.type === 'ruin') {
                         bldgGeo = sharedRuinGeo;
-                        radius = 4.8 * struct.scale;
                         height = 4.2 * struct.scale;
                         isRuin = true;
                     } else {
                         bldgGeo = sharedStoneWallGeo;
-                        radius = 3.2 * struct.scale;
                         height = 1.4 * struct.scale;
                         isWall = true;
                     }
@@ -3479,20 +3612,16 @@ class TerrainChunk {
                     // Meadow & Rolling Hills European Cottages & Barns
                     if (struct.type === 'cottage') {
                         bldgGeo = sharedCottageGeo;
-                        radius = 5.6 * struct.scale;
                         height = 6.6 * struct.scale;
                     } else if (struct.type === 'barn') {
                         bldgGeo = sharedBarnGeo;
-                        radius = 6.2 * struct.scale;
                         height = 7.5 * struct.scale;
                     } else if (struct.type === 'ruin') {
                         bldgGeo = sharedRuinGeo;
-                        radius = 4.8 * struct.scale;
                         height = 4.2 * struct.scale;
                         isRuin = true;
                     } else {
                         bldgGeo = sharedStoneWallGeo;
-                        radius = 3.2 * struct.scale;
                         height = 1.4 * struct.scale;
                         isWall = true;
                     }
@@ -3509,17 +3638,16 @@ class TerrainChunk {
                 this.raycastMeshes.push(bMesh);
                 aimRaycastMeshes.push(bMesh);
 
-                const bldgObj = {
+                const bldgObj = attachObstacleBox({
                     mesh: bMesh,
                     x: bx,
                     y: by,
                     z: bz,
-                    radius: radius,
                     height: height,
                     isRuin: isRuin,
                     isWall: isWall,
                     type: struct.type
-                };
+                }, bldgGeo, struct.scale, bMesh.rotation.y);
                 this.buildings.push(bldgObj);
                 worldBuildings.push(bldgObj);
                 worldObstacles.push(bldgObj);
@@ -3561,16 +3689,15 @@ class TerrainChunk {
                     this.raycastMeshes.push(bMesh);
                     aimRaycastMeshes.push(bMesh);
 
-                    const bldgObj = {
+                    const bldgObj = attachObstacleBox({
                         mesh: bMesh,
                         x: hx,
                         y: hy,
                         z: hz,
-                        radius: (bType === 'ruin' ? 4.8 : (bType === 'barn' ? 6.2 : 5.6)) * bScale,
                         height: (bType === 'ruin' ? 4.2 : (bType === 'barn' ? 7.5 : 6.6)) * bScale,
                         isRuin: (bType === 'ruin'),
                         type: bType
-                    };
+                    }, bldgGeo, bScale, bMesh.rotation.y);
                     this.buildings.push(bldgObj);
                     worldBuildings.push(bldgObj);
                     worldObstacles.push(bldgObj);
@@ -3591,7 +3718,7 @@ class TerrainChunk {
                         this.group.add(wMesh);
                         this.raycastMeshes.push(wMesh);
                         aimRaycastMeshes.push(wMesh);
-                        const wallObj = { mesh: wMesh, x: wx, y: wy, z: wz, radius: 3.2 * bScale, height: 1.4 * bScale, isRuin: false, isWall: true, type: 'wall' };
+                        const wallObj = attachObstacleBox({ mesh: wMesh, x: wx, y: wy, z: wz, height: 1.4 * bScale, isRuin: false, isWall: true, type: 'wall' }, sharedStoneWallGeo, bScale, wMesh.rotation.y);
                         this.buildings.push(wallObj);
                         worldBuildings.push(wallObj);
                         worldObstacles.push(wallObj);
@@ -3640,18 +3767,17 @@ class TerrainChunk {
             this.raycastMeshes.push(rockMesh);
             aimRaycastMeshes.push(rockMesh);
 
-            const rockObj = {
+            const rockObj = attachObstacleCircle({
                 mesh: rockMesh,
                 x: rx,
                 y: ry,
                 z: rz,
-                radius: 4.8 * rs,
                 height: 4.4 * rs,
                 type: 'rock'
-            };
+            }, zoneRockGeo, rs);
             this.rocks.push(rockObj);
             worldObstacles.push(rockObj);
-            worldBuildings.push({ x: rx, z: rz, radius: 4.8 * rs, isRuin: false, isRock: true });
+            worldBuildings.push({ x: rx, z: rz, radius: rockObj.radius, isRuin: false, isRock: true });
         }
 
         // ---------------------------------------------------------------------
@@ -4383,7 +4509,7 @@ function rebuildZoneStaticProps() {
     zoneStaticGroup.add(cotMesh);
     aimRaycastMeshes.push(cotMesh);
     zoneStaticRaycastMeshes.push(cotMesh);
-    const staticCotObj = { mesh: cotMesh, x: cotX, y: cotY, z: cotZ, radius: 5.4, height: 6.6, isRuin: false, type: 'house' };
+    const staticCotObj = attachObstacleBox({ mesh: cotMesh, x: cotX, y: cotY, z: cotZ, height: 6.6, isRuin: false, type: 'house' }, sigBldgGeo, 1.05, cotMesh.rotation.y);
     worldBuildings.push(staticCotObj);
     worldObstacles.push(staticCotObj);
     zoneStaticBuildings.push(staticCotObj);
@@ -4408,8 +4534,8 @@ function rebuildZoneStaticProps() {
     zoneStaticGroup.add(sigRockMesh);
     aimRaycastMeshes.push(sigRockMesh);
     zoneStaticRaycastMeshes.push(sigRockMesh);
-    const sigRockObj = { mesh: sigRockMesh, x: sigRockX, y: sigRockY, z: sigRockZ, radius: 5.8, height: 4.8, type: 'rock' };
-    const sigRockBldg = { x: sigRockX, z: sigRockZ, radius: 5.8, isRuin: false, isRock: true };
+    const sigRockObj = attachObstacleCircle({ mesh: sigRockMesh, x: sigRockX, y: sigRockY, z: sigRockZ, height: 4.8, type: 'rock' }, sigRGeo, 1.2);
+    const sigRockBldg = { x: sigRockX, z: sigRockZ, radius: sigRockObj.radius, isRuin: false, isRock: true };
     worldBuildings.push(sigRockBldg);
     worldObstacles.push(sigRockObj);
     zoneStaticBuildings.push(sigRockBldg);
