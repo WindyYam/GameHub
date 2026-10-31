@@ -1119,8 +1119,8 @@
         // Submachine gun accuracy: much worse accuracy than rifle (0.005) and tank MG (0.015)
         // High conical dispersion plus dynamic bloom as the gun heats up
         const heatBloom = ((playerSoldier.smgHeat || 0) / 100) * 0.045;
-        const spreadH = 0.072 + heatBloom;
-        const spreadV = 0.056 + heatBloom;
+        const spreadH = 0.015 + heatBloom;
+        const spreadV = 0.025 + heatBloom;
         shootDir.x += (Math.random() - 0.5) * spreadH;
         shootDir.y += (Math.random() - 0.5) * spreadV;
         shootDir.normalize();
