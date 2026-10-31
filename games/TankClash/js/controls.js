@@ -65,6 +65,59 @@ function setCameraMode(mode) {
     }
 }
 
+const FPV_ZOOM_FOVS = [46, 23, 15];
+const FPV_ZOOM_LABELS = [
+    'OPTICAL 1.0× [HOLD RMB / SCROLL ZOOM]',
+    'OPTICAL 2.0× [ZOOMED]',
+    'OPTICAL 3.5× [ZOOMED]'
+];
+
+const SOLDIER_ZOOM_FOVS = [42, 21, 12];
+
+function nearestZoomIndex(fovs, fov) {
+    let idx = 0;
+    fovs.forEach((f, i) => {
+        if (Math.abs(f - fov) < Math.abs(fovs[idx] - fov)) idx = i;
+    });
+    return idx;
+}
+
+function applyFpvZoomStep(idx) {
+    isFpvZoomed = idx > 0;
+    window.perspCamera.fov = FPV_ZOOM_FOVS[idx];
+    window.perspCamera.updateProjectionMatrix();
+    const zoomEl = document.getElementById('fpv-svg-zoom');
+    if (zoomEl) zoomEl.textContent = FPV_ZOOM_LABELS[idx];
+}
+
+// Steps: orbit -> 1.0x -> 2.0x -> 3.5x -> orbit (exit zoom mode)
+function cycleZoom() {
+    if (window.playerMode === 'soldier') {
+        const next = nearestZoomIndex(SOLDIER_ZOOM_FOVS, window.perspCamera.fov) + 1;
+        window.perspCamera.fov = SOLDIER_ZOOM_FOVS[next % SOLDIER_ZOOM_FOVS.length];
+        window.perspCamera.updateProjectionMatrix();
+        return;
+    }
+    if (cameraMode !== 'fpv') {
+        setCameraMode('fpv');
+        applyFpvZoomStep(0);
+        return;
+    }
+    const next = nearestZoomIndex(FPV_ZOOM_FOVS, window.perspCamera.fov) + 1;
+    if (next >= FPV_ZOOM_FOVS.length) {
+        setCameraMode('orbit');
+        return;
+    }
+    applyFpvZoomStep(next);
+}
+window.cycleZoom = cycleZoom;
+
+function getZoomSpeedScale() {
+    const baseFov = cameraMode === 'fpv' ? 46 : 42;
+    const fov = window.perspCamera.fov;
+    return fov < baseFov ? fov / baseFov : 1;
+}
+
 function toggleHeadlights() {
     tankState.headlightsOn = !tankState.headlightsOn;
     if (window.tankModel && window.tankModel.headlightLights) {
@@ -115,16 +168,14 @@ function initControls(renderer) {
         if (k === 'r') { if (typeof window.restartGame === 'function') window.restartGame(); }
         if (k === 't') { if (window.dayNight && window.dayNight.cycleNext) window.dayNight.cycleNext(); }
         if (k === 'v' || k === 'c') {
-            if (window.playerMode !== 'soldier') {
+            if (window.playerMode === 'soldier') {
+                cycleZoom();
+            } else {
                 setCameraMode(cameraMode === 'fpv' ? 'orbit' : 'fpv');
             }
         }
-        if (k === 'z' && cameraMode === 'fpv') {
-            isFpvZoomed = !isFpvZoomed;
-            window.perspCamera.fov = isFpvZoomed ? 15 : 46;
-            window.perspCamera.updateProjectionMatrix();
-            const zoomEl = document.getElementById('fpv-svg-zoom');
-            if (zoomEl) zoomEl.textContent = isFpvZoomed ? 'OPTICAL 3.5× [ZOOMED]' : 'OPTICAL 1.0× [HOLD RMB / SCROLL: 3.5× ZOOM]';
+        if (k === 'z' && (cameraMode === 'fpv' || window.playerMode === 'soldier')) {
+            cycleZoom();
         }
     });
 
@@ -233,13 +284,13 @@ function initControls(renderer) {
 
         if (dx !== 0 || dy !== 0) {
             if (cameraMode === 'fpv') {
-                const sens = isFpvZoomed ? 0.0012 : 0.0028;
+                const sens = 0.0028 * getZoomSpeedScale();
                 camOrbit.theta -= dx * sens;
                 const minPhi = 0.95;
                 const maxPhi = 2.20;
                 camOrbit.phi = THREE.MathUtils.clamp(camOrbit.phi - dy * sens, minPhi, maxPhi);
             } else {
-                const sens = 0.0032;
+                const sens = 0.0032 * getZoomSpeedScale();
                 camOrbit.theta -= dx * sens;
                 const minPhi = (window.playerMode === 'soldier') ? 0.18 : 0.45;
                 const maxPhi = (window.playerMode === 'soldier') ? 2.90 : 1.85;
@@ -400,13 +451,13 @@ function initControls(renderer) {
                     touchAimLastY = t.clientY;
 
                     if (cameraMode === 'fpv') {
-                        const sens = isFpvZoomed ? 0.0020 : 0.0045;
+                        const sens = 0.0045 * getZoomSpeedScale();
                         camOrbit.theta -= dx * sens;
                         const minPhi = 0.95;
                         const maxPhi = 2.20;
                         camOrbit.phi = THREE.MathUtils.clamp(camOrbit.phi - dy * sens, minPhi, maxPhi);
                     } else {
-                        const sens = 0.0055;
+                        const sens = 0.0055 * getZoomSpeedScale();
                         camOrbit.theta -= dx * sens;
                         const minPhi = (window.playerMode === 'soldier') ? 0.18 : 0.45;
                         const maxPhi = (window.playerMode === 'soldier') ? 2.90 : 1.85;
@@ -475,7 +526,7 @@ function initControls(renderer) {
     if (btnOrbit) btnOrbit.onclick = () => setCameraMode('orbit');
 
     const btnFpv = document.getElementById('cam-fpv');
-    if (btnFpv) btnFpv.onclick = () => { if (window.playerMode !== 'soldier') setCameraMode('fpv'); };
+    if (btnFpv) btnFpv.onclick = () => { if (window.playerMode === 'soldier') cycleZoom(); else setCameraMode('fpv'); };
 
     const audioBtn = document.getElementById('audio-toggle');
     if (audioBtn) {
@@ -579,16 +630,7 @@ function initControls(renderer) {
         mobZoom.addEventListener('pointerdown', (e) => {
             e.preventDefault();
             soundFX.init();
-            if (window.playerMode === 'soldier') return;
-            if (cameraMode !== 'fpv') {
-                setCameraMode('fpv');
-            } else {
-                isFpvZoomed = !isFpvZoomed;
-                window.perspCamera.fov = isFpvZoomed ? 15 : 46;
-                window.perspCamera.updateProjectionMatrix();
-                const zoomEl = document.getElementById('fpv-svg-zoom');
-                if (zoomEl) zoomEl.textContent = isFpvZoomed ? 'OPTICAL 3.5× [ZOOMED]' : 'OPTICAL 1.0× [HOLD RMB / SCROLL ZOOM]';
-            }
+            cycleZoom();
         });
     }
 

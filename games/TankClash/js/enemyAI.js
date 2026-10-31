@@ -1119,7 +1119,7 @@
     }
 
     let killFeedTimeout = null;
-    function showKillFeedBanner(msg) {
+    function showKillFeedBanner(msg, customColor = null) {
         let banner = document.getElementById('kill-feed-banner');
         if (!banner) {
             banner = document.createElement('div');
@@ -1128,6 +1128,13 @@
             document.body.appendChild(banner);
         }
         banner.textContent = msg;
+        if (customColor) {
+            banner.style.color = customColor;
+            banner.style.borderColor = customColor;
+        } else {
+            banner.style.color = '';
+            banner.style.borderColor = '';
+        }
         banner.style.opacity = '1';
         banner.style.transform = 'translate(-50%, 0)';
 
@@ -1139,6 +1146,7 @@
             }
         }, 2800);
     }
+    window.showKillFeedBanner = showKillFeedBanner;
 
     function showKnockoutModal(titleText) {
         if (typeof window.onPlayerDeath === 'function') {
@@ -1301,6 +1309,7 @@
     window.showKnockoutModal = showKnockoutModal;
     window.hideKnockoutModal = hideKnockoutModal;
     window.updateArmorHUD = updateArmorHUD;
+    window.showKillFeedBanner = showKillFeedBanner;
 
     // Auto-update Armor HUD on boot
     const initMax = getPlayerMaxArmor();

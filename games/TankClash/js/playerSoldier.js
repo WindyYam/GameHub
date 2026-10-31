@@ -235,14 +235,15 @@
     // INFANTRY HUD & CONTROLS SYNCHRONIZATION
     // ------------------------------------------------------------------------
     function syncInfantryUI(isInfantry) {
-        // 1. Force orbit camera and hide FPV mode button in infantry mode
+        // 1. Force orbit camera in infantry mode; restore default FOV when leaving it
         if (isInfantry) {
             if (typeof window.setCameraMode === 'function') {
                 window.setCameraMode('orbit');
             }
+        } else if (window.perspCamera) {
+            window.perspCamera.fov = 42;
+            window.perspCamera.updateProjectionMatrix();
         }
-        const camFpvBtn = document.getElementById('cam-fpv');
-        if (camFpvBtn) camFpvBtn.classList.toggle('hidden', isInfantry);
         const tankSelector = document.getElementById('panel-tank-selector');
         if (tankSelector) tankSelector.classList.toggle('hidden', isInfantry);
 
@@ -254,7 +255,7 @@
         if (mobGrenade) mobGrenade.classList.toggle('hidden', !isInfantry);
 
         // 3. Mobile Tank-specific buttons (hide in infantry mode)
-        ['mob-fire-coax', 'mob-fire-bow', 'mob-btn-smoke', 'mob-btn-zoom'].forEach(id => {
+        ['mob-fire-coax', 'mob-fire-bow', 'mob-btn-smoke'].forEach(id => {
             const el = document.getElementById(id);
             if (el) el.classList.toggle('hidden', isInfantry);
         });
@@ -454,7 +455,10 @@
                 const dmg = Math.round(180 * (1.0 - dist / 6.8));
                 es.takeDamage(dmg);
                 if (typeof window.showKillFeedBanner === 'function' && es.isDead) {
-                    window.showKillFeedBanner('🎯 ENEMY INFANTRY ELIMINATED BY GRENADE');
+                    const sTypeLabel = (es.soldierType === 'smg' || es.soldierType === 'submachine_gunner')
+                        ? 'Infantry (SMG)'
+                        : 'Infantry';
+                    window.showKillFeedBanner(`TARGET DESTROYED: ${sTypeLabel} (+$5)`);
                 }
             }
         }
@@ -1134,9 +1138,12 @@
             const tracerQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), shootDir);
             window.spawnTracerRound(muzzleWorldPos, shootDir, tracerQuat, false, {
                 damage: 22,
-                onSoldierKilled: () => {
+                onSoldierKilled: (targetSol) => {
                     if (typeof window.showKillFeedBanner === 'function') {
-                        window.showKillFeedBanner('🎯 ENEMY INFANTRY ELIMINATED');
+                        const sTypeLabel = targetSol && (targetSol.soldierType === 'smg' || targetSol.soldierType === 'submachine_gunner')
+                            ? 'Infantry (SMG)'
+                            : 'Infantry';
+                        window.showKillFeedBanner(`TARGET DESTROYED: ${sTypeLabel} (+$5)`);
                     }
                 }
             });
@@ -1186,9 +1193,12 @@
             const tracerQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), shootDir);
             window.spawnTracerRound(muzzleWorldPos, shootDir, tracerQuat, false, {
                 damage: 52,
-                onSoldierKilled: () => {
+                onSoldierKilled: (targetSol) => {
                     if (typeof window.showKillFeedBanner === 'function') {
-                        window.showKillFeedBanner('🎯 ENEMY INFANTRY ELIMINATED');
+                        const sTypeLabel = targetSol && (targetSol.soldierType === 'smg' || targetSol.soldierType === 'submachine_gunner')
+                            ? 'Infantry (SMG)'
+                            : 'Infantry';
+                        window.showKillFeedBanner(`TARGET DESTROYED: ${sTypeLabel} (+$5)`);
                     }
                 }
             });

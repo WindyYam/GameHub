@@ -505,11 +505,12 @@ const soundFX = {
         tailSrc.buffer = this.cachedTailBuf;
         const tailFilt = this.ctx.createBiquadFilter();
         tailFilt.type = 'lowpass';
-        tailFilt.frequency.setValueAtTime(450, now + 0.04);
+        tailFilt.frequency.setValueAtTime(600, now + 0.04);
+        tailFilt.frequency.exponentialRampToValueAtTime(110, now + 1.45);
         const tailGain = this.ctx.createGain();
         tailGain.gain.setValueAtTime(0.001, now);
-        tailGain.gain.setValueAtTime(0.45, now + 0.04);
-        tailGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.42);
+        tailGain.gain.linearRampToValueAtTime(0.56, now + 0.05);
+        tailGain.gain.exponentialRampToValueAtTime(0.0001, now + 1.65);
         tailSrc.connect(tailFilt);
         tailFilt.connect(tailGain);
         tailGain.connect(spatial.input);
