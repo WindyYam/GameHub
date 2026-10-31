@@ -4694,22 +4694,24 @@ function updateEnvironment(dt, tankState) {
 }
 
 // ============================================================================
-// 11. GAME RESTART (NEW SEED, RANDOMLY CHOOSING BIOME ZONE, STARTING FROM COASTLINE)
+// 11. GAME RESPAWN (PRESERVES THE SAME WORLD SEED & BIOME ZONE)
 // ============================================================================
 function restartGame(customSeed, customZone) {
+    // Preserve the same world seed and zone every time we respawn
     const seed = (customSeed !== undefined && customSeed !== null)
         ? customSeed
-        : Math.floor(Math.random() * 900000) + 100000;
+        : currentSeed;
 
-    let nextZone = customZone;
-    if (nextZone === undefined || nextZone === null) {
-        // Randomly choose a biome zone on respawn, cycling away from current zone if possible
-        const otherZones = ALL_ZONES.filter(z => z !== currentZone);
-        nextZone = otherZones[Math.floor(Math.random() * otherZones.length)] || ALL_ZONES[Math.floor(Math.random() * ALL_ZONES.length)];
+    let nextZone = (customZone !== undefined && customZone !== null)
+        ? customZone
+        : currentZone;
+
+    const isSameWorld = (seed === currentSeed && nextZone === currentZone && activeChunks.size > 0);
+
+    if (!isSameWorld) {
+        setWorldSeed(seed, nextZone);
+        rebuildZoneStaticProps();
     }
-
-    setWorldSeed(seed, nextZone);
-    rebuildZoneStaticProps();
 
     if (window.tankState) {
         window.tankState.x = 0;
@@ -4738,6 +4740,10 @@ function restartGame(customSeed, customZone) {
         if (window.tankRoot) {
             window.tankRoot.position.set(0, spawnY, 0);
             window.tankRoot.rotation.y = 0;
+            window.tankRoot.visible = false;
+        }
+        if (window.tankState) {
+            window.tankState.hasTank = false;
         }
         if (window.turretGroup) {
             if (window.turretGroup.userData && window.turretGroup.userData.basePos) {
@@ -4757,16 +4763,34 @@ function restartGame(customSeed, customZone) {
         window.camOrbit.distance = 10.5;
     }
 
-    for (const chunk of activeChunks.values()) {
-        chunk.dispose();
+    if (!isSameWorld) {
+        for (const chunk of activeChunks.values()) {
+            chunk.dispose();
+        }
+        activeChunks.clear();
+        activeChunkCenterX = null;
+        activeChunkCenterZ = null;
+        chunkLoadQueue.length = 0;
+        chunkLoadSet.clear();
+        chunkUnloadQueue.length = 0;
+        updateTerrainChunks(0, 0, true);
+    } else {
+        // Same world: reset any fallen trees back upright
+        for (let i = 0; i < swayTrees.length; i++) {
+            const t = swayTrees[i];
+            if (t && t.isFallen) {
+                t.isFallen = false;
+                t.fallAngle = 0;
+                t.angularVel = 0;
+                if (t.group) t.group.quaternion.identity();
+            }
+        }
+        chunkLoadQueue.length = 0;
+        chunkLoadSet.clear();
+        chunkUnloadQueue.length = 0;
+        updateTerrainChunks(0, 0, false);
     }
-    activeChunks.clear();
-    activeChunkCenterX = null;
-    activeChunkCenterZ = null;
-    chunkLoadQueue.length = 0;
-    chunkLoadSet.clear();
-    chunkUnloadQueue.length = 0;
-    updateTerrainChunks(0, 0, true);
+    if (typeof window.clearParticles === 'function') window.clearParticles();
     if (typeof window.resetEnemyTanks === 'function') window.resetEnemyTanks();
     if (typeof window.resetPlayerHealth === 'function') window.resetPlayerHealth();
     if (typeof window.resetSoldiers === 'function') window.resetSoldiers();
@@ -4779,9 +4803,6 @@ function restartGame(customSeed, customZone) {
     if (typeof window.showSpawnSelectionModal === 'function') {
         window.showSpawnSelectionModal();
     }
-
-    const seedEl = document.getElementById('hud-seed-display');
-    if (seedEl) seedEl.textContent = `${currentZoneConfig.shortName} · Seed: ${seed}`;
 
     if (typeof window.showKillFeedBanner === 'function' && currentZoneConfig) {
         window.showKillFeedBanner(currentZoneConfig.banner, '#fbbf24');

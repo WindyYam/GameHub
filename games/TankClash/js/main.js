@@ -324,10 +324,6 @@ tankState.y = initSpawnY;
 if (tankRoot) {
     tankRoot.position.set(0, initSpawnY, 0);
 }
-const seedBadge = document.getElementById('hud-seed-display');
-if (seedBadge && window.currentSeed) {
-    seedBadge.textContent = 'Seed: ' + window.currentSeed;
-}
 
 // ============================================================================
 // MAIN SIMULATION & PHYSICS LOOP
@@ -523,24 +519,27 @@ function updateSimulation(dt) {
     }
 
     // Realistic Twin Armored Exhaust Puffs (Maybach HL230 V12 Engine)
-    const exhaustPuffRate = forwardInput !== 0 ? 5.0 : 1.5;
-    if (Math.random() < 1.0 - Math.exp(-exhaustPuffRate * dt)) {
-        [-0.52, 0.52].forEach((ex) => {
-            const exhaustPos = new THREE.Vector3(ex, 0.82, -2.75);
-            hullGroup.localToWorld(exhaustPos);
-            const exhaustVel = new THREE.Vector3(
-                (Math.random() - 0.5) * 0.4 - Math.sin(tankState.heading) * tankState.speed * 0.25,
-                0.55 + Math.random() * 0.65,
-                (Math.random() - 0.5) * 0.4 - Math.cos(tankState.heading) * tankState.speed * 0.25
-            );
-            const col = (forwardInput !== 0) ? 0x334155 : 0x64748b;
-            spawnParticle(exhaustPos, exhaustVel, col, 0.12, 0.72, 0.85 + Math.random() * 0.45, false, 'smoke');
-        });
+    const canEmitExhaust = window.tankState && window.tankState.hasTank !== false && !tankState.isKnockedOut && window.tankRoot && window.tankRoot.visible;
+    if (canEmitExhaust) {
+        const exhaustPuffRate = forwardInput !== 0 ? 5.0 : 1.5;
+        if (Math.random() < 1.0 - Math.exp(-exhaustPuffRate * dt)) {
+            [-0.52, 0.52].forEach((ex) => {
+                const exhaustPos = new THREE.Vector3(ex, 0.82, -2.75);
+                hullGroup.localToWorld(exhaustPos);
+                const exhaustVel = new THREE.Vector3(
+                    (Math.random() - 0.5) * 0.4 - Math.sin(tankState.heading) * tankState.speed * 0.25,
+                    0.55 + Math.random() * 0.65,
+                    (Math.random() - 0.5) * 0.4 - Math.cos(tankState.heading) * tankState.speed * 0.25
+                );
+                const col = (forwardInput !== 0) ? 0x334155 : 0x64748b;
+                spawnParticle(exhaustPos, exhaustVel, col, 0.12, 0.72, 0.85 + Math.random() * 0.45, false, 'smoke');
+            });
+        }
     }
 
     // Update Engine Audio
-    const speedRatio = (window.playerMode === 'soldier') ? 0 : Math.min(1, Math.abs(tankState.speed) / maxSpeed + Math.abs(tankState.turnRate) * 0.3);
-    soundFX.updateEngine(speedRatio, (window.playerMode !== 'soldier') && (forwardInput !== 0 || turnInput !== 0));
+    const speedRatio = (window.playerMode === 'soldier' || (window.tankState && window.tankState.hasTank === false)) ? 0 : Math.min(1, Math.abs(tankState.speed) / maxSpeed + Math.abs(tankState.turnRate) * 0.3);
+    soundFX.updateEngine(speedRatio, (window.playerMode !== 'soldier' && (!window.tankState || window.tankState.hasTank !== false)) && (forwardInput !== 0 || turnInput !== 0));
 
     // --- 1b. TANK VS BUILDING COLLISION (Stop tank at solid house walls) ---
     const worldBldgs = window.worldBuildings || [];
@@ -652,13 +651,21 @@ function updateSimulation(dt) {
     }
 
     // Apply transforms to Tank Root & Chassis BEFORE computing camera & local turret aim
-    tankRoot.position.set(tankState.x, tankState.y, tankState.z);
-    tankRoot.rotation.y = tankState.heading;
+    if (window.tankState && window.tankState.hasTank === false) {
+        if (tankRoot) {
+            tankRoot.visible = false;
+            tankRoot.position.set(0, -9999, 0);
+        }
+    } else if (tankRoot) {
+        tankRoot.visible = true;
+        tankRoot.position.set(tankState.x, tankState.y, tankState.z);
+        tankRoot.rotation.y = tankState.heading;
 
-    hullGroup.position.y = 0.92 + tankState.heave;
-    hullGroup.rotation.x = -tankState.pitch;
-    hullGroup.rotation.z = tankState.roll;
-    tankRoot.updateMatrixWorld(true);
+        hullGroup.position.y = 0.92 + tankState.heave;
+        hullGroup.rotation.x = -tankState.pitch;
+        hullGroup.rotation.z = tankState.roll;
+        tankRoot.updateMatrixWorld(true);
+    }
 
     // --- 3. CAMERA POSITIONING & 3D RAYCAST AIMING SYSTEM ---
     if (window.playerMode === 'soldier' && typeof window.updatePlayerSoldier === 'function') {
@@ -1276,12 +1283,6 @@ function updateSimulation(dt) {
     const hitEl = document.getElementById('hud-targets');
     if (hitEl) hitEl.textContent = `Hits: ${tankState.hitsCount}`;
 
-    const hudSeedEl = document.getElementById('hud-seed-display');
-    if (hudSeedEl && window.currentSeed) {
-        const zName = (window.currentZoneConfig && window.currentZoneConfig.shortName) ? `${window.currentZoneConfig.shortName} • ` : '';
-        hudSeedEl.textContent = `${zName}Seed: ${window.currentSeed} • X:${Math.round(tankState.x)}m Z:${Math.round(tankState.z)}m`;
-    }
-
     // Mobile Mini HUD updates
     const mobSpeedEl = document.getElementById('mob-speed');
     if (mobSpeedEl) mobSpeedEl.textContent = kmh;
@@ -1504,26 +1505,35 @@ function animate(now) {
     updateAdaptiveResolution((now - lastTime));
     lastTime = now;
 
-    updateSimulation(dt);
-    const renderCamera = window.activeCamera || activeCamera;
-    const renderCameraLayers = renderCamera.layers.mask;
-    if (!useSSAO) {
-        // Layers 0 (world) + 1 (FX particles) in a single pass
-        renderCamera.layers.mask = 3;
-        renderer.render(scene, renderCamera);
-        renderCamera.layers.mask = renderCameraLayers;
-        return;
+    try {
+        updateSimulation(dt);
+    } catch (simErr) {
+        console.error('[Engine] Simulation frame update error:', simErr);
     }
-    renderCamera.layers.set(0);
-    ssaoPass.camera = renderCamera;
-    ssaoPass.ssaoMaterial.uniforms.cameraNear.value = renderCamera.near;
-    ssaoPass.ssaoMaterial.uniforms.cameraFar.value = renderCamera.far;
-    ssaoPass.ssaoMaterial.uniforms.cameraProjectionMatrix.value.copy(renderCamera.projectionMatrix);
-    ssaoPass.ssaoMaterial.uniforms.cameraInverseProjectionMatrix.value.copy(renderCamera.projectionMatrixInverse);
-    ssaoPass.depthRenderMaterial.uniforms.cameraNear.value = renderCamera.near;
-    ssaoPass.depthRenderMaterial.uniforms.cameraFar.value = renderCamera.far;
-    composer.render(dt);
-    renderCamera.layers.mask = renderCameraLayers;
+
+    try {
+        const renderCamera = window.activeCamera || activeCamera;
+        const renderCameraLayers = renderCamera.layers.mask;
+        if (!useSSAO) {
+            // Layers 0 (world) + 1 (FX particles) in a single pass
+            renderCamera.layers.mask = 3;
+            renderer.render(scene, renderCamera);
+            renderCamera.layers.mask = renderCameraLayers;
+            return;
+        }
+        renderCamera.layers.set(0);
+        ssaoPass.camera = renderCamera;
+        ssaoPass.ssaoMaterial.uniforms.cameraNear.value = renderCamera.near;
+        ssaoPass.ssaoMaterial.uniforms.cameraFar.value = renderCamera.far;
+        ssaoPass.ssaoMaterial.uniforms.cameraProjectionMatrix.value.copy(renderCamera.projectionMatrix);
+        ssaoPass.ssaoMaterial.uniforms.cameraInverseProjectionMatrix.value.copy(renderCamera.projectionMatrixInverse);
+        ssaoPass.depthRenderMaterial.uniforms.cameraNear.value = renderCamera.near;
+        ssaoPass.depthRenderMaterial.uniforms.cameraFar.value = renderCamera.far;
+        composer.render(dt);
+        renderCamera.layers.mask = renderCameraLayers;
+    } catch (renderErr) {
+        console.error('[Engine] Render frame error:', renderErr);
+    }
 }
 
 function onWindowResize() {
@@ -1549,6 +1559,9 @@ function initSettingsUI() {
             document.exitPointerLock();
         }
         updateResolutionUI();
+        if (typeof window.initDraggableScrollUI === 'function') {
+            window.initDraggableScrollUI();
+        }
     }
     function closeModal() {
         if (modal) modal.classList.add('hidden');
@@ -1601,6 +1614,41 @@ window.initSettingsUI = initSettingsUI;
 // ============================================================================
 // Battlefield Deployment & Spawn Management
 // ============================================================================
+window.selectedSoldierType = window.selectedSoldierType || 'smg';
+
+function selectSoldierType(type) {
+    window.selectedSoldierType = (type === 'rifle') ? 'rifle' : 'smg';
+    const cards = document.querySelectorAll('.soldier-type-card');
+    cards.forEach(card => {
+        const cType = card.getAttribute('data-soldier-type');
+        const radio = card.querySelector('.soldier-select-radio');
+        const title = card.querySelector('span.font-bold');
+        if (cType === window.selectedSoldierType) {
+            card.className = 'soldier-type-card hud-btn p-3 rounded-xl text-left flex items-center justify-between border-2 border-emerald-400 bg-emerald-950/50 shadow-lg shadow-emerald-950/50 transition-all cursor-pointer';
+            if (radio) {
+                radio.textContent = '🟢';
+                radio.className = 'soldier-select-radio text-base text-emerald-400';
+            }
+            if (title) title.className = 'text-xs font-bold text-emerald-200';
+        } else {
+            card.className = 'soldier-type-card hud-btn p-3 rounded-xl text-left flex items-center justify-between border border-white/10 bg-slate-800/60 hover:bg-slate-800 hover:border-amber-400/50 transition-all cursor-pointer';
+            if (radio) {
+                radio.textContent = '⚪';
+                radio.className = 'soldier-select-radio text-base text-slate-500';
+            }
+            if (title) title.className = 'text-xs font-bold text-white';
+        }
+    });
+    const badge = document.getElementById('spawn-selected-soldier-badge');
+    if (badge) {
+        badge.textContent = window.selectedSoldierType === 'smg' ? 'Selected: Submachine Gunner' : 'Selected: Rifleman';
+        badge.className = window.selectedSoldierType === 'smg'
+            ? 'text-[10px] font-bold text-emerald-300 bg-emerald-950/80 border border-emerald-500/40 px-2 py-0.5 rounded-full uppercase tracking-wider'
+            : 'text-[10px] font-bold text-amber-300 bg-amber-950/80 border border-amber-500/40 px-2 py-0.5 rounded-full uppercase tracking-wider';
+    }
+}
+window.selectSoldierType = selectSoldierType;
+
 function showSpawnSelectionModal() {
     const modal = document.getElementById('spawn-modal');
     if (!modal) return;
@@ -1609,6 +1657,9 @@ function showSpawnSelectionModal() {
     }
     updateSpawnModalUI();
     modal.classList.remove('hidden');
+    if (typeof window.initDraggableScrollUI === 'function') {
+        window.initDraggableScrollUI();
+    }
 }
 window.showSpawnSelectionModal = showSpawnSelectionModal;
 
@@ -1624,6 +1675,8 @@ function updateSpawnModalUI() {
     if (moneyBadge) {
         moneyBadge.textContent = `$${money}`;
     }
+
+    selectSoldierType(window.selectedSoldierType || 'smg');
 
     const cards = document.querySelectorAll('.spawn-tank-card');
     cards.forEach(card => {
@@ -1667,19 +1720,40 @@ function deployPurchasedTank(tankId) {
 
     hideSpawnSelectionModal();
 
+    if (typeof window.clearParticles === 'function') {
+        window.clearParticles();
+    }
+
     if (window.playerSoldier && typeof window.resetPlayerSoldier === 'function') {
         window.resetPlayerSoldier();
     }
     window.playerMode = 'tank';
 
-    if (window.tankRoot) {
-        window.tankRoot.visible = true;
-    }
+    const spawnY = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(0, 0) : 0;
     if (window.tankState) {
         window.tankState.isKnockedOut = false;
+        window.tankState.hasTank = true;
         window.tankState.hitsCount = 0;
         window.tankState.speed = 0;
         window.tankState.turnRate = 0;
+        window.tankState.reloadTimer = 0;
+        window.tankState.reloadStage = 0;
+        window.tankState.mgHeat = 0;
+        window.tankState.mgCooldown = 0;
+        window.tankState.bowMgCooldown = 0;
+        window.tankState.x = 0;
+        window.tankState.z = 0;
+        window.tankState.y = spawnY;
+    }
+    if (window.tankRoot) {
+        window.tankRoot.visible = true;
+        window.tankRoot.position.set(0, spawnY, 0);
+        window.tankRoot.rotation.y = 0;
+    }
+
+    if (window.camOrbit) {
+        window.camOrbit.distance = 10.5;
+        window.camOrbit.phi = 0.35;
     }
 
     if (typeof window.switchTank === 'function') {
@@ -1700,17 +1774,25 @@ window.deployPurchasedTank = deployPurchasedTank;
 function deployAsSoldier() {
     hideSpawnSelectionModal();
 
+    if (typeof window.clearParticles === 'function') {
+        window.clearParticles();
+    }
+
     if (window.playerSoldier && typeof window.resetPlayerSoldier === 'function') {
         window.resetPlayerSoldier();
     }
 
     if (window.tankRoot) {
         window.tankRoot.visible = false;
+        window.tankRoot.position.set(0, -9999, 0);
     }
     if (window.tankState) {
-        window.tankState.isKnockedOut = true;
+        window.tankState.isKnockedOut = false;
+        window.tankState.hasTank = false;
         window.tankState.speed = 0;
         window.tankState.turnRate = 0;
+        window.tankState.x = 99999;
+        window.tankState.z = 99999;
     }
 
     if (typeof window.dismountTank === 'function') {
@@ -1724,11 +1806,26 @@ function deployAsSoldier() {
         window.playerSoldier.z = 0;
         if (window.playerSoldier.rig && window.playerSoldier.rig.root) {
             window.playerSoldier.rig.root.position.set(0, spawnY, 0);
+            window.playerSoldier.rig.root.rotation.y = 0;
         }
     }
 
+    // Keep tank completely non-existent / hidden in infantry deploy mode
+    if (window.tankState) {
+        window.tankState.hasTank = false;
+        window.tankState.isKnockedOut = false;
+        window.tankState.x = 99999;
+        window.tankState.z = 99999;
+    }
+    if (window.tankRoot) {
+        window.tankRoot.visible = false;
+        window.tankRoot.position.set(0, -9999, 0);
+    }
+
+    const sType = window.selectedSoldierType || 'smg';
+    const sName = sType === 'smg' ? 'Submachine Gunner' : 'Rifleman';
     if (typeof window.showKillFeedBanner === 'function') {
-        window.showKillFeedBanner('🚶 Deployed as Infantry Soldier (FREE)', '#38bdf8');
+        window.showKillFeedBanner(`🚶 Deployed as ${sName} (FREE)`, '#38bdf8');
     }
     return true;
 }
@@ -1739,6 +1836,15 @@ function initSpawnModal() {
     if (card) {
         card.onclick = (e) => e.stopPropagation();
     }
+
+    const soldierCards = document.querySelectorAll('.soldier-type-card');
+    soldierCards.forEach(card => {
+        card.onclick = (e) => {
+            e.stopPropagation();
+            const sType = card.getAttribute('data-soldier-type');
+            selectSoldierType(sType);
+        };
+    });
 
     const tankButtons = document.querySelectorAll('.spawn-tank-card');
     tankButtons.forEach(btn => {
@@ -1799,6 +1905,18 @@ if (screen.orientation && screen.orientation.addEventListener) {
 
 window.updateSimulation = updateSimulation;
 
+function hideLoadingScreen() {
+    const screen = document.getElementById('loading-screen');
+    if (!screen || screen.classList.contains('loading-hidden')) return;
+    screen.classList.add('loading-hidden');
+    setTimeout(() => {
+        if (screen && screen.parentNode) {
+            screen.style.display = 'none';
+        }
+    }, 700);
+}
+window.hideLoadingScreen = hideLoadingScreen;
+
 window.onload = function () {
     if (typeof window.spawnBattlefieldInfantry === 'function') {
         window.spawnBattlefieldInfantry();
@@ -1813,4 +1931,19 @@ window.onload = function () {
         window.showSpawnSelectionModal();
     }
     animate(performance.now());
+
+    // Dismiss loading screen after first frame render
+    if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                hideLoadingScreen();
+            });
+        });
+    } else {
+        setTimeout(hideLoadingScreen, 200);
+    }
 };
+
+if (document.readyState === 'complete') {
+    setTimeout(hideLoadingScreen, 500);
+}

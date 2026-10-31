@@ -103,6 +103,9 @@ function initControls(renderer) {
             if (window.playerMode !== 'soldier') {
                 isFiringCoaxMG = true;
                 window.isFiringCoaxMG = true;
+            } else {
+                window.isFiringSoldierWeapon = true;
+                if (typeof window.firePlayerRifle === 'function') window.firePlayerRifle();
             }
         }
         if (k === 'x') { if (window.playerMode !== 'soldier') fireSmokeDischargers(); }
@@ -129,7 +132,11 @@ function initControls(renderer) {
         const k = e.key.toLowerCase();
         keys[k] = false;
         if (k === 'g') { isFiringBowMG = false; window.isFiringBowMG = false; }
-        if (k === 'f') { isFiringCoaxMG = false; window.isFiringCoaxMG = false; }
+        if (k === 'f') {
+            isFiringCoaxMG = false;
+            window.isFiringCoaxMG = false;
+            window.isFiringSoldierWeapon = false;
+        }
     });
 
     renderer.domElement.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -146,8 +153,9 @@ function initControls(renderer) {
     renderer.domElement.addEventListener('mousedown', (e) => {
         soundFX.init();
         if (e.button === 0) {
-            // Left click: Fire player rifle in soldier mode or main cannon in tank mode
+            // Left click: Fire player rifle/SMG in soldier mode or main cannon in tank mode
             if (window.playerMode === 'soldier') {
+                window.isFiringSoldierWeapon = true;
                 if (typeof window.firePlayerRifle === 'function') window.firePlayerRifle();
             } else {
                 fireMainCannon();
@@ -175,6 +183,9 @@ function initControls(renderer) {
     });
 
     window.addEventListener('mouseup', (e) => {
+        if (e.button === 0) {
+            window.isFiringSoldierWeapon = false;
+        }
         if (e.button === 2) {
             isFiringCoaxMG = false;
             window.isFiringCoaxMG = false;
@@ -188,6 +199,14 @@ function initControls(renderer) {
                 }
             }
         }
+    });
+
+    window.addEventListener('blur', () => {
+        window.isFiringSoldierWeapon = false;
+        isFiringCoaxMG = false;
+        window.isFiringCoaxMG = false;
+        isFiringBowMG = false;
+        window.isFiringBowMG = false;
     });
 
     window.addEventListener('mousemove', (e) => {
@@ -324,7 +343,17 @@ function initControls(renderer) {
                 target.closest('#mobile-actions') ||
                 target.closest('#panel-views') ||
                 target.closest('#portrait-orientation-prompt') ||
-                target.closest('#joystick-base')
+                target.closest('#joystick-base') ||
+                target.closest('#settings-modal') ||
+                target.closest('#spawn-modal') ||
+                target.closest('#combat-mini-hud') ||
+                target.closest('#knockout-modal') ||
+                target.closest('#hud-interact-prompt') ||
+                target.closest('.hud-panel') ||
+                target.closest('[class*="overflow-"]') ||
+                target.closest('[data-draggable-scroll]') ||
+                target.closest('.cursor-grab') ||
+                target.closest('.cursor-grabbing')
             );
             if (isControlUI) continue;
 
@@ -480,15 +509,20 @@ function initControls(renderer) {
     }
 
     const mob88 = document.getElementById('mob-fire-88');
-    if (mob88) mob88.addEventListener('pointerdown', (e) => {
-        e.preventDefault();
-        soundFX.init();
-        if (window.playerMode === 'soldier') {
-            if (typeof window.firePlayerRifle === 'function') window.firePlayerRifle();
-        } else {
-            fireMainCannon();
-        }
-    });
+    if (mob88) {
+        mob88.addEventListener('pointerdown', (e) => {
+            e.preventDefault();
+            soundFX.init();
+            if (window.playerMode === 'soldier') {
+                window.isFiringSoldierWeapon = true;
+                if (typeof window.firePlayerRifle === 'function') window.firePlayerRifle();
+            } else {
+                fireMainCannon();
+            }
+        });
+        mob88.addEventListener('pointerup', () => { window.isFiringSoldierWeapon = false; });
+        mob88.addEventListener('pointercancel', () => { window.isFiringSoldierWeapon = false; });
+    }
 
     const mobInteract = document.getElementById('mob-btn-interact');
     if (mobInteract) {
@@ -503,10 +537,14 @@ function initControls(renderer) {
         if (window.playerMode !== 'soldier') {
             isFiringCoaxMG = true;
             window.isFiringCoaxMG = true;
+        } else {
+            window.isFiringSoldierWeapon = true;
+            if (typeof window.firePlayerRifle === 'function') window.firePlayerRifle();
         }
     }, () => {
         isFiringCoaxMG = false;
         window.isFiringCoaxMG = false;
+        window.isFiringSoldierWeapon = false;
     });
     bindPointerAction('mob-fire-bow',  () => {
         if (window.playerMode !== 'soldier') {
@@ -626,6 +664,165 @@ function initControls(renderer) {
             mobWrapper.classList.add('hidden');
         }
     }
+
+    // Initialize Draggable Scrolling for Scrollable UI containers
+    initDraggableScrollUI();
+}
+
+// ============================================================================
+// DRAGGABLE / GRAB-TO-SCROLL UI SYSTEM (Mobile & Desktop)
+// Allows clicking/touching and dragging scrollable UIs directly to scroll
+// ============================================================================
+function makeDraggableScroll(el) {
+    if (!el || el.dataset.draggableScrollInit) return;
+    el.dataset.draggableScrollInit = 'true';
+    if (!el.classList.contains('cursor-grab')) {
+        el.classList.add('cursor-grab');
+    }
+
+    let isDown = false;
+    let isTouch = false;
+    let startX = 0;
+    let startY = 0;
+    let initialScrollLeft = 0;
+    let initialScrollTop = 0;
+    let hasMoved = false;
+    let lastTime = 0;
+    let lastX = 0;
+    let lastY = 0;
+    let velocityX = 0;
+    let velocityY = 0;
+    let inertiaId = null;
+
+    const stopInertia = () => {
+        if (inertiaId !== null) {
+            cancelAnimationFrame(inertiaId);
+            inertiaId = null;
+        }
+    };
+
+    const isInteractive = (target) => {
+        if (!target || typeof target.closest !== 'function') return false;
+        return !!target.closest('button, a, input, select, textarea, [role="button"], .res-option-btn, .spawn-tank-card, .soldier-type-card, .hud-btn, .cursor-pointer');
+    };
+
+    const onPointerDown = (e) => {
+        // Only primary mouse button or touch
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+
+        // On PC with mouse: do NOT hijack clicks on interactive buttons, inputs, links, or cards
+        if (e.pointerType === 'mouse' && isInteractive(e.target)) {
+            return;
+        }
+
+        // Always allow native typing/selection in inputs
+        if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA')) {
+            return;
+        }
+
+        stopInertia();
+        isDown = true;
+        isTouch = (e.pointerType === 'touch' || e.pointerType === 'pen');
+        hasMoved = false;
+        startX = e.clientX;
+        startY = e.clientY;
+        lastX = e.clientX;
+        lastY = e.clientY;
+        lastTime = (window.performance && window.performance.now) ? window.performance.now() : Date.now();
+        velocityX = 0;
+        velocityY = 0;
+        initialScrollLeft = el.scrollLeft;
+        initialScrollTop = el.scrollTop;
+
+        el.classList.remove('cursor-grab');
+        el.classList.add('cursor-grabbing');
+    };
+
+    const onPointerMove = (e) => {
+        if (!isDown) return;
+
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+        const dist = Math.hypot(dx, dy);
+
+        // Threshold for drag: 8px on touch, 4px on mouse
+        const dragThreshold = isTouch ? 8 : 4;
+        if (!hasMoved && dist > dragThreshold) {
+            hasMoved = true;
+        }
+
+        if (hasMoved) {
+            if (e.cancelable) e.preventDefault();
+
+            const now = (window.performance && window.performance.now) ? window.performance.now() : Date.now();
+            const dt = Math.max(1, now - lastTime);
+            velocityX = (e.clientX - lastX) / dt;
+            velocityY = (e.clientY - lastY) / dt;
+            lastX = e.clientX;
+            lastY = e.clientY;
+            lastTime = now;
+
+            el.scrollTop = initialScrollTop - dy;
+            el.scrollLeft = initialScrollLeft - dx;
+        }
+    };
+
+    const onPointerUp = (e) => {
+        if (!isDown) return;
+        isDown = false;
+        el.classList.remove('cursor-grabbing');
+        el.classList.add('cursor-grab');
+
+        if (hasMoved) {
+            // Suppress accidental click on child buttons/cards after dragging
+            const suppressClick = (ev) => {
+                ev.stopPropagation();
+                if (typeof ev.stopImmediatePropagation === 'function') ev.stopImmediatePropagation();
+                ev.preventDefault();
+            };
+            el.addEventListener('click', suppressClick, { capture: true, once: true });
+            setTimeout(() => {
+                el.removeEventListener('click', suppressClick, { capture: true });
+            }, 60);
+
+            // Kinetic inertial momentum scrolling
+            const now = (window.performance && window.performance.now) ? window.performance.now() : Date.now();
+            if (now - lastTime < 90) {
+                let curVelX = velocityX * 16;
+                let curVelY = velocityY * 16;
+                const glide = () => {
+                    if (isDown) return;
+                    curVelX *= 0.92;
+                    curVelY *= 0.92;
+                    if (Math.abs(curVelX) > 0.25 || Math.abs(curVelY) > 0.25) {
+                        el.scrollLeft -= curVelX;
+                        el.scrollTop -= curVelY;
+                        inertiaId = requestAnimationFrame(glide);
+                    } else {
+                        inertiaId = null;
+                    }
+                };
+                inertiaId = requestAnimationFrame(glide);
+            }
+        }
+    };
+
+    el.addEventListener('pointerdown', onPointerDown);
+    window.addEventListener('pointermove', onPointerMove, { passive: false });
+    window.addEventListener('pointerup', onPointerUp);
+    window.addEventListener('pointercancel', onPointerUp);
+}
+
+function initDraggableScrollUI() {
+    if (typeof document === 'undefined') return;
+    const candidates = document.querySelectorAll(
+        '#settings-dialog-card, #spawn-dialog-card, #combat-mini-hud, [data-draggable-scroll], .overflow-y-auto, .overflow-x-auto, .overflow-auto'
+    );
+    candidates.forEach(el => makeDraggableScroll(el));
+}
+
+if (typeof window !== 'undefined') {
+    window.addEventListener('DOMContentLoaded', initDraggableScrollUI);
 }
 
 window.cameraMode = cameraMode;
@@ -641,4 +838,6 @@ window.isFiringBowMG = isFiringBowMG;
 window.touchDrive = touchDrive;
 window.setCameraMode = setCameraMode;
 window.toggleHeadlights = toggleHeadlights;
+window.makeDraggableScroll = makeDraggableScroll;
+window.initDraggableScrollUI = initDraggableScrollUI;
 window.initControls = initControls;

@@ -1151,7 +1151,7 @@ function updateProjectiles(dt) {
             }
         } else {
             // Enemy shell vs Player Tank
-            if (window.tankState && !window.tankState.isKnockedOut) {
+            if (window.tankState && !window.tankState.isKnockedOut && window.tankState.hasTank !== false && (!window.tankRoot || window.tankRoot.visible !== false)) {
                 const ts = window.tankState;
                 const midX = (prevPos.x + s.pos.x) * 0.5;
                 const midZ = (prevPos.z + s.pos.z) * 0.5;
@@ -1382,7 +1382,7 @@ function updateProjectiles(dt) {
                             }
                         }
                     }
-                } else if (s.isEnemy && window.tankState && !window.tankState.isKnockedOut && closestHit.type !== 'playerTank') {
+                } else if (s.isEnemy && window.tankState && !window.tankState.isKnockedOut && window.tankState.hasTank !== false && (!window.tankRoot || window.tankRoot.visible !== false) && closestHit.type !== 'playerTank') {
                     const ts = window.tankState;
                     const distToPlayer = Math.hypot(ts.x - imp.x, ts.z - imp.z);
                     const playerSplashRadius = bRad * 0.55;
@@ -1505,7 +1505,7 @@ function updateProjectiles(dt) {
 
         // Check tracers against opposing tanks (sparks and armor ricochet sound)
         const tanks = tr.isEnemy
-            ? (window.tankState && !window.tankState.isKnockedOut ? [window.tankState] : [])
+            ? (window.tankState && !window.tankState.isKnockedOut && window.tankState.hasTank !== false && (!window.tankRoot || window.tankRoot.visible !== false) ? [window.tankState] : [])
             : (window.activeEnemyTanks || []);
         for (let eIdx = 0; eIdx < tanks.length; eIdx++) {
             const tank = tanks[eIdx];
@@ -1516,7 +1516,7 @@ function updateProjectiles(dt) {
             const dims = getTankHitboxDims(tr.isEnemy ? (window.currentTankId || 'tiger') : (tank.tankType || tank.spec));
             const hitResult = testSegmentVsTank(prevPos, tr.pos, tank.x, tank.y, tank.z, tank.heading, dims.halfW, dims.halfH, dims.halfL);
             if (hitResult && (!closestActor || hitResult.tHit < closestActor.t)) {
-                closestActor = { t: hitResult.tHit, type: 'tank', point: hitResult.impact };
+                closestActor = { t: hitResult.tHit, type: 'tank', point: hitResult.impact, tank };
             }
         }
 
@@ -1560,6 +1560,9 @@ function updateProjectiles(dt) {
                 }
                 if (window.soundFX && typeof window.soundFX.playArmorRicochet === 'function') {
                     window.soundFX.playArmorRicochet(impactPos);
+                }
+                if (closestActor.tank && typeof closestActor.tank.onHit === 'function') {
+                    closestActor.tank.onHit(impactPos, tr.vel.clone().normalize(), 0);
                 }
             } else if (closestActor.type === 'soldier') {
                 const soldier = closestActor.soldier;
@@ -1800,6 +1803,67 @@ function updateParticles(dt) {
     }
 }
 
+function clearParticles() {
+    for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        if (p && p.mesh) {
+            p.mesh.visible = false;
+            if (p.isDust) {
+                if (dustPool.length < PARTICLE_POOL_LIMIT) {
+                    dustPool.push({ mesh: p.mesh, mat: p.mat });
+                } else {
+                    if (window.scene) window.scene.remove(p.mesh);
+                    if (p.mat && p.mat.dispose) p.mat.dispose();
+                }
+            } else if (p.isPooled) {
+                if (smokePool.length < PARTICLE_POOL_LIMIT) {
+                    smokePool.push({ mesh: p.mesh, mat: p.mat });
+                } else {
+                    if (window.scene) window.scene.remove(p.mesh);
+                    if (p.mat && p.mat.dispose) p.mat.dispose();
+                }
+            } else if (p.poolKey) {
+                const pool = reusableParticlePools.get(p.poolKey);
+                if (pool && pool.length < PARTICLE_POOL_LIMIT) {
+                    pool.push({ mesh: p.mesh, mat: p.mat });
+                } else {
+                    if (window.scene) window.scene.remove(p.mesh);
+                    if (p.mat && p.mat.dispose) p.mat.dispose();
+                }
+            } else {
+                if (window.scene) window.scene.remove(p.mesh);
+                if (p.mat && p.mat.dispose) p.mat.dispose();
+            }
+        }
+    }
+    particles.length = 0;
+
+    for (let i = dynamicFlashes.length - 1; i >= 0; i--) {
+        const fl = dynamicFlashes[i];
+        if (fl && fl.light) {
+            fl.light.intensity = DYNAMIC_FLASH_IDLE_INTENSITY;
+            fl.light.distance = 1;
+            fl.light.position.set(1000000, 1000000, 1000000);
+            if (dynamicFlashPool.length < DYNAMIC_FLASH_POOL_SIZE) dynamicFlashPool.push(fl.light);
+        }
+    }
+    dynamicFlashes.length = 0;
+
+    for (let i = shockwaves.length - 1; i >= 0; i--) {
+        const sw = shockwaves[i];
+        if (sw && sw.mesh) {
+            sw.mesh.visible = false;
+            if (shockwavePool.length < 16) shockwavePool.push({ mesh: sw.mesh, mat: sw.mat });
+            else {
+                if (window.scene) window.scene.remove(sw.mesh);
+                if (sw.mat && sw.mat.dispose) sw.mat.dispose();
+            }
+        }
+    }
+    shockwaves.length = 0;
+}
+
+window.clearParticles = clearParticles;
 window.tankState = tankState;
 window.shells = shells;
 window.tracers = tracers;

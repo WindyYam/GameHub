@@ -55,40 +55,58 @@
     function startSoldierDeathAnimation(soldier) {
         const rig = soldier && soldier.rig;
         if (!rig) return;
-        const pose = [
-            [rig.hips.position, 'y', 0.14],
-            [rig.hips.rotation, 'x', -Math.PI * 0.48],
-            [rig.hips.rotation, 'z', (Math.random() - 0.5) * 0.35],
-            [rig.torso.rotation, 'x', 0],
-            [rig.torso.rotation, 'y', 0],
-            [rig.head.rotation, 'x', -0.3],
-            [rig.head.rotation, 'y', 0],
-            [rig.rightArm.shoulder.rotation, 'x', -0.25],
-            [rig.rightArm.shoulder.rotation, 'y', 0],
-            [rig.rightArm.shoulder.rotation, 'z', -1.2],
-            [rig.leftArm.shoulder.rotation, 'x', -0.35],
-            [rig.leftArm.shoulder.rotation, 'y', 0],
-            [rig.leftArm.shoulder.rotation, 'z', 1.15],
-            [rig.rightLeg.hipJoint.rotation, 'x', 0.12],
-            [rig.rightLeg.hipJoint.rotation, 'z', 0.25],
-            [rig.leftLeg.hipJoint.rotation, 'x', -0.18],
-            [rig.leftLeg.hipJoint.rotation, 'z', -0.3],
-            [rig.rightLeg.kneeJoint.rotation, 'x', 0.05],
-            [rig.leftLeg.kneeJoint.rotation, 'x', 0.1]
-        ];
+        const pose = [];
+        function addPose(object, axis, target) {
+            if (object && typeof object[axis] === 'number') {
+                pose.push([object, axis, target]);
+            }
+        }
+        if (rig.hips) {
+            addPose(rig.hips.position, 'y', 0.14);
+            addPose(rig.hips.rotation, 'x', -Math.PI * 0.48);
+            addPose(rig.hips.rotation, 'z', (Math.random() - 0.5) * 0.35);
+        }
+        if (rig.torso) {
+            addPose(rig.torso.rotation, 'x', 0);
+            addPose(rig.torso.rotation, 'y', 0);
+        }
+        if (rig.head) {
+            addPose(rig.head.rotation, 'x', -0.3);
+            addPose(rig.head.rotation, 'y', 0);
+        }
+        if (rig.rightArm && rig.rightArm.shoulder) {
+            addPose(rig.rightArm.shoulder.rotation, 'x', -0.25);
+            addPose(rig.rightArm.shoulder.rotation, 'y', 0);
+            addPose(rig.rightArm.shoulder.rotation, 'z', -1.2);
+        }
+        if (rig.leftArm && rig.leftArm.shoulder) {
+            addPose(rig.leftArm.shoulder.rotation, 'x', -0.35);
+            addPose(rig.leftArm.shoulder.rotation, 'y', 0);
+            addPose(rig.leftArm.shoulder.rotation, 'z', 1.15);
+        }
+        if (rig.rightLeg && rig.rightLeg.hipJoint) {
+            addPose(rig.rightLeg.hipJoint.rotation, 'x', 0.12);
+            addPose(rig.rightLeg.hipJoint.rotation, 'z', 0.25);
+        }
+        if (rig.leftLeg && rig.leftLeg.hipJoint) {
+            addPose(rig.leftLeg.hipJoint.rotation, 'x', -0.18);
+            addPose(rig.leftLeg.hipJoint.rotation, 'z', -0.3);
+        }
+        if (rig.rightLeg && rig.rightLeg.kneeJoint) {
+            addPose(rig.rightLeg.kneeJoint.rotation, 'x', 0.05);
+        }
+        if (rig.leftLeg && rig.leftLeg.kneeJoint) {
+            addPose(rig.leftLeg.kneeJoint.rotation, 'x', 0.1);
+        }
         if (rig.rifle && rig.rifle.position) {
-            pose.push(
-                [rig.rifle.position, 'x', 0.25],
-                [rig.rifle.position, 'y', 0.05],
-                [rig.rifle.position, 'z', 0.2]
-            );
+            addPose(rig.rifle.position, 'x', 0.25);
+            addPose(rig.rifle.position, 'y', 0.05);
+            addPose(rig.rifle.position, 'z', 0.2);
         }
         if (rig.rifle && rig.rifle.rotation) {
-            pose.push(
-                [rig.rifle.rotation, 'x', 0],
-                [rig.rifle.rotation, 'y', (Math.random() - 0.5) * 2],
-                [rig.rifle.rotation, 'z', 1.57]
-            );
+            addPose(rig.rifle.rotation, 'x', 0);
+            addPose(rig.rifle.rotation, 'y', (Math.random() - 0.5) * 2);
+            addPose(rig.rifle.rotation, 'z', 1.57);
         }
         soldier.deathAnimation = {
             elapsed: 0,
@@ -246,13 +264,19 @@
             }
         }
 
-        // 4. Update Main Fire button label/icon
+        // 4. Update Main Fire button label/icon & SMG heat gauge
+        const isSMG = (playerSoldier && (playerSoldier.soldierType === 'smg' || playerSoldier.soldierType === 'submachine_gunner')) || (window.selectedSoldierType === 'smg');
+        const heatContainer = document.getElementById('hud-soldier-heat-container');
+        if (heatContainer) {
+            heatContainer.classList.toggle('hidden', !(isInfantry && isSMG));
+            heatContainer.classList.toggle('flex', !!(isInfantry && isSMG));
+        }
         const mobFireIcon = document.getElementById('mob-fire-icon');
         const mobFireCaliber = document.getElementById('mob-fire-caliber');
-        if (mobFireIcon) mobFireIcon.textContent = isInfantry ? '🎯' : '💥';
+        if (mobFireIcon) mobFireIcon.textContent = isInfantry ? (isSMG ? '⚡' : '🎯') : '💥';
         if (mobFireCaliber) {
             if (isInfantry) {
-                mobFireCaliber.textContent = 'RIFLE';
+                mobFireCaliber.textContent = isSMG ? 'SMG MG' : 'RIFLE';
             } else {
                 const type = (window.tankState && window.tankState.type) || 'tiger';
                 const cal = (window.TANK_SPECS && window.TANK_SPECS[type]) ? window.TANK_SPECS[type].caliber : '8.8cm';
@@ -446,6 +470,7 @@
 
             // Gravity (smoother trajectory for far throws)
             g.vel.y -= 12.0 * dt;
+            const prevPos = g.pos.clone();
             g.pos.addScaledVector(g.vel, dt);
 
             // Mesh rotation
@@ -492,6 +517,82 @@
                 }
             }
 
+            // 4. Explode immediately upon hitting obstacles: Buildings, Walls, Rocks
+            if (!shouldExplode) {
+                const obstacles = window.worldObstacles || [];
+                const bldgs = window.worldBuildings || [];
+                const allObs = [...obstacles];
+                for (let bIdx = 0; bIdx < bldgs.length; bIdx++) {
+                    if (!allObs.includes(bldgs[bIdx])) allObs.push(bldgs[bIdx]);
+                }
+
+                const segX = g.pos.x - prevPos.x;
+                const segY = g.pos.y - prevPos.y;
+                const segZ = g.pos.z - prevPos.z;
+                const segLen = Math.hypot(segX, segY, segZ);
+
+                for (let ob = 0; ob < allObs.length; ob++) {
+                    const obs = allObs[ob];
+                    if (!obs || typeof obs.x !== 'number' || typeof obs.z !== 'number') continue;
+
+                    const obsR = (obs.radius || 3.5);
+                    const obsY = (typeof obs.y === 'number') ? obs.y : 0;
+                    const obsH = (typeof obs.height === 'number') ? obs.height : 6.5;
+
+                    const dCenterSq = (g.pos.x - obs.x) ** 2 + (g.pos.z - obs.z) ** 2;
+                    if (dCenterSq > (obsR + segLen + 0.5) ** 2) continue;
+
+                    let hitPoint = null;
+                    if (obs.mesh && typeof THREE !== 'undefined' && typeof THREE.Raycaster === 'function') {
+                        const segDir = (segLen > 0.0001)
+                            ? new THREE.Vector3(segX / segLen, segY / segLen, segZ / segLen)
+                            : new THREE.Vector3(0, 0, 1);
+                        const raycaster = new THREE.Raycaster(prevPos, segDir, 0, segLen + 0.2);
+                        const hits = raycaster.intersectObject(obs.mesh, true);
+                        if (hits.length > 0 && hits[0].distance <= segLen + 0.2) {
+                            hitPoint = hits[0].point.clone();
+                        }
+                    }
+
+                    if (!hitPoint) {
+                        const dNow = Math.hypot(g.pos.x - obs.x, g.pos.z - obs.z);
+                        if (dNow <= obsR && g.pos.y >= obsY - 0.5 && g.pos.y <= obsY + obsH + 0.5) {
+                            hitPoint = g.pos.clone();
+                            if (dNow > 0.001) {
+                                hitPoint.x = obs.x + ((g.pos.x - obs.x) / dNow) * obsR;
+                                hitPoint.z = obs.z + ((g.pos.z - obs.z) / dNow) * obsR;
+                            }
+                        }
+                    }
+
+                    if (hitPoint) {
+                        g.pos.copy(hitPoint);
+                        shouldExplode = true;
+                        break;
+                    }
+                }
+            }
+
+            // 5. Explode immediately upon hitting trees
+            if (!shouldExplode) {
+                const trees = window.swayTrees || [];
+                for (let tr = 0; tr < trees.length; tr++) {
+                    const tree = trees[tr];
+                    if (!tree || tree.isFallen || typeof tree.x !== 'number' || typeof tree.z !== 'number') continue;
+
+                    const treeY = (typeof tree.y === 'number') ? tree.y : 0;
+                    const treeH = ((typeof tree.trunkHeight === 'number') ? tree.trunkHeight : 5.0) * (tree.scale || 1.0) + 3.0;
+                    if (g.pos.y < treeY - 0.3 || g.pos.y > treeY + treeH) continue;
+
+                    const treeRad = (tree.radius || 1.2) * (tree.scale || 1.0);
+                    const td = Math.hypot(g.pos.x - tree.x, g.pos.z - tree.z);
+                    if (td <= treeRad) {
+                        shouldExplode = true;
+                        break;
+                    }
+                }
+            }
+
             // 4. Safety fuse timeout (e.g. if thrown straight into deep void or sky)
             if (g.timer <= 0) {
                 shouldExplode = true;
@@ -504,6 +605,74 @@
         }
     }
     window.updateGrenades = updateGrenades;
+
+    function resolveSoldierObstacleCollisions(s) {
+        if (!s || typeof s.x !== 'number' || typeof s.z !== 'number') return;
+        const soldierRadius = 0.40;
+
+        // 1. Tactical Cover Obstacles: Buildings, Ruins, Kasbahs, Bunkers, Cottages, Barns, Walls, Rocks
+        const obstacles = window.worldObstacles || [];
+        for (let i = 0; i < obstacles.length; i++) {
+            const obs = obstacles[i];
+            if (!obs || typeof obs.x !== 'number' || typeof obs.z !== 'number') continue;
+
+            const obsY = (typeof obs.y === 'number') ? obs.y : 0;
+            const obsH = (typeof obs.height === 'number') ? obs.height : 6.5;
+            if (s.y < obsY - 1.0 || s.y > obsY + obsH + 0.5) continue;
+
+            const dx = s.x - obs.x;
+            const dz = s.z - obs.z;
+            const dist = Math.hypot(dx, dz);
+            const minClearance = (obs.radius || 3.5) + soldierRadius;
+
+            if (dist < minClearance && dist > 0.0001) {
+                const overlap = minClearance - dist;
+                s.x += (dx / dist) * overlap;
+                s.z += (dz / dist) * overlap;
+            }
+        }
+
+        // Also check window.worldBuildings
+        const buildings = window.worldBuildings || [];
+        for (let i = 0; i < buildings.length; i++) {
+            const b = buildings[i];
+            if (!b || typeof b.x !== 'number' || typeof b.z !== 'number') continue;
+            const dx = s.x - b.x;
+            const dz = s.z - b.z;
+            const dist = Math.hypot(dx, dz);
+            const minClearance = (b.radius || 3.5) + soldierRadius;
+
+            if (dist < minClearance && dist > 0.0001) {
+                const overlap = minClearance - dist;
+                s.x += (dx / dist) * overlap;
+                s.z += (dz / dist) * overlap;
+            }
+        }
+
+        // 2. Forest Trees & Palms (swayTrees)
+        const trees = window.swayTrees || [];
+        for (let i = 0; i < trees.length; i++) {
+            const tree = trees[i];
+            if (!tree || tree.isFallen || typeof tree.x !== 'number' || typeof tree.z !== 'number') continue;
+
+            const treeY = (typeof tree.y === 'number') ? tree.y : 0;
+            const treeH = ((typeof tree.trunkHeight === 'number') ? tree.trunkHeight : 5.0) * (tree.scale || 1.0) + 3.0;
+            if (s.y < treeY - 0.5 || s.y > treeY + treeH) continue;
+
+            const trunkRadius = Math.max(0.40, Math.min(1.0, (tree.radius || 1.2) * 0.45 * (tree.scale || 1.0)));
+            const minTreeClearance = trunkRadius + soldierRadius;
+            const dx = s.x - tree.x;
+            const dz = s.z - tree.z;
+            const dist = Math.hypot(dx, dz);
+
+            if (dist < minTreeClearance && dist > 0.0001) {
+                const overlap = minTreeClearance - dist;
+                s.x += (dx / dist) * overlap;
+                s.z += (dz / dist) * overlap;
+            }
+        }
+    }
+    window.resolveSoldierObstacleCollisions = resolveSoldierObstacleCollisions;
 
     // ------------------------------------------------------------------------
     // INFANTRY JUMP MECHANIC
@@ -540,12 +709,13 @@
         }
 
         const faction = getPlayerFaction();
+        const sType = window.selectedSoldierType || 'smg';
         if (typeof window.buildSoldier !== 'function') {
             console.error('[PlayerSoldier] buildSoldier not available');
             return;
         }
 
-        const rig = window.buildSoldier(faction);
+        const rig = window.buildSoldier(faction, sType);
         if (rig.rightArm && rig.rightArm.wrist) {
             const hg = buildGrenadeMesh();
             hg.scale.setScalar(0.9);
@@ -592,6 +762,8 @@
             recoilKick: 0,
             fireCooldown: 0,
             faction,
+            soldierType: sType,
+            smgHeat: 0,
             rig,
             takeDamage: function(amount) { onPlayerSoldierDamage(amount); },
             die: function() { onPlayerSoldierDie(); }
@@ -615,7 +787,11 @@
         syncInfantryUI(true);
 
         if (typeof window.showKillFeedBanner === 'function') {
-            window.showKillFeedBanner('🚶 INFANTRY (WASD: Move, Space: Jump, RMB/G: Grenade, LMB: Shoot)');
+            if (sType === 'smg' || sType === 'submachine_gunner') {
+                window.showKillFeedBanner('⚡ SUBMACHINE GUNNER (WASD: Move, Space: Jump, LMB/F: Machine Gun, RMB/G: Grenade)');
+            } else {
+                window.showKillFeedBanner('🚶 INFANTRY (WASD: Move, Space: Jump, RMB/G: Grenade, LMB: Shoot)');
+            }
         }
     }
 
@@ -624,9 +800,9 @@
     // ------------------------------------------------------------------------
     function mountTank() {
         if (playerMode !== 'soldier' || !playerSoldier || playerSoldier.isDead) return;
-        if (window.tankState && window.tankState.isKnockedOut) {
+        if ((window.tankRoot && !window.tankRoot.visible) || (window.tankState && (window.tankState.isKnockedOut || window.tankState.hasTank === false))) {
             if (typeof window.showKillFeedBanner === 'function') {
-                window.showKillFeedBanner('⚠️ TANK IS DESTROYED! SNEAK & HIJACK AN ENEMY TANK [E]');
+                window.showKillFeedBanner('⚠️ NO OPERATIONAL TANK! SNEAK & HIJACK AN ENEMY TANK [E]');
             }
             return;
         }
@@ -723,24 +899,50 @@
             window.switchTank(capturedType);
         }
 
-        // 4. Position player tank at captured tank's exact coordinates
+        // 4. Position player tank at captured tank's exact coordinates & reactivate vehicle
         if (window.tankState) {
+            window.tankState.hasTank = true;
+            window.tankState.isKnockedOut = false;
+            window.tankState.reloadTimer = 0;
+            window.tankState.reloadStage = 0;
+            window.tankState.mgHeat = 0;
+            window.tankState.mgCooldown = 0;
+            window.tankState.bowMgCooldown = 0;
+            window.tankState.ammo = 40;
             window.tankState.x = capturedX;
             window.tankState.y = capturedY;
             window.tankState.z = capturedZ;
             window.tankState.heading = capturedHeading;
             window.tankState.speed = 0;
             window.tankState.turnRate = 0;
-            window.tankState.isKnockedOut = false;
         }
         if (window.tankRoot) {
+            window.tankRoot.visible = true;
             window.tankRoot.position.set(capturedX, capturedY, capturedZ);
             window.tankRoot.rotation.y = capturedHeading;
+            if (typeof window.tankRoot.updateMatrixWorld === 'function') {
+                window.tankRoot.updateMatrixWorld(true);
+            }
+        }
+
+        if (typeof window.isFiringCoaxMG !== 'undefined') window.isFiringCoaxMG = false;
+        if (typeof window.isFiringBowMG !== 'undefined') window.isFiringBowMG = false;
+        if (typeof window.isFiringSoldierWeapon !== 'undefined') window.isFiringSoldierWeapon = false;
+        if (window.keys) {
+            window.keys['f'] = false;
+            window.keys['g'] = false;
+            window.keys[' '] = false;
         }
 
         // 5. Reset armor/health to full
         if (typeof window.resetPlayerHealth === 'function') {
             window.resetPlayerHealth();
+        }
+        if (typeof window.updateArmorHUD === 'function') {
+            window.updateArmorHUD();
+        }
+        if (typeof window.updateTankHUD === 'function' && window.tankState && window.tankState.currentTankSpec) {
+            window.updateTankHUD(window.tankState.currentTankSpec);
         }
 
         // 6. Remove player soldier rig
@@ -777,10 +979,81 @@
     }
 
     // ------------------------------------------------------------------------
-    // 4. FIRE PLAYER RIFLE
+    // 4. FIRE PLAYER WEAPONS (SMG & RIFLE)
     // ------------------------------------------------------------------------
+    function firePlayerSMGRound() {
+        if (playerMode !== 'soldier' || !playerSoldier || playerSoldier.isDead) return;
+        if (playerSoldier.fireCooldown > 0) return;
+
+        // Overheat check (same heat up mechanism problem as tank machine gun: blocks firing when heat >= 100)
+        if ((playerSoldier.smgHeat || 0) >= 100) return;
+
+        // Rapid fire rate matching tank machine gun (cooldown 0.075s ~13.3 rounds/sec)
+        playerSoldier.fireCooldown = 0.075;
+        playerSoldier.recoilKick = 0.14;
+        playerSoldier.lastFireTime = (window.performance && window.performance.now) ? window.performance.now() * 0.001 : Date.now() * 0.001;
+
+        // Heat accumulation: same mechanism as tank MG (+1.8 per shot), but heats up faster (+3.6 per shot)
+        playerSoldier.smgHeat = Math.min(100, (playerSoldier.smgHeat || 0) + 3.6);
+        if (window.tankState) {
+            window.tankState.mgHeat = playerSoldier.smgHeat;
+        }
+
+        // Same gunshot audio as tank machine gun
+        if (window.soundFX && typeof window.soundFX.playMG34Shot === 'function') {
+            window.soundFX.playMG34Shot();
+        }
+
+        const rig = playerSoldier.rig;
+        if (!rig || !rig.rifle) return;
+
+        rig.rifle.updateWorldMatrix(true, false);
+        const muzzleWorldPos = new THREE.Vector3();
+        rig.rifle.localToWorld(muzzleWorldPos.copy(rig.rifle.userData.muzzleOffset || new THREE.Vector3(0, 0.02, 0.45)));
+
+        const shootDir = new THREE.Vector3();
+        const rQuat = new THREE.Quaternion();
+        rig.rifle.getWorldQuaternion(rQuat);
+        shootDir.set(0, 0, 1).applyQuaternion(rQuat).normalize();
+
+        // Submachine gun accuracy: much worse accuracy than rifle (0.005) and tank MG (0.015)
+        // High conical dispersion plus dynamic bloom as the gun heats up
+        const heatBloom = ((playerSoldier.smgHeat || 0) / 100) * 0.045;
+        const spreadH = 0.072 + heatBloom;
+        const spreadV = 0.056 + heatBloom;
+        shootDir.x += (Math.random() - 0.5) * spreadH;
+        shootDir.y += (Math.random() - 0.5) * spreadV;
+        shootDir.normalize();
+
+        // 1. Muzzle Flash & Smoke VFX
+        if (typeof window.spawnParticle === 'function') {
+            const flashVel = shootDir.clone().multiplyScalar(4.5);
+            window.spawnParticle(muzzleWorldPos, flashVel, 0xffe066, 0.12, 0.28, 0.05, true, 'fire');
+            const smokeVel = new THREE.Vector3((Math.random() - 0.5) * 0.25, 0.25 + Math.random() * 0.2, (Math.random() - 0.5) * 0.25);
+            window.spawnParticle(muzzleWorldPos, smokeVel, 0xcccccc, 0.08, 0.25, 0.35, false, 'smoke');
+        }
+
+        // 2. High-speed Tracer Round (Machine Gun round)
+        if (typeof window.spawnTracerRound === 'function') {
+            const tracerQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), shootDir);
+            window.spawnTracerRound(muzzleWorldPos, shootDir, tracerQuat, false, {
+                damage: 22,
+                onSoldierKilled: () => {
+                    if (typeof window.showKillFeedBanner === 'function') {
+                        window.showKillFeedBanner('🎯 ENEMY INFANTRY ELIMINATED');
+                    }
+                }
+            });
+        }
+    }
+    window.firePlayerSMGRound = firePlayerSMGRound;
+
     function firePlayerRifle() {
         if (playerMode !== 'soldier' || !playerSoldier || playerSoldier.isDead) return;
+        if (playerSoldier.soldierType === 'smg' || playerSoldier.soldierType === 'submachine_gunner') {
+            firePlayerSMGRound();
+            return;
+        }
         if (playerSoldier.fireCooldown > 0) return;
 
         playerSoldier.fireCooldown = 0.65;
@@ -842,6 +1115,48 @@
         s.fireCooldown = Math.max(0, s.fireCooldown - dt);
         s.recoilKick = Math.max(0, s.recoilKick - dt * 5.0);
 
+        // Continuous automatic firing & heat management for Submachine Gunner (same heat up mechanism as tank MG, just faster)
+        const isSMG = (s.soldierType === 'smg' || s.soldierType === 'submachine_gunner');
+        if (isSMG && !s.isDead) {
+            const isFiring = window.isFiringSoldierWeapon || window.isFiringCoaxMG || (keys && (keys['f'] || keys['F']));
+            if (isFiring && s.fireCooldown <= 0) {
+                firePlayerSMGRound();
+            }
+            if (!isFiring) {
+                // Cools down when not firing (same heat up mechanism problem as tank machine gun)
+                s.smgHeat = Math.max(0, (s.smgHeat || 0) - 25 * dt);
+                if (window.tankState) {
+                    window.tankState.mgHeat = s.smgHeat;
+                }
+            }
+
+            // Sync HUD telemetry for SMG heat
+            const heatEl = document.getElementById('hud-soldier-heat');
+            if (heatEl) {
+                const heatVal = Math.round(s.smgHeat || 0);
+                if (heatVal >= 100) {
+                    heatEl.textContent = 'OVERHEAT!';
+                    heatEl.className = 'text-red-500 font-extrabold animate-pulse';
+                } else if (heatVal > 60) {
+                    heatEl.textContent = `${heatVal}%`;
+                    heatEl.className = 'text-amber-400 font-bold';
+                } else {
+                    heatEl.textContent = `${heatVal}%`;
+                    heatEl.className = 'text-emerald-400 font-bold';
+                }
+            }
+            const mobFireCaliber = document.getElementById('mob-fire-caliber');
+            if (mobFireCaliber) {
+                if ((s.smgHeat || 0) >= 100) {
+                    mobFireCaliber.textContent = 'HOT!';
+                    mobFireCaliber.className = 'text-[10px] mono font-extrabold text-red-400 uppercase tracking-wider animate-pulse';
+                } else {
+                    mobFireCaliber.textContent = 'SMG MG';
+                    mobFireCaliber.className = 'text-[10px] mono font-extrabold text-white uppercase tracking-wider';
+                }
+            }
+        }
+
         if (s.invulnerableTimer > 0) {
             s.invulnerableTimer = Math.max(0, s.invulnerableTimer - dt);
             const hudArmor = document.getElementById('hud-armor');
@@ -868,8 +1183,16 @@
         const stickMag = window.touchDrive ? (window.touchDrive.magnitude || Math.hypot(stickForward, stickStrafe)) : 0;
         const isStickRunning = (window.touchDrive && window.touchDrive.isMax) || (stickMag >= 0.85);
 
-        const isSprinting = !!k['shift'] || isStickRunning;
-        const moveSpeed = isSprinting ? 5.2 : 2.8;
+        // PC keyboard: Default is max run speed (5.2 m/s) with WASD, Shift makes it walk speed (2.8 m/s)
+        const isKeyboardMoving = !!(k['w'] || k['s'] || k['a'] || k['d']);
+        let moveSpeed = 5.2; // Max running speed by default on keyboard
+        if (k['shift']) {
+            moveSpeed = 2.8; // Shift key makes it walk speed
+        } else if (stickMag > 0 && !isStickRunning && !isKeyboardMoving) {
+            moveSpeed = 2.8; // Gentle virtual stick tilt walks
+        }
+
+        const isSprinting = moveSpeed > 3.5;
 
         const camTheta = (window.camOrbit && window.camOrbit.theta !== undefined) ? window.camOrbit.theta : s.heading;
         // Camera horizontal forward and right vectors
@@ -888,6 +1211,10 @@
 
             s.x += moveX * dt;
             s.z += moveZ * dt;
+
+            // Blocked by obstacles (buildings, walls, rocks, trees)
+            resolveSoldierObstacleCollisions(s);
+
             if (typeof window.getTerrainHeight === 'function') {
                 const gh = window.getTerrainHeight(s.x, s.z);
                 if (gh < -2.2) { // Edge of sea
@@ -898,6 +1225,8 @@
             s.speed = THREE.MathUtils.lerp(s.speed, moveSpeed, dt * 8.0);
             s.heading = Math.atan2(camFwdX, camFwdZ);
         } else {
+            // Also ensure collision resolution even when standing still / idle against moving into obstacle
+            resolveSoldierObstacleCollisions(s);
             s.speed = THREE.MathUtils.lerp(s.speed, 0, dt * 10.0);
             s.heading = Math.atan2(camFwdX, camFwdZ);
         }
@@ -1133,7 +1462,13 @@
             }
 
             // Check distance to own tank
-            const dOwn = (window.tankState) ? Math.hypot(pX - window.tankState.x, pZ - window.tankState.z) : 999;
+            const hasOperationalTank = Boolean(
+                window.tankState &&
+                window.tankState.hasTank !== false &&
+                window.tankRoot &&
+                window.tankRoot.visible &&
+                !window.tankState.isKnockedOut
+            );
 
             // Prioritize hijacking enemy tank when in range!
             if (closestEnemy && closestEnemyDist < 4.8) {
@@ -1143,11 +1478,13 @@
                 return;
             }
 
-            const ownTankDestroyed = !!(window.tankState && window.tankState.isKnockedOut);
-            if (dOwn < 4.2 && !ownTankDestroyed) {
-                currentInteractAction = { type: 'mount' };
-                showInteractPrompt('🚗 MOUNT TANK', '🚗', false);
-                return;
+            if (hasOperationalTank) {
+                const dOwn = Math.hypot(pX - window.tankState.x, pZ - window.tankState.z);
+                if (dOwn < 4.2) {
+                    currentInteractAction = { type: 'mount' };
+                    showInteractPrompt('🚗 MOUNT TANK', '🚗', false);
+                    return;
+                }
             }
 
             // Neither in range
@@ -1235,6 +1572,7 @@
     window.mountTank = mountTank;
     window.hijackTank = hijackTank;
     window.firePlayerRifle = firePlayerRifle;
+    window.firePlayerSoldierWeapon = firePlayerRifle;
     window.updatePlayerSoldier = updatePlayerSoldier;
     window.triggerInteract = triggerInteract;
     window.initPlayerSoldierUI = initPlayerSoldierUI;
@@ -1246,5 +1584,7 @@
 
     // Initialize UI in tank mode on startup
     if (typeof window !== 'undefined') {
-        setTimeout(() => syncInfantryUI(false), 100);
+        setTimeout(() => {
+            if (typeof window.syncInfantryUI === 'function') window.syncInfantryUI(false);
+        }, 100);
     }

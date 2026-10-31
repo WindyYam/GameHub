@@ -1007,6 +1007,192 @@
         }
 
         // ============================================================================
+        // 5b. ACCURATE WWII SUBMACHINE GUN BUILDER (THOMPSON M1A1, PPSH-41, MP 40)
+        // ============================================================================
+        function buildSubmachineGun(faction) {
+            const smg = new THREE.Group();
+
+            if (faction === 'us') {
+                // M1A1 Thompson Submachine Gun (.45 ACP)
+                // 1. Wooden Buttstock (compact angled stock)
+                const stockGeo = new THREE.BoxGeometry(0.034, 0.075, 0.28, 3, 4, 8);
+                const pos = stockGeo.attributes.position;
+                for (let i = 0; i < pos.count; i++) {
+                    let y = pos.getY(i);
+                    let z = pos.getZ(i);
+                    if (z < 0) {
+                        y -= (-z / 0.14) * 0.035;
+                    }
+                    pos.setY(i, y);
+                }
+                stockGeo.computeVertexNormals();
+                const stock = new THREE.Mesh(stockGeo, MATS.wood);
+                stock.position.set(0, -0.024, -0.16);
+                smg.add(stock);
+
+                // Steel Buttplate
+                const buttPlate = new THREE.Mesh(new THREE.BoxGeometry(0.034, 0.088, 0.012), MATS.gunMetal);
+                buttPlate.position.set(0, -0.042, -0.298);
+                smg.add(buttPlate);
+
+                // Machined Thompson Receiver (finned cylindrical top with rectangular lower)
+                const upperRec = new THREE.Mesh(new THREE.CylinderGeometry(0.021, 0.021, 0.22, 12), MATS.gunMetal);
+                upperRec.rotation.x = Math.PI / 2;
+                upperRec.position.set(0, 0.026, 0.02);
+                smg.add(upperRec);
+
+                const lowerRec = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.042, 0.20), MATS.gunMetal);
+                lowerRec.position.set(0, -0.008, 0.02);
+                smg.add(lowerRec);
+
+                // Wooden Pistol Grip
+                const gripGeo = new THREE.BoxGeometry(0.028, 0.095, 0.042);
+                const grip = new THREE.Mesh(gripGeo, MATS.wood);
+                grip.position.set(0, -0.065, -0.045);
+                grip.rotation.x = -0.32;
+                smg.add(grip);
+
+                // Trigger Guard & Trigger
+                const trigGuard = new THREE.Mesh(new THREE.TorusGeometry(0.018, 0.0035, 6, 12), MATS.gunMetal);
+                trigGuard.rotation.y = Math.PI / 2;
+                trigGuard.position.set(0, -0.038, -0.015);
+                smg.add(trigGuard);
+
+                // Wooden Horizontal Foregrip
+                const foreGeo = new THREE.BoxGeometry(0.032, 0.048, 0.16, 2, 3, 6);
+                const fore = new THREE.Mesh(foreGeo, MATS.wood);
+                fore.position.set(0, -0.012, 0.18);
+                smg.add(fore);
+
+                // Finned Barrel & Cutts Compensator
+                const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.013, 0.24, 10), MATS.gunMetal);
+                barrel.rotation.x = Math.PI / 2;
+                barrel.position.set(0, 0.026, 0.24);
+                smg.add(barrel);
+
+                const cuttsComp = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.013, 0.055, 10), MATS.gunMetal);
+                cuttsComp.rotation.x = Math.PI / 2;
+                cuttsComp.position.set(0, 0.026, 0.38);
+                smg.add(cuttsComp);
+
+                // 30-round Vertical Stick Magazine
+                const mag = new THREE.Mesh(new THREE.BoxGeometry(0.024, 0.18, 0.040), MATS.gunMetal);
+                mag.position.set(0, -0.10, 0.065);
+                smg.add(mag);
+
+                smg.userData.muzzleOffset = new THREE.Vector3(0, 0.026, 0.41);
+
+            } else if (faction === 'soviet') {
+                // Soviet PPSh-41 with iconic 71-round Drum Magazine & Perforated Shroud
+                // Wooden Stock (Buttstock blending into semi-pistol grip comb)
+                const stockGeo = new THREE.BoxGeometry(0.036, 0.082, 0.44, 3, 5, 12);
+                const sPos = stockGeo.attributes.position;
+                for (let i = 0; i < sPos.count; i++) {
+                    let y = sPos.getY(i);
+                    let z = sPos.getZ(i);
+                    if (z < -0.05) {
+                        y -= (-0.05 - z) * 0.18;
+                    }
+                    sPos.setY(i, y);
+                }
+                stockGeo.computeVertexNormals();
+                const stock = new THREE.Mesh(stockGeo, MATS.wood);
+                stock.position.set(0, -0.026, -0.14);
+                smg.add(stock);
+
+                // Steel Receiver
+                const rec = new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.048, 0.22), MATS.gunMetal);
+                rec.position.set(0, 0.020, 0.02);
+                smg.add(rec);
+
+                // Perforated Barrel Shroud (ventilated cooling jacket)
+                const shroudGeo = new THREE.BoxGeometry(0.032, 0.042, 0.28);
+                const shroud = new THREE.Mesh(shroudGeo, MATS.gunMetal);
+                shroud.position.set(0, 0.022, 0.25);
+                smg.add(shroud);
+
+                // Angled Muzzle Compensator
+                const comp = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.014, 0.045, 8), MATS.gunMetal);
+                comp.rotation.x = Math.PI / 2;
+                comp.position.set(0, 0.022, 0.41);
+                smg.add(comp);
+
+                // Iconic 71-round Cylindrical Drum Magazine
+                const drumGeo = new THREE.CylinderGeometry(0.065, 0.065, 0.038, 16);
+                drumGeo.rotateZ(Math.PI / 2);
+                const drum = new THREE.Mesh(drumGeo, MATS.gunMetal);
+                drum.position.set(0, -0.048, 0.04);
+                smg.add(drum);
+
+                smg.userData.muzzleOffset = new THREE.Vector3(0, 0.022, 0.43);
+
+            } else {
+                // German MP 40 (Maschinenpistole 40 - 9x19mm Parabellum)
+                // Folded Underfolding Steel Tubular Stock
+                const stockBar1 = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.24, 6), MATS.gunMetal);
+                stockBar1.rotation.x = Math.PI / 2;
+                stockBar1.position.set(-0.014, -0.038, -0.12);
+                smg.add(stockBar1);
+
+                const stockBar2 = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.24, 6), MATS.gunMetal);
+                stockBar2.rotation.x = Math.PI / 2;
+                stockBar2.position.set(0.014, -0.038, -0.12);
+                smg.add(stockBar2);
+
+                const buttRest = new THREE.Mesh(new THREE.BoxGeometry(0.038, 0.055, 0.012), MATS.gunMetal);
+                buttRest.position.set(0, -0.048, -0.24);
+                smg.add(buttRest);
+
+                // Ribbed Tubular Steel Receiver
+                const receiver = new THREE.Mesh(new THREE.CylinderGeometry(0.019, 0.020, 0.24, 12), MATS.gunMetal);
+                receiver.rotation.x = Math.PI / 2;
+                receiver.position.set(0, 0.022, 0.02);
+                smg.add(receiver);
+
+                // Dark Composite / Bakelite Lower Housing & Grip
+                const lower = new THREE.Mesh(new THREE.BoxGeometry(0.030, 0.036, 0.18), MATS.blackLeather);
+                lower.position.set(0, -0.010, -0.02);
+                smg.add(lower);
+
+                const grip = new THREE.Mesh(new THREE.BoxGeometry(0.026, 0.088, 0.038), MATS.blackLeather);
+                grip.position.set(0, -0.065, -0.05);
+                grip.rotation.x = -0.35;
+                smg.add(grip);
+
+                // Trigger Guard
+                const trigGuard = new THREE.Mesh(new THREE.TorusGeometry(0.017, 0.003, 6, 10), MATS.gunMetal);
+                trigGuard.rotation.y = Math.PI / 2;
+                trigGuard.position.set(0, -0.034, -0.015);
+                smg.add(trigGuard);
+
+                // Slim Barrel with Barrel Resting Bar (rest lug under barrel)
+                const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.011, 0.25, 10), MATS.gunMetal);
+                barrel.rotation.x = Math.PI / 2;
+                barrel.position.set(0, 0.022, 0.24);
+                smg.add(barrel);
+
+                const restLug = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.016, 0.12), MATS.gunMetal);
+                restLug.position.set(0, -0.002, 0.22);
+                smg.add(restLug);
+
+                // Hooded Front Sight
+                const frontSight = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.020, 0.014), MATS.gunMetal);
+                frontSight.position.set(0, 0.035, 0.35);
+                smg.add(frontSight);
+
+                // 32-round Long Straight Stick Magazine (slight forward cant)
+                const mag = new THREE.Mesh(new THREE.BoxGeometry(0.024, 0.19, 0.036), MATS.gunMetal);
+                mag.position.set(0, -0.11, 0.055);
+                mag.rotation.x = 0.08;
+                smg.add(mag);
+
+                smg.userData.muzzleOffset = new THREE.Vector3(0, 0.022, 0.37);
+            }
+
+            return smg;
+        }
+
+        // ============================================================================
         // 6. ACCURATE WWII HELMET BUILDER (M1 NETTED, SSH-40 RED STAR, STAHLHELM M42)
         // ============================================================================
         function buildHelmet(faction) {
@@ -1139,7 +1325,7 @@
         // ============================================================================
         // 7. ANATOMICALLY REALISTIC ADULT MALE SOLDIER CHARACTER BUILDER
         // ============================================================================
-        function buildSoldierRaw(faction) {
+        function buildSoldierRaw(faction, soldierType = 'rifle') {
             const root = new THREE.Group();
             root.userData.faction = faction;
 
@@ -1410,12 +1596,21 @@
             const rightArm = createArm(true);
             const leftArm  = createArm(false);
 
-            // Attach Faction Service Rifle to Right Wrist (Aligned for natural 2-handed diagonal grip across chest)
-            const rifleType = faction === 'us' ? 'garand' : (faction === 'soviet' ? 'mosin' : 'kar98k');
-            const rifle = buildRifle(rifleType);
-            rifle.position.set(0.05, -0.04, 0.06);
-            rifle.rotation.set(-0.88, -0.46, -0.42);
-            rightArm.wrist.add(rifle);
+            // Attach Faction Weapon to Right Wrist (Service Rifle or Submachine Gun)
+            const isSMG = (soldierType === 'smg' || soldierType === 'submachine_gunner');
+            let weapon;
+            let weaponType;
+            if (isSMG) {
+                weapon = buildSubmachineGun(faction);
+                weaponType = faction === 'us' ? 'thompson' : (faction === 'soviet' ? 'ppsh41' : 'mp40');
+            } else {
+                const rifleType = faction === 'us' ? 'garand' : (faction === 'soviet' ? 'mosin' : 'kar98k');
+                weapon = buildRifle(rifleType);
+                weaponType = rifleType;
+            }
+            weapon.position.set(0.05, -0.04, 0.06);
+            weapon.rotation.set(-0.88, -0.46, -0.42);
+            rightArm.wrist.add(weapon);
 
             // --- 6. SCULPTED TROUSERS, BREECHES BLOUSING & COMBAT BOOTS ---
             function createLeg(isRight) {
@@ -1476,6 +1671,7 @@
 
             const rig = {
                 faction,
+                soldierType: isSMG ? 'smg' : 'rifle',
                 root,
                 hips,
                 torso,
@@ -1485,8 +1681,8 @@
                 leftArm,
                 rightLeg,
                 leftLeg,
-                rifle,
-                rifleType
+                rifle: weapon,
+                rifleType: weaponType
             };
 
             return rig;
@@ -1495,7 +1691,7 @@
 
         // ========================================================================
         // PERFORMANCE LAYER: bake static sub-meshes per bone, cache one template per
-        // faction, and clone (shared geometry + materials) for every spawned soldier.
+        // faction and soldier class, and clone (shared geometry + materials) for every spawned soldier.
         // ========================================================================
         function mergeGeometries(geos) {
             const merged = new THREE.BufferGeometry();
@@ -1558,8 +1754,9 @@
             });
         }
 
-        function buildTemplate(faction) {
-            const rig = buildSoldierRaw(faction);
+        function buildTemplate(faction, soldierType = 'rifle') {
+            const sType = (soldierType === 'smg' || soldierType === 'submachine_gunner') ? 'smg' : 'rifle';
+            const rig = buildSoldierRaw(faction, sType);
             const named = {
                 hips: rig.hips, torso: rig.torso, neck: rig.neck, head: rig.head,
                 rShoulder: rig.rightArm.shoulder, rElbow: rig.rightArm.elbow, rWrist: rig.rightArm.wrist,
@@ -1571,13 +1768,20 @@
             const boneSet = new Set(Object.values(named));
             Object.keys(named).forEach(k => { named[k].name = k; });
             boneSet.forEach(b => bakeBone(b, boneSet));
-            return { root: rig.root, rifleType: rig.rifleType, muzzle: rig.rifle.userData.muzzleOffset.clone() };
+            return {
+                root: rig.root,
+                rifleType: rig.rifleType,
+                soldierType: sType,
+                muzzle: rig.rifle.userData.muzzleOffset.clone()
+            };
         }
 
-        function buildSoldier(faction) {
+        function buildSoldier(faction, soldierType = 'rifle') {
             initMaterials();
-            if (!SOLDIER_TEMPLATES[faction]) SOLDIER_TEMPLATES[faction] = buildTemplate(faction);
-            const tpl = SOLDIER_TEMPLATES[faction];
+            const sType = (soldierType === 'smg' || soldierType === 'submachine_gunner') ? 'smg' : 'rifle';
+            const key = `${faction}_${sType}`;
+            if (!SOLDIER_TEMPLATES[key]) SOLDIER_TEMPLATES[key] = buildTemplate(faction, sType);
+            const tpl = SOLDIER_TEMPLATES[key];
             const root = tpl.root.clone(true);
             root.traverse(c => {
                 if (c.isMesh) {
@@ -1590,6 +1794,7 @@
             rifle.userData.muzzleOffset = tpl.muzzle.clone();
             return {
                 faction,
+                soldierType: sType,
                 root,
                 hips: g('hips'),
                 torso: g('torso'),
@@ -1687,6 +1892,10 @@
         constructor(id, faction, x, z, options = {}) {
             this.id = id;
             this.faction = faction; // 'german', 'us', 'soviet'
+            this.soldierType = options.soldierType || 'rifle';
+            this.burstRemaining = 0;
+            this.burstTarget = null;
+            this.burstDist = 0;
             this.isEnemy = !!options.isEnemy;
             this.x = x;
             this.z = z;
@@ -1714,7 +1923,7 @@
             this.animTime = Math.random() * 10;
             this.recoilKick = 0;
 
-            this.rig = buildSoldier(this.faction);
+            this.rig = buildSoldier(this.faction, this.soldierType);
             this.rig.root.position.set(this.x, this.y, this.z);
             this.rig.root.rotation.y = this.heading;
             this.rig.root.userData.soldier = this;
@@ -1762,7 +1971,7 @@
             const distToPlayer = Math.hypot(playerX - this.x, playerZ - this.z);
 
             // 1. Target Evaluation (Opposing infantry or opposing tank)
-            this.evaluateCombatTarget(playerX, playerZ, distToPlayer);
+            this.evaluateCombatTarget(playerX, playerZ, distToPlayer, dt);
 
             // 2. State Logic
             if (this.currentTarget) {
@@ -1777,6 +1986,31 @@
             if (Math.abs(this.speed) > 0.05) {
                 this.x += Math.sin(this.heading) * this.speed * dt;
                 this.z += Math.cos(this.heading) * this.speed * dt;
+
+                // Obstacle collision resolution (buildings, rocks, walls, trees)
+                const obstacles = window.worldObstacles || [];
+                for (let ob = 0; ob < obstacles.length; ob++) {
+                    const obs = obstacles[ob];
+                    if (!obs || typeof obs.x !== 'number' || typeof obs.z !== 'number') continue;
+                    const minR = (obs.radius || 3.5) + 0.45;
+                    const d = Math.hypot(this.x - obs.x, this.z - obs.z);
+                    if (d < minR && d > 0.001) {
+                        this.x += ((this.x - obs.x) / d) * (minR - d);
+                        this.z += ((this.z - obs.z) / d) * (minR - d);
+                    }
+                }
+                const trees = window.swayTrees || [];
+                for (let tr = 0; tr < trees.length; tr++) {
+                    const tree = trees[tr];
+                    if (!tree || tree.isFallen || typeof tree.x !== 'number' || typeof tree.z !== 'number') continue;
+                    const minTrunkR = Math.max(0.40, Math.min(1.0, (tree.radius || 1.2) * 0.45 * (tree.scale || 1.0))) + 0.40;
+                    const td = Math.hypot(this.x - tree.x, this.z - tree.z);
+                    if (td < minTrunkR && td > 0.001) {
+                        this.x += ((this.x - tree.x) / td) * (minTrunkR - td);
+                        this.z += ((this.z - tree.z) / td) * (minTrunkR - td);
+                    }
+                }
+
                 if (typeof window.getTerrainHeight === 'function') {
                     const gh = window.getTerrainHeight(this.x, this.z);
                     // Avoid walking underwater into deep sea
@@ -1798,17 +2032,77 @@
             this.animateJoints(isFar, dt);
         }
 
-        evaluateCombatTarget(playerX, playerZ, distToPlayer) {
+        evaluateCombatTarget(playerX, playerZ, distToPlayer, dt = 0.016) {
             this.currentTarget = null;
 
-            // In infantry mode, player is on foot as a soldier!
+            // When hit/provoked, enemy soldiers track player; give up if sight is lost OR after 5s outside detection range
+            if (this.isEnemy && (this.alertOnHitTimer > 0 || (this.provokedTimer && this.provokedTimer > 0))) {
+                const pX = (window.playerMode === 'soldier' && window.playerSoldier) ? window.playerSoldier.x : playerX;
+                const pZ = (window.playerMode === 'soldier' && window.playerSoldier) ? window.playerSoldier.z : playerZ;
+                const dP = Math.hypot(pX - this.x, pZ - this.z);
+                const hasLOS = (typeof window.checkObstacleLineOfSight === 'function')
+                    ? window.checkObstacleLineOfSight(this.x, this.z, pX, pZ)
+                    : true;
+
+                const isPlayerOnFoot = (window.playerMode === 'soldier' && window.playerSoldier && !window.playerSoldier.isDead);
+                const nowSec = (window.performance && window.performance.now) ? window.performance.now() * 0.001 : Date.now() * 0.001;
+                const ps = isPlayerOnFoot ? window.playerSoldier : null;
+                const playerFiredRecently = ps ? ((nowSec - (ps.lastFireTime || 0) < 3.0) || (nowSec - (ps.lastGrenadeTime || 0) < 3.0)) : false;
+                const normalDetectDist = isPlayerOnFoot ? ((playerFiredRecently ? 45 : 22) * 1.2) : (135 * 1.2);
+                const inDetectRange = (dP < normalDetectDist);
+
+                if (!inDetectRange) {
+                    if (!hasLOS || dP > 165) {
+                        // Lost sight from enemy -> give up immediately
+                        this.alertOnHitTimer = 0;
+                        this.provokedTimer = 0;
+                        this.currentTarget = null;
+                        return;
+                    }
+                    this.provokedTimer = (typeof this.provokedTimer === 'number' ? this.provokedTimer : 5.0) - dt;
+                    if (this.provokedTimer <= 0) {
+                        // Provoked for 5 seconds and still outside detection range -> give up
+                        this.alertOnHitTimer = 0;
+                        this.provokedTimer = 0;
+                        this.currentTarget = null;
+                        return;
+                    }
+                } else if (hasLOS) {
+                    // Entered normal detection range with line of sight
+                    this.provokedTimer = 0;
+                }
+
+                if (window.playerMode === 'soldier' && window.playerSoldier && !window.playerSoldier.isDead) {
+                    const psRef = window.playerSoldier;
+                    this.currentTarget = {
+                        type: 'soldier',
+                        ref: psRef,
+                        x: psRef.x,
+                        y: psRef.y + 1.2,
+                        z: psRef.z,
+                        dist: dP
+                    };
+                    return;
+                } else if (window.tankState && !window.tankState.isKnockedOut) {
+                    this.currentTarget = {
+                        type: 'tank',
+                        x: window.tankState.x,
+                        y: (window.tankState.y || 0) + 1.2,
+                        z: window.tankState.z,
+                        dist: dP
+                    };
+                    return;
+                }
+            }
+
+            // In infantry mode, player is on foot as a soldier! (Detection ranges increased by 1.2)
             if (window.playerMode === 'soldier' && window.playerSoldier && !window.playerSoldier.isDead) {
                 const ps = window.playerSoldier;
                 const dSoldier = Math.hypot(ps.x - this.x, ps.z - this.z);
                 const nowSec = performance.now() * 0.001;
                 const playerFiredRecently = (nowSec - (ps.lastFireTime || 0) < 3.0) || (nowSec - (ps.lastGrenadeTime || 0) < 3.0);
-                // In infantry mode player is hard to detect, only in close range
-                const detectDist = playerFiredRecently ? 45 : 22;
+                // In infantry mode player is hard to detect, only in close range (scaled 1.2x)
+                const detectDist = (playerFiredRecently ? 45 : 22) * 1.2;
 
                 if (this.isEnemy && dSoldier < detectDist) {
                     this.currentTarget = {
@@ -1822,8 +2116,8 @@
                     return;
                 }
             } else {
-                // A. Check Player Tank
-                if (this.isEnemy && !window.tankState.isKnockedOut && distToPlayer < 135) {
+                // A. Check Player Tank (scaled 1.2x)
+                if (this.isEnemy && !window.tankState.isKnockedOut && distToPlayer < 135 * 1.2) {
                     this.currentTarget = {
                         type: 'tank',
                         x: playerX,
@@ -1835,13 +2129,13 @@
                 }
             }
 
-            // B. Check Allied Tank (if soldier is allied to player, check enemy tanks)
+            // B. Check Allied Tank (if soldier is allied to player, check enemy tanks, scaled 1.2x)
             if (!this.isEnemy && window.combatTanks) {
                 for (let i = 0; i < window.combatTanks.length; i++) {
                     const et = window.combatTanks[i];
                     if (!et.isDestroyed) {
                         const d = Math.hypot(et.x - this.x, et.z - this.z);
-                        if (d < 135) {
+                        if (d < 135 * 1.2) {
                             this.currentTarget = {
                                 type: 'tank',
                                 x: et.x,
@@ -1855,9 +2149,9 @@
                 }
             }
 
-            // C. Check Opposing Infantry
+            // C. Check Opposing Infantry (scaled 1.2x)
             let closestEnemySoldier = null;
-            let closestDist = 120; // Max infantry engagement range
+            let closestDist = 120 * 1.2; // Max infantry engagement range
 
             for (let i = 0; i < activeSoldiers.length; i++) {
                 const other = activeSoldiers[i];
@@ -1885,6 +2179,8 @@
 
         handleCombat(dt, distToPlayer) {
             const tgt = this.currentTarget;
+            if (!tgt || typeof tgt.x !== 'number' || typeof tgt.z !== 'number') return;
+            const isSMG = (this.soldierType === 'smg' || this.soldierType === 'submachine_gunner');
             const dx = tgt.x - this.x;
             const dz = tgt.z - this.z;
             const targetDist = Math.hypot(dx, dz);
@@ -1936,26 +2232,53 @@
             this.speed = THREE.MathUtils.lerp(this.speed, this.combatTargetSpeed || 2.8, dt * 3.5);
             this.aimWeight = THREE.MathUtils.lerp(this.aimWeight, 1.0, dt * 6.0);
 
-            // Fire on the run whenever gun cooldown expires!
-            if (this.fireCooldown <= 0) {
+            // Standard AI firing logic: fire whenever gun cooldown expires and soldier is oriented towards target
+            const facingDiff = Math.abs(Math.atan2(Math.sin(targetHeading - this.heading), Math.cos(targetHeading - this.heading)));
+            if (isSMG && this.burstRemaining <= 0) {
+                this.smgHeat = Math.max(0, (this.smgHeat || 0) - 25 * dt);
+            }
+            if (this.burstRemaining > 0 && this.fireCooldown <= 0) {
+                this.burstRemaining--;
+                this.shoot(this.burstTarget || tgt, this.burstDist || distToPlayer);
+                this.fireCooldown = (this.burstRemaining > 0) ? 0.08 : (1.4 + Math.random() * 0.8);
+            } else if (this.fireCooldown <= 0 && facingDiff < 0.65) {
+                if (isSMG) {
+                    this.burstRemaining = 3 + Math.floor(Math.random() * 3);
+                    this.burstTarget = tgt;
+                    this.burstDist = distToPlayer;
+                }
                 this.shoot(tgt, distToPlayer);
             }
         }
 
         shoot(target, distToPlayer) {
-            // Bolt-action / semi-auto cadence
-            this.fireCooldown = 1.6 + Math.random() * 1.2;
-            this.recoilKick = 0.25;
+            const isSMG = (this.soldierType === 'smg' || this.soldierType === 'submachine_gunner');
+            if (isSMG) {
+                if ((this.smgHeat || 0) >= 100) return;
+                this.smgHeat = Math.min(100, (this.smgHeat || 0) + 3.6);
+                this.fireCooldown = 0.08;
+                this.recoilKick = 0.12;
+                // Same gunshot audio as tank machine gun
+                if (window.soundFX && typeof window.soundFX.playMG34Shot === 'function') {
+                    const soundPos = (typeof distToPlayer === 'number') ? distToPlayer : { x: this.x, y: this.y, z: this.z };
+                    window.soundFX.playMG34Shot(soundPos);
+                }
+            } else {
+                // Bolt-action / semi-auto cadence
+                this.fireCooldown = 1.6 + Math.random() * 1.2;
+                this.recoilKick = 0.25;
 
-            // Audio: distance-attenuated gunshot
-            if (window.soundFX && typeof window.soundFX.playRifleShot === 'function') {
-                window.soundFX.playRifleShot(distToPlayer);
+                // Audio: distance-attenuated gunshot
+                if (window.soundFX && typeof window.soundFX.playRifleShot === 'function') {
+                    const soundPos = (typeof distToPlayer === 'number') ? distToPlayer : { x: this.x, y: this.y, z: this.z };
+                    window.soundFX.playRifleShot(soundPos);
+                }
             }
 
             // World position of rifle muzzle and physical barrel forward direction
             const muzzleWorldPos = new THREE.Vector3();
             const shootDir = new THREE.Vector3();
-            if (this.rig.rifle) {
+            if (this.rig && this.rig.rifle) {
                 this.rig.rifle.updateWorldMatrix(true, false);
                 this.rig.rifle.localToWorld(muzzleWorldPos.copy(this.rig.rifle.userData.muzzleOffset || new THREE.Vector3(0, 0.02, 0.6)));
                 const rQuat = new THREE.Quaternion();
@@ -1971,8 +2294,14 @@
                 if (right.lengthSq() < 0.000001) right.set(1, 0, 0);
                 right.normalize();
                 const up = new THREE.Vector3().crossVectors(shootDir, right).normalize();
-                shootDir.addScaledVector(right, (Math.random() - 0.5) * 0.07);
-                shootDir.addScaledVector(up, (Math.random() - 0.5) * 0.04);
+                const spreadH = isSMG ? 0.16 : 0.07;
+                const spreadV = isSMG ? 0.10 : 0.04;
+                shootDir.addScaledVector(right, (Math.random() - 0.5) * spreadH);
+                shootDir.addScaledVector(up, (Math.random() - 0.5) * spreadV);
+                shootDir.normalize();
+            } else if (isSMG) {
+                shootDir.x += (Math.random() - 0.5) * 0.08;
+                shootDir.y += (Math.random() - 0.5) * 0.06;
                 shootDir.normalize();
             }
 
@@ -1987,7 +2316,7 @@
             // 2. High-speed Tracer Round
             if (typeof window.spawnTracerRound === 'function') {
                 const tracerQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), shootDir);
-                window.spawnTracerRound(muzzleWorldPos, shootDir, tracerQuat, this.isEnemy, { damage: 35 });
+                window.spawnTracerRound(muzzleWorldPos, shootDir, tracerQuat, this.isEnemy, { damage: isSMG ? 20 : 35 });
             }
         }
 
@@ -2003,6 +2332,30 @@
             }
             if (this.health <= 0) {
                 this.die();
+            } else if (this.isEnemy) {
+                // When enemy soldier is hit: immediately detect player and track until losing track.
+                // Standard AI logic governs firing cadence (fireCooldown) and facing alignment.
+                this.alertOnHitTimer = 8.0;
+                this.provokedTimer = 5.0;
+                if (window.playerMode === 'soldier' && window.playerSoldier && !window.playerSoldier.isDead) {
+                    const ps = window.playerSoldier;
+                    this.currentTarget = {
+                        type: 'soldier',
+                        ref: ps,
+                        x: ps.x,
+                        y: ps.y + 1.2,
+                        z: ps.z,
+                        dist: Math.hypot(ps.x - this.x, ps.z - this.z)
+                    };
+                } else if (window.tankState && !window.tankState.isKnockedOut) {
+                    this.currentTarget = {
+                        type: 'tank',
+                        x: window.tankState.x,
+                        y: (window.tankState.y || 0) + 1.2,
+                        z: window.tankState.z,
+                        dist: Math.hypot(window.tankState.x - this.x, window.tankState.z - this.z)
+                    };
+                }
             }
         }
 
@@ -2122,78 +2475,115 @@
 
             if (isFar) return; // Skip upper-body micro-rotations at distant ranges on mobile
 
-            // 2. Torso, Head & Arms (Interpolate between Patrol/Wander posture and Aim/ADS posture)
-            const breath = Math.sin(this.animTime * 1.5 + this.phaseOffset) * 0.015;
+            // 2. Torso, Head & Arms: Authentic WWII Standard Combat Marksmanship Stance
+            // Right arm firmly shoulders weapon into shoulder pocket, left arm uses 2-bone analytical IK holding forend
+            if (rig.rifle && rig.rightArm && rig.rightArm.wrist && rig.leftArm && rig.leftArm.shoulder) {
+                // Determine aiming direction
+                const fwdHeadingX = Math.sin(this.heading);
+                const fwdHeadingZ = Math.cos(this.heading);
+                // Patrol low-ready carry: muzzle lowered ~30 degrees down
+                const lowReadyDir = new THREE.Vector3(fwdHeadingX, -0.52, fwdHeadingZ).normalize();
 
-            // Patrol / Low-Ready pose
-            const patrolTorsoY = -0.25 + (isMoving ? Math.sin(walk) * 0.08 : 0);
-            const patrolHeadY  = 0.20 + Math.sin(this.animTime * 0.8) * 0.10;
-            const patrolRShX   = -0.25 + breath - this.recoilKick * 0.4;
-            const patrolLShX   = -0.70 + breath;
-            const patrolRifleRotX = 0.90 - this.recoilKick * 0.5;
+                let adsDir = null;
+                if (this.currentTarget && typeof this.currentTarget.x === 'number' && typeof this.currentTarget.z === 'number') {
+                    const tgtY = (typeof this.currentTarget.y === 'number') ? this.currentTarget.y : (this.y + 1.25);
+                    adsDir = new THREE.Vector3(this.currentTarget.x - this.x, tgtY - (this.y + 1.25), this.currentTarget.z - this.z).normalize();
+                }
 
-            // Shouldered Aim Down Sights (ADS) pose
-            const aimTorsoY = -0.45;
-            const aimHeadY  = 0.40;
-            const aimRShX   = -0.95 - this.recoilKick * 0.6;
-            const aimLShX   = -1.15;
-            const aimRifleRotX = 1.48 - this.recoilKick * 0.5;
+                // Blend aim direction based on aimWeight
+                const aimDir = new THREE.Vector3().lerpVectors(lowReadyDir, adsDir || lowReadyDir, w).normalize();
+                const pitch = Math.asin(THREE.MathUtils.clamp(aimDir.y, -0.95, 0.95));
 
-            // Pitch upper torso towards target elevation
-            if (this.currentTarget) {
-                const dy = this.currentTarget.y - (this.y + 1.25);
-                const dx = this.currentTarget.x - this.x;
-                const dz = this.currentTarget.z - this.z;
-                const pitch = Math.atan2(dy, Math.max(1, Math.hypot(dx, dz)));
-                rig.torso.rotation.x = THREE.MathUtils.lerp(rig.torso.rotation.x, -pitch, w);
-            } else {
-                rig.torso.rotation.x = THREE.MathUtils.lerp(rig.torso.rotation.x, 0, dt * 4.0);
-            }
+                // Natural bladed firing stance with forward combat lean
+                const baseTorsoY = THREE.MathUtils.lerp(-0.25, -0.32, w);
+                const baseHeadY  = THREE.MathUtils.lerp(0.18, 0.32, w);
 
-            // Natural shouldered firing stance
-            const adsTorsoY = -0.15;
-            const adsHeadY  = 0.15;
+                rig.torso.rotation.x = THREE.MathUtils.lerp(-0.04, -0.08 - pitch * 0.45, w);
+                rig.torso.rotation.y = baseTorsoY;
+                rig.head.rotation.x  = THREE.MathUtils.lerp(0.02, -0.06 - pitch * 0.35, w);
+                rig.head.rotation.y  = baseHeadY;
+                rig.head.rotation.z  = THREE.MathUtils.lerp(0, -0.05, w); // Cheek weld on comb in combat
 
-            rig.torso.rotation.y = THREE.MathUtils.lerp(patrolTorsoY, adsTorsoY, w);
-            rig.head.rotation.y  = THREE.MathUtils.lerp(patrolHeadY, adsHeadY, w);
+                // Right arm firmly shoulders the rifle: elbow tucked, buttstock seated in right shoulder pocket
+                const rShX = THREE.MathUtils.lerp(-0.65, -0.85, w) - this.recoilKick * 0.3;
+                const rShY = THREE.MathUtils.lerp(0.10, 0.12, w);
+                const rShZ = THREE.MathUtils.lerp(-0.18, -0.22, w);
+                const rElX = THREE.MathUtils.lerp(-1.18, -1.35, w);
+                const rWrX = THREE.MathUtils.lerp(0.10, 0.14, w);
+                const rWrY = THREE.MathUtils.lerp(-0.02, -0.04, w);
+                const rWrZ = THREE.MathUtils.lerp(-0.06, -0.08, w);
 
-            // Right arm grips receiver at chest level
-            rig.rightArm.shoulder.rotation.x = THREE.MathUtils.lerp(patrolRShX, -0.95, w);
-            rig.rightArm.shoulder.rotation.z = THREE.MathUtils.lerp(-0.20, -0.28, w);
-            rig.rightArm.elbow.rotation.x    = THREE.MathUtils.lerp(-1.22, -1.35, w);
+                rig.rightArm.shoulder.rotation.set(rShX, rShY, rShZ);
+                rig.rightArm.elbow.rotation.set(rElX, 0, 0);
+                rig.rightArm.wrist.rotation.set(rWrX, rWrY, rWrZ);
 
-            // Left arm reaches forward to support the wooden forend under the barrel
-            rig.leftArm.shoulder.rotation.x  = THREE.MathUtils.lerp(patrolLShX, -0.85, w);
-            rig.leftArm.shoulder.rotation.y  = THREE.MathUtils.lerp(-0.55, 0.32, w);
-            rig.leftArm.shoulder.rotation.z  = THREE.MathUtils.lerp(0.0, 0.28, w);
-            rig.leftArm.elbow.rotation.x     = THREE.MathUtils.lerp(-0.82, -1.15, w);
-
-            // Hold gun pointing directly at target in ADS firing stance
-            if (w > 0.05 && this.currentTarget) {
-                const targetPos = new THREE.Vector3(this.currentTarget.x, this.currentTarget.y, this.currentTarget.z);
+                // Update world matrices for torso and right arm/wrist
+                rig.torso.updateMatrixWorld(true);
+                rig.rightArm.shoulder.updateMatrixWorld(true);
+                rig.rightArm.elbow.updateMatrixWorld(true);
                 rig.rightArm.wrist.updateMatrixWorld(true);
-                const wristWorldPos = new THREE.Vector3();
-                rig.rightArm.wrist.getWorldPosition(wristWorldPos);
 
-                // Build lookAt matrix from wrist to target so +Z points directly at target and +Y stays upright
-                const m = new THREE.Matrix4();
-                const oppTarget = wristWorldPos.clone().add(wristWorldPos.clone().sub(targetPos));
-                m.lookAt(wristWorldPos, oppTarget, new THREE.Vector3(0, 1, 0));
-                const targetWorldQuat = new THREE.Quaternion().setFromRotationMatrix(m);
+                // Orient rifle along aimDir in world space
+                const fwd = aimDir.clone();
+                const worldUp = new THREE.Vector3(0, 1, 0);
+                let right = new THREE.Vector3().crossVectors(worldUp, fwd);
+                if (right.lengthSq() < 0.0001) {
+                    right.set(Math.cos(this.heading), 0, -Math.sin(this.heading));
+                } else {
+                    right.normalize();
+                }
+                const realUp = new THREE.Vector3().crossVectors(fwd, right).normalize();
+                const rotMat = new THREE.Matrix4().makeBasis(right, realUp, fwd);
+                const targetWorldQuat = new THREE.Quaternion().setFromRotationMatrix(rotMat);
 
                 const wristWorldQuat = new THREE.Quaternion();
                 rig.rightArm.wrist.getWorldQuaternion(wristWorldQuat);
-                const wristInv = wristWorldQuat.clone().invert();
-                const adsQuat = wristInv.multiply(targetWorldQuat);
+                const localRifleQuat = wristWorldQuat.clone().invert().multiply(targetWorldQuat);
+                rig.rifle.quaternion.copy(localRifleQuat);
+                rig.rifle.updateMatrixWorld(true);
 
-                const patrolQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(patrolRifleRotX, -0.40, 0.50));
-                rig.rifle.quaternion.slerpQuaternions(patrolQuat, adsQuat, w);
-            } else {
-                rig.rifle.rotation.set(
-                    THREE.MathUtils.lerp(patrolRifleRotX, 1.48, w),
-                    THREE.MathUtils.lerp(-0.40, -0.20, w),
-                    THREE.MathUtils.lerp(0.50, 0.28, w)
-                );
+                // 2-Bone Analytical Inverse Kinematics for Left Arm holding wooden forend
+                const gripWorld = rig.rifle.localToWorld(new THREE.Vector3(0, -0.02, 0.16));
+                const leftShoulderPos = rig.leftArm.shoulder.position; // in torso space
+                const gripTorso = rig.torso.worldToLocal(gripWorld.clone());
+
+                const D = gripTorso.clone().sub(leftShoulderPos);
+                const dist = D.length();
+                const L1 = 0.265; // upper arm length
+                const L2 = 0.24;  // forearm length
+
+                const targetDist = Math.min(dist, L1 + L2 - 0.005);
+                const cosAlpha = Math.max(-1, Math.min(1, (L1 * L1 + targetDist * targetDist - L2 * L2) / (2 * L1 * targetDist)));
+                const alpha = Math.acos(cosAlpha);
+
+                const D_norm = D.clone().normalize();
+                // Tucked support elbow underneath the rifle (standard marksmanship tripod)
+                const pole = new THREE.Vector3(0.12, -0.92, 0.36).normalize();
+                let n = pole.clone().sub(D_norm.clone().multiplyScalar(pole.dot(D_norm)));
+                if (n.lengthSq() < 0.001) n = new THREE.Vector3(1, 0, 0);
+                n.normalize();
+
+                const E = leftShoulderPos.clone()
+                    .add(D_norm.clone().multiplyScalar(L1 * Math.cos(alpha)))
+                    .add(n.clone().multiplyScalar(L1 * Math.sin(alpha)));
+
+                // Upper arm points to elbow E
+                const vUpper = E.clone().sub(leftShoulderPos).normalize();
+                const qUpper = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, -1, 0), vUpper);
+                rig.leftArm.shoulder.quaternion.copy(qUpper);
+                rig.leftArm.shoulder.updateMatrixWorld(true);
+
+                // Forearm points to gripTorso
+                const vForearmTorso = gripTorso.clone().sub(E).normalize();
+                const vForearmShoulder = vForearmTorso.clone().applyQuaternion(qUpper.clone().invert());
+                const qForearm = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, -1, 0), vForearmShoulder);
+                rig.leftArm.elbow.quaternion.copy(qForearm);
+                rig.leftArm.elbow.updateMatrixWorld(true);
+
+                // Left wrist cupping the underside of the wooden fore-end
+                const qHandCup = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.35, 0.25, 0.75));
+                rig.leftArm.wrist.quaternion.copy(qHandCup);
+                rig.leftArm.wrist.updateMatrixWorld(true);
             }
         }
 
@@ -2250,11 +2640,13 @@
         const sx = tankX + Math.cos(ejectAngle) * 2.5;
         const sz = tankZ - Math.sin(ejectAngle) * 2.5;
         const sId = `ejected_driver_${Date.now()}`;
+        const driverType = Math.random() < 0.5 ? 'smg' : 'rifle';
 
         const driver = new SoldierAI(sId, f, sx, sz, {
             isEnemy: true,
             heading: ejectAngle,
-            patrolRadius: 25
+            patrolRadius: 25,
+            soldierType: driverType
         });
 
         // Stagger / disorient reaction upon being thrown out of hatch
@@ -2276,14 +2668,21 @@
     }
     window.spawnEjectedDriver = spawnEjectedDriver;
 
-    function spawnSoldierEscortForTank(enemyTank, enemyFaction) {
+    function spawnSoldierEscortForTank(enemyTank, enemyFaction, spawnRate = 0.80) {
         if (!enemyTank) return;
         const faction = enemyFaction || (window.getOpposingFaction ? window.getOpposingFaction() : 'us');
+        // 4 infantry escorts per tank (reduced to 80% spawn rate)
         const offsets = [
-            { dx: 6.5, dz: 3.5, heading: 0.2 },
-            { dx: -6.5, dz: 3.5, heading: -0.2 }
+            { dx: 6.5, dz: 3.5, heading: 0.2, type: 'rifle' },
+            { dx: -6.5, dz: 3.5, heading: -0.2, type: 'smg' },
+            { dx: 5.2, dz: -4.0, heading: 0.1, type: 'rifle' },
+            { dx: -5.2, dz: -4.0, heading: -0.1, type: 'smg' }
         ];
+        let spawned = 0;
         offsets.forEach((off, idx) => {
+            // Reduce soldiers spawning with the tank to 80%
+            if (Math.random() > spawnRate) return;
+            spawned++;
             const sx = enemyTank.x + off.dx;
             const sz = enemyTank.z + off.dz;
             const sId = `${enemyTank.id || 'tank'}:escort:${idx + 1}`;
@@ -2291,10 +2690,25 @@
                 isEnemy: true,
                 heading: off.heading,
                 patrolRadius: 18,
-                escortTank: enemyTank
+                escortTank: enemyTank,
+                soldierType: off.type
             });
             activeSoldiers.push(soldier);
         });
+        if (spawned === 0 && offsets.length > 0 && Math.random() < spawnRate) {
+            const firstOff = offsets[0];
+            const sx = enemyTank.x + firstOff.dx;
+            const sz = enemyTank.z + firstOff.dz;
+            const sId = `${enemyTank.id || 'tank'}:escort:1`;
+            const soldier = new SoldierAI(sId, faction, sx, sz, {
+                isEnemy: true,
+                heading: firstOff.heading,
+                patrolRadius: 18,
+                escortTank: enemyTank,
+                soldierType: firstOff.type
+            });
+            activeSoldiers.push(soldier);
+        }
     }
     window.spawnSoldierEscortForTank = spawnSoldierEscortForTank;
 

@@ -33,25 +33,45 @@ const soundFX = {
                 py = window.tankState.y || 0;
                 pz = window.tankState.z;
             }
-            const tx = posOrDist.x !== undefined ? posOrDist.x : 0;
-            const ty = posOrDist.y !== undefined ? posOrDist.y : 0;
-            const tz = posOrDist.z !== undefined ? posOrDist.z : 0;
+            let tx = 0, ty = 0, tz = 0;
+            if (posOrDist.position && typeof posOrDist.position.x === 'number') {
+                tx = posOrDist.position.x;
+                ty = posOrDist.position.y !== undefined ? posOrDist.position.y : 0;
+                tz = posOrDist.position.z !== undefined ? posOrDist.position.z : 0;
+            } else {
+                tx = posOrDist.x !== undefined ? posOrDist.x : 0;
+                ty = posOrDist.y !== undefined ? posOrDist.y : 0;
+                tz = posOrDist.z !== undefined ? posOrDist.z : 0;
+            }
             return Math.hypot(tx - px, ty - py, tz - pz);
         }
         return 0;
     },
 
-    // Create 3D spatial attenuation node graph (Inverse-distance falloff + air absorption lowpass filter)
+    // Speed of sound in dry air at 20°C (m/s)
+    SPEED_OF_SOUND: 343,
+
+    // Calculate propagation delay in seconds from sound origin to player
+    getSoundDelay(posOrDist) {
+        const dist = this.getPlayerDistance(posOrDist);
+        if (dist <= 0.1) return 0;
+        return dist / (this.SPEED_OF_SOUND || 343.0);
+    },
+
+    // Create 3D spatial attenuation node graph (Inverse-distance falloff + air absorption lowpass filter + acoustic propagation delay)
     createSpatialGain(posOrDist, refDist = 28.0, rolloff = 1.15, minGain = 0.0, maxCutoff = 8000) {
         const dist = this.getPlayerDistance(posOrDist);
+        const delay = this.getSoundDelay(dist);
         if (dist <= 0.1) {
-            // Near or at player's own position: full volume, zero filtering
+            // Near or at player's own position: full volume, zero filtering, immediate playback
             return {
                 input: this.ctx.destination,
                 gainNode: null,
+                filter: null,
                 gain: 1.0,
                 cutoff: maxCutoff,
-                dist: 0
+                dist: 0,
+                delay: 0
             };
         }
 
@@ -70,12 +90,24 @@ const soundFX = {
         filter.connect(gainNode);
         gainNode.connect(this.ctx.destination);
 
+        // Auto-cleanup node connections when delayed playback completes
+        if (typeof setTimeout === 'function') {
+            setTimeout(() => {
+                try {
+                    filter.disconnect();
+                    gainNode.disconnect();
+                } catch (e) {}
+            }, Math.ceil((delay + 3.0) * 1000));
+        }
+
         return {
             input: filter,
             gainNode,
+            filter,
             gain: gainVal,
             cutoff,
-            dist
+            dist,
+            delay
         };
     },
 
@@ -150,8 +182,8 @@ const soundFX = {
     playShermanCannon(posOrDist = 0) {
         this.init();
         if (!this.enabled || !this.ctx) return;
-        const now = this.ctx.currentTime;
         const spatial = this.createSpatialGain(posOrDist, 42.0, 1.25, 0.05, 8000);
+        const now = this.ctx.currentTime + (spatial.delay || 0);
 
         const bufferSize = Math.floor(this.ctx.sampleRate * 1.1);
         const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
@@ -192,8 +224,8 @@ const soundFX = {
     playT34Cannon(posOrDist = 0) {
         this.init();
         if (!this.enabled || !this.ctx) return;
-        const now = this.ctx.currentTime;
         const spatial = this.createSpatialGain(posOrDist, 42.0, 1.25, 0.05, 8000);
+        const now = this.ctx.currentTime + (spatial.delay || 0);
 
         const bufferSize = Math.floor(this.ctx.sampleRate * 1.35);
         const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
@@ -234,8 +266,8 @@ const soundFX = {
     playKV2Howitzer(posOrDist = 0) {
         this.init();
         if (!this.enabled || !this.ctx) return;
-        const now = this.ctx.currentTime;
         const spatial = this.createSpatialGain(posOrDist, 55.0, 1.45, 0.08, 9500);
+        const now = this.ctx.currentTime + (spatial.delay || 0);
 
         // Colossal 152mm M-10T Howitzer Concussion: deep seismic boom + thunderous rolling echo
         const bufferSize = Math.floor(this.ctx.sampleRate * 2.2);
@@ -278,8 +310,8 @@ const soundFX = {
     play88mmCannon(posOrDist = 0) {
         this.init();
         if (!this.enabled || !this.ctx) return;
-        const now = this.ctx.currentTime;
         const spatial = this.createSpatialGain(posOrDist, 45.0, 1.25, 0.06, 8500);
+        const now = this.ctx.currentTime + (spatial.delay || 0);
 
         // High-velocity 8.8cm KwK 36 breech crack + booming low-end shockwave
         const bufferSize = this.ctx.sampleRate * 1.4;
@@ -322,9 +354,9 @@ const soundFX = {
     playMG34Shot(posOrDist = 0) {
         this.init();
         if (!this.enabled || !this.ctx) return;
-        const now = this.ctx.currentTime;
         const spatial = this.createSpatialGain(posOrDist, 35.0, 1.2, 0.02, 7500);
         if (spatial.gain < 0.01) return;
+        const now = this.ctx.currentTime + (spatial.delay || 0);
 
         // 1. Visceral Chamber Blast & Low Thud (Punchy chamber pressure: 195Hz down to 55Hz)
         const punch = this.ctx.createOscillator();
@@ -397,9 +429,9 @@ const soundFX = {
     playRifleShot(posOrDist = 0) {
         this.init();
         if (!this.enabled || !this.ctx) return;
-        const now = this.ctx.currentTime;
         const spatial = this.createSpatialGain(posOrDist, 40.0, 1.25, 0.02, 8000);
         if (spatial.gain < 0.01) return;
+        const now = this.ctx.currentTime + (spatial.delay || 0);
 
         // 1. Deep Concussive Chamber Blast (Heavy, visceral recoil boom: 280Hz down to 42Hz)
         const boom = this.ctx.createOscillator();
@@ -481,73 +513,73 @@ const soundFX = {
     playImpactExplosion(posOrDist = 0) {
         this.init();
         if (!this.enabled || !this.ctx) return;
-        const now = this.ctx.currentTime;
         const spatial = this.createSpatialGain(posOrDist, 38.0, 1.15, 0.04, 7500);
+        const now = this.ctx.currentTime + (spatial.delay || 0);
 
-        // 1. Initial High-Energy Supersonic Shockwave Crack (Violent high-pressure transient)
-        const crackBufferSize = Math.floor(this.ctx.sampleRate * 0.14);
+        // 1. Initial High-Energy Supersonic Shockwave Crack (Deep, heavy low-pitch shockwave transient)
+        const crackBufferSize = Math.floor(this.ctx.sampleRate * 0.16);
         const crackBuf = this.ctx.createBuffer(1, crackBufferSize, this.ctx.sampleRate);
         const crackData = crackBuf.getChannelData(0);
         for (let i = 0; i < crackBufferSize; i++) {
-            crackData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (this.ctx.sampleRate * 0.024));
+            crackData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (this.ctx.sampleRate * 0.032));
         }
         const crackSrc = this.ctx.createBufferSource();
         crackSrc.buffer = crackBuf;
 
         const crackFilter = this.ctx.createBiquadFilter();
         crackFilter.type = 'bandpass';
-        crackFilter.frequency.setValueAtTime(1400, now);
-        crackFilter.Q.setValueAtTime(1.8, now);
+        crackFilter.frequency.setValueAtTime(650, now);
+        crackFilter.Q.setValueAtTime(1.4, now);
 
         const crackGain = this.ctx.createGain();
-        crackGain.gain.setValueAtTime(0.95, now);
-        crackGain.gain.exponentialRampToValueAtTime(0.001, now + 0.13);
+        crackGain.gain.setValueAtTime(1.05, now);
+        crackGain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
 
         crackSrc.connect(crackFilter);
         crackFilter.connect(crackGain);
         crackGain.connect(spatial.input);
         crackSrc.start(now);
 
-        // 2. Heavy HE Blast Roar & Debris Rumble (Deep, thundering broad noise blast - High Volume)
-        const rumbleBufferSize = Math.floor(this.ctx.sampleRate * 1.9);
+        // 2. Heavy HE Blast Roar & Debris Rumble (Deep, thundering broad noise blast - Low-Pitch Heavy Rumbling)
+        const rumbleBufferSize = Math.floor(this.ctx.sampleRate * 2.0);
         const rumbleBuf = this.ctx.createBuffer(1, rumbleBufferSize, this.ctx.sampleRate);
         const rumbleData = rumbleBuf.getChannelData(0);
         for (let i = 0; i < rumbleBufferSize; i++) {
-            rumbleData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (this.ctx.sampleRate * 0.48));
+            rumbleData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (this.ctx.sampleRate * 0.52));
         }
         const rumbleSrc = this.ctx.createBufferSource();
         rumbleSrc.buffer = rumbleBuf;
 
         const rumbleFilter = this.ctx.createBiquadFilter();
         rumbleFilter.type = 'lowpass';
-        rumbleFilter.frequency.setValueAtTime(680, now);
-        rumbleFilter.frequency.exponentialRampToValueAtTime(110, now + 1.6);
+        rumbleFilter.frequency.setValueAtTime(360, now);
+        rumbleFilter.frequency.exponentialRampToValueAtTime(70, now + 1.8);
 
         const rumbleGain = this.ctx.createGain();
-        rumbleGain.gain.setValueAtTime(1.25, now); // Significantly increased blast volume
-        rumbleGain.gain.exponentialRampToValueAtTime(0.002, now + 1.85);
+        rumbleGain.gain.setValueAtTime(1.35, now);
+        rumbleGain.gain.exponentialRampToValueAtTime(0.002, now + 1.95);
 
         rumbleSrc.connect(rumbleFilter);
         rumbleFilter.connect(rumbleGain);
         rumbleGain.connect(spatial.input);
         rumbleSrc.start(now);
 
-        // 3. Sub-Bass Concussion Thump (Visceral chest-hitting shock: 160Hz down to 26Hz)
+        // 3. Sub-Bass Concussion Thump (Deep visceral chest-hitting shock: 100Hz down to 22Hz)
         const subOsc = this.ctx.createOscillator();
         subOsc.type = 'sine';
-        subOsc.frequency.setValueAtTime(160, now);
-        subOsc.frequency.exponentialRampToValueAtTime(26, now + 0.58);
+        subOsc.frequency.setValueAtTime(100, now);
+        subOsc.frequency.exponentialRampToValueAtTime(22, now + 0.65);
 
         const subGain = this.ctx.createGain();
-        subGain.gain.setValueAtTime(1.15, now);
-        subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.68);
+        subGain.gain.setValueAtTime(1.25, now);
+        subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.72);
 
         subOsc.connect(subGain);
         subGain.connect(spatial.input);
         subOsc.start(now);
-        subOsc.stop(now + 0.68);
+        subOsc.stop(now + 0.72);
 
-        // 4. Secondary Ground Debris Spatter (Pebbles and scorched earth fallout)
+        // 4. Secondary Ground Debris Spatter (Pebbles and scorched earth fallout - Low resonant spatter)
         const debrisSize = Math.floor(this.ctx.sampleRate * 0.9);
         const debrisBuf = this.ctx.createBuffer(1, debrisSize, this.ctx.sampleRate);
         const dData = debrisBuf.getChannelData(0);
@@ -559,8 +591,8 @@ const soundFX = {
 
         const dFilter = this.ctx.createBiquadFilter();
         dFilter.type = 'bandpass';
-        dFilter.frequency.setValueAtTime(950, now);
-        dFilter.Q.setValueAtTime(2.2, now);
+        dFilter.frequency.setValueAtTime(520, now);
+        dFilter.Q.setValueAtTime(1.8, now);
 
         const dGain = this.ctx.createGain();
         dGain.gain.setValueAtTime(0.001, now);
@@ -577,130 +609,147 @@ const soundFX = {
         this.playImpactExplosion(posOrDist);
     },
 
+    playHit(posOrDist = 0) {
+        this.playArmorRicochet(posOrDist);
+    },
+
     // Realistic Multi-Stage Tree Toppling & Canopy Ground Crash (Deep Low-Pitch Timber Snap)
 
-    // Deep heavy-armor bullet / shell deflection glance & bright metallic clang with distance falloff
+    // Deep heavy-armor impact thud & low resonant steel plate gong (Visceral low pitch hit)
     playArmorRicochet(posOrDist = 0) {
         this.init();
         if (!this.enabled || !this.ctx) return;
-        const now = this.ctx.currentTime;
-        const spatial = this.createSpatialGain(posOrDist, 30.0, 1.25, 0.0, 14000);
+        const spatial = this.createSpatialGain(posOrDist, 32.0, 1.30, 0.0, 10000);
         if (spatial.gain < 0.01) return;
+        const now = this.ctx.currentTime + (spatial.delay || 0);
 
-        // 1. Heavy Armor Solid Mass Thud (Punchy low-frequency hull substrate: 180Hz down to 50Hz)
+        // 1. Heavy Armor Solid Mass Thud (Punchy deep hull substrate: 90Hz down to 32Hz)
         const thud = this.ctx.createOscillator();
         const thudGain = this.ctx.createGain();
         thud.type = 'triangle';
-        thud.frequency.setValueAtTime(180, now);
-        thud.frequency.exponentialRampToValueAtTime(50, now + 0.07);
-        thudGain.gain.setValueAtTime(0.70, now);
-        thudGain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+        thud.frequency.setValueAtTime(90, now);
+        thud.frequency.exponentialRampToValueAtTime(32, now + 0.10);
+        thudGain.gain.setValueAtTime(0.95, now);
+        thudGain.gain.exponentialRampToValueAtTime(0.001, now + 0.11);
         thud.connect(thudGain);
         thudGain.connect(spatial.input);
         thud.start(now);
-        thud.stop(now + 0.08);
+        thud.stop(now + 0.11);
 
-        // 2. High-Frequency Hard Steel Impact Snap (Biting supersonic metal-on-metal crack)
-        const snapLen = Math.floor(this.ctx.sampleRate * 0.05);
+        // Sub-Bass Body Concussion (Dense 68Hz -> 25Hz low-frequency thump)
+        const subThud = this.ctx.createOscillator();
+        const subThudGain = this.ctx.createGain();
+        subThud.type = 'sine';
+        subThud.frequency.setValueAtTime(68, now);
+        subThud.frequency.exponentialRampToValueAtTime(25, now + 0.15);
+        subThudGain.gain.setValueAtTime(0.90, now);
+        subThudGain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
+        subThud.connect(subThudGain);
+        subThudGain.connect(spatial.input);
+        subThud.start(now);
+        subThud.stop(now + 0.16);
+
+        // 2. Heavy Steel Impact Transient (Weighty mid-low hammer crack: 820Hz bandpass)
+        const snapLen = Math.floor(this.ctx.sampleRate * 0.07);
         const snapBuf = this.ctx.createBuffer(1, snapLen, this.ctx.sampleRate);
         const snapData = snapBuf.getChannelData(0);
         for (let i = 0; i < snapLen; i++) {
-            snapData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (snapLen * 0.18));
+            snapData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (snapLen * 0.22));
         }
         const snapSrc = this.ctx.createBufferSource();
         snapSrc.buffer = snapBuf;
         const snapFilt = this.ctx.createBiquadFilter();
         snapFilt.type = 'bandpass';
-        snapFilt.frequency.setValueAtTime(3600, now);
-        snapFilt.Q.value = 3.2;
+        snapFilt.frequency.setValueAtTime(820, now);
+        snapFilt.Q.value = 1.8;
         const snapGain = this.ctx.createGain();
-        snapGain.gain.setValueAtTime(0.85, now);
-        snapGain.gain.exponentialRampToValueAtTime(0.001, now + 0.045);
+        snapGain.gain.setValueAtTime(0.90, now);
+        snapGain.gain.exponentialRampToValueAtTime(0.001, now + 0.065);
         snapSrc.connect(snapFilt);
         snapFilt.connect(snapGain);
         snapGain.connect(spatial.input);
         snapSrc.start(now);
 
-        // 3. Resonant High-Q Metallic Clang Filter (Vibrating steel plate clang excitation)
-        const clangLen = Math.floor(this.ctx.sampleRate * 0.28);
+        // 3. Resonant Low-Q Metallic Hull Gong (Vibrating heavy 80-100mm armor plate: 580Hz)
+        const clangLen = Math.floor(this.ctx.sampleRate * 0.35);
         const clangBuf = this.ctx.createBuffer(1, clangLen, this.ctx.sampleRate);
         const clangData = clangBuf.getChannelData(0);
         for (let i = 0; i < clangLen; i++) {
-            clangData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (clangLen * 0.25));
+            clangData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (clangLen * 0.28));
         }
         const clangSrc = this.ctx.createBufferSource();
         clangSrc.buffer = clangBuf;
         const clangFilt = this.ctx.createBiquadFilter();
         clangFilt.type = 'bandpass';
-        clangFilt.frequency.setValueAtTime(2280, now);
-        clangFilt.Q.value = 18.0; // High Q generates unmistakable hollow metallic ring
+        clangFilt.frequency.setValueAtTime(580, now);
+        clangFilt.Q.value = 12.0; // Resonant low ringing gong
         const clangGain = this.ctx.createGain();
-        clangGain.gain.setValueAtTime(0.75, now);
-        clangGain.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+        clangGain.gain.setValueAtTime(0.85, now);
+        clangGain.gain.exponentialRampToValueAtTime(0.001, now + 0.32);
         clangSrc.connect(clangFilt);
         clangFilt.connect(clangGain);
         clangGain.connect(spatial.input);
         clangSrc.start(now);
 
-        // 4. Inharmonic Armor Plate Chime Modes (Distinctive metallic "PING / TING" anvil ringing)
-        // Mode 1: Primary steel chime (~1620Hz)
+        // 4. Inharmonic Low Steel Armor Plate Modes (Low deep hull gonging)
+        // Mode 1: Primary deep steel resonance (~280Hz -> 265Hz)
         const ring1 = this.ctx.createOscillator();
         const ring1Gain = this.ctx.createGain();
         ring1.type = 'sine';
-        ring1.frequency.setValueAtTime(1620, now + 0.002);
-        ring1.frequency.exponentialRampToValueAtTime(1580, now + 0.35);
-        ring1Gain.gain.setValueAtTime(0.48, now + 0.002);
-        ring1Gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.35);
+        ring1.frequency.setValueAtTime(280, now + 0.002);
+        ring1.frequency.exponentialRampToValueAtTime(265, now + 0.40);
+        ring1Gain.gain.setValueAtTime(0.55, now + 0.002);
+        ring1Gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.40);
         ring1.connect(ring1Gain);
         ring1Gain.connect(spatial.input);
         ring1.start(now + 0.002);
-        ring1.stop(now + 0.35);
+        ring1.stop(now + 0.40);
 
-        // Mode 2: High inharmonic metallic partial (~2860Hz)
+        // Mode 2: Secondary plate overtone (~440Hz -> 415Hz)
         const ring2 = this.ctx.createOscillator();
         const ring2Gain = this.ctx.createGain();
         ring2.type = 'sine';
-        ring2.frequency.setValueAtTime(2860, now + 0.002);
-        ring2.frequency.exponentialRampToValueAtTime(2780, now + 0.24);
-        ring2Gain.gain.setValueAtTime(0.38, now + 0.002);
-        ring2Gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.24);
+        ring2.frequency.setValueAtTime(440, now + 0.002);
+        ring2.frequency.exponentialRampToValueAtTime(415, now + 0.28);
+        ring2Gain.gain.setValueAtTime(0.42, now + 0.002);
+        ring2Gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.28);
         ring2.connect(ring2Gain);
         ring2Gain.connect(spatial.input);
         ring2.start(now + 0.002);
-        ring2.stop(now + 0.24);
+        ring2.stop(now + 0.28);
 
-        // Mode 3: Sharp overtone shimmer (~4380Hz)
+        // Mode 3: Low metallic overtone (~620Hz -> 580Hz)
         const ring3 = this.ctx.createOscillator();
         const ring3Gain = this.ctx.createGain();
         ring3.type = 'sine';
-        ring3.frequency.setValueAtTime(4380, now + 0.001);
-        ring3Gain.gain.setValueAtTime(0.24, now + 0.001);
-        ring3Gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.12);
+        ring3.frequency.setValueAtTime(620, now + 0.001);
+        ring3Gain.gain.setValueAtTime(0.28, now + 0.001);
+        ring3Gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
         ring3.connect(ring3Gain);
         ring3Gain.connect(spatial.input);
         ring3.start(now + 0.001);
-        ring3.stop(now + 0.12);
+        ring3.stop(now + 0.16);
 
-        // 5. Classic High-Velocity Bullet Ricochet Whine / Zinger ("Pwwweee-ee-ew")
+        // 5. Heavy Glance Deflection Groan (Low deflection sweep: 520Hz down to 160Hz)
         const whine = this.ctx.createOscillator();
         const whineGain = this.ctx.createGain();
-        whine.type = 'sine';
-        whine.frequency.setValueAtTime(3200, now + 0.005);
-        whine.frequency.exponentialRampToValueAtTime(820, now + 0.22);
-        whineGain.gain.setValueAtTime(0.40, now + 0.005);
-        whineGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.24);
+        whine.type = 'triangle';
+        whine.frequency.setValueAtTime(520, now + 0.005);
+        whine.frequency.exponentialRampToValueAtTime(160, now + 0.22);
+        whineGain.gain.setValueAtTime(0.35, now + 0.005);
+        whineGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
         whine.connect(whineGain);
         whineGain.connect(spatial.input);
         whine.start(now + 0.005);
-        whine.stop(now + 0.24);
+        whine.stop(now + 0.22);
     },
 
     playTreeCrack(posOrDist = 0) {
         if (!this.enabled || !this.ctx) return;
         try {
-            const now = this.ctx.currentTime;
             const spatial = this.createSpatialGain(posOrDist, 20.0, 1.35, 0.0, 6000);
             if (spatial.dist > 180) return; // Completely silent beyond 180m
+            const now = this.ctx.currentTime + (spatial.delay || 0);
 
             // 1. Deep Lower-Pitch Timber Splintering Cracks (Lowered pitch from ~950Hz to 360Hz..180Hz)
             const crackMoments = [

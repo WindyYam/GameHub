@@ -20,15 +20,18 @@
     const sessionDestroyedEnemyTanks = new Set();
     const activeEnemyTanks = [];
     const MAX_ZONE_ENEMIES = 15;
-    const MIN_SPAWN_DIST = 160.0;
-    const MAX_SPAWN_DIST = 240.0;
-    const DESPAWN_DIST = 280.0;
+    const MIN_SPAWN_DIST = 192.0; // 160.0 * 1.2
+    const MAX_SPAWN_DIST = 288.0; // 240.0 * 1.2
+    const DESPAWN_DIST = 336.0;   // 280.0 * 1.2
     const SPAWN_INTERVAL_SEC = 2.5;
 
     let nextEnemySeq = 1;
     let enemySpawnCooldown = 1.0;
     let lastSpawnAngle = 0;
 
+    window.MIN_SPAWN_DIST = MIN_SPAWN_DIST;
+    window.MAX_SPAWN_DIST = MAX_SPAWN_DIST;
+    window.DESPAWN_DIST = DESPAWN_DIST;
     window.activeEnemyTanks = activeEnemyTanks;
     window.sessionDestroyedEnemyTanks = sessionDestroyedEnemyTanks;
     Object.defineProperty(window, 'MAX_PLAYER_HITS', {
@@ -41,13 +44,15 @@
     let lastPlayerFireTime = -999;
     window.notifyPlayerFired = function() {
         lastPlayerFireTime = (window.performance && window.performance.now) ? window.performance.now() / 1000 : Date.now() / 1000;
-        // Alert all alive enemies within 250m
+        // Alert all alive enemies within 250m * 1.2 (300m)
         const pX = window.tankState ? window.tankState.x : 0;
         const pZ = window.tankState ? window.tankState.z : 0;
         for (let i = 0; i < activeEnemyTanks.length; i++) {
             const e = activeEnemyTanks[i];
             if (e.isDestroyed) continue;
-            if (Math.hypot(e.x - pX, e.z - pZ) < 250) {
+            if (Math.hypot(e.x - pX, e.z - pZ) < 300) {
+                e.wasHitAlert = true;
+                e.provokedTimer = 10.0;
                 e.state = 'ENGAGING';
                 e.detectionTimer = Math.max(e.detectionTimer, 1.2);
             }
@@ -218,6 +223,9 @@
             targetTurretYaw: 0,
             targetGunElevation: 0.02,
             state: 'PATROL',         // 'PATROL', 'ENGAGING', 'DESTROYED'
+            patrolState: Math.random() < 0.5 ? 'WANDER' : 'SCAN',
+            patrolTimer: 2.5 + Math.random() * 4.0,
+            patrolHeading: angleToSpawn + (Math.random() - 0.5) * 1.2,
             combatTactic: 'STAND_AND_FIRE', // 'STAND_AND_FIRE', 'FLANK_LEFT', 'FLANK_RIGHT', 'ADVANCE', 'REVERSE'
             tacticTimer: 1.5 + Math.random() * 2.5,
             targetSpeed: 0,
@@ -237,10 +245,21 @@
             onHit(impactPos, hitDir, damage = 1) {
                 if (this.isDestroyed) return;
 
+                // Alert and detect player on hit until losing track
+                this.wasHitAlert = true;
+                this.provokedTimer = 10.0;
+                this.detectionTimer = Math.max(this.detectionTimer || 0, 7.0);
+                this.state = 'ENGAGING';
+
+                const dmg = (typeof damage === 'number') ? damage : 1;
+                // Bullets do 0 damage: alert & sparks only, no smoke/damage
+                if (dmg <= 0) {
+                    return;
+                }
+
                 if (this.armor === undefined) {
                     this.armor = this.maxArmor || (this.spec.enemyArmor !== undefined ? this.spec.enemyArmor : (this.tankType === 'tiger' ? 2 : 1));
                 }
-                const dmg = (typeof damage === 'number') ? damage : 1;
                 this.armor = Math.max(0, this.armor - dmg);
 
                 // If enemy tank still has armor remaining (e.g. Tiger tank absorbs 1st hit from 1-dmg gun):
@@ -382,7 +401,7 @@
             }
         }
 
-        // 2. GRADUAL ENEMY SPAWNER: Deploy 1 tank every ~2.5 seconds, ONLY far away (160m - 240m)
+        // 2. GRADUAL ENEMY SPAWNER: Deploy 1 tank every ~2.5 seconds, ONLY far away (192m - 288m)
         enemySpawnCooldown -= dt;
         if (enemySpawnCooldown <= 0 && activeEnemyTanks.length < MAX_ZONE_ENEMIES) {
             enemySpawnCooldown = SPAWN_INTERVAL_SEC;
@@ -390,7 +409,8 @@
         }
 
         // Player tank wreck smoke: Dense dark billowing smoke plume sourced directly on top of turret
-        if (pState.isKnockedOut && typeof window.spawnParticle === 'function' && Math.random() < dt * 4.2) {
+        // Only emit if player actually had a tank that was destroyed and the tank wreck mesh is visible in the world
+        if (pState.isKnockedOut && pState.hasTank !== false && window.tankRoot && window.tankRoot.visible && typeof window.spawnParticle === 'function' && Math.random() < dt * 4.2) {
             let pSpawnX = pState.x;
             let pSpawnY = (pState.y || 0) + 2.65;
             let pSpawnZ = pState.z;
@@ -427,9 +447,9 @@
             playerShotRecently = (nowSec - (ps.lastFireTime || 0) < 3.0) || (nowSec - (ps.lastGrenadeTime || 0) < 3.0);
         }
 
-        // In infantry mode, player is hard to detect, only in close range
-        const maxDetectRange = isInfantry ? (playerShotRecently ? 42 : 22) : (playerShotRecently ? 110 : 95);
-        const stealthBuffer = isInfantry ? 18 : 32;
+        // In infantry mode, player is hard to detect, only in close range (all detection ranges increased by 1.2)
+        const maxDetectRange = (isInfantry ? (playerShotRecently ? 42 : 22) : (playerShotRecently ? 110 : 95)) * 1.2;
+        const stealthBuffer = (isInfantry ? 18 : 32) * 1.2;
 
         for (let i = activeEnemyTanks.length - 1; i >= 0; i--) {
             const e = activeEnemyTanks[i];
@@ -487,35 +507,184 @@
             const dz = targetZ - e.z;
             const distToPlayer = Math.hypot(dx, dz);
 
-            const hasLOS = (distToPlayer < 125) && checkObstacleLineOfSight(e.x, e.z, targetX, targetZ);
+            const clearObstacleSight = checkObstacleLineOfSight(e.x, e.z, targetX, targetZ);
+            const hasLOS = (distToPlayer < 125 * 1.2) && clearObstacleSight;
+            const inDetectRange = (distToPlayer < maxDetectRange);
+            const canDetectNormally = hasLOS && inDetectRange;
+            const isHitAlert = !!(e.wasHitAlert && (e.detectionTimer > 0 || (e.provokedTimer && e.provokedTimer > 0)));
 
             if (targetDead) {
                 e.state = 'PATROL';
-            } else if (hasLOS && distToPlayer < maxDetectRange) {
-                // Immediate detection if player fires or enters close stealth buffer
-                if (playerShotRecently || distToPlayer < stealthBuffer) {
+                e.wasHitAlert = false;
+                e.provokedTimer = 0;
+            } else if (isHitAlert && !inDetectRange) {
+                // Player is outside enemy's detection range and provoked the enemy:
+                // Give up if line of sight is lost OR after 5 seconds of being outside detection range
+                const hasSight = clearObstacleSight && (distToPlayer <= 260.0);
+                if (!hasSight) {
+                    // Player lost sight from the enemy -> give up
+                    e.state = 'PATROL';
+                    e.wasHitAlert = false;
+                    e.provokedTimer = 0;
+                    e.detectionTimer = 0;
+                    e.targetSpeed = 0;
+                    e.patrolState = 'SCAN';
+                    e.patrolTimer = 2.5 + Math.random() * 2.0;
+                } else {
+                    e.provokedTimer = (typeof e.provokedTimer === 'number') ? e.provokedTimer - dt : 5.0 - dt;
+                    if (e.provokedTimer <= 0) {
+                        // Provoked for 5 seconds and still outside detection range -> give up
+                        e.state = 'PATROL';
+                        e.wasHitAlert = false;
+                        e.provokedTimer = 0;
+                        e.detectionTimer = 0;
+                        e.targetSpeed = 0;
+                        e.patrolState = 'SCAN';
+                        e.patrolTimer = 2.5 + Math.random() * 2.0;
+                    } else {
+                        // Within 5s window and in line of sight: engage/pursue towards source of fire
+                        e.detectionTimer = 1.0;
+                        e.state = 'ENGAGING';
+                    }
+                }
+            } else if (canDetectNormally || (isHitAlert && inDetectRange)) {
+                // Inside normal detection range or entered detection range while provoked
+                e.provokedTimer = 0;
+                if (isHitAlert || playerShotRecently || distToPlayer < stealthBuffer) {
                     e.detectionTimer = Math.max(e.detectionTimer, 1.2);
                 } else {
                     e.detectionTimer += dt;
                 }
 
-                if (e.detectionTimer >= 0.8) {
+                if (e.detectionTimer >= 0.8 || isHitAlert) {
                     e.state = 'ENGAGING';
                 }
             } else {
-                e.detectionTimer = Math.max(0, e.detectionTimer - dt * 0.5);
-                if (e.detectionTimer <= 0) e.state = 'PATROL';
+                // Decay detection when losing line of sight or distance until track is lost
+                e.detectionTimer = Math.max(0, e.detectionTimer - dt * 0.6);
+                if (e.detectionTimer <= 0) {
+                    e.state = 'PATROL';
+                    e.wasHitAlert = false;
+                    e.provokedTimer = 0;
+                }
             }
 
             // ----------------------------------------------------------------
-            // State: PATROL (Idle Horizon Scanning)
+            // State: PATROL (Wander around and Horizon Scanning)
             // ----------------------------------------------------------------
             if (e.state === 'PATROL') {
-                // Slowly oscillate turret back and forth across frontal arc
+                e.reloadTimer = Math.max(0, e.reloadTimer - dt);
+                e.patrolTimer = (e.patrolTimer || 3.0) - dt;
+
+                if (e.patrolTimer <= 0) {
+                    if (e.patrolState === 'WANDER') {
+                        // Switch from wandering to scanning in place
+                        e.patrolState = 'SCAN';
+                        e.patrolTimer = 2.5 + Math.random() * 3.5;
+                        e.targetSpeed = 0;
+                    } else {
+                        // Switch from scanning to wandering
+                        e.patrolState = 'WANDER';
+                        e.patrolTimer = 4.0 + Math.random() * 6.0;
+                        const spdFactor = (e.spec && e.spec.maxSpeed) ? (e.spec.maxSpeed / 10.6) : 1.0;
+                        e.targetSpeed = (2.2 + Math.random() * 1.2) * spdFactor;
+
+                        // Pick a new wander heading. If tank is far from center (> 180m), steer back towards battlefield
+                        const distToOrigin = Math.hypot(e.x, e.z);
+                        if (distToOrigin > 180) {
+                            e.patrolHeading = normalizeAngle(Math.atan2(-e.x, -e.z) + (Math.random() - 0.5) * 0.8);
+                        } else {
+                            e.patrolHeading = normalizeAngle(e.heading + (Math.random() - 0.5) * 1.8);
+                        }
+                    }
+                }
+
+                // Turret scanning during patrol
                 const scanAngle = Math.sin(nowSec * 0.45 + (e.x * 0.1)) * 0.52;
                 e.turretYaw = THREE.MathUtils.lerp(e.turretYaw, scanAngle, dt * 0.8);
                 if (e.model.turretGroup) e.model.turretGroup.rotation.y = e.turretYaw;
                 if (e.model.gunElevationPivot) e.model.gunElevationPivot.rotation.x = 0.02;
+
+                // Hull steering and driving when in WANDER mode
+                let desiredHullHeading = e.heading;
+                if (e.patrolState === 'WANDER') {
+                    desiredHullHeading = (typeof e.patrolHeading === 'number') ? e.patrolHeading : e.heading;
+                } else {
+                    e.targetSpeed = 0;
+                }
+
+                const hullTurnRate = (e.tankType === 'sherman') ? 1.15 : 0.90;
+                const headingDiff = normalizeAngle(desiredHullHeading - e.heading);
+                e.heading += THREE.MathUtils.clamp(headingDiff, -hullTurnRate * dt, hullTurnRate * dt);
+                e.enemyRoot.rotation.y = e.heading;
+
+                e.speed = THREE.MathUtils.lerp(e.speed, e.targetSpeed || 0, dt * 2.2);
+                if (Math.abs(e.speed) > 0.05) {
+                    const moveDist = e.speed * dt;
+                    const nextX = e.x + Math.sin(e.heading) * moveDist;
+                    const nextZ = e.z + Math.cos(e.heading) * moveDist;
+
+                    let canMove = true;
+                    if (typeof window.getTerrainHeight === 'function') {
+                        const nextY = window.getTerrainHeight(nextX, nextZ);
+                        if (nextY < -1.8) {
+                            canMove = false;
+                            e.patrolState = 'SCAN';
+                            e.patrolTimer = 2.0;
+                            e.patrolHeading = normalizeAngle(e.heading + Math.PI * 0.75);
+                            e.targetSpeed = 0;
+                        } else {
+                            e.y = nextY;
+                        }
+                    }
+
+                    if (canMove && window.worldObstacles) {
+                        for (let ob = 0; ob < window.worldObstacles.length; ob++) {
+                            const obs = window.worldObstacles[ob];
+                            const dObs = Math.hypot(nextX - obs.x, nextZ - obs.z);
+                            if (dObs < (obs.radius || 3.0) + 2.5) {
+                                canMove = false;
+                                e.patrolState = 'SCAN';
+                                e.patrolTimer = 2.0;
+                                e.patrolHeading = normalizeAngle(e.heading + Math.PI * 0.65);
+                                e.targetSpeed = 0;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (canMove) {
+                        e.x = nextX;
+                        e.z = nextZ;
+                        e.enemyRoot.position.set(e.x, e.y, e.z);
+
+                        // Animate road wheels & track links while wandering
+                        if (typeof e.model.updateTracksGeometry === 'function') {
+                            const trackAnim = e.speed * 0.9;
+                            e.model.updateTracksGeometry(nowSec * trackAnim * 1.5, nowSec * trackAnim * 1.5);
+                        }
+
+                        // Track dust plumes kicked up by wandering enemy tank
+                        if (Math.abs(e.speed) > 0.3 && typeof window.spawnParticle === 'function' && Math.random() < 1.0 - Math.exp(-4.0 * dt)) {
+                            const enemyTrackWidth = (e.tankType === 'kingtiger') ? 1.48 : ((e.tankType === 'tiger') ? 1.38 : 1.20);
+                            const dustCol = (window.currentZoneConfig && window.currentZoneConfig.trackDustColor) ? window.currentZoneConfig.trackDustColor : 0x5c4d3c;
+                            [-enemyTrackWidth, enemyTrackWidth].forEach((sideX) => {
+                                const kickOffset = new THREE.Vector3(sideX, -0.85, -2.3).applyAxisAngle(new THREE.Vector3(0, 1, 0), e.heading);
+                                const kickPos = kickOffset.add(e.enemyRoot.position);
+                                const backDir = new THREE.Vector3(-Math.sin(e.heading), 0, -Math.cos(e.heading));
+                                const kickVel = backDir.multiplyScalar(Math.abs(e.speed) * 0.4 + 0.6);
+                                kickVel.x += (Math.random() - 0.5) * 1.2;
+                                kickVel.y = 0.4 + Math.random() * 0.8;
+                                kickVel.z += (Math.random() - 0.5) * 1.2;
+                                window.spawnParticle(kickPos, kickVel, dustCol, 0.35, 2.5 + Math.random() * 0.8, 1.1 + Math.random() * 0.6, false, 'dust', {
+                                    maxOpacity: 0.70,
+                                    drag: 0.91,
+                                    buoyancy: -0.08
+                                });
+                            });
+                        }
+                    }
+                }
                 continue;
             }
 
@@ -675,7 +844,8 @@
             const yawError = Math.abs(normalizeAngle(e.turretYaw - rawDesiredLocalTurretYaw));
             const elevError = Math.abs(e.gunElevation - (Math.atan2(dy, distToPlayer) + dropCompensation));
 
-            // Generous alignment trigger so enemies shoot with realistic hesitation and imperfection
+            // Standard AI firing logic: cannon must be aligned with target (yaw and pitch error within tolerance),
+            // reload cycle must be completed, line of sight must be unobstructed, and target must be alive
             if (yawError < 0.22 && elevError < 0.16 && e.reloadTimer <= 0 && hasLOS && !targetDead) {
                 // FIRE MAIN CANNON!
                 e.reloadTimer = (e.spec.reloadTime || 4.2) + Math.random() * 0.8;
@@ -984,8 +1154,8 @@
             if (y < -1.5) continue;
             // Reject if steep cliff
             if (norm.y < 0.82) continue;
-            // Strict distance check: MUST NEVER be near player
-            if (Math.hypot(testX - playerX, testZ - playerZ) < 140.0) continue;
+            // Strict distance check: MUST NEVER be near player (140.0 * 1.2 = 168.0m)
+            if (Math.hypot(testX - playerX, testZ - playerZ) < 168.0) continue;
 
             // Reject if colliding with building or rock
             let collidesObstacle = false;
@@ -1039,7 +1209,7 @@
         const enemy = spawnEnemyCombatTank(enemyId, bestX, bestY, bestZ, window.scene, tankType);
         if (enemy && typeof window.spawnSoldierEscortForTank === 'function') {
             const currentSoldiers = window.activeSoldiers ? window.activeSoldiers.length : 0;
-            if (currentSoldiers < 14) {
+            if (currentSoldiers < 28) {
                 const enemyFaction = (tankType === 'sherman' || tankType === 'pershing') ? 'us' : ((tankType === 't34' || tankType === 'kv2') ? 'soviet' : 'german');
                 window.spawnSoldierEscortForTank(enemy, enemyFaction);
             }
