@@ -153,6 +153,8 @@ class FXCompositePass extends THREE.Pass {
         this.copyMaterial.dispose();
         this.fullScreenQuad.dispose();
     }
+
+    setSize(width, height) {}
 }
 
 const fxCompositePass = new FXCompositePass(scene);
@@ -1312,11 +1314,156 @@ function updateSimulation(dt) {
 const useSSAO = /[?&]ssao=1/.test(window.location.search);
 window.useSSAO = useSSAO;
 
+// ============================================================================
+// Resolution & Settings Management
+// ============================================================================
+const RESOLUTION_PRESETS = {
+    'default': { label: 'Default (Window Size)', height: null },
+    '2k':      { label: '2K (1440p)',           height: 1440 },
+    '1080p':   { label: '1080p (Full HD)',      height: 1080 },
+    '720p':    { label: '720p (HD)',            height: 720 },
+    '480p':    { label: '480p (SD)',            height: 480 }
+};
+window.RESOLUTION_PRESETS = RESOLUTION_PRESETS;
+
+let currentResolutionKey = 'default';
+try {
+    const saved = localStorage.getItem('tankClash_resolution');
+    if (saved && RESOLUTION_PRESETS[saved]) {
+        currentResolutionKey = saved;
+    }
+} catch (e) {}
+
 // Adaptive resolution: trade pixel density for a stable frame rate
 const isMobUser = (typeof isMobileBrowser === 'function' && isMobileBrowser()) || (typeof isMobileDevice === 'function' && isMobileDevice());
 const maxPixelRatio = isMobUser ? 1.0 : Math.min(window.devicePixelRatio || 1.5, 1.5);
 const adaptiveRes = { ratio: maxPixelRatio, max: maxPixelRatio, min: 0.65, avgMs: 16.7, cooldown: 0 };
+window.adaptiveRes = adaptiveRes;
+
+function getEffectiveDimensions(presetKey) {
+    const winW = window.innerWidth || 1920;
+    const winH = window.innerHeight || 1080;
+    const aspect = winW / winH;
+
+    if (!presetKey || presetKey === 'default') {
+        const pr = adaptiveRes.ratio;
+        return {
+            targetW: Math.floor(winW * pr),
+            targetH: Math.floor(winH * pr),
+            pixelRatio: pr,
+            isDefault: true
+        };
+    }
+
+    const preset = RESOLUTION_PRESETS[presetKey];
+    if (!preset || !preset.height) {
+        return {
+            targetW: winW,
+            targetH: winH,
+            pixelRatio: 1,
+            isDefault: true
+        };
+    }
+
+    const targetH = preset.height;
+    const targetW = Math.round(targetH * aspect);
+    return {
+        targetW: targetW,
+        targetH: targetH,
+        pixelRatio: 1,
+        isDefault: false
+    };
+}
+
+function updateResolutionUI() {
+    const badge = document.getElementById('current-res-badge');
+    if (badge && window.renderer && window.renderer.domElement) {
+        const bw = window.renderer.domElement.width;
+        const bh = window.renderer.domElement.height;
+        const key = currentResolutionKey;
+        const label = key === 'default' ? 'Default' : key.toUpperCase();
+        badge.textContent = `${bw}×${bh} (${label})`;
+    }
+
+    const buttons = document.querySelectorAll('.res-option-btn');
+    buttons.forEach(btn => {
+        const res = btn.getAttribute('data-res');
+        const isSelected = (res === currentResolutionKey);
+        btn.classList.toggle('active', isSelected);
+        const check = btn.querySelector('.res-check');
+        if (check) {
+            check.classList.toggle('hidden', !isSelected);
+        }
+    });
+}
+window.updateResolutionUI = updateResolutionUI;
+
+function applyResolution(presetKey) {
+    if (!RESOLUTION_PRESETS[presetKey]) presetKey = 'default';
+    currentResolutionKey = presetKey;
+    try {
+        localStorage.setItem('tankClash_resolution', presetKey);
+    } catch (e) {}
+
+    const winW = window.innerWidth;
+    const winH = window.innerHeight;
+    if (winW <= 0 || winH <= 0) return;
+
+    const dims = getEffectiveDimensions(presetKey);
+
+    if (window.perspCamera) {
+        window.perspCamera.aspect = winW / winH;
+        window.perspCamera.updateProjectionMatrix();
+    }
+    if (window.orthoCamera) {
+        const aspect = winW / winH;
+        window.orthoCamera.left = -orthoFrustumSize * aspect / 2;
+        window.orthoCamera.right = orthoFrustumSize * aspect / 2;
+        window.orthoCamera.top = orthoFrustumSize / 2;
+        window.orthoCamera.bottom = -orthoFrustumSize / 2;
+        window.orthoCamera.updateProjectionMatrix();
+    }
+
+    if (window.renderer) {
+        if (dims.isDefault) {
+            window.renderer.setPixelRatio(dims.pixelRatio);
+            window.renderer.setSize(winW, winH, false);
+        } else {
+            window.renderer.setPixelRatio(1);
+            window.renderer.setSize(dims.targetW, dims.targetH, false);
+        }
+        if (window.renderer.domElement) {
+            window.renderer.domElement.style.width = '100%';
+            window.renderer.domElement.style.height = '100%';
+        }
+    }
+
+    if (composer) {
+        if (dims.isDefault) {
+            composer.setPixelRatio(dims.pixelRatio);
+            composer.setSize(winW, winH);
+        } else {
+            composer.setPixelRatio(1);
+            composer.setSize(dims.targetW, dims.targetH);
+        }
+    }
+
+    updateResolutionUI();
+}
+
+function setResolution(key) {
+    applyResolution(key);
+}
+window.setResolution = setResolution;
+
+function getResolution() {
+    return currentResolutionKey;
+}
+window.getResolution = getResolution;
+
 function updateAdaptiveResolution(frameMs) {
+    if (currentResolutionKey !== 'default') return;
+
     adaptiveRes.avgMs = adaptiveRes.avgMs * 0.95 + Math.min(frameMs, 100) * 0.05;
     if (adaptiveRes.cooldown-- > 0) return;
     let next = adaptiveRes.ratio;
@@ -1324,9 +1471,16 @@ function updateAdaptiveResolution(frameMs) {
     else if (adaptiveRes.avgMs < 14 && next < adaptiveRes.max) next = Math.min(adaptiveRes.max, next + 0.1);
     if (Math.abs(next - adaptiveRes.ratio) > 0.01) {
         adaptiveRes.ratio = next;
-        renderer.setPixelRatio(next);
-        renderer.setSize(window.innerWidth, window.innerHeight);
+        if (renderer) {
+            renderer.setPixelRatio(next);
+            renderer.setSize(window.innerWidth, window.innerHeight, false);
+        }
+        if (composer) {
+            composer.setPixelRatio(next);
+            composer.setSize(window.innerWidth, window.innerHeight);
+        }
         adaptiveRes.cooldown = 90;
+        updateResolutionUI();
     }
 }
 
@@ -1363,18 +1517,78 @@ function onWindowResize() {
     const h = window.innerHeight;
     if (w <= 0 || h <= 0) return;
 
-    if (window.perspCamera) {
-        window.perspCamera.aspect = w / h;
-        window.perspCamera.updateProjectionMatrix();
-    }
-    if (window.renderer) {
-        window.renderer.setSize(w, h);
-        window.renderer.setPixelRatio(adaptiveRes.ratio);
-    }
-    if (composer) composer.setSize(w, h);
+    applyResolution(currentResolutionKey);
 }
 window.onWindowResize = onWindowResize;
 window.updateCameraProjectionAspect = onWindowResize;
+
+function initSettingsUI() {
+    const btnSettings = document.getElementById('btn-settings');
+    const modal = document.getElementById('settings-modal');
+    const card = document.getElementById('settings-dialog-card');
+    const btnClose = document.getElementById('btn-settings-close');
+    const btnDone = document.getElementById('btn-settings-done');
+
+    function openModal() {
+        if (modal) modal.classList.remove('hidden');
+        if (document.pointerLockElement) {
+            document.exitPointerLock();
+        }
+        updateResolutionUI();
+    }
+    function closeModal() {
+        if (modal) modal.classList.add('hidden');
+    }
+
+    if (btnSettings) {
+        btnSettings.onclick = (e) => {
+            e.stopPropagation();
+            if (modal && !modal.classList.contains('hidden')) {
+                closeModal();
+            } else {
+                openModal();
+            }
+        };
+    }
+    if (btnClose) btnClose.onclick = (e) => { e.stopPropagation(); closeModal(); };
+    if (btnDone) btnDone.onclick = (e) => { e.stopPropagation(); closeModal(); };
+
+    if (modal) {
+        modal.onclick = (e) => {
+            if (e.target === modal) {
+                closeModal();
+            }
+        };
+    }
+    if (card) {
+        card.onclick = (e) => e.stopPropagation();
+    }
+
+    const optionButtons = document.querySelectorAll('.res-option-btn');
+    optionButtons.forEach(btn => {
+        btn.onclick = (e) => {
+            e.stopPropagation();
+            const res = btn.getAttribute('data-res');
+            setResolution(res);
+        };
+    });
+
+    window.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && modal && !modal.classList.contains('hidden')) {
+            closeModal();
+            e.stopPropagation();
+        }
+    });
+
+    applyResolution(currentResolutionKey);
+}
+window.initSettingsUI = initSettingsUI;
+
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initSettingsUI);
+} else {
+    initSettingsUI();
+}
 
 window.addEventListener('resize', onWindowResize);
 window.addEventListener('orientationchange', () => {
@@ -1409,6 +1623,9 @@ window.updateSimulation = updateSimulation;
 window.onload = function () {
     if (typeof window.spawnBattlefieldInfantry === 'function') {
         window.spawnBattlefieldInfantry();
+    }
+    if (typeof window.initSettingsUI === 'function') {
+        window.initSettingsUI();
     }
     animate(performance.now());
 };

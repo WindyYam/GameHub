@@ -208,22 +208,6 @@
         } else {
             crosshairEl = document.getElementById('soldier-crosshair');
         }
-
-        // Add top bar dismount button if not present
-        const panelViewsContent = document.getElementById('panel-views-content');
-        if (panelViewsContent && !document.getElementById('btn-dismount-toggle')) {
-            const dismountBtn = document.createElement('button');
-            dismountBtn.id = 'btn-dismount-toggle';
-            dismountBtn.className = 'hud-btn px-2.5 py-1 rounded-lg text-[11px] font-semibold text-amber-300 hover:text-white';
-            dismountBtn.title = 'Get off/on Tank as Soldier [Key: E]';
-            dismountBtn.innerHTML = '🚶 <span id="hud-dismount-label">Exit [E]</span>';
-            panelViewsContent.insertBefore(dismountBtn, panelViewsContent.firstChild);
-
-            dismountBtn.addEventListener('click', (e) => {
-                e.preventDefault();
-                triggerInteract();
-            });
-        }
     }
 
     // ------------------------------------------------------------------------
