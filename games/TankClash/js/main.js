@@ -1326,7 +1326,17 @@ const RESOLUTION_PRESETS = {
 };
 window.RESOLUTION_PRESETS = RESOLUTION_PRESETS;
 
-let currentResolutionKey = 'default';
+function getInitialDefaultResolution(w, h) {
+    const winW = (typeof w === 'number') ? w : ((typeof window !== 'undefined' && window.innerWidth) || 1920);
+    const winH = (typeof h === 'number') ? h : ((typeof window !== 'undefined' && window.innerHeight) || 1080);
+    if (winW > 1920 || winH > 1080 || (winW * winH > 1920 * 1080)) {
+        return '1080p';
+    }
+    return 'default';
+}
+window.getInitialDefaultResolution = getInitialDefaultResolution;
+
+let currentResolutionKey = getInitialDefaultResolution();
 try {
     const saved = localStorage.getItem('tankClash_resolution');
     if (saved && RESOLUTION_PRESETS[saved]) {
