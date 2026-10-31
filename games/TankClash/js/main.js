@@ -1322,15 +1322,17 @@ const RESOLUTION_PRESETS = {
     '2k':      { label: '2K (1440p)',           height: 1440 },
     '1080p':   { label: '1080p (Full HD)',      height: 1080 },
     '720p':    { label: '720p (HD)',            height: 720 },
-    '480p':    { label: '480p (SD)',            height: 480 }
+    '480p':    { label: '480p (SD)',            height: 480 },
+    '320p':    { label: '320p (Low)',           height: 320 },
+    '240p':    { label: '240p (Retro)',         height: 240 }
 };
 window.RESOLUTION_PRESETS = RESOLUTION_PRESETS;
 
 function getInitialDefaultResolution(w, h) {
-    const winW = (typeof w === 'number') ? w : ((typeof window !== 'undefined' && window.innerWidth) || 1920);
-    const winH = (typeof h === 'number') ? h : ((typeof window !== 'undefined' && window.innerHeight) || 1080);
-    if (winW > 1920 || winH > 1080 || (winW * winH > 1920 * 1080)) {
-        return '1080p';
+    const winW = (typeof w === 'number') ? w : ((typeof window !== 'undefined' && window.innerWidth) || 1280);
+    const winH = (typeof h === 'number') ? h : ((typeof window !== 'undefined' && window.innerHeight) || 720);
+    if (winW > 1280 || winH > 720 || (winW * winH > 1280 * 720)) {
+        return '720p';
     }
     return 'default';
 }
