@@ -269,14 +269,16 @@ buildEnvironment();
 prewarmParticlePools();
 prewarmParticleShaders(renderer, activeCamera);
 
-const ALL_CAMPAIGNS = ['tiger', 'kingtiger', 'sherman', 'pershing', 't34', 'kv2'];
-const initialCampaign = ALL_CAMPAIGNS[Math.floor(Math.random() * ALL_CAMPAIGNS.length)];
+const initialCampaign = 'sherman';
 window.currentTankId = initialCampaign;
 
 const tank = (typeof window.buildTankById === 'function') 
     ? window.buildTankById(initialCampaign, scene, mats) 
     : (typeof buildTigerTank === 'function' ? buildTigerTank(scene, mats) : null);
 window.tankModel = tank;
+if (window.tankRoot) {
+    window.tankRoot.visible = false;
+}
 if (window.TANK_SPECS && window.TANK_SPECS[initialCampaign]) {
     const initSpec = window.TANK_SPECS[initialCampaign];
     tankState.currentTankSpec = initSpec;
@@ -1596,10 +1598,175 @@ function initSettingsUI() {
 }
 window.initSettingsUI = initSettingsUI;
 
+// ============================================================================
+// Battlefield Deployment & Spawn Management
+// ============================================================================
+function showSpawnSelectionModal() {
+    const modal = document.getElementById('spawn-modal');
+    if (!modal) return;
+    if (document.pointerLockElement) {
+        document.exitPointerLock();
+    }
+    updateSpawnModalUI();
+    modal.classList.remove('hidden');
+}
+window.showSpawnSelectionModal = showSpawnSelectionModal;
+
+function hideSpawnSelectionModal() {
+    const modal = document.getElementById('spawn-modal');
+    if (modal) modal.classList.add('hidden');
+}
+window.hideSpawnSelectionModal = hideSpawnSelectionModal;
+
+function updateSpawnModalUI() {
+    const money = (typeof window.getPlayerMoney === 'function') ? window.getPlayerMoney() : (window.playerMoney || 500);
+    const moneyBadge = document.getElementById('spawn-modal-money');
+    if (moneyBadge) {
+        moneyBadge.textContent = `$${money}`;
+    }
+
+    const cards = document.querySelectorAll('.spawn-tank-card');
+    cards.forEach(card => {
+        const tankId = card.getAttribute('data-tank-deploy');
+        const price = (window.TANK_PRICES && window.TANK_PRICES[tankId]) || 500;
+        const statusEl = card.querySelector('.spawn-deploy-status');
+        const canAfford = (money >= price);
+
+        if (canAfford) {
+            card.disabled = false;
+            card.classList.remove('opacity-40', 'cursor-not-allowed');
+            card.classList.add('hover:border-emerald-400', 'cursor-pointer');
+            if (statusEl) {
+                statusEl.textContent = `DEPLOY ($${price})`;
+                statusEl.className = 'spawn-deploy-status text-[10px] font-bold text-emerald-300 bg-emerald-500/20 border border-emerald-500/30 py-1.5 px-2 rounded-lg text-center';
+            }
+        } else {
+            card.disabled = true;
+            card.classList.add('opacity-40', 'cursor-not-allowed');
+            card.classList.remove('hover:border-emerald-400', 'cursor-pointer');
+            if (statusEl) {
+                statusEl.textContent = `🔒 Need $${price - money} more`;
+                statusEl.className = 'spawn-deploy-status text-[10px] font-bold text-slate-400 bg-slate-800/60 border border-slate-700 py-1.5 px-2 rounded-lg text-center';
+            }
+        }
+    });
+}
+window.updateSpawnModalUI = updateSpawnModalUI;
+
+function deployPurchasedTank(tankId) {
+    const price = (window.TANK_PRICES && window.TANK_PRICES[tankId]) || 0;
+    if (typeof window.deductPlayerMoney === 'function') {
+        const success = window.deductPlayerMoney(price);
+        if (!success) {
+            if (typeof window.showKillFeedBanner === 'function') {
+                window.showKillFeedBanner(`❌ Insufficient funds for ${tankId.toUpperCase()}! Requires $${price}`, '#ef4444');
+            }
+            return false;
+        }
+    }
+
+    hideSpawnSelectionModal();
+
+    if (window.playerSoldier && typeof window.resetPlayerSoldier === 'function') {
+        window.resetPlayerSoldier();
+    }
+    window.playerMode = 'tank';
+
+    if (window.tankRoot) {
+        window.tankRoot.visible = true;
+    }
+    if (window.tankState) {
+        window.tankState.isKnockedOut = false;
+        window.tankState.hitsCount = 0;
+        window.tankState.speed = 0;
+        window.tankState.turnRate = 0;
+    }
+
+    if (typeof window.switchTank === 'function') {
+        window.switchTank(tankId);
+    }
+    if (typeof window.resetPlayerHealth === 'function') {
+        window.resetPlayerHealth();
+    }
+
+    const spec = (window.TANK_SPECS && window.TANK_SPECS[tankId]) || { shortName: tankId };
+    if (typeof window.showKillFeedBanner === 'function') {
+        window.showKillFeedBanner(`🛡️ Deployed ${spec.shortName || tankId.toUpperCase()} (-$${price})`, '#34d399');
+    }
+    return true;
+}
+window.deployPurchasedTank = deployPurchasedTank;
+
+function deployAsSoldier() {
+    hideSpawnSelectionModal();
+
+    if (window.playerSoldier && typeof window.resetPlayerSoldier === 'function') {
+        window.resetPlayerSoldier();
+    }
+
+    if (window.tankRoot) {
+        window.tankRoot.visible = false;
+    }
+    if (window.tankState) {
+        window.tankState.isKnockedOut = true;
+        window.tankState.speed = 0;
+        window.tankState.turnRate = 0;
+    }
+
+    if (typeof window.dismountTank === 'function') {
+        window.dismountTank(false);
+    }
+
+    if (window.playerSoldier) {
+        const spawnY = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(0, 0) : 0;
+        window.playerSoldier.x = 0;
+        window.playerSoldier.y = spawnY;
+        window.playerSoldier.z = 0;
+        if (window.playerSoldier.rig && window.playerSoldier.rig.root) {
+            window.playerSoldier.rig.root.position.set(0, spawnY, 0);
+        }
+    }
+
+    if (typeof window.showKillFeedBanner === 'function') {
+        window.showKillFeedBanner('🚶 Deployed as Infantry Soldier (FREE)', '#38bdf8');
+    }
+    return true;
+}
+window.deployAsSoldier = deployAsSoldier;
+
+function initSpawnModal() {
+    const card = document.getElementById('spawn-dialog-card');
+    if (card) {
+        card.onclick = (e) => e.stopPropagation();
+    }
+
+    const tankButtons = document.querySelectorAll('.spawn-tank-card');
+    tankButtons.forEach(btn => {
+        btn.onclick = (e) => {
+            e.stopPropagation();
+            const tid = btn.getAttribute('data-tank-deploy');
+            deployPurchasedTank(tid);
+        };
+    });
+
+    const soldierBtn = document.getElementById('btn-deploy-soldier');
+    if (soldierBtn) {
+        soldierBtn.onclick = (e) => {
+            e.stopPropagation();
+            deployAsSoldier();
+        };
+    }
+}
+window.initSpawnModal = initSpawnModal;
+
 if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initSettingsUI);
+    document.addEventListener('DOMContentLoaded', () => {
+        initSettingsUI();
+        initSpawnModal();
+    });
 } else {
     initSettingsUI();
+    initSpawnModal();
 }
 
 window.addEventListener('resize', onWindowResize);
@@ -1638,6 +1805,12 @@ window.onload = function () {
     }
     if (typeof window.initSettingsUI === 'function') {
         window.initSettingsUI();
+    }
+    if (typeof window.initSpawnModal === 'function') {
+        window.initSpawnModal();
+    }
+    if (typeof window.showSpawnSelectionModal === 'function') {
+        window.showSpawnSelectionModal();
     }
     animate(performance.now());
 };

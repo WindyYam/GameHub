@@ -111,32 +111,6 @@ function initControls(renderer) {
         if (k === 'e') { if (typeof window.triggerInteract === 'function') window.triggerInteract(); }
         if (k === 'r') { if (typeof window.restartGame === 'function') window.restartGame(); }
         if (k === 't') { if (window.dayNight && window.dayNight.cycleNext) window.dayNight.cycleNext(); }
-        if (window.playerMode !== 'soldier' && typeof window.switchTank === 'function') {
-            if (k === '1') {
-                window.switchTank('tiger');
-                if (typeof window.showKillFeedBanner === 'function') window.showKillFeedBanner('Switched to Pz.VI Tiger Ausf. E', '#fbbf24');
-            }
-            if (k === '2') {
-                window.switchTank('kingtiger');
-                if (typeof window.showKillFeedBanner === 'function') window.showKillFeedBanner('Switched to Pz.VI Ausf. B King Tiger (Ambush Camo)', '#fbbf24');
-            }
-            if (k === '3') {
-                window.switchTank('sherman');
-                if (typeof window.showKillFeedBanner === 'function') window.showKillFeedBanner('Switched to M4 Sherman', '#84cc16');
-            }
-            if (k === '4') {
-                window.switchTank('t34');
-                if (typeof window.showKillFeedBanner === 'function') window.showKillFeedBanner('Switched to T-34-85', '#ef4444');
-            }
-            if (k === '5') {
-                window.switchTank('kv2');
-                if (typeof window.showKillFeedBanner === 'function') window.showKillFeedBanner('Switched to KV-2 Heavy Tank ("ЗА РОДИНУ")', '#ef4444');
-            }
-            if (k === '6') {
-                window.switchTank('pershing');
-                if (typeof window.showKillFeedBanner === 'function') window.showKillFeedBanner('Switched to M26 Pershing Heavy Tank', '#d97706');
-            }
-        }
         if (k === 'v' || k === 'c') {
             if (window.playerMode !== 'soldier') {
                 setCameraMode(cameraMode === 'fpv' ? 'orbit' : 'fpv');

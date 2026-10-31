@@ -37,7 +37,8 @@ const TANK_SPECS = {
         sightName: 'TZF 9b — 8.8cm KwK 36 L/56 (810 m/s • 2 HP Damage • Ultra-Precision)',
         sightSubtitle: '8.8cm KwK 36 L/56 • 810 M/S • 2 HP DAMAGE • PINPOINT SNIPER',
         fpvZoomText: 'OPTICAL 2.5× [HOLD RMB: 5.0× ZOOM]',
-        description: 'German Heavy Tank • 8.8cm KwK 36 (2 HP Damage) • Pinpoint Sniper Precision'
+        description: 'German Heavy Tank • 8.8cm KwK 36 (2 HP Damage) • Pinpoint Sniper Precision',
+        price: 800
     },
     kingtiger: {
         id: 'kingtiger',
@@ -72,7 +73,8 @@ const TANK_SPECS = {
         sightName: 'TZF 9d/1 — 8.8cm KwK 43 L/71 (1000 m/s • 3 HP Damage • Camouflaged)',
         sightSubtitle: '8.8cm KwK 43 L/71 • 1000 M/S • 3 HP DAMAGE • AMBUSH CAMO',
         fpvZoomText: 'OPTICAL 2.5× [HOLD RMB: 5.0× ZOOM]',
-        description: 'German Super-Heavy Tank • 8.8cm KwK 43 L/71 (3 HP Damage) • Ambush Camo • 150mm Sloped Glacis'
+        description: 'German Super-Heavy Tank • 8.8cm KwK 43 L/71 (3 HP Damage) • Ambush Camo • 150mm Sloped Glacis',
+        price: 1400
     },
     sherman: {
         id: 'sherman',
@@ -107,7 +109,8 @@ const TANK_SPECS = {
         sightName: 'M70G — 75mm Gun M3 (460 m/s • Rapid-Fire 2.7s)',
         sightSubtitle: '75mm Gun M3 • 460 M/S • HIGH RATE OF FIRE (2.7s)',
         fpvZoomText: 'OPTICAL 1.5× [HOLD RMB: 3.0× ZOOM]',
-        description: 'American Medium Tank • 75mm Gun M3 • Rapid-Fire Reload & High-Arc Shell'
+        description: 'American Medium Tank • 75mm Gun M3 • Rapid-Fire Reload & High-Arc Shell',
+        price: 500
     },
     t34: {
         id: 't34',
@@ -142,7 +145,8 @@ const TANK_SPECS = {
         sightName: 'TSh-16 — 85mm ZiS-S-53 (740 m/s • Heavy HE Blast)',
         sightSubtitle: '85mm ZiS-S-53 • 740 M/S • WIDE BLAST (16.5M)',
         fpvZoomText: 'OPTICAL 4.0× [HOLD RMB: 4.0× ZOOM]',
-        description: 'Soviet Medium Tank • 85mm ZiS-S-53 • Massive High-Explosive Blast Area'
+        description: 'Soviet Medium Tank • 85mm ZiS-S-53 • Massive High-Explosive Blast Area',
+        price: 500
     },
     kv2: {
         id: 'kv2',
@@ -163,7 +167,7 @@ const TANK_SPECS = {
         caliberText: '152mm',
         shellVel: 380,        // Slowest projectile in the game with noticeable high-arc delay
         reloadTime: 6.5,      // Two-piece heavy 152mm ammunition reload time
-        spread: 0.008,        // Precision is worse than M4 Sherman
+        spread: 0.0035,       // Precision is the same level as M4 Sherman
         turretTurnSpeed: 0.45, // Slow turret traverse speed (massive 12-ton MT-1 turret)
         blastRadius: 24.0,    // Biggest explosion radius in the game (massive 152mm HE blast)
         blastDamage: 220,     // Heavy blast damage
@@ -177,7 +181,8 @@ const TANK_SPECS = {
         sightName: 'TOD-9 — 152mm M-10T (380 m/s • 4 HP Damage • 24m Blast)',
         sightSubtitle: '152mm M-10T • 380 M/S • 4 HP DAMAGE • COLOSSAL 24M BLAST',
         fpvZoomText: 'OPTICAL 2.5× [HOLD RMB: 4.0× ZOOM]',
-        description: 'Soviet Heavy Artillery Tank • 152mm M-10T (4 HP Damage) • Colossal 24m HE Blast • 75mm All-Around Armor'
+        description: 'Soviet Heavy Artillery Tank • 152mm M-10T (4 HP Damage) • Colossal 24m HE Blast • 75mm All-Around Armor',
+        price: 1000
     },
     pershing: {
         id: 'pershing',
@@ -213,7 +218,8 @@ const TANK_SPECS = {
         sightName: 'M71C — 90mm Gun M3 (810 m/s • 2 HP Damage • Rapid-Fire 2.7s)',
         sightSubtitle: '90mm Gun M3 • 810 M/S • 2 HP DAMAGE • RAPID-FIRE (2.7s)',
         fpvZoomText: 'OPTICAL 2.5× [HOLD RMB: 5.0× ZOOM]',
-        description: 'American Heavy Tank • 90mm Gun M3 (2 HP Damage) • Rapid 2.7s Reload • Sloped Glacis • Olive-Dirt Brown'
+        description: 'American Heavy Tank • 90mm Gun M3 (2 HP Damage) • Rapid 2.7s Reload • Sloped Glacis • Olive-Dirt Brown',
+        price: 1200
     }
 };
 
@@ -225,6 +231,17 @@ TANK_SPECS.king_tiger = TANK_SPECS.kingtiger;
 
 window.TANK_SPECS = TANK_SPECS;
 window.currentTankId = 'tiger';
+
+const TANK_PRICES = {
+    tiger: 800,
+    sherman: 500,
+    t34: 500,
+    kingtiger: 1400,
+    pershing: 1200,
+    kv2: 1000,
+    soldier: 0
+};
+window.TANK_PRICES = TANK_PRICES;
 
 // Active tank model reference
 var tankModel = null;

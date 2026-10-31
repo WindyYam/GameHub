@@ -4776,9 +4776,8 @@ function restartGame(customSeed, customZone) {
     if (typeof window.updateMoneyHUD === 'function') window.updateMoneyHUD();
 
     const ALL_CAMPAIGNS = ['tiger', 'kingtiger', 'sherman', 'pershing', 't34', 'kv2'];
-    const randCampaign = ALL_CAMPAIGNS[Math.floor(Math.random() * ALL_CAMPAIGNS.length)];
-    if (typeof window.switchTank === 'function') {
-        window.switchTank(randCampaign);
+    if (typeof window.showSpawnSelectionModal === 'function') {
+        window.showSpawnSelectionModal();
     }
 
     const seedEl = document.getElementById('hud-seed-display');
