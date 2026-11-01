@@ -1294,6 +1294,60 @@ const mountainRockMat = new THREE.MeshStandardMaterial({
     envMapIntensity: GROUND_ENV_MAP_INTENSITY
 });
 
+let sharedRockNormalMap = null;
+function createRockNormalMap() {
+    const size = 128;
+    const heights = new Float32Array(size * size);
+    const data = new Uint8Array(size * size * 3);
+    const sampleNoise = (u, v, cells, seed) => {
+        const x = u * cells;
+        const y = v * cells;
+        const x0 = Math.floor(x);
+        const y0 = Math.floor(y);
+        const tx = THREE.MathUtils.smoothstep(x - x0, 0, 1);
+        const ty = THREE.MathUtils.smoothstep(y - y0, 0, 1);
+        const hash = (ix, iy) => {
+            const value = Math.sin(((ix % cells) + seed * 17) * 127.1 + ((iy % cells) + seed * 31) * 311.7) * 43758.5453;
+            return (value - Math.floor(value)) * 2 - 1;
+        };
+        const top = THREE.MathUtils.lerp(hash(x0, y0), hash(x0 + 1, y0), tx);
+        const bottom = THREE.MathUtils.lerp(hash(x0, y0 + 1), hash(x0 + 1, y0 + 1), tx);
+        return THREE.MathUtils.lerp(top, bottom, ty);
+    };
+
+    for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+            const u = x / size;
+            const v = y / size;
+            heights[y * size + x] = sampleNoise(u, v, 3, 1) * 0.52
+                + sampleNoise(u, v, 6, 2) * 0.26
+                + sampleNoise(u, v, 12, 3) * 0.15
+                + sampleNoise(u, v, 24, 4) * 0.07;
+        }
+    }
+
+    for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+            const left = heights[y * size + (x + size - 1) % size];
+            const right = heights[y * size + (x + 1) % size];
+            const down = heights[((y + size - 1) % size) * size + x];
+            const up = heights[((y + 1) % size) * size + x];
+            const normal = new THREE.Vector3(-(right - left) * 6.5, -(up - down) * 6.5, 1).normalize();
+            const offset = (y * size + x) * 3;
+            data[offset] = Math.round((normal.x * 0.5 + 0.5) * 255);
+            data[offset + 1] = Math.round((normal.y * 0.5 + 0.5) * 255);
+            data[offset + 2] = Math.round((normal.z * 0.5 + 0.5) * 255);
+        }
+    }
+
+    const texture = new THREE.DataTexture(data, size, size, THREE.RGBFormat);
+    texture.wrapS = THREE.RepeatWrapping;
+    texture.wrapT = THREE.RepeatWrapping;
+    texture.repeat.set(1, 1);
+    texture.needsUpdate = true;
+    return texture;
+}
+
 const cactusMat = new THREE.MeshStandardMaterial({
     vertexColors: true,
     roughness: 0.78,
@@ -1737,6 +1791,28 @@ function createDetailedBushGeometry() {
 }
 
 // 5E. Massive Limestone Boulder & Defensive Outcrop Geometry (Sized for Tank Hull-Down & Full Cover)
+function smoothDuplicateVertexNormals(geo) {
+    geo.computeVertexNormals();
+    const positions = geo.attributes.position;
+    const normals = geo.attributes.normal;
+    const accumulated = new Map();
+    const keyFor = i => `${positions.getX(i).toFixed(5)},${positions.getY(i).toFixed(5)},${positions.getZ(i).toFixed(5)}`;
+
+    for (let i = 0; i < positions.count; i++) {
+        const key = keyFor(i);
+        const normal = accumulated.get(key) || new THREE.Vector3();
+        normal.x += normals.getX(i);
+        normal.y += normals.getY(i);
+        normal.z += normals.getZ(i);
+        accumulated.set(key, normal);
+    }
+    for (let i = 0; i < positions.count; i++) {
+        const normal = accumulated.get(keyFor(i)).normalize();
+        normals.setXYZ(i, normal.x, normal.y, normal.z);
+    }
+    normals.needsUpdate = true;
+}
+
 function createLimestoneRockGeometry() {
     const parts = [];
     const boulders = [
@@ -1759,7 +1835,7 @@ function createLimestoneRockGeometry() {
             const s = 0.92 + layerJitter;
             p.setXYZ(i, vx * s * b.sx, vy * s * b.sy, vz * s * b.sz);
         }
-        geo.computeVertexNormals();
+        smoothDuplicateVertexNormals(geo);
         geo.rotateY(b.rot);
         geo.translate(b.x, b.y, b.z);
 
@@ -2421,7 +2497,7 @@ function createSandstoneRockGeometry() {
             const flatTop = vy > 0.55 ? 0.55 + (vy - 0.55) * 0.35 : vy;
             p.setXYZ(i, vx * (0.95 + strata) * b.sx, flatTop * b.sy, vz * (0.95 + strata) * b.sz);
         }
-        geo.computeVertexNormals();
+        smoothDuplicateVertexNormals(geo);
         geo.rotateY(b.rot);
         geo.translate(b.x, b.y, b.z);
 
@@ -2586,7 +2662,7 @@ function createMountainPeakCragGeometry() {
             const crag = 0.88 + (hash2D(vx * 4.1, vz * 4.1) - 0.5) * 0.26;
             p.setXYZ(i, vx * sharp * crag * b.sx, vy * crag * b.sy, vz * sharp * crag * b.sz);
         }
-        geo.computeVertexNormals();
+        smoothDuplicateVertexNormals(geo);
         geo.rotateY(b.rot);
         geo.translate(b.x, b.y, b.z);
 
@@ -4269,6 +4345,13 @@ function initEnvironment(scene) {
         villageMat.normalScale = new THREE.Vector2(0.85, 0.85);
         villageMat.roughnessMap = vAtlas.roughness;
     }
+
+    if (!sharedRockNormalMap) sharedRockNormalMap = createRockNormalMap();
+    [rockMat, desertRockMat, mountainRockMat].forEach(mat => {
+        mat.normalMap = sharedRockNormalMap;
+        mat.normalScale = new THREE.Vector2(0.22, 0.22);
+        mat.needsUpdate = true;
+    });
 
     ensureSharedGeometries();
     if (!sharedSmokeTex) sharedSmokeTex = createSmokeCanvasTexture();

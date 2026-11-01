@@ -969,8 +969,9 @@ const soundFX = {
         this.init();
         if (!this.enabled || !this.ctx) return;
         const now = this.ctx.currentTime;
+        const steelReverb = this.createSteelReverb(1.15, 0.28, now);
 
-        // 1. Gritty, heavy low-mid metal-on-metal friction as 15kg shell slides along steel guide tray
+        // 1. Heavy shell ram scraping across steel guide rails
         const slideDuration = 0.70;
         const bufferSize = Math.floor(this.ctx.sampleRate * slideDuration);
         const buf = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
@@ -984,7 +985,7 @@ const soundFX = {
         const src = this.ctx.createBufferSource();
         src.buffer = buf;
 
-        // Low-mid bandpass filters modeling deep chamber cavity (warm, zero high-pitched hiss)
+        // Low-mid body of the shell moving through the chamber
         const bp1 = this.ctx.createBiquadFilter();
         bp1.type = 'bandpass';
         bp1.frequency.setValueAtTime(180 * RELOAD_PITCH, now);
@@ -1012,9 +1013,27 @@ const soundFX = {
         bp2.connect(lp);
         lp.connect(slideGain);
         slideGain.connect(this.ctx.destination);
+        slideGain.connect(steelReverb);
         src.start(now);
 
-        // 2. SHELL SEATING INTO BARREL (Deep mechanical clack & resonant barrel thud)
+        // Brighter steel-on-steel friction rides above the low shell movement.
+        const scrapeMetal = this.ctx.createBiquadFilter();
+        scrapeMetal.type = 'bandpass';
+        scrapeMetal.frequency.setValueAtTime(1900 * RELOAD_PITCH, now);
+        scrapeMetal.frequency.exponentialRampToValueAtTime(3200 * RELOAD_PITCH, now + slideDuration * 0.55);
+        scrapeMetal.frequency.exponentialRampToValueAtTime(1250 * RELOAD_PITCH, now + slideDuration);
+        scrapeMetal.Q.value = 3.8;
+        const scrapeMetalGain = this.ctx.createGain();
+        scrapeMetalGain.gain.setValueAtTime(0.0001, now);
+        scrapeMetalGain.gain.linearRampToValueAtTime(0.24, now + 0.12);
+        scrapeMetalGain.gain.linearRampToValueAtTime(0.32, now + slideDuration * 0.65);
+        scrapeMetalGain.gain.exponentialRampToValueAtTime(0.001, now + slideDuration);
+        src.connect(scrapeMetal);
+        scrapeMetal.connect(scrapeMetalGain);
+        scrapeMetalGain.connect(this.ctx.destination);
+        scrapeMetalGain.connect(steelReverb);
+
+        // 2. Shell seats with a sharp metallic rim strike and hollow chamber body.
         const tSeat = now + 0.54;
 
         // Solid low-frequency metallic rim impact against chamber rifling throat
@@ -1027,10 +1046,60 @@ const soundFX = {
         rimGain.gain.exponentialRampToValueAtTime(0.001, tSeat + 0.09);
         rimSnap.connect(rimGain);
         rimGain.connect(this.ctx.destination);
+        rimGain.connect(steelReverb);
         rimSnap.start(tSeat);
         rimSnap.stop(tSeat + 0.09);
 
-        // Deep hollow barrel resonance ("TUNG-THUD" inside 8.8cm tube)
+        // Short steel impact noise adds a hard edge without a pitched ring.
+        const impactDuration = 0.075;
+        const impactLength = Math.floor(this.ctx.sampleRate * impactDuration);
+        const impactBuffer = this.ctx.createBuffer(1, impactLength, this.ctx.sampleRate);
+        const impactData = impactBuffer.getChannelData(0);
+        for (let i = 0; i < impactLength; i++) {
+            impactData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (impactLength * 0.20));
+        }
+        const impactSource = this.ctx.createBufferSource();
+        impactSource.buffer = impactBuffer;
+        const impactFilter = this.ctx.createBiquadFilter();
+        impactFilter.type = 'bandpass';
+        impactFilter.frequency.setValueAtTime(2700 * RELOAD_PITCH, tSeat);
+        impactFilter.Q.value = 2.8;
+        const impactGain = this.ctx.createGain();
+        impactGain.gain.setValueAtTime(0.48, tSeat);
+        impactGain.gain.exponentialRampToValueAtTime(0.001, tSeat + impactDuration);
+        impactSource.connect(impactFilter);
+        impactFilter.connect(impactGain);
+        impactGain.connect(this.ctx.destination);
+        impactGain.connect(steelReverb);
+        impactSource.start(tSeat);
+
+        // A final hard steel-on-steel collision as the ram reaches the end of its travel.
+        const tRamStop = now + slideDuration;
+        const stopDuration = 0.055;
+        const stopLength = Math.floor(this.ctx.sampleRate * stopDuration);
+        const stopBuffer = this.ctx.createBuffer(1, stopLength, this.ctx.sampleRate);
+        const stopData = stopBuffer.getChannelData(0);
+        for (let i = 0; i < stopLength; i++) {
+            stopData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (stopLength * 0.16));
+        }
+        const stopSource = this.ctx.createBufferSource();
+        stopSource.buffer = stopBuffer;
+        [2100, 3650].forEach((frequency, index) => {
+            const stopFilter = this.ctx.createBiquadFilter();
+            stopFilter.type = 'bandpass';
+            stopFilter.frequency.setValueAtTime(frequency * RELOAD_PITCH, tRamStop);
+            stopFilter.Q.value = index === 0 ? 2.8 : 4.2;
+            const stopGain = this.ctx.createGain();
+            stopGain.gain.setValueAtTime(index === 0 ? 0.88 : 0.48, tRamStop);
+            stopGain.gain.exponentialRampToValueAtTime(0.001, tRamStop + stopDuration);
+            stopSource.connect(stopFilter);
+            stopFilter.connect(stopGain);
+            stopGain.connect(this.ctx.destination);
+            stopGain.connect(steelReverb);
+        });
+        stopSource.start(tRamStop);
+
+        // Deep hollow barrel body keeps the ram's mass.
         const barrel = this.ctx.createOscillator();
         const barrelGain = this.ctx.createGain();
         barrel.type = 'sine';
