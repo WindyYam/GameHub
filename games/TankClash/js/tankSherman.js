@@ -714,7 +714,7 @@ function getShermanSharedAssets(isEnemy) {
 }
 
 function buildShermanTank(scene, mats, options = {}) {
-    const H_OFF = 0.92; // Align chassis with TankClash physics frame
+    const H_OFF = 0.92; // Align chassis with World War 2 Simulator physics frame
 
     const tankRoot = new THREE.Group();
     const sc = scene || (typeof window !== 'undefined' ? window.scene : null);

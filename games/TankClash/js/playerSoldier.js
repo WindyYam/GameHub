@@ -1,5 +1,5 @@
 // ============================================================================
-// TankClash — Player Infantry Dismount, Mount & Tank Hijacking System
+// World War 2 Simulator — Player Infantry Dismount, Mount & Tank Hijacking System
 // ============================================================================
 (function () {
     'use strict';
@@ -1647,11 +1647,16 @@
             hideInteractPrompt();
         } else {
             // Player is in tank
-            currentInteractAction = { type: 'dismount' };
-            // In tank mode, show dismount button when stationary/slow
-            if (window.tankState && Math.abs(window.tankState.speed || 0) < 3.5) {
-                showInteractPrompt('DISMOUNT TANK', '🚶', false);
+            if (window.tankState && window.tankState.hasTank !== false) {
+                currentInteractAction = { type: 'dismount' };
+                // In tank mode, show dismount button when stationary/slow
+                if (Math.abs(window.tankState.speed || 0) < 3.5) {
+                    showInteractPrompt('DISMOUNT TANK', '🚶', false);
+                } else {
+                    hideInteractPrompt();
+                }
             } else {
+                currentInteractAction = null;
                 hideInteractPrompt();
             }
         }

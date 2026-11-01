@@ -1,6 +1,6 @@
 // ============================================================================
 // M26 Pershing Heavy Tank ("VANGUARD" / "ARMORED" / Turret #26)
-// High-Fidelity WWII American Heavy Assault Tank for TankClash
+// High-Fidelity WWII American Heavy Assault Tank for World War 2 Simulator
 // Features:
 // - 90mm Gun M3 with Double-Baffle Muzzle Brake (2 HP Damage, Rapid 2.7s Reload)
 // - Sloped Glacis with Driver/Co-Driver Blisters, Bow .30 Cal MG & Tow Shackles
@@ -869,10 +869,10 @@ function getPershingGeometries(H_OFF) {
 
 // ============================================================================
 // 4. M26 PERSHING 3D MODEL CONSTRUCTION
-// Natural TankClash orientation: +Z is Forward, -Z is Rear, +X is Right, -X is Left
+// Natural World War 2 Simulator orientation: +Z is Forward, -Z is Rear, +X is Right, -X is Left
 // ============================================================================
 function buildPershingTank(scene, mats, options = {}) {
-    const H_OFF = 0.88; // Height offset aligning suspension with TankClash terrain physics
+    const H_OFF = 0.88; // Height offset aligning suspension with World War 2 Simulator terrain physics
 
     const tankRoot = new THREE.Group();
     const sc = scene || (typeof window !== 'undefined' ? window.scene : null);

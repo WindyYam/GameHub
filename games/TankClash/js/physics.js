@@ -8,6 +8,7 @@ var tankState = {
     x: 0,
     z: 0,
     y: 0,
+    hasTank: false,
     heading: 0.38,          // Initial three-quarter showcase angle
     speed: 0,               // Forward velocity (m/s)
     turnRate: 0,            // Yaw velocity (rad/s)
@@ -638,7 +639,7 @@ function spawnParticle(pos, vel, colorHex, startSize, endSize, life, isAdditive 
 
 // Fire Main Tank Cannon (KwK 36 / 75mm M3 / 85mm ZiS-S-53)
 function fireMainCannon(tankModel) {
-    if (window.playerMode === 'soldier' || tankState.reloadTimer > 0 || tankState.isKnockedOut) return;
+    if (window.playerMode === 'soldier' || tankState.reloadTimer > 0 || tankState.isKnockedOut || tankState.hasTank === false) return;
     if (typeof window.notifyPlayerFired === 'function') window.notifyPlayerFired();
     tankState.reloadTimer = tankState.RELOAD_TIME;
     tankState.reloadStage = 1;
@@ -787,7 +788,7 @@ function spawnTracerRound(pos, dir, quat, isEnemy = false, options = {}) {
 
 // Fire Coaxial MG34 (Turret Mantlet)
 function fireCoaxMG(tankModel) {
-    if (window.playerMode === 'soldier' || tankState.coaxMgCooldown > 0 || tankState.mgHeat >= 100 || tankState.isKnockedOut) return;
+    if (window.playerMode === 'soldier' || tankState.coaxMgCooldown > 0 || tankState.mgHeat >= 100 || tankState.isKnockedOut || tankState.hasTank === false) return;
     tankState.coaxMgCooldown = 0.075;
     tankState.mgHeat = Math.min(100, tankState.mgHeat + 1.8);
 
@@ -811,7 +812,7 @@ function fireCoaxMG(tankModel) {
 
 // Fire Front Hull Ball-Mounted Bow Machine Gun (Kugelblende 50 / Bow MG) with Shoot Range Cone
 function fireBowMG(tankModel) {
-    if (window.playerMode === 'soldier' || tankState.bowMgCooldown > 0 || tankState.mgHeat >= 100 || tankState.isKnockedOut) return;
+    if (window.playerMode === 'soldier' || tankState.bowMgCooldown > 0 || tankState.mgHeat >= 100 || tankState.isKnockedOut || tankState.hasTank === false) return;
     tankState.bowMgCooldown = 0.075;
     tankState.mgHeat = Math.min(100, tankState.mgHeat + 1.8);
 

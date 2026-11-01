@@ -1,6 +1,6 @@
 // ============================================================================
 // KV-2 Heavy Artillery Tank (Model 1940 / MT-1 Turret, "ЗА РОДИНУ")
-// High-Fidelity WWII Soviet Heavy Assault Tank for TankClash Russia Campaign
+// High-Fidelity WWII Soviet Heavy Assault Tank for World War 2 Simulator Russia Campaign
 // Features:
 // - 152mm M-10T Howitzer (4 HP Devastating Damage, Colossal 24m HE Blast)
 // - Fixed MT-1 Turret Geometry (Flat rear armor plate & loading hatch, angled front cheeks)
@@ -276,7 +276,7 @@ function getKV2SharedAssets(isEnemy) {
     bCtx.fillRect(0, 0, 512, 512);
     const barrelTex = new THREE.CanvasTexture(barrelCanvas);
 
-    // Materials Palette matching TankClash lighting & shader environment
+    // Materials Palette matching World War 2 Simulator lighting & shader environment
     const materials = {
         armor: new THREE.MeshStandardMaterial({
             map: armorAlbedoTex,
@@ -367,7 +367,7 @@ function getKV2SharedAssets(isEnemy) {
 // KV-2 3D Model Construction Function
 // ============================================================================
 function buildKV2Tank(scene, mats, options = {}) {
-    const H_OFF = 0.88; // Height offset aligning suspension with TankClash terrain physics
+    const H_OFF = 0.88; // Height offset aligning suspension with World War 2 Simulator terrain physics
 
     const tankRoot = new THREE.Group();
     const sc = scene || (typeof window !== 'undefined' ? window.scene : null);

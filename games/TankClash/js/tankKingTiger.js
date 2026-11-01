@@ -1,6 +1,6 @@
 // ============================================================================
 // King Tiger (Sd.Kfz. 182 Panzerkampfwagen VI Ausf. B — Henschel Turret #100)
-// Procedural TankClash model: broad late-war camouflage rather than Hinterhalt dots,
+// Procedural World War 2 Simulator model: broad late-war camouflage rather than Hinterhalt dots,
 // armor normal maps and decals,
 // Sloped 150mm Glacis, Henschel Production Turret, Saukopf Mantlet,
 // 8.8cm KwK 43 L/71 High-Velocity Cannon, Schachtellaufwerk Running Gear & Tracks
@@ -599,7 +599,7 @@
             uv.needsUpdate = true;
         }
 
-        // Chassis group (matches 0.92 baseline of TankClash physics spring-damper)
+        // Chassis group (matches 0.92 baseline of World War 2 Simulator physics spring-damper)
         const hullGroup = new THREE.Group();
         hullGroup.position.y = 0.92;
         tankRoot.add(hullGroup);

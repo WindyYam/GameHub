@@ -269,6 +269,24 @@ buildEnvironment();
 prewarmParticlePools();
 prewarmParticleShaders(renderer, activeCamera);
 
+// Persistent SpotLight rig to keep scene light count permanently fixed (NUM_SPOT_LIGHTS = 2)
+// Preventing WebGL shader program invalidation and freeze on mobile when spawning / switching units.
+const persistentHeadlightSpots = [
+    new THREE.SpotLight(0xfef08a, 0.0, 45, Math.PI / 5, 0.45, 1.5),
+    new THREE.SpotLight(0xfef08a, 0.0, 45, Math.PI / 5, 0.45, 1.5)
+];
+persistentHeadlightSpots.forEach(s => {
+    s.position.set(0, -1000, 0);
+    s.target.position.set(0, -1001, 0);
+    scene.add(s);
+    scene.add(s.target);
+});
+window.persistentHeadlightSpots = persistentHeadlightSpots;
+const _hlMountPos = new THREE.Vector3();
+const _hlTargetPos = new THREE.Vector3();
+const _hlForward = new THREE.Vector3();
+const _hlQuat = new THREE.Quaternion();
+
 const initialCampaign = 'sherman';
 window.currentTankId = initialCampaign;
 
@@ -278,6 +296,10 @@ const tank = (typeof window.buildTankById === 'function')
 window.tankModel = tank;
 if (window.tankRoot) {
     window.tankRoot.visible = false;
+    window.tankRoot.position.set(0, -9999, 0);
+}
+if (window.tankState) {
+    window.tankState.hasTank = false;
 }
 if (window.TANK_SPECS && window.TANK_SPECS[initialCampaign]) {
     const initSpec = window.TANK_SPECS[initialCampaign];
@@ -322,7 +344,12 @@ if (typeof updateTracksGeometry === 'function') {
 const initSpawnY = getTerrainHeight(0, 0);
 tankState.y = initSpawnY;
 if (tankRoot) {
-    tankRoot.position.set(0, initSpawnY, 0);
+    if (window.tankState && window.tankState.hasTank) {
+        tankRoot.position.set(0, initSpawnY, 0);
+    } else {
+        tankRoot.position.set(0, -9999, 0);
+        tankRoot.visible = false;
+    }
 }
 
 // ============================================================================
@@ -428,7 +455,7 @@ function updateSimulation(dt) {
     const accel = F_net / mass;
     tankState.speed += accel * dt;
 
-    if (window.playerMode === 'soldier') {
+    if (window.playerMode === 'soldier' || (window.tankState && window.tankState.hasTank === false)) {
         tankState.speed = 0;
         tankState.turnRate = 0;
     }
@@ -902,7 +929,7 @@ function updateSimulation(dt) {
         if (fpvRangeEl) fpvRangeEl.textContent = `RANGE: ${Math.round(boreDist)}m`;
     }
 
-    if (window.playerMode === 'soldier') {
+    if (window.playerMode === 'soldier' || (window.tankState && window.tankState.hasTank === false)) {
         const camReticleEl = document.getElementById('camera-aim-reticle');
         if (camReticleEl) camReticleEl.style.opacity = '0';
         const boreReticleEl = document.getElementById('gun-bore-reticle');
@@ -1221,14 +1248,36 @@ function updateSimulation(dt) {
     // Bosch Headlights activation during dusk and night
     const isDark = (sunY < 0.02);
     const hlLights = window.headlightLights || [];
-    hlLights.forEach(hl => {
-        if (hl.spot) {
-            hl.spot.intensity = isDark ? 3.2 : 0.0;
+    const isPlayerInTank = (window.playerMode !== 'soldier' && window.tankState && window.tankState.hasTank !== false && window.tankRoot && window.tankRoot.visible);
+    const isLit = isPlayerInTank && Boolean(tankState.headlightsOn || isDark);
+
+    if (isPlayerInTank && window.tankRoot) {
+        window.tankRoot.updateMatrixWorld(true);
+    }
+
+    const persistentSpots = window.persistentHeadlightSpots || [];
+    for (let i = 0; i < persistentSpots.length; i++) {
+        const spot = persistentSpots[i];
+        const entry = hlLights[i];
+        if (isPlayerInTank && entry && entry.anchor) {
+            entry.anchor.getWorldPosition(_hlMountPos);
+            entry.anchor.getWorldQuaternion(_hlQuat);
+
+            spot.position.copy(_hlMountPos);
+            _hlForward.set(0, -0.35, 16).applyQuaternion(_hlQuat);
+            _hlTargetPos.copy(_hlMountPos).add(_hlForward);
+            spot.target.position.copy(_hlTargetPos);
+
+            spot.intensity = isLit ? 3.2 : 0.0;
+            if (entry.slitMat) {
+                entry.slitMat.color.setHex(isLit ? 0xfef08a : 0x334155);
+            }
+        } else {
+            spot.intensity = 0.0;
+            spot.position.set(0, -1000, 0);
+            spot.target.position.set(0, -1001, 0);
         }
-        if (hl.slitMat) {
-            hl.slitMat.color.setHex(isDark ? 0xfef08a : 0x334155);
-        }
-    });
+    }
 
     // Determine descriptive phase name and icon matching Maldive
     let phaseName = 'Night';
@@ -1356,7 +1405,7 @@ window.getInitialDefaultResolution = getInitialDefaultResolution;
 
 let currentResolutionKey = getInitialDefaultResolution();
 try {
-    const saved = localStorage.getItem('tankClash_resolution');
+    const saved = localStorage.getItem('ww2Simulator_resolution') || localStorage.getItem('tankClash_resolution');
     if (saved && RESOLUTION_PRESETS[saved]) {
         currentResolutionKey = saved;
     }
@@ -1430,6 +1479,7 @@ function applyResolution(presetKey) {
     if (!RESOLUTION_PRESETS[presetKey]) presetKey = 'default';
     currentResolutionKey = presetKey;
     try {
+        localStorage.setItem('ww2Simulator_resolution', presetKey);
         localStorage.setItem('tankClash_resolution', presetKey);
     } catch (e) {}
 
@@ -1799,6 +1849,13 @@ function deployAsSoldier() {
         window.tankRoot.visible = false;
         window.tankRoot.position.set(0, -9999, 0);
     }
+    if (window.persistentHeadlightSpots) {
+        window.persistentHeadlightSpots.forEach(s => {
+            s.intensity = 0.0;
+            s.position.set(0, -1000, 0);
+            s.target.position.set(0, -1001, 0);
+        });
+    }
     if (window.tankState) {
         window.tankState.isKnockedOut = false;
         window.tankState.hasTank = false;
@@ -1833,6 +1890,13 @@ function deployAsSoldier() {
     if (window.tankRoot) {
         window.tankRoot.visible = false;
         window.tankRoot.position.set(0, -9999, 0);
+    }
+    if (window.persistentHeadlightSpots) {
+        window.persistentHeadlightSpots.forEach(s => {
+            s.intensity = 0.0;
+            s.position.set(0, -1000, 0);
+            s.target.position.set(0, -1001, 0);
+        });
     }
 
     const sType = window.selectedSoldierType || 'smg';
@@ -1918,6 +1982,40 @@ if (screen.orientation && screen.orientation.addEventListener) {
 
 window.updateSimulation = updateSimulation;
 
+function prewarmAllSceneShaders() {
+    if (!renderer || !scene || !activeCamera || typeof renderer.compile !== 'function') return;
+
+    let soldierRoots = [];
+    if (typeof window.prewarmSoldierAssets === 'function') {
+        soldierRoots = window.prewarmSoldierAssets() || [];
+    }
+
+    const prewarmGroup = new THREE.Group();
+    soldierRoots.forEach(r => {
+        if (r) prewarmGroup.add(r);
+    });
+    scene.add(prewarmGroup);
+
+    const wasTankVisible = window.tankRoot ? window.tankRoot.visible : false;
+    if (window.tankRoot) {
+        window.tankRoot.visible = true;
+    }
+
+    try {
+        renderer.compile(scene, activeCamera);
+    } catch (err) {
+        console.warn('[Engine] Prewarm shader compilation error:', err);
+    } finally {
+        if (prewarmGroup.parent === scene) {
+            scene.remove(prewarmGroup);
+        }
+        if (window.tankRoot) {
+            window.tankRoot.visible = wasTankVisible;
+        }
+    }
+}
+window.prewarmAllSceneShaders = prewarmAllSceneShaders;
+
 function hideLoadingScreen() {
     const screen = document.getElementById('loading-screen');
     if (!screen || screen.classList.contains('loading-hidden')) return;
@@ -1931,6 +2029,9 @@ function hideLoadingScreen() {
 window.hideLoadingScreen = hideLoadingScreen;
 
 window.onload = function () {
+    if (typeof window.prewarmAllSceneShaders === 'function') {
+        window.prewarmAllSceneShaders();
+    }
     if (typeof window.spawnBattlefieldInfantry === 'function') {
         window.spawnBattlefieldInfantry();
     }

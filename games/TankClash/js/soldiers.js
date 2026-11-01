@@ -2118,7 +2118,7 @@
                         dist: dP
                     };
                     return;
-                } else if (window.tankState && !window.tankState.isKnockedOut) {
+                } else if (window.tankState && !window.tankState.isKnockedOut && window.tankState.hasTank !== false) {
                     this.currentTarget = {
                         type: 'tank',
                         x: window.tankState.x,
@@ -2152,7 +2152,7 @@
                 }
             } else {
                 // A. Check Player Tank (scaled 1.2x)
-                if (this.isEnemy && !window.tankState.isKnockedOut && distToPlayer < 135 * 1.2) {
+                if (this.isEnemy && !window.tankState.isKnockedOut && window.tankState.hasTank !== false && distToPlayer < 135 * 1.2) {
                     this.currentTarget = {
                         type: 'tank',
                         x: playerX,
@@ -2383,7 +2383,7 @@
                         z: ps.z,
                         dist: Math.hypot(ps.x - this.x, ps.z - this.z)
                     };
-                } else if (window.tankState && !window.tankState.isKnockedOut) {
+                } else if (window.tankState && !window.tankState.isKnockedOut && window.tankState.hasTank !== false) {
                     this.currentTarget = {
                         type: 'tank',
                         x: window.tankState.x,
@@ -2778,12 +2778,30 @@
         }
     }
 
+    function prewarmSoldierAssets() {
+        initMaterials();
+        const factions = ['us', 'soviet', 'german'];
+        const types = ['rifle', 'smg'];
+        const roots = [];
+        factions.forEach(f => {
+            types.forEach(t => {
+                const key = `${f}_${t}`;
+                if (!SOLDIER_TEMPLATES[key]) SOLDIER_TEMPLATES[key] = buildTemplate(f, t);
+                if (SOLDIER_TEMPLATES[key] && SOLDIER_TEMPLATES[key].root) {
+                    roots.push(SOLDIER_TEMPLATES[key].root);
+                }
+            });
+        });
+        return roots;
+    }
+
     // Expose public API
     window.spawnBattlefieldInfantry = spawnBattlefieldInfantry;
     window.updateSoldiers = updateSoldiers;
     window.clearSoldiers = clearSoldiers;
     window.resetSoldiers = spawnBattlefieldInfantry;
     window.buildSoldier = buildSoldier;
+    window.prewarmSoldierAssets = prewarmSoldierAssets;
 
     // Listen for player tank changes to switch soldier factions automatically
     const origSwitchTank = window.switchTank;

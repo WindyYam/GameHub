@@ -1,5 +1,5 @@
 // ============================================================================
-// TankClash — Procedural Infinite Battlefield Environment
+// World War 2 Simulator — Procedural Infinite Battlefield Environment
 // Features:
 // - Infinite Chunk-Based Procedural Terrain Streaming around Tank
 // - Smooth & Uniform Toroidal Grass Distribution (Stratified Grid, Zero Bald Patches)
@@ -4935,7 +4935,7 @@ function restartGame(customSeed, customZone) {
         window.showKillFeedBanner(currentZoneConfig.banner, '#fbbf24');
     }
 
-    console.log(`[TankClash] New Battlefield Generated — Zone: ${currentZoneConfig.name}, Seed: ${seed}`);
+    console.log(`[World War 2 Simulator] New Battlefield Generated — Zone: ${currentZoneConfig.name}, Seed: ${seed}`);
 }
 
 // ============================================================================

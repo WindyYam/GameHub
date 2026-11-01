@@ -1,5 +1,5 @@
 // ============================================================================
-// TankClash Model Controller & Registry (Tiger I, M4 Sherman, T-34-85)
+// World War 2 Simulator Model Controller & Registry (Tiger I, M4 Sherman, T-34-85)
 // Manages Multi-Tank Selection, Specification Profiles, and Dynamic Swapping
 // ============================================================================
 
@@ -275,6 +275,27 @@ function bindTankGlobals(model) {
     bowMgGroup = model.bowMgGroup;
     bowMgBarrel = model.bowMgBarrel;
     headlightLights = model.headlightLights || [];
+    if (window.persistentHeadlightSpots && headlightLights.length > 0) {
+        headlightLights.forEach((hl, idx) => {
+            if (!hl.anchor && hl.spot && hl.spot.parent) {
+                hl.anchor = hl.spot.parent;
+            }
+            if (hl.spot && hl.spot.parent && hl.spot.parent !== window.scene) {
+                if (hl.spot.target && hl.spot.target.parent) {
+                    hl.spot.target.parent.remove(hl.spot.target);
+                }
+                hl.spot.parent.remove(hl.spot);
+            }
+            if (window.persistentHeadlightSpots[idx]) {
+                hl.spot = window.persistentHeadlightSpots[idx];
+            }
+        });
+        for (let i = headlightLights.length; i < window.persistentHeadlightSpots.length; i++) {
+            window.persistentHeadlightSpots[i].intensity = 0.0;
+            window.persistentHeadlightSpots[i].position.set(0, -1000, 0);
+            window.persistentHeadlightSpots[i].target.position.set(0, -1001, 0);
+        }
+    }
     smokeTubes = model.smokeTubes || [];
     roadWheelStations = model.roadWheelStations || { left: [], right: [] };
     driveSprockets = model.driveSprockets || [];

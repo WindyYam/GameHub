@@ -1,5 +1,5 @@
 // ============================================================================
-// TankClash Enemy Tank Combat AI & Campaign Engagement System
+// World War 2 Simulator Enemy Tank Combat AI & Campaign Engagement System
 // Opposing Campaign Spawning, Tactical Periscope Detection, Ballistic Aiming,
 // 3-Hit Player Armor Survivability, and 1-Hit Enemy Tank Destruction
 // ============================================================================
@@ -432,6 +432,8 @@
             targetY = ps.y || 0;
             targetZ = ps.z;
             targetDead = !!ps.isDead;
+        } else if (pState.hasTank === false) {
+            targetDead = true;
         }
 
         // 1. DEGENERATE DISTANT ENEMY TANKS AND WRECKS: Player is away (> 280m)
@@ -993,7 +995,7 @@
     // 4. PLAYER DAMAGE & KNOCKOUT SYSTEM (2x Armor Points vs Enemy)
     // ========================================================================
     function onPlayerHit(impactPos, hitDir, damage = 1) {
-        if (!window.tankState || window.tankState.isKnockedOut) return;
+        if (!window.tankState || window.tankState.isKnockedOut || window.tankState.hasTank === false) return;
 
         const maxArmor = getPlayerMaxArmor();
         const dmg = (typeof damage === 'number') ? damage : 1;
