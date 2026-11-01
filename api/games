@@ -49,18 +49,14 @@
   },
   {
     "id": 12,
-    "path": "games/Tetris/index.html"
-  },
-  {
-    "id": 13,
     "path": "games/USSFord/index.html"
   },
   {
-    "id": 14,
+    "id": 13,
     "path": "games/UmibeStation/index.html"
   },
   {
-    "id": 15,
+    "id": 14,
     "path": "games/WCFinal2026/index.html"
   }
 ]
