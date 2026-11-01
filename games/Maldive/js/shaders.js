@@ -478,6 +478,26 @@ const SKY_FRAGMENT_SHADER = `
     void main() {
         vec3 dir = normalize(vWorldPos - cameraPosition);
         float y = max(dir.y, 0.001);
+        float skyCos = cos(uSkyRotation);
+        float skySin = sin(uSkyRotation);
+        vec3 starDir = vec3(
+            skyCos * dir.x + skySin * dir.y,
+            -skySin * dir.x + skyCos * dir.y,
+            dir.z
+        );
+        float dustDenominator = starDir.y + 0.18;
+        dustDenominator = abs(dustDenominator) < 0.02
+            ? (dustDenominator < 0.0 ? -0.02 : 0.02)
+            : dustDenominator;
+        float starDenominator = starDir.y + 0.15;
+        starDenominator = abs(starDenominator) < 0.02
+            ? (starDenominator < 0.0 ? -0.02 : 0.02)
+            : starDenominator;
+        vec2 dustUV = starDir.xz / dustDenominator * 320.0;
+        float dustFootprint = max(fwidth(dustUV.x), fwidth(dustUV.y));
+        float dustSampling = 1.0 - smoothstep(0.5, 1.0, dustFootprint);
+        vec2 starBaseUV = starDir.xz / starDenominator;
+        float starBaseFootprint = max(fwidth(starBaseUV.x), fwidth(starBaseUV.y));
 
         float sunAlt = uSunDir.y;
         float dayFactor = smoothstep(-0.12, 0.25, sunAlt);
@@ -520,13 +540,6 @@ const SKY_FRAGMENT_SHADER = `
         // Epic Nighttime Milky Way Galaxy Belt, Nebulae, Starfield & Moon
         if (nightFactor > 0.01 && dir.y > 0.0) {
             float horizonVis = smoothstep(0.0, 0.015, dir.y);
-            float skyCos = cos(uSkyRotation);
-            float skySin = sin(uSkyRotation);
-            vec3 starDir = vec3(
-                skyCos * dir.x + skySin * dir.y,
-                -skySin * dir.x + skyCos * dir.y,
-                dir.z
-            );
 
             // Rotate celestial coordinates to tilt the Milky Way arch gracefully across the sky
             mat3 galRot = mat3(
@@ -574,8 +587,7 @@ const SKY_FRAGMENT_SHADER = `
             galaxyCol += nebulaCyan * cyanWisps * (1.0 - riftMask * 0.5) * 0.42;
 
             // Dense unresolved micro-star dust glittering along the Milky Way spine
-            vec2 dustUV = starDir.xz / (starDir.y + 0.18) * 320.0;
-            float microStarNoise = pow(hash(floor(dustUV)), 18.0) * (bandProfile * 1.5 + 0.12) * (1.0 - riftMask * 0.7);
+            float microStarNoise = pow(hash(floor(dustUV)), 18.0) * (bandProfile * 1.5 + 0.12) * (1.0 - riftMask * 0.7) * dustSampling;
             galaxyCol += vec3(0.86, 0.92, 1.0) * microStarNoise * 1.15;
 
             skyCol += galaxyCol * nightFactor * horizonVis;
@@ -583,15 +595,19 @@ const SKY_FRAGMENT_SHADER = `
             // Multi-layered bright stars (dense near galactic plane + scattered all-sky constellations)
             for (int layer = 0; layer < 2; layer++) {
                 float scale = (layer == 0) ? 135.0 : 220.0;
-                vec2 starUV = starDir.xz / (starDir.y + 0.15) * scale + float(layer) * 41.7;
+                vec2 starUV = starBaseUV * scale + float(layer) * 41.7;
                 vec2 starCell = floor(starUV);
                 float sVal = hash(starCell);
                 float densityThreshold = mix(0.9925, 0.976, bandProfile * 0.85);
+                float starFootprint = starBaseFootprint * scale;
+                float starSampling = mix(0.45, 1.0, 1.0 - smoothstep(0.5, 1.0, starFootprint));
                 if (sVal > densityThreshold) {
                     vec2 center = starCell + 0.3 + 0.4 * vec2(fract(sVal * 17.3), fract(sVal * 31.7));
                     float dStar = length(starUV - center);
-                    float twinkle = 0.65 + 0.35 * sin(uTime * (2.5 + float(layer) * 1.5) + sVal * 120.0);
-                    float starSpark = smoothstep(0.34, 0.015, dStar) * twinkle * horizonVis;
+                    float starEdge = min(max(starFootprint, 0.015), 0.05);
+                    float starShape = 1.0 - smoothstep(0.015 - starEdge, 0.34 + starEdge, dStar);
+                    float twinkle = 0.94 + 0.06 * sin(uTime * 0.7 + sVal * 120.0);
+                    float starSpark = starShape * twinkle * horizonVis * starSampling;
                     vec3 starColor = mix(vec3(0.70, 0.85, 1.0), vec3(1.0, 0.88, 0.72), fract(sVal * 53.0));
                     skyCol += starColor * starSpark * nightFactor * (layer == 0 ? 1.65 : 0.95);
                 }

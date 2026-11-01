@@ -119,7 +119,8 @@ function createSkyDome() {
             uCloudCoverage: { value: STATE.cloudCoverage }
         },
         side: THREE.BackSide,
-        depthWrite: false
+        depthWrite: false,
+        extensions: { derivatives: true }
     });
     skyMesh = new THREE.Mesh(skyGeo, skyMat);
     skyMesh.position.copy(camera.position);
