@@ -877,115 +877,92 @@ const soundFX = {
     playTankExplosion() {
         this.playExplosion();
     },
+    createSteelReverb(duration, wetLevel, startTime) {
+        const length = Math.floor(this.ctx.sampleRate * duration);
+        const impulse = this.ctx.createBuffer(1, length, this.ctx.sampleRate);
+        const data = impulse.getChannelData(0);
+        const decay = duration * 0.30;
+        const reflections = [0.013, 0.027, 0.044, 0.069, 0.101, 0.138];
+
+        for (let i = 0; i < length; i++) {
+            const t = i / this.ctx.sampleRate;
+            data[i] = (Math.random() * 2 - 1) * Math.exp(-t / decay) * 0.22;
+        }
+        reflections.forEach((time, index) => {
+            const sample = Math.floor(time * this.ctx.sampleRate);
+            if (sample < length) {
+                data[sample] += (index % 2 ? -1 : 1) * (0.72 - index * 0.08);
+            }
+        });
+
+        const convolver = this.ctx.createConvolver();
+        convolver.buffer = impulse;
+        const wetGain = this.ctx.createGain();
+        wetGain.gain.setValueAtTime(wetLevel, startTime);
+        convolver.connect(wetGain);
+        wetGain.connect(this.ctx.destination);
+        return convolver;
+    },
     playShellEject() {
         this.init();
         if (!this.enabled || !this.ctx) return;
         const now = this.ctx.currentTime;
+        const steelReverb = this.createSteelReverb(0.95, 0.34, now);
 
-        // 1. Mechanical steel extractor claw strike & initial breach scrape
-        // Sharp metallic snap transient (extractor grabbing case rim)
-        const snapLen = Math.floor(this.ctx.sampleRate * 0.045);
-        const snapBuf = this.ctx.createBuffer(1, snapLen, this.ctx.sampleRate);
-        const snapData = snapBuf.getChannelData(0);
-        for (let i = 0; i < snapLen; i++) {
-            snapData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (snapLen * 0.22));
-        }
-        const snapSrc = this.ctx.createBufferSource();
-        snapSrc.buffer = snapBuf;
-        const snapFilter = this.ctx.createBiquadFilter();
-        snapFilter.type = 'bandpass';
-        snapFilter.frequency.setValueAtTime(2400 * RELOAD_PITCH, now);
-        snapFilter.Q.value = 3.5;
-        const snapGain = this.ctx.createGain();
-        snapGain.gain.setValueAtTime(0.42, now);
-        snapGain.gain.exponentialRampToValueAtTime(0.001, now + 0.045);
-        snapSrc.connect(snapFilter);
-        snapFilter.connect(snapGain);
-        snapGain.connect(this.ctx.destination);
-        snapSrc.start(now);
-
-        // High-velocity metal slide/friction as shell flies along guide chute
-        const scrapeLen = Math.floor(this.ctx.sampleRate * 0.075);
-        const scrapeBuf = this.ctx.createBuffer(1, scrapeLen, this.ctx.sampleRate);
-        const scrapeData = scrapeBuf.getChannelData(0);
-        for (let i = 0; i < scrapeLen; i++) {
-            scrapeData[i] = (Math.random() * 2 - 1) * Math.sin((i / scrapeLen) * Math.PI);
-        }
-        const scrapeSrc = this.ctx.createBufferSource();
-        scrapeSrc.buffer = scrapeBuf;
-        const scrapeFilter = this.ctx.createBiquadFilter();
-        scrapeFilter.type = 'bandpass';
-        scrapeFilter.frequency.setValueAtTime(1550 * RELOAD_PITCH, now);
-        scrapeFilter.frequency.exponentialRampToValueAtTime(850 * RELOAD_PITCH, now + 0.075);
-        scrapeFilter.Q.value = 2.8;
-        const scrapeGain = this.ctx.createGain();
-        scrapeGain.gain.setValueAtTime(0.35, now);
-        scrapeGain.gain.exponentialRampToValueAtTime(0.001, now + 0.075);
-        scrapeSrc.connect(scrapeFilter);
-        scrapeFilter.connect(scrapeGain);
-        scrapeGain.connect(this.ctx.destination);
-        scrapeSrc.start(now);
-
-        // 2. Heavy hollow brass casing resonant clinking & bouncing off deflector
-        // Metallic modal ringing of heavy brass shell casing:
-        const bounces = [
-            { time: now + 0.025, baseFreq: 820 * RELOAD_PITCH, decay: 0.26, vol: 0.45 },
-            { time: now + 0.130, baseFreq: 940 * RELOAD_PITCH, decay: 0.20, vol: 0.35 },
-            { time: now + 0.245, baseFreq: 760 * RELOAD_PITCH, decay: 0.16, vol: 0.25 }
-        ];
-
-        bounces.forEach(b => {
-            // High-frequency metallic impact transient (clink ping)
-            const pingLen = Math.floor(this.ctx.sampleRate * 0.02);
-            const pingBuf = this.ctx.createBuffer(1, pingLen, this.ctx.sampleRate);
-            const pingData = pingBuf.getChannelData(0);
-            for (let i = 0; i < pingLen; i++) {
-                pingData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (pingLen * 0.25));
+        const playSteelNoise = (startTime, duration, startHz, endHz, volume, q, rattleHz = 0) => {
+            const length = Math.floor(this.ctx.sampleRate * duration);
+            const buffer = this.ctx.createBuffer(1, length, this.ctx.sampleRate);
+            const data = buffer.getChannelData(0);
+            for (let i = 0; i < length; i++) {
+                const t = i / this.ctx.sampleRate;
+                const envelope = Math.exp(-i / (length * 0.38));
+                const rattle = rattleHz ? 0.45 + 0.55 * Math.abs(Math.sin(t * 2 * Math.PI * rattleHz)) : 1;
+                data[i] = (Math.random() * 2 - 1) * envelope * rattle;
             }
-            const pingSrc = this.ctx.createBufferSource();
-            pingSrc.buffer = pingBuf;
-            const pingFilter = this.ctx.createBiquadFilter();
-            pingFilter.type = 'bandpass';
-            pingFilter.frequency.setValueAtTime(2800 * RELOAD_PITCH, b.time);
-            pingFilter.Q.value = 3.0;
-            const pingGain = this.ctx.createGain();
-            pingGain.gain.setValueAtTime(b.vol * 0.65, b.time);
-            pingGain.gain.exponentialRampToValueAtTime(0.001, b.time + 0.02);
-            pingSrc.connect(pingFilter);
-            pingFilter.connect(pingGain);
-            pingGain.connect(this.ctx.destination);
-            pingSrc.start(b.time);
 
-            // Inharmonic resonant modal tones of cylindrical brass casing
-            // Brass casing modes: fundamental f, 1.58f, 2.32f, 3.45f
-            const modes = [b.baseFreq, b.baseFreq * 1.58, b.baseFreq * 2.32, b.baseFreq * 3.45];
-            const modeGains = [0.45, 0.32, 0.18, 0.10];
-            modes.forEach((f, idx) => {
-                const osc = this.ctx.createOscillator();
-                const g = this.ctx.createGain();
-                osc.type = (idx % 2 === 0) ? 'triangle' : 'sine';
-                osc.frequency.setValueAtTime(f, b.time);
-                g.gain.setValueAtTime(b.vol * modeGains[idx], b.time);
-                g.gain.exponentialRampToValueAtTime(0.0001, b.time + b.decay);
-                osc.connect(g);
-                g.connect(this.ctx.destination);
-                osc.start(b.time);
-                osc.stop(b.time + b.decay);
+            const source = this.ctx.createBufferSource();
+            source.buffer = buffer;
+            const filter = this.ctx.createBiquadFilter();
+            filter.type = 'bandpass';
+            filter.frequency.setValueAtTime(startHz * RELOAD_PITCH, startTime);
+            filter.frequency.exponentialRampToValueAtTime(endHz * RELOAD_PITCH, startTime + duration);
+            filter.Q.value = q;
+            const gain = this.ctx.createGain();
+            gain.gain.setValueAtTime(volume, startTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+            source.connect(filter);
+            filter.connect(gain);
+            gain.connect(this.ctx.destination);
+            gain.connect(steelReverb);
+
+            [{ ratio: 1.53, q: 5.2, level: 0.30 }, { ratio: 2.27, q: 7.0, level: 0.18 }].forEach(band => {
+                const metalFilter = this.ctx.createBiquadFilter();
+                metalFilter.type = 'bandpass';
+                metalFilter.frequency.setValueAtTime(startHz * band.ratio * RELOAD_PITCH, startTime);
+                metalFilter.frequency.exponentialRampToValueAtTime(endHz * band.ratio * RELOAD_PITCH, startTime + duration);
+                metalFilter.Q.value = band.q;
+                const metalGain = this.ctx.createGain();
+                metalGain.gain.setValueAtTime(volume * band.level, startTime);
+                metalGain.gain.exponentialRampToValueAtTime(0.001, startTime + duration);
+                source.connect(metalFilter);
+                metalFilter.connect(metalGain);
+                metalGain.connect(this.ctx.destination);
+                metalGain.connect(steelReverb);
             });
-        });
 
-        // 3. Heavy hollow casing thump & hull contact
-        const thud = this.ctx.createOscillator();
-        const thudGain = this.ctx.createGain();
-        thud.type = 'triangle';
-        thud.frequency.setValueAtTime(160 * RELOAD_PITCH, now + 0.03);
-        thud.frequency.exponentialRampToValueAtTime(45 * RELOAD_PITCH, now + 0.22);
-        thudGain.gain.setValueAtTime(0.35, now + 0.03);
-        thudGain.gain.exponentialRampToValueAtTime(0.001, now + 0.22);
-        thud.connect(thudGain);
-        thudGain.connect(this.ctx.destination);
-        thud.start(now + 0.03);
-        thud.stop(now + 0.22);
+            source.start(startTime);
+        };
+
+        // Bolt handle releases, the breech slides open, and the block hits its stop.
+        playSteelNoise(now, 0.045, 3200, 1300, 0.70, 4.0);
+        playSteelNoise(now + 0.035, 0.22, 2000, 520, 0.56, 3.4, 72);
+        playSteelNoise(now + 0.26, 0.12, 3400, 720, 0.86, 4.2, 110);
+
+        // The spent case drops out in a loose series of metallic clatters.
+        playSteelNoise(now + 0.36, 0.055, 3600, 1500, 0.48, 3.0, 95);
+        playSteelNoise(now + 0.45, 0.05, 3100, 1250, 0.36, 2.8, 82);
+        playSteelNoise(now + 0.54, 0.045, 2700, 1000, 0.26, 2.6, 70);
+        playSteelNoise(now + 0.37, 0.11, 520, 150, 0.34, 1.3, 42);
     },
 
     playShellSlide() {
@@ -1071,9 +1048,10 @@ const soundFX = {
         this.init();
         if (!this.enabled || !this.ctx) return;
         const now = this.ctx.currentTime;
+        const steelReverb = this.createSteelReverb(1.8, 0.38, now);
 
-        // 1. High-speed polished steel wedge sliding rush (rising metallic friction slide)
-        const rushLen = Math.floor(this.ctx.sampleRate * 0.04);
+        // 1. Short steel-on-steel bolt travel
+        const rushLen = Math.floor(this.ctx.sampleRate * 0.065);
         const rushBuf = this.ctx.createBuffer(1, rushLen, this.ctx.sampleRate);
         const rushData = rushBuf.getChannelData(0);
         for (let i = 0; i < rushLen; i++) {
@@ -1083,35 +1061,35 @@ const soundFX = {
         rushSrc.buffer = rushBuf;
         const rushFilter = this.ctx.createBiquadFilter();
         rushFilter.type = 'bandpass';
-        rushFilter.frequency.setValueAtTime(750 * RELOAD_PITCH, now);
-        rushFilter.frequency.linearRampToValueAtTime(1650 * RELOAD_PITCH, now + 0.038);
+        rushFilter.frequency.setValueAtTime(620 * RELOAD_PITCH, now);
+        rushFilter.frequency.linearRampToValueAtTime(1350 * RELOAD_PITCH, now + 0.06);
         rushFilter.Q.value = 2.4;
         const rushGain = this.ctx.createGain();
-        rushGain.gain.setValueAtTime(0.38, now);
-        rushGain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+        rushGain.gain.setValueAtTime(0.30, now);
+        rushGain.gain.exponentialRampToValueAtTime(0.001, now + 0.065);
         rushSrc.connect(rushFilter);
         rushFilter.connect(rushGain);
         rushGain.connect(this.ctx.destination);
         rushSrc.start(now);
 
-        // 2. Colossal Forged Krupp Steel Breech Slam ("CLANG-CHUNCK!") at tSlam
-        const tSlam = now + 0.036;
+        // 2. Heavy breech block seats with a compact steel-on-steel clunk
+        const tSlam = now + 0.06;
 
-        // A. Heavy kinetic impact mass shockwave (70-90kg hardened steel block)
+        // A. Low mechanical body impact
         const sub = this.ctx.createOscillator();
         const subGain = this.ctx.createGain();
         sub.type = 'sine';
-        sub.frequency.setValueAtTime(125 * RELOAD_PITCH, tSlam);
-        sub.frequency.exponentialRampToValueAtTime(28 * RELOAD_PITCH, tSlam + 0.32);
-        subGain.gain.setValueAtTime(0.85, tSlam);
-        subGain.gain.exponentialRampToValueAtTime(0.001, tSlam + 0.35);
+        sub.frequency.setValueAtTime(105 * RELOAD_PITCH, tSlam);
+        sub.frequency.exponentialRampToValueAtTime(42 * RELOAD_PITCH, tSlam + 0.22);
+        subGain.gain.setValueAtTime(0.55, tSlam);
+        subGain.gain.exponentialRampToValueAtTime(0.001, tSlam + 0.24);
         sub.connect(subGain);
         subGain.connect(this.ctx.destination);
         sub.start(tSlam);
-        sub.stop(tSlam + 0.35);
+        sub.stop(tSlam + 0.24);
 
-        // B. Sharp forged steel-on-steel collision impact transient bite (hard metallic strike)
-        const strikeLen = Math.floor(this.ctx.sampleRate * 0.035);
+        // B. Short metallic contact as the bolt reaches its stop
+        const strikeLen = Math.floor(this.ctx.sampleRate * 0.03);
         const strikeBuf = this.ctx.createBuffer(1, strikeLen, this.ctx.sampleRate);
         const strikeData = strikeBuf.getChannelData(0);
         for (let i = 0; i < strikeLen; i++) {
@@ -1121,37 +1099,39 @@ const soundFX = {
         strikeSrc.buffer = strikeBuf;
         const strikeBp = this.ctx.createBiquadFilter();
         strikeBp.type = 'bandpass';
-        strikeBp.frequency.setValueAtTime(2500 * RELOAD_PITCH, tSlam);
+        strikeBp.frequency.setValueAtTime(2450 * RELOAD_PITCH, tSlam);
         strikeBp.Q.value = 3.6;
         const strikeGain = this.ctx.createGain();
-        strikeGain.gain.setValueAtTime(0.75, tSlam);
-        strikeGain.gain.exponentialRampToValueAtTime(0.001, tSlam + 0.04);
+        strikeGain.gain.setValueAtTime(0.66, tSlam);
+        strikeGain.gain.exponentialRampToValueAtTime(0.001, tSlam + 0.03);
         strikeSrc.connect(strikeBp);
         strikeBp.connect(strikeGain);
         strikeGain.connect(this.ctx.destination);
+        strikeGain.connect(steelReverb);
         strikeSrc.start(tSlam);
 
-        // C. Hardened steel body collision punch (metallic mid crunch)
+        // C. Midrange mechanical clunk
         const mid = this.ctx.createOscillator();
         const midFilter = this.ctx.createBiquadFilter();
         const midGain = this.ctx.createGain();
-        mid.type = 'sawtooth';
-        mid.frequency.setValueAtTime(320 * RELOAD_PITCH, tSlam);
-        mid.frequency.exponentialRampToValueAtTime(95 * RELOAD_PITCH, tSlam + 0.18);
+        mid.type = 'triangle';
+        mid.frequency.setValueAtTime(270 * RELOAD_PITCH, tSlam);
+        mid.frequency.exponentialRampToValueAtTime(85 * RELOAD_PITCH, tSlam + 0.16);
         midFilter.type = 'lowpass';
-        midFilter.frequency.setValueAtTime(1150 * RELOAD_PITCH, tSlam);
-        midGain.gain.setValueAtTime(0.65, tSlam);
-        midGain.gain.exponentialRampToValueAtTime(0.001, tSlam + 0.20);
+        midFilter.frequency.setValueAtTime(900 * RELOAD_PITCH, tSlam);
+        midGain.gain.setValueAtTime(0.42, tSlam);
+        midGain.gain.exponentialRampToValueAtTime(0.001, tSlam + 0.16);
         mid.connect(midFilter);
         midFilter.connect(midGain);
         midGain.connect(this.ctx.destination);
+        midGain.connect(steelReverb);
         mid.start(tSlam);
-        mid.stop(tSlam + 0.20);
+        mid.stop(tSlam + 0.16);
 
-        // D. High-tensile steel anvil / breech ring modal chime (distinct metallic ring-out)
-        const steelModes = [680, 1280, 1980, 2920, 4150].map(frequency => frequency * RELOAD_PITCH);
-        const modeWeights = [0.42, 0.34, 0.24, 0.15, 0.08];
-        const modeDecays = [0.38, 0.32, 0.25, 0.18, 0.12];
+        // D. Bright steel-body resonance as the breech locks home
+        const steelModes = [620, 1180, 2050, 3100, 4200].map(frequency => frequency * RELOAD_PITCH);
+        const modeWeights = [0.36, 0.28, 0.22, 0.15, 0.10];
+        const modeDecays = [0.28, 0.24, 0.20, 0.16, 0.12];
         steelModes.forEach((rf, idx) => {
             const ringOsc = this.ctx.createOscillator();
             const ringG = this.ctx.createGain();
@@ -1161,14 +1141,14 @@ const soundFX = {
             ringG.gain.exponentialRampToValueAtTime(0.0001, tSlam + modeDecays[idx]);
             ringOsc.connect(ringG);
             ringG.connect(this.ctx.destination);
+            ringG.connect(steelReverb);
             ringOsc.start(tSlam + 0.002);
             ringOsc.stop(tSlam + modeDecays[idx]);
         });
 
-        // 3. Crisp spring-loaded latch sear snap ("TCHICK-KLACK!")
-        const tLatch = tSlam + 0.055;
-        // High metallic click burst
-        const latchClickLen = Math.floor(this.ctx.sampleRate * 0.02);
+        // 3. Bolt latch clicks into place
+        const tLatch = tSlam + 0.075;
+        const latchClickLen = Math.floor(this.ctx.sampleRate * 0.018);
         const latchClickBuf = this.ctx.createBuffer(1, latchClickLen, this.ctx.sampleRate);
         const latchClickData = latchClickBuf.getChannelData(0);
         for (let i = 0; i < latchClickLen; i++) {
@@ -1178,28 +1158,30 @@ const soundFX = {
         latchClickSrc.buffer = latchClickBuf;
         const latchClickFilter = this.ctx.createBiquadFilter();
         latchClickFilter.type = 'bandpass';
-        latchClickFilter.frequency.setValueAtTime(3200 * RELOAD_PITCH, tLatch);
-        latchClickFilter.Q.value = 4.0;
+        latchClickFilter.frequency.setValueAtTime(2200 * RELOAD_PITCH, tLatch);
+        latchClickFilter.Q.value = 3.2;
         const latchClickGain = this.ctx.createGain();
-        latchClickGain.gain.setValueAtTime(0.50, tLatch);
-        latchClickGain.gain.exponentialRampToValueAtTime(0.001, tLatch + 0.025);
+        latchClickGain.gain.setValueAtTime(0.38, tLatch);
+        latchClickGain.gain.exponentialRampToValueAtTime(0.001, tLatch + 0.022);
         latchClickSrc.connect(latchClickFilter);
         latchClickFilter.connect(latchClickGain);
         latchClickGain.connect(this.ctx.destination);
+        latchClickGain.connect(steelReverb);
         latchClickSrc.start(tLatch);
 
         // Latch sear mechanical tone
         const latchOsc = this.ctx.createOscillator();
         const latchGain = this.ctx.createGain();
         latchOsc.type = 'triangle';
-        latchOsc.frequency.setValueAtTime(1450, tLatch);
-        latchOsc.frequency.exponentialRampToValueAtTime(380, tLatch + 0.05);
-        latchGain.gain.setValueAtTime(0.40, tLatch);
-        latchGain.gain.exponentialRampToValueAtTime(0.001, tLatch + 0.06);
+        latchOsc.frequency.setValueAtTime(900 * RELOAD_PITCH, tLatch);
+        latchOsc.frequency.exponentialRampToValueAtTime(260 * RELOAD_PITCH, tLatch + 0.045);
+        latchGain.gain.setValueAtTime(0.27, tLatch);
+        latchGain.gain.exponentialRampToValueAtTime(0.001, tLatch + 0.05);
         latchOsc.connect(latchGain);
         latchGain.connect(this.ctx.destination);
+        latchGain.connect(steelReverb);
         latchOsc.start(tLatch);
-        latchOsc.stop(tLatch + 0.06);
+        latchOsc.stop(tLatch + 0.05);
     },
 
     // Soft descending whistle with an octave overtone
