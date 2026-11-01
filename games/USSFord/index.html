@@ -4440,9 +4440,9 @@ var camera = new THREE8.OrthographicCamera(
 camera.position.copy(CAMERA_PRESETS.iso.pos);
 camera.zoom = CAMERA_PRESETS.iso.zoom;
 camera.updateProjectionMatrix();
-var renderer = new THREE8.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+var renderer = new THREE8.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.25));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE8.PCFSoftShadowMap;
 renderer.toneMapping = THREE8.ACESFilmicToneMapping;
@@ -4453,8 +4453,8 @@ scene.add(hemiLight);
 var sunLight = new THREE8.DirectionalLight(16776949, 3.05);
 sunLight.position.set(-135, 260, 130);
 sunLight.castShadow = true;
-sunLight.shadow.mapSize.width = 2048;
-sunLight.shadow.mapSize.height = 2048;
+sunLight.shadow.mapSize.width = 1024;
+sunLight.shadow.mapSize.height = 1024;
 sunLight.shadow.camera.near = 50;
 sunLight.shadow.camera.far = 680;
 var shadowD = 195;
@@ -4477,13 +4477,10 @@ controls.maxPolarAngle = Math.PI * 0.47;
 controls.minZoom = 0.2;
 controls.maxZoom = 10;
 var composer = new EffectComposer(renderer);
-var composerSamples = Math.min(4, renderer.capabilities.maxSamples);
-composer.renderTarget1.samples = composerSamples;
-composer.renderTarget2.samples = composerSamples;
 var renderPass = new RenderPass(scene, camera);
 composer.addPass(renderPass);
 var gtaoPass = new GTAOPass(scene, camera, window.innerWidth, window.innerHeight);
-gtaoPass.updateGtaoMaterial({ radius: 2, scale: 10, samples: 4 });
+gtaoPass.updateGtaoMaterial({ radius: 2, scale: 10, samples: 2 });
 gtaoPass.blendIntensity = 0.92;
 gtaoPass.setSceneClipBox(new THREE8.Box3(
   new THREE8.Vector3(-46, -3, -160),
