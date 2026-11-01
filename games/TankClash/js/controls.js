@@ -67,9 +67,9 @@ function setCameraMode(mode) {
 
 const FPV_ZOOM_FOVS = [46, 23, 15];
 const FPV_ZOOM_LABELS = [
-    'OPTICAL 1.0× [HOLD RMB / SCROLL ZOOM]',
-    'OPTICAL 2.0× [ZOOMED]',
-    'OPTICAL 3.5× [ZOOMED]'
+    'OPTICAL 1.0× [SCROLL: ZOOM • RMB: COAX MG]',
+    'OPTICAL 2.0× [SCROLL: ZOOM • RMB: COAX MG]',
+    'OPTICAL 3.5× [SCROLL: ZOOM • RMB: COAX MG]'
 ];
 
 const SOLDIER_ZOOM_FOVS = [42, 21, 12];
@@ -220,12 +220,6 @@ function initControls(renderer) {
             if (window.playerMode === 'soldier') {
                 // In infantry mode, right click throws the grenade
                 if (typeof window.throwPlayerGrenade === 'function') window.throwPlayerGrenade();
-            } else if (cameraMode === 'fpv') {
-                isFpvZoomed = true;
-                window.perspCamera.fov = 15;
-                window.perspCamera.updateProjectionMatrix();
-                const zoomEl = document.getElementById('fpv-svg-zoom');
-                if (zoomEl) zoomEl.textContent = 'OPTICAL 3.5× [ZOOMED]';
             } else {
                 isFiringCoaxMG = true;
                 window.isFiringCoaxMG = true;
@@ -240,15 +234,6 @@ function initControls(renderer) {
         if (e.button === 2) {
             isFiringCoaxMG = false;
             window.isFiringCoaxMG = false;
-            if (window.playerMode !== 'soldier') {
-                if (cameraMode === 'fpv') {
-                    isFpvZoomed = false;
-                    window.perspCamera.fov = 46;
-                    window.perspCamera.updateProjectionMatrix();
-                    const zoomEl = document.getElementById('fpv-svg-zoom');
-                    if (zoomEl) zoomEl.textContent = 'OPTICAL 1.0× [HOLD RMB / SCROLL: 3.5× ZOOM]';
-                }
-            }
         }
     });
 
@@ -310,7 +295,7 @@ function initControls(renderer) {
             window.perspCamera.updateProjectionMatrix();
             const zoomRatio = (46 / window.perspCamera.fov).toFixed(1);
             const zoomEl = document.getElementById('fpv-svg-zoom');
-            if (zoomEl) zoomEl.textContent = `OPTICAL ${zoomRatio}× [HOLD RMB / SCROLL ZOOM]`;
+            if (zoomEl) zoomEl.textContent = `OPTICAL ${zoomRatio}× [SCROLL: ZOOM • RMB: COAX MG]`;
         } else {
             camOrbit.distance = THREE.MathUtils.clamp(camOrbit.distance + e.deltaY * 0.007, 4.2, 28.0);
         }

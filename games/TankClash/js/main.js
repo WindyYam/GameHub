@@ -1138,6 +1138,9 @@ function updateSimulation(dt) {
     if (typeof window.updateSoldiers === 'function') {
         window.updateSoldiers(dt);
     }
+    if (typeof window.updateBicycles === 'function') {
+        window.updateBicycles(dt);
+    }
     if (typeof window.updateGrenades === 'function') {
         window.updateGrenades(dt);
     }
@@ -1679,6 +1682,13 @@ window.initSettingsUI = initSettingsUI;
 // ============================================================================
 window.selectedSoldierType = window.selectedSoldierType || 'smg';
 
+function setSpawnModalStage(stage) {
+    const soldierStage = document.getElementById('spawn-soldier-stage');
+    const vehicleStage = document.getElementById('spawn-vehicle-stage');
+    if (soldierStage) soldierStage.classList.toggle('hidden', stage !== 'soldier');
+    if (vehicleStage) vehicleStage.classList.toggle('hidden', stage !== 'vehicle');
+}
+
 function selectSoldierType(type) {
     window.selectedSoldierType = (type === 'rifle') ? 'rifle' : 'smg';
     const cards = document.querySelectorAll('.soldier-type-card');
@@ -1718,6 +1728,7 @@ function showSpawnSelectionModal() {
     if (document.pointerLockElement) {
         document.exitPointerLock();
     }
+    setSpawnModalStage('soldier');
     updateSpawnModalUI();
     modal.classList.remove('hidden');
     if (typeof window.initDraggableScrollUI === 'function') {
@@ -1741,10 +1752,10 @@ function updateSpawnModalUI() {
 
     selectSoldierType(window.selectedSoldierType || 'smg');
 
-    const cards = document.querySelectorAll('.spawn-tank-card');
+    const cards = document.querySelectorAll('.spawn-vehicle-card');
     cards.forEach(card => {
-        const tankId = card.getAttribute('data-tank-deploy');
-        const price = (window.TANK_PRICES && window.TANK_PRICES[tankId]) || 500;
+        const vehicleId = card.getAttribute('data-vehicle-id');
+        const price = (window.TANK_PRICES && window.TANK_PRICES[vehicleId]) || 500;
         const statusEl = card.querySelector('.spawn-deploy-status');
         const canAfford = (money >= price);
 
@@ -1834,17 +1845,69 @@ function deployPurchasedTank(tankId) {
 }
 window.deployPurchasedTank = deployPurchasedTank;
 
-function deployAsSoldier() {
+function deployPurchasedBicycle() {
+    if (typeof window.spawnBicycle !== 'function' || typeof window.mountBicycle !== 'function' ||
+        typeof window.buildSoldier !== 'function' || !window.tankState) {
+        console.error('[Spawn] Bicycle deployment is unavailable: bicycle controls are not initialized.');
+        return false;
+    }
+
+    const price = window.TANK_PRICES && window.TANK_PRICES.bicycle;
+    if (typeof price !== 'number') {
+        console.error('[Spawn] Bicycle deployment is unavailable: bicycle price is not configured.');
+        return false;
+    }
+    if (typeof window.deductPlayerMoney !== 'function') {
+        console.error('[Spawn] Bicycle deployment is unavailable: player funds cannot be charged.');
+        return false;
+    }
+    if (!window.deductPlayerMoney(price)) {
+        if (typeof window.showKillFeedBanner === 'function') {
+            window.showKillFeedBanner(`❌ Insufficient funds for BICYCLE! Requires $${price}`, '#ef4444');
+        }
+        return false;
+    }
+
+    if (!deployAsSoldier(true)) {
+        if (typeof window.addPlayerMoney === 'function') window.addPlayerMoney(price, 'bicycle deployment refund');
+        return false;
+    }
+    const soldier = window.playerSoldier;
+    if (!soldier) {
+        console.error('[Spawn] Bicycle deployment failed: player soldier was not created.');
+        if (typeof window.addPlayerMoney === 'function') window.addPlayerMoney(price, 'bicycle deployment refund');
+        return false;
+    }
+
+    const bicycle = window.spawnBicycle(soldier.x, soldier.z, soldier.heading || 0);
+    if (!bicycle) {
+        console.error('[Spawn] Bicycle deployment failed: bicycle could not be created.');
+        if (typeof window.addPlayerMoney === 'function') window.addPlayerMoney(price, 'bicycle deployment refund');
+        return false;
+    }
+    window.mountBicycle(soldier, bicycle);
+    if (typeof window.showKillFeedBanner === 'function') {
+        window.showKillFeedBanner(`🚲 Deployed with Military Bicycle (-$${price})`, '#38bdf8');
+    }
+    return true;
+}
+window.deployPurchasedBicycle = deployPurchasedBicycle;
+
+function deployAsSoldier(suppressBanner = false) {
     hideSpawnSelectionModal();
 
     if (typeof window.clearParticles === 'function') {
         window.clearParticles();
     }
 
-    if (window.playerSoldier && typeof window.resetPlayerSoldier === 'function') {
-        window.resetPlayerSoldier();
+    if (window.tankState) {
+        window.tankState.hasTank = false;
+        window.tankState.isKnockedOut = false;
+        window.tankState.speed = 0;
+        window.tankState.turnRate = 0;
+        window.tankState.x = 99999;
+        window.tankState.z = 99999;
     }
-
     if (window.tankRoot) {
         window.tankRoot.visible = false;
         window.tankRoot.position.set(0, -9999, 0);
@@ -1856,13 +1919,9 @@ function deployAsSoldier() {
             s.target.position.set(0, -1001, 0);
         });
     }
-    if (window.tankState) {
-        window.tankState.isKnockedOut = false;
-        window.tankState.hasTank = false;
-        window.tankState.speed = 0;
-        window.tankState.turnRate = 0;
-        window.tankState.x = 99999;
-        window.tankState.z = 99999;
+
+    if (window.playerSoldier && typeof window.resetPlayerSoldier === 'function') {
+        window.resetPlayerSoldier();
     }
 
     if (typeof window.dismountTank === 'function') {
@@ -1880,28 +1939,9 @@ function deployAsSoldier() {
         }
     }
 
-    // Keep tank completely non-existent / hidden in infantry deploy mode
-    if (window.tankState) {
-        window.tankState.hasTank = false;
-        window.tankState.isKnockedOut = false;
-        window.tankState.x = 99999;
-        window.tankState.z = 99999;
-    }
-    if (window.tankRoot) {
-        window.tankRoot.visible = false;
-        window.tankRoot.position.set(0, -9999, 0);
-    }
-    if (window.persistentHeadlightSpots) {
-        window.persistentHeadlightSpots.forEach(s => {
-            s.intensity = 0.0;
-            s.position.set(0, -1000, 0);
-            s.target.position.set(0, -1001, 0);
-        });
-    }
-
     const sType = window.selectedSoldierType || 'smg';
     const sName = sType === 'smg' ? 'Submachine Gunner' : 'Rifleman';
-    if (typeof window.showKillFeedBanner === 'function') {
+    if (!suppressBanner && typeof window.showKillFeedBanner === 'function') {
         window.showKillFeedBanner(`🚶 Deployed as ${sName} (FREE)`, '#38bdf8');
     }
     return true;
@@ -1923,14 +1963,34 @@ function initSpawnModal() {
         };
     });
 
-    const tankButtons = document.querySelectorAll('.spawn-tank-card');
-    tankButtons.forEach(btn => {
+    const vehicleButtons = document.querySelectorAll('.spawn-vehicle-card');
+    vehicleButtons.forEach(btn => {
         btn.onclick = (e) => {
             e.stopPropagation();
-            const tid = btn.getAttribute('data-tank-deploy');
-            deployPurchasedTank(tid);
+            const vehicleId = btn.getAttribute('data-vehicle-id');
+            if (vehicleId === 'bicycle') {
+                deployPurchasedBicycle();
+            } else {
+                deployPurchasedTank(vehicleId);
+            }
         };
     });
+
+    const chooseVehicleBtn = document.getElementById('btn-spawn-choose-vehicle');
+    if (chooseVehicleBtn) {
+        chooseVehicleBtn.onclick = (e) => {
+            e.stopPropagation();
+            setSpawnModalStage('vehicle');
+        };
+    }
+
+    const backToSoldierBtn = document.getElementById('btn-spawn-back-to-soldier');
+    if (backToSoldierBtn) {
+        backToSoldierBtn.onclick = (e) => {
+            e.stopPropagation();
+            setSpawnModalStage('soldier');
+        };
+    }
 
     const soldierBtn = document.getElementById('btn-deploy-soldier');
     if (soldierBtn) {

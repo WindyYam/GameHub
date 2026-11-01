@@ -403,7 +403,7 @@
             <!-- Telemetry / Zoom Status -->
             <text id="fpv-gun-telemetry" x="300" y="245" text-anchor="middle" fill="#6ee7b7" font-size="11" font-family="monospace" font-weight="bold">8.8cm KwK 36 L/56 • 773 M/S</text>
             <text id="fpv-svg-range" x="300" y="485" text-anchor="middle" fill="#38bdf8" font-size="11" font-family="monospace" font-weight="bold">RANGE: 120m</text>
-            <text id="fpv-svg-zoom" x="300" y="505" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="monospace">OPTICAL 1.0× [HOLD RMB / SCROLL: 3.5× ZOOM]</text>
+            <text id="fpv-svg-zoom" x="300" y="505" text-anchor="middle" fill="#94a3b8" font-size="10" font-family="monospace">OPTICAL 1.0× [SCROLL: ZOOM • RMB: COAX MG]</text>
         </svg>
     </div>
 
@@ -621,7 +621,7 @@
                         <span>🎖️</span>
                         <span>BATTLEFIELD DEPLOYMENT</span>
                     </h2>
-                    <p class="text-[11px] text-slate-400 mt-0.5">Choose your soldier class and deploy with armor or on foot.</p>
+                    <p class="text-[11px] text-slate-400 mt-0.5">Choose your soldier first, then select a vehicle or deploy on foot.</p>
                 </div>
                 <!-- Available Money Badge -->
                 <div class="flex items-center gap-2 bg-emerald-950/70 border border-emerald-500/50 px-3.5 py-1.5 rounded-xl shadow-inner">
@@ -630,8 +630,8 @@
                 </div>
             </div>
 
-            <!-- Top Part: Choose Soldier Type -->
-            <div class="mb-4">
+            <!-- Stage 1: Choose Soldier Type -->
+            <div id="spawn-soldier-stage">
                 <div class="flex items-center justify-between mb-2">
                     <span class="text-xs font-bold text-amber-300 tracking-wider flex items-center gap-1.5 uppercase">
                         <span>🪖</span>
@@ -672,16 +672,19 @@
                         <span class="soldier-select-radio text-base text-emerald-400">🟢</span>
                     </button>
                 </div>
+                <button type="button" id="btn-spawn-choose-vehicle" class="w-full mt-3 p-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold transition-all cursor-pointer">
+                    Choose Vehicle →
+                </button>
             </div>
 
-            <!-- Bottom Part: Choose Tank, or None -->
-            <div class="pt-3 border-t border-white/10">
+            <!-- Stage 2: Choose Vehicle -->
+            <div id="spawn-vehicle-stage" class="hidden pt-3 border-t border-white/10">
                 <div class="flex items-center justify-between mb-2">
                     <span class="text-xs font-bold text-amber-300 tracking-wider flex items-center gap-1.5 uppercase">
                         <span>🛡️</span>
-                        <span>2. Choose Tank, or None (Deploy on Foot)</span>
+                        <span>2. Choose Vehicle</span>
                     </span>
-                    <span class="text-[10px] text-slate-400">Select to deploy</span>
+                    <button type="button" id="btn-spawn-back-to-soldier" class="text-[10px] font-bold text-sky-300 hover:text-sky-100 cursor-pointer">← Back to Soldier</button>
                 </div>
 
                 <!-- Option: None (Deploy on Foot) -->
@@ -699,10 +702,22 @@
                     <span class="px-3.5 py-1.5 rounded-lg bg-sky-500/20 border border-sky-400/40 text-sky-300 text-xs font-extrabold mono">FREE ($0)</span>
                 </button>
 
-                <!-- Tank Selection Cards Grid -->
+                <!-- Vehicle Selection Cards Grid -->
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5" id="spawn-vehicle-list">
+                    <!-- Military Bicycle -->
+                    <button type="button" data-vehicle-id="bicycle" class="spawn-vehicle-card hud-btn p-3 rounded-xl text-left flex flex-col justify-between gap-2.5 border transition-all cursor-pointer">
+                        <div>
+                            <div class="flex items-center justify-between">
+                                <span class="text-xs font-bold text-white">Military Bicycle</span>
+                                <span class="vehicle-price-tag text-xs font-extrabold text-emerald-400 mono">$200</span>
+                            </div>
+                            <p class="text-[10px] text-slate-400 mt-1">Light, fast dispatch bicycle • Ride with your selected soldier</p>
+                        </div>
+                        <span class="spawn-deploy-status text-[10px] font-bold text-emerald-300 bg-emerald-500/20 border border-emerald-500/30 py-1.5 px-2 rounded-lg text-center">DEPLOY ($200)</span>
+                    </button>
+
                     <!-- M4 Sherman -->
-                    <button type="button" data-tank-deploy="sherman" class="spawn-tank-card hud-btn p-3 rounded-xl text-left flex flex-col justify-between gap-2.5 border transition-all cursor-pointer">
+                    <button type="button" data-vehicle-id="sherman" data-tank-deploy="sherman" class="spawn-vehicle-card spawn-tank-card hud-btn p-3 rounded-xl text-left flex flex-col justify-between gap-2.5 border transition-all cursor-pointer">
                         <div>
                             <div class="flex items-center justify-between">
                                 <span class="text-xs font-bold text-white">M4 Sherman</span>
@@ -714,7 +729,7 @@
                     </button>
 
                     <!-- T-34-85 -->
-                    <button type="button" data-tank-deploy="t34" class="spawn-tank-card hud-btn p-3 rounded-xl text-left flex flex-col justify-between gap-2.5 border transition-all cursor-pointer">
+                    <button type="button" data-vehicle-id="t34" data-tank-deploy="t34" class="spawn-vehicle-card spawn-tank-card hud-btn p-3 rounded-xl text-left flex flex-col justify-between gap-2.5 border transition-all cursor-pointer">
                         <div>
                             <div class="flex items-center justify-between">
                                 <span class="text-xs font-bold text-white">T-34-85</span>
@@ -726,7 +741,7 @@
                     </button>
 
                     <!-- Tiger I -->
-                    <button type="button" data-tank-deploy="tiger" class="spawn-tank-card hud-btn p-3 rounded-xl text-left flex flex-col justify-between gap-2.5 border transition-all cursor-pointer">
+                    <button type="button" data-vehicle-id="tiger" data-tank-deploy="tiger" class="spawn-vehicle-card spawn-tank-card hud-btn p-3 rounded-xl text-left flex flex-col justify-between gap-2.5 border transition-all cursor-pointer">
                         <div>
                             <div class="flex items-center justify-between">
                                 <span class="text-xs font-bold text-white">Pz.VI Tiger I</span>
@@ -738,7 +753,7 @@
                     </button>
 
                     <!-- KV-2 -->
-                    <button type="button" data-tank-deploy="kv2" class="spawn-tank-card hud-btn p-3 rounded-xl text-left flex flex-col justify-between gap-2.5 border transition-all cursor-pointer">
+                    <button type="button" data-vehicle-id="kv2" data-tank-deploy="kv2" class="spawn-vehicle-card spawn-tank-card hud-btn p-3 rounded-xl text-left flex flex-col justify-between gap-2.5 border transition-all cursor-pointer">
                         <div>
                             <div class="flex items-center justify-between">
                                 <span class="text-xs font-bold text-white">KV-2 Artillery</span>
@@ -750,7 +765,7 @@
                     </button>
 
                     <!-- M26 Pershing -->
-                    <button type="button" data-tank-deploy="pershing" class="spawn-tank-card hud-btn p-3 rounded-xl text-left flex flex-col justify-between gap-2.5 border transition-all cursor-pointer">
+                    <button type="button" data-vehicle-id="pershing" data-tank-deploy="pershing" class="spawn-vehicle-card spawn-tank-card hud-btn p-3 rounded-xl text-left flex flex-col justify-between gap-2.5 border transition-all cursor-pointer">
                         <div>
                             <div class="flex items-center justify-between">
                                 <span class="text-xs font-bold text-white">M26 Pershing</span>
@@ -762,7 +777,7 @@
                     </button>
 
                     <!-- King Tiger -->
-                    <button type="button" data-tank-deploy="kingtiger" class="spawn-tank-card hud-btn p-3 rounded-xl text-left flex flex-col justify-between gap-2.5 border transition-all cursor-pointer">
+                    <button type="button" data-vehicle-id="kingtiger" data-tank-deploy="kingtiger" class="spawn-vehicle-card spawn-tank-card hud-btn p-3 rounded-xl text-left flex flex-col justify-between gap-2.5 border transition-all cursor-pointer">
                         <div>
                             <div class="flex items-center justify-between">
                                 <span class="text-xs font-bold text-white">King Tiger</span>
@@ -791,7 +806,8 @@
     <script src="js/physics.js?v=kill_rewards1"></script>
     <script src="js/enemyAI.js?v=kill_rewards1"></script>
     <script src="js/soldiers.js?v=kill_rewards1"></script>
-    <script src="js/playerSoldier.js?v=kill_rewards1"></script>
+    <script src="js/bicycle.js?v=bike6"></script>
+    <script src="js/playerSoldier.js?v=bike5"></script>
     <script src="js/controls.js?v=smg_1"></script>
     <script src="js/main.js?v=fix_freeze1"></script>
 </body>

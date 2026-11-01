@@ -4922,6 +4922,7 @@ function restartGame(customSeed, customZone) {
     if (typeof window.resetPlayerHealth === 'function') window.resetPlayerHealth();
     if (typeof window.resetSoldiers === 'function') window.resetSoldiers();
     if (typeof window.resetPlayerSoldier === 'function') window.resetPlayerSoldier();
+    if (typeof window.initWorldBicycles === 'function') window.initWorldBicycles();
     if (typeof window.hideKnockoutModal === 'function') window.hideKnockoutModal();
     window.playerIsDead = false;
     if (typeof window.updateMoneyHUD === 'function') window.updateMoneyHUD();

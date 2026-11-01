@@ -152,6 +152,9 @@
 
     function onPlayerSoldierDie() {
         if (!playerSoldier || playerSoldier.isDead) return;
+        if (playerSoldier.isMountedBicycle && typeof window.dismountBicycle === 'function') {
+            window.dismountBicycle(playerSoldier);
+        }
         playerSoldier.isDead = true;
         playerSoldier.speed = 0;
 
@@ -389,9 +392,6 @@
             soundHandle = window.soundFX.playBombWhistle(1.6);
         }
         grenade.soundHandle = soundHandle;
-        if (typeof window.showKillFeedBanner === 'function') {
-            window.showKillFeedBanner('💣 GRENADE OUT!');
-        }
     }
     window.throwPlayerGrenade = throwPlayerGrenade;
 
@@ -1169,7 +1169,7 @@
                         const sTypeLabel = targetSol && (targetSol.soldierType === 'smg' || targetSol.soldierType === 'submachine_gunner')
                             ? 'Infantry (SMG)'
                             : 'Infantry';
-                        const reward = window.UNIT_KILL_REWARDS.soldier;
+                        const reward = (window.UNIT_KILL_REWARDS && window.UNIT_KILL_REWARDS.soldier) || 25;
                         window.showKillFeedBanner(`TARGET DESTROYED: ${sTypeLabel} (+$${reward})`);
                     }
                 }
@@ -1225,7 +1225,7 @@
                         const sTypeLabel = targetSol && (targetSol.soldierType === 'smg' || targetSol.soldierType === 'submachine_gunner')
                             ? 'Infantry (SMG)'
                             : 'Infantry';
-                        const reward = window.UNIT_KILL_REWARDS.soldier;
+                        const reward = (window.UNIT_KILL_REWARDS && window.UNIT_KILL_REWARDS.soldier) || 25;
                         window.showKillFeedBanner(`TARGET DESTROYED: ${sTypeLabel} (+$${reward})`);
                     }
                 }
@@ -1328,6 +1328,48 @@
         }
 
         const isSprinting = moveSpeed > 3.5;
+
+        // Mounted Dispatch Bicycle Locomotion, Pedaling Kinematics & Combat
+        if (s.isMountedBicycle && s.currentBicycle && typeof window.updateBicycleRider === 'function') {
+            window.updateBicycleRider(s, s.currentBicycle, dt, currentActiveCam, fwdInput, strInput, isSprinting);
+
+            // Third-person camera follow for mounted bicycle (same framing as on foot)
+            if (currentActiveCam && window.camOrbit) {
+                const anchor = new THREE.Vector3(s.x, s.y + 1.45, s.z);
+                const phi = (window.camOrbit.phi !== undefined) ? window.camOrbit.phi : 1.40;
+                const theta = window.camOrbit.theta || 0;
+                const dist = window.camOrbit.distance || 3.2;
+
+                const lookDir = new THREE.Vector3(
+                    -Math.sin(phi) * Math.sin(theta),
+                    -Math.cos(phi),
+                    -Math.sin(phi) * Math.cos(theta)
+                ).normalize();
+                const rightOffset = new THREE.Vector3(Math.cos(theta), 0, -Math.sin(theta)).multiplyScalar(0.45);
+
+                const groundAtSoldier = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(s.x, s.z) : 0;
+                const minCamY = groundAtSoldier + 0.35;
+                let effectiveDist = dist;
+                if (lookDir.y > 0.05) {
+                    const maxDrop = (anchor.y + 0.35) - minCamY;
+                    if (maxDrop > 0.4) effectiveDist = Math.max(1.1, Math.min(dist, maxDrop / lookDir.y));
+                }
+
+                const camPos = anchor.clone().addScaledVector(lookDir, -effectiveDist).add(rightOffset).add(new THREE.Vector3(0, 0.35, 0));
+                const terrainUnderCam = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(camPos.x, camPos.z) + 0.30 : 0.8;
+                if (camPos.y < terrainUnderCam) camPos.y = terrainUnderCam;
+
+                const lookTarget = anchor.clone().add(rightOffset.clone().multiplyScalar(0.4)).addScaledVector(lookDir, 50.0);
+                currentActiveCam.position.copy(camPos);
+                currentActiveCam.lookAt(lookTarget);
+                currentActiveCam.updateMatrixWorld();
+            }
+
+            s.healTimer = 0;
+
+            updateInteractProximity();
+            return;
+        }
 
         const camTheta = (window.camOrbit && window.camOrbit.theta !== undefined) ? window.camOrbit.theta : s.heading;
         // Camera horizontal forward and right vectors
@@ -1598,6 +1640,13 @@
         initPlayerSoldierUI();
 
         if (playerMode === 'soldier' && playerSoldier) {
+            // Bicycle has no dismount button; E still steps off
+            if (playerSoldier.isMountedBicycle) {
+                currentInteractAction = { type: 'dismount_bicycle' };
+                hideInteractPrompt();
+                return;
+            }
+
             const pX = playerSoldier.x;
             const pZ = playerSoldier.z;
 
@@ -1638,6 +1687,16 @@
                 if (dOwn < 4.2) {
                     currentInteractAction = { type: 'mount' };
                     showInteractPrompt('🚗 MOUNT TANK', '🚗', false);
+                    return;
+                }
+            }
+
+            // Check nearby military dispatch bicycle
+            if (typeof window.getNearbyBicycle === 'function') {
+                const nearbyBike = window.getNearbyBicycle(pX, pZ, 3.2);
+                if (nearbyBike) {
+                    currentInteractAction = { type: 'mount_bicycle', bicycle: nearbyBike };
+                    showInteractPrompt('🚲 MOUNT BICYCLE', '🚲', false);
                     return;
                 }
             }
@@ -1707,6 +1766,14 @@
             mountTank();
         } else if (currentInteractAction.type === 'hijack' && currentInteractAction.enemyTank) {
             hijackTank(currentInteractAction.enemyTank);
+        } else if (currentInteractAction.type === 'mount_bicycle' && currentInteractAction.bicycle) {
+            if (typeof window.mountBicycle === 'function') {
+                window.mountBicycle(playerSoldier, currentInteractAction.bicycle);
+            }
+        } else if (currentInteractAction.type === 'dismount_bicycle') {
+            if (typeof window.dismountBicycle === 'function') {
+                window.dismountBicycle(playerSoldier);
+            }
         }
     }
 
@@ -1781,6 +1848,9 @@
     // WINDOW EXPORTS
     // ------------------------------------------------------------------------
     function resetPlayerSoldier() {
+        if (playerSoldier && playerSoldier.isMountedBicycle && typeof window.dismountBicycle === 'function') {
+            window.dismountBicycle(playerSoldier);
+        }
         if (playerSoldier && playerSoldier.rig && playerSoldier.rig.root && window.scene) {
             window.scene.remove(playerSoldier.rig.root);
         }
