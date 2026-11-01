@@ -275,6 +275,10 @@
             combatTactic: 'STAND_AND_FIRE', // 'STAND_AND_FIRE', 'FLANK_LEFT', 'FLANK_RIGHT', 'ADVANCE', 'REVERSE'
             tacticTimer: 1.5 + Math.random() * 2.5,
             targetSpeed: 0,
+            pitch: 0,
+            pitchVel: 0,
+            roll: 0,
+            rollVel: 0,
             detectionTimer: 0,
             reloadTimer: 1.5 + Math.random() * (spec.reloadTime || 3.5),
             barrelRecoil: 0,
@@ -410,6 +414,61 @@
         return enemy;
     }
     window.spawnEnemyCombatTank = spawnEnemyCombatTank;
+
+    function updateEnemyTerrainPose(enemy, dt) {
+        const getTerrainHeight = window.getTerrainHeight;
+        const stations = enemy.model.roadWheelStations;
+        const hullGroup = enemy.model.hullGroup;
+        if (typeof getTerrainHeight !== 'function' || !stations || !hullGroup) return;
+
+        const leftStations = stations.left || [];
+        const rightStations = stations.right || [];
+        const stationCount = leftStations.length + rightStations.length;
+        if (stationCount === 0) return;
+
+        const cosH = Math.cos(enemy.heading);
+        const sinH = Math.sin(enemy.heading);
+        let sumH = 0;
+        let sumX = 0;
+        let sumZ = 0;
+        let sumXX = 0;
+        let sumZZ = 0;
+        let sumXH = 0;
+        let sumZH = 0;
+
+        for (const sideStations of [leftStations, rightStations]) {
+            for (const station of sideStations) {
+                const worldX = enemy.x + station.x * cosH + station.z * sinH;
+                const worldZ = enemy.z - station.x * sinH + station.z * cosH;
+                const height = getTerrainHeight(worldX, worldZ);
+
+                sumH += height;
+                sumX += station.x;
+                sumZ += station.z;
+                sumXX += station.x * station.x;
+                sumZZ += station.z * station.z;
+                sumXH += station.x * height;
+                sumZH += station.z * height;
+            }
+        }
+
+        const varianceX = sumXX - (sumX * sumX) / stationCount;
+        const varianceZ = sumZZ - (sumZ * sumZ) / stationCount;
+        const covarianceXH = sumXH - (sumX * sumH) / stationCount;
+        const covarianceZH = sumZH - (sumZ * sumH) / stationCount;
+        const targetRoll = Math.atan(varianceX > 0.001 ? covarianceXH / varianceX : 0);
+        const targetPitch = Math.atan(varianceZ > 0.001 ? covarianceZH / varianceZ : 0);
+
+        enemy.pitchVel += ((targetPitch - enemy.pitch) * 40 - enemy.pitchVel * 8.5) * dt;
+        enemy.pitch += enemy.pitchVel * dt;
+        enemy.rollVel += ((targetRoll - enemy.roll) * 44 - enemy.rollVel * 9) * dt;
+        enemy.roll += enemy.rollVel * dt;
+
+        enemy.y = THREE.MathUtils.lerp(enemy.y, sumH / stationCount, Math.min(1, 12 * dt));
+        enemy.enemyRoot.position.set(enemy.x, enemy.y, enemy.z);
+        hullGroup.rotation.x = -enemy.pitch;
+        hullGroup.rotation.z = enemy.roll;
+    }
 
     // ========================================================================
     // 3. ENEMY COMBAT BEHAVIOR LOOP (Vision, Aiming, Ballistics, Firing)
@@ -751,6 +810,7 @@
                         }
                     }
                 }
+                updateEnemyTerrainPose(e, dt);
                 continue;
             }
 
@@ -896,6 +956,8 @@
                     }
                 }
             }
+
+            updateEnemyTerrainPose(e, dt);
 
             // 4. Barrel recoil recovery animation
             if (e.barrelRecoil > 0) {

@@ -520,7 +520,7 @@
         visorMesh.position.copy(lampPos).add(new THREE.Vector3(0.055, 0.008, 0));
         steeringGroup.add(visorMesh);
 
-        const lensMat = new THREE.MeshBasicMaterial({ color: 0xfef08a });
+        const lensMat = new THREE.MeshBasicMaterial({ color: 0x334155 });
         const lensMesh = new THREE.Mesh(new THREE.CircleGeometry(0.046, 10), lensMat);
         lensMesh.rotation.y = Math.PI / 2;
         lensMesh.position.copy(lampPos).add(new THREE.Vector3(0.064, 0, 0));
@@ -690,6 +690,7 @@
             inner,
             steeringGroup,
             leftGripAnchor,
+            headlightAnchor: lensMesh,
             frontWheelGroup,
             rearWheelGroup,
             crankGroup,
@@ -863,31 +864,45 @@
             }
 
             if (this.isMounted) {
-                // Driving / Pedaling physics
+                // Pedaling force, rolling resistance, and gravity along the terrain slope
                 const maxSpeed = isSprinting ? 9.8 : 7.2; // ~35 km/h sprint, ~26 km/h cruise
-                const accel = isSprinting ? 7.5 : 5.2;
-                const brake = 11.0;
-                const drag = 1.6;
+                const mass = 105; // bicycle and rider
+                const gravity = 9.81;
+                const enginePower = isSprinting ? 600 : 400;
+                const slopePitch = this.terrainPitch;
+                const normalForce = mass * gravity * Math.cos(slopePitch);
+                const gravityForce = -mass * gravity * Math.sin(slopePitch);
+                const isMoving = Math.abs(this.speed) > 0.05;
+                const rollingResistance = -(isMoving ? Math.sign(this.speed) : fwdInput) * 0.015 * normalForce;
+                const aerodynamicDrag = -0.36 * this.speed * Math.abs(this.speed);
+                let driveForce = 0;
 
                 if (fwdInput > 0.05) {
-                    this.speed = Math.min(maxSpeed, this.speed + accel * fwdInput * dt);
-                } else if (fwdInput < -0.05) {
-                    // Braking or reversing
-                    if (this.speed > 0.2) {
-                        this.speed = Math.max(0, this.speed - brake * Math.abs(fwdInput) * dt);
+                    if (this.speed < -0.2) {
+                        driveForce = mass * 3.5 * fwdInput;
                     } else {
-                        this.speed = Math.max(-1.8, this.speed - accel * 0.45 * dt);
+                        const effectiveSpeed = Math.max(Math.abs(this.speed), 1.4);
+                        const tractionLimit = 0.65 * normalForce;
+                        const tractiveForce = Math.min(tractionLimit, (enginePower * 0.85) / effectiveSpeed);
+                        driveForce = tractiveForce * fwdInput;
+                    }
+                } else if (fwdInput < -0.05) {
+                    if (this.speed > 0.2) {
+                        driveForce = -mass * 3.5 * Math.abs(fwdInput);
+                    } else {
+                        const effectiveSpeed = Math.max(Math.abs(this.speed), 1.4);
+                        const reverseSpeed = Math.max(0, -this.speed / 1.8);
+                        const reverseForce = Math.min(0.65 * normalForce, (enginePower * 0.4 * 0.85) / effectiveSpeed);
+                        driveForce = -reverseForce * Math.max(0, 1 - reverseSpeed * reverseSpeed) * Math.abs(fwdInput);
                     }
                 } else {
-                    // Natural rolling drag
-                    if (Math.abs(this.speed) > 0.05) {
-                        const dragDir = Math.sign(this.speed);
-                        this.speed -= dragDir * drag * dt;
-                        if (Math.sign(this.speed) !== dragDir) this.speed = 0;
-                    } else {
-                        this.speed = 0;
-                    }
+                    driveForce = -this.speed * mass * 0.18;
                 }
+
+                const acceleration = (driveForce + gravityForce + rollingResistance + aerodynamicDrag) / mass;
+                this.speed += acceleration * dt;
+                this.speed = THREE.MathUtils.clamp(this.speed, -1.8, maxSpeed * 1.45);
+                if (Math.abs(this.speed) < 0.01 && Math.abs(acceleration) < 0.05) this.speed = 0;
 
                 // Steering
                 const speedFactor = Math.min(1.0, Math.abs(this.speed) / 2.5);
@@ -1067,14 +1082,6 @@
             window.camOrbit.distance = 3.2;
         }
 
-        // Ring brass bell chime
-        if (window.soundFX && typeof window.soundFX.playBicycleBell === 'function') {
-            window.soundFX.playBicycleBell();
-        }
-
-        if (typeof window.showKillFeedBanner === 'function') {
-            window.showKillFeedBanner('🚲 MOUNTED MILITARY BICYCLE (WASD: Ride, Mouse/LMB: Aim & Fire, E: Dismount)', '#38bdf8');
-        }
     }
     window.mountBicycle = mountBicycle;
 
@@ -1095,6 +1102,9 @@
         soldier.isMountedBicycle = false;
         soldier.currentBicycle = null;
         soldier.healTimer = 0;
+        if (bike.model.lensMat) {
+            bike.model.lensMat.color.setHex(0x334155);
+        }
 
         // Restore soldier upright pose
         if (soldier.rig && soldier.rig.hips) {
@@ -1263,6 +1273,13 @@
             rig.head.rotation.y = aimYawClamped * 0.45;
         }
 
+        let grenadeArmLift = 0;
+        if (s.grenadeAnimTimer > 0) {
+            s.grenadeAnimTimer = Math.max(0, s.grenadeAnimTimer - dt);
+            const p = 1.0 - (s.grenadeAnimTimer / (s.grenadeAnimDuration || 0.40));
+            grenadeArmLift = Math.sin(p * Math.PI);
+        }
+
         // Update matrices for upper body IK
         if (rig.rightArm && rig.rightArm.shoulder) {
             rig.rightArm.shoulder.updateMatrixWorld(true);
@@ -1281,6 +1298,10 @@
         const gripTorso = rig.torso.worldToLocal(_tempVecA);
 
         const leftShoulderPos = rig.leftArm.shoulder.position;
+        if (grenadeArmLift > 0) {
+            const throwHandTarget = leftShoulderPos.clone().add(new THREE.Vector3(0.08, 0.38, 0.12));
+            gripTorso.lerp(throwHandTarget, grenadeArmLift);
+        }
         const armD = gripTorso.clone().sub(leftShoulderPos);
         const armDist = armD.length();
         const armL1 = 0.265;
@@ -1314,6 +1335,9 @@
         // 7. RIGHT ARM: ONE-HANDED COMBAT MARKSMANSHIP STANCE (Analytical 2-Bone IK)
         // Wrist target in rig root space: raised and pushed forward onto the rifle stock
         if (rig.rifle && rig.rightArm) {
+            if (rig.rifle.parent !== rig.rightArm.wrist) {
+                rig.rightArm.wrist.attach(rig.rifle);
+            }
             const yawOffset = (aimYawClamped - rig.torso.rotation.y) * 0.90;
 
             // The arm reaches along the unclamped aim direction from the shoulder, so it can swing to the rear.
@@ -1380,6 +1404,7 @@
             rig.rightArm.wrist.getWorldQuaternion(_wristQuat);
             const localRifleQuat = _wristQuat.clone().invert().multiply(_targetQuat);
             rig.rifle.quaternion.copy(localRifleQuat);
+            window.placeSoldierWeaponInHand(rig, localRifleQuat);
             rig.rifle.updateMatrixWorld(true);
         }
     }

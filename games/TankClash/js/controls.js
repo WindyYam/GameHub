@@ -53,10 +53,6 @@ function setCameraMode(mode) {
         if (mode === 'fpv') {
             isFpvZoomed = false;
             window.perspCamera.fov = 46;
-            if (window.tankState) {
-                camOrbit.theta = tankState.heading + (tankState.turretYaw || 0) + Math.PI;
-                camOrbit.phi = THREE.MathUtils.clamp(Math.PI / 2 + (tankState.gunElevation || 0), 0.95, 2.20);
-            }
         } else {
             window.perspCamera.fov = 42;
             camOrbit.phi = THREE.MathUtils.clamp(camOrbit.phi, 0.45, 1.85);
@@ -167,7 +163,10 @@ function initControls(renderer) {
         if (k === 'e') { if (typeof window.triggerInteract === 'function') window.triggerInteract(); }
         if (k === 'r') { if (typeof window.restartGame === 'function') window.restartGame(); }
         if (k === 't') { if (window.dayNight && window.dayNight.cycleNext) window.dayNight.cycleNext(); }
-        if (k === 'v' || k === 'c') {
+        if (k === 'v') {
+            cycleZoom();
+        }
+        if (k === 'c') {
             if (window.playerMode === 'soldier') {
                 cycleZoom();
             } else {

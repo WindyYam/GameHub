@@ -761,6 +761,8 @@ function updateSimulation(dt) {
             -Math.sin(camOrbit.phi) * Math.cos(camOrbit.theta)
         ).normalize();
 
+        // Keep the scope camera ahead of the turret so it clears the tank mesh and barrel.
+        sightPos.addScaledVector(lookDir, 1.0);
         const sightTarget = sightPos.clone().addScaledVector(lookDir, 100.0);
         currentActiveCam.position.copy(sightPos);
         currentActiveCam.lookAt(sightTarget);
@@ -1252,10 +1254,16 @@ function updateSimulation(dt) {
     const isDark = (sunY < 0.02);
     const hlLights = window.headlightLights || [];
     const isPlayerInTank = (window.playerMode !== 'soldier' && window.tankState && window.tankState.hasTank !== false && window.tankRoot && window.tankRoot.visible);
-    const isLit = isPlayerInTank && Boolean(tankState.headlightsOn || isDark);
+    const activeBicycle = window.playerMode === 'soldier' && window.playerSoldier && window.playerSoldier.isMountedBicycle
+        ? window.playerSoldier.currentBicycle
+        : null;
+    const isPlayerInBicycle = Boolean(activeBicycle && activeBicycle.root && activeBicycle.model && activeBicycle.model.headlightAnchor);
+    const isLit = (isPlayerInTank || isPlayerInBicycle) && Boolean(tankState.headlightsOn || isDark);
 
     if (isPlayerInTank && window.tankRoot) {
         window.tankRoot.updateMatrixWorld(true);
+    } else if (isPlayerInBicycle) {
+        activeBicycle.root.updateMatrixWorld(true);
     }
 
     const persistentSpots = window.persistentHeadlightSpots || [];
@@ -1271,10 +1279,26 @@ function updateSimulation(dt) {
             _hlTargetPos.copy(_hlMountPos).add(_hlForward);
             spot.target.position.copy(_hlTargetPos);
 
+            spot.distance = 45;
+            spot.angle = Math.PI / 5;
             spot.intensity = isLit ? 3.2 : 0.0;
             if (entry.slitMat) {
                 entry.slitMat.color.setHex(isLit ? 0xfef08a : 0x334155);
             }
+        } else if (isPlayerInBicycle && i === 0) {
+            const anchor = activeBicycle.model.headlightAnchor;
+            anchor.getWorldPosition(_hlMountPos);
+            anchor.getWorldQuaternion(_hlQuat);
+
+            spot.position.copy(_hlMountPos);
+            _hlForward.set(0, -0.35, 12).applyQuaternion(_hlQuat);
+            _hlTargetPos.copy(_hlMountPos).add(_hlForward);
+            spot.target.position.copy(_hlTargetPos);
+
+            spot.distance = 24;
+            spot.angle = Math.PI / 6;
+            spot.intensity = isLit ? 2.4 : 0.0;
+            activeBicycle.model.lensMat.color.setHex(isLit ? 0xfef08a : 0x334155);
         } else {
             spot.intensity = 0.0;
             spot.position.set(0, -1000, 0);

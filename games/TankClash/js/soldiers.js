@@ -14,6 +14,9 @@
             // Creates a vertex-sculpted BufferGeometry by lofting cross-sectional rings
             // Each slice defines: { y, rx, rz, ox, oz, foldAmp, foldFreq, foldPhase, pinchFront, squareness }
             const SculptEngine = {
+            headRadialSegments: 48,
+            headHeightSegments: 32,
+
             createLoftedMesh(slices, radSegs = 24, capTop = true, capBottom = true) {
                 const geo = new THREE.BufferGeometry();
                 const positions = [];
@@ -111,8 +114,8 @@
 
             // Sculpt a realistic adult male head with brow ridge, eye sockets, nose bridge, cheekbones, lips, jaw & ears
             createRealisticHeadGeometry(facialVariant = 0) {
-                const radSegs = 32;
-                const ySegs = 24;
+                const radSegs = this.headRadialSegments;
+                const ySegs = this.headHeightSegments;
                 const geo = new THREE.BufferGeometry();
                 const positions = [];
                 const uvs = [];
@@ -124,7 +127,7 @@
 
                 for (let iy = 0; iy <= ySegs; iy++) {
                     const v = iy / ySegs; // 0 = base of neck/chin, 1 = crown of skull
-                    const y = (v - 0.35) * 0.255; // Total head height ~25.5cm
+                    const baseY = (v - 0.35) * 0.255; // Total head height ~25.5cm
 
                     for (let ix = 0; ix <= radSegs; ix++) {
                         const u = ix / radSegs;
@@ -132,6 +135,8 @@
                         const sinT = Math.sin(theta);
                         const cosT = Math.cos(theta);
                         const absAngle = Math.abs(theta);
+                        const jawT = Math.max(0, 1 - v / 0.16);
+                        const y = baseY + jawT * 0.025 * (1 - cosT) * 0.5;
 
                         // Base cranial profile envelope
                         let rx = 0.076;
@@ -172,6 +177,8 @@
                         if (cosT > 0) {
                             // 1. Flatten face plane slightly for realistic human skull vs sphere
                             z -= Math.pow(cosT, 1.5) * 0.008;
+                            const forehead = Math.exp(-Math.pow((v - 0.67) / 0.10, 2)) * Math.exp(-Math.pow(theta / 0.30, 2));
+                            z -= forehead * 0.012;
 
                             // 2. Chin mental protuberance & strong jawline corners (Gonial angle)
                             const chinMask = Math.exp(-Math.pow((v - 0.19) / 0.055, 2)) * Math.exp(-Math.pow(theta / 0.32, 2));
@@ -200,7 +207,7 @@
                                 const noseProfile = Math.sin(nv * Math.PI * 0.85) * (1.0 - nv * 0.35);
                                 const bridgeWidth = THREE.MathUtils.lerp(0.16, 0.09, nv);
                                 const noseCenterMask = Math.exp(-Math.pow(theta / bridgeWidth, 2));
-                                z += noseCenterMask * (0.025 * noseProfile + 0.005) * noseProminence;
+                                z += noseCenterMask * (0.020 * noseProfile + 0.005) * noseProminence;
 
                                 // Nostril wings at bottom of nose
                                 const alarMask = Math.exp(-Math.pow((v - 0.39) / 0.03, 2)) * Math.exp(-Math.pow((absAngle - 0.14) / 0.07, 2));
@@ -245,6 +252,55 @@
                 geo.setIndex(indices);
                 geo.computeVertexNormals();
                 return geo;
+            },
+
+            createHairGeometry(headGeometry) {
+                const radialSegments = this.headRadialSegments;
+                const headSegments = this.headHeightSegments;
+                const hairSegments = 12;
+                const headPositions = headGeometry.attributes.position;
+                const positions = [];
+                const uvs = [];
+                const indices = [];
+
+                for (let iy = 0; iy <= hairSegments; iy++) {
+                    for (let ix = 0; ix <= radialSegments; ix++) {
+                        const u = ix / radialSegments;
+                        const angle = Math.abs((u - 0.5) * Math.PI * 2);
+                        const side = Math.min(1, angle / 1.5);
+                        const back = THREE.MathUtils.clamp((angle - 1.5) / 0.6, 0, 1);
+                        const hairline = 0.67 - side * 0.12 - back * 0.14 +
+                            0.005 * Math.sin(u * Math.PI * 22) + 0.003 * Math.sin(u * Math.PI * 38);
+                        const v = THREE.MathUtils.lerp(hairline, 0.90, iy / hairSegments);
+                        const ring = v * headSegments;
+                        const lowerRing = Math.floor(ring);
+                        const blend = ring - lowerRing;
+                        const lower = lowerRing * (radialSegments + 1) + ix;
+                        const upper = lower + radialSegments + 1;
+                        const sample = (axis) => THREE.MathUtils.lerp(
+                            headPositions[axis](lower), headPositions[axis](upper), blend
+                        );
+
+                        positions.push(sample('getX') * 1.015, sample('getY') + 0.001, sample('getZ') * 1.015);
+                        uvs.push(u, v);
+                    }
+                }
+
+                const stride = radialSegments + 1;
+                for (let iy = 0; iy < hairSegments; iy++) {
+                    for (let ix = 0; ix < radialSegments; ix++) {
+                        const a = iy * stride + ix;
+                        const b = (iy + 1) * stride + ix;
+                        indices.push(a, a + 1, b, b, a + 1, b + 1);
+                    }
+                }
+
+                const geometry = new THREE.BufferGeometry();
+                geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+                geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+                geometry.setIndex(indices);
+                geometry.computeVertexNormals();
+                return geometry;
             },
 
             // Sculpt a combat boot with distinct sole heel, ankle arch, instep, and rounded toe box
@@ -448,7 +504,7 @@
                 for (let y = 0; y < size; y += step) {
                     for (let x = 0; x < size; x += step) {
                         const diag = ((x + y) / step) % 3 === 0;
-                        const foldWave = Math.sin((x / size) * Math.PI * 6) * 0.03;
+                        const foldWave = Math.sin((x / size) * Math.PI * 6) * 0.015;
                         const noise = (Math.random() - 0.5) * grime;
                         const shade = (diag ? 0.025 : -0.025) + foldWave + noise;
 
@@ -456,7 +512,7 @@
                         aCtx.fillStyle = `#${c.getHexString()}`;
                         aCtx.fillRect(x, y, step, step);
 
-                        const hVal = Math.max(0, Math.min(255, Math.floor(128 + (diag ? 28 : -28) + foldWave * 350 + noise * 70)));
+                        const hVal = Math.max(0, Math.min(255, Math.floor(128 + (diag ? 16 : -16) + foldWave * 250 + noise * 70)));
                         hCtx.fillStyle = `rgb(${hVal},${hVal},${hVal})`;
                         hCtx.fillRect(x, y, step, step);
                     }
@@ -489,7 +545,7 @@
                 albedoTex.wrapS = albedoTex.wrapT = THREE.RepeatWrapping;
                 albedoTex.repeat.set(2, 2);
 
-                const normalObj = this.heightToNormalMap(heightC, 1.8);
+                const normalObj = this.heightToNormalMap(heightC, 1.1);
                 normalObj.texture.repeat.set(2, 2);
 
                 return { map: albedoTex, normalMap: normalObj.texture };
@@ -544,8 +600,8 @@
                 // Woven shrimp-netting overlay for U.S. M1 Helmet
                 if (hasNetting) {
                     const grid = 12;
-                    aCtx.lineWidth = 2.0;
-                    hCtx.lineWidth = 2.4;
+                    aCtx.lineWidth = 1.2;
+                    hCtx.lineWidth = 1.4;
                     for (let i = -size; i < size * 2; i += grid) {
                         aCtx.strokeStyle = '#363223';
                         hCtx.strokeStyle = '#f5f5f5';
@@ -560,7 +616,7 @@
 
                 const albedoTex = new THREE.CanvasTexture(albedoC); albedoTex.encoding = THREE.sRGBEncoding;
                 albedoTex.wrapS = albedoTex.wrapT = THREE.RepeatWrapping;
-                const normalObj = this.heightToNormalMap(heightC, hasNetting ? 3.2 : 1.6);
+                const normalObj = this.heightToNormalMap(heightC, hasNetting ? 1.5 : 1.6);
 
                 if (hasNetting) {
                 }
@@ -692,6 +748,29 @@
                 return { map: albedoTex, normalMap: normalObj.texture };
             },
 
+            createHairTexture() {
+                const size = 128;
+                const canvas = document.createElement('canvas');
+                canvas.width = canvas.height = size;
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = '#76543b';
+                ctx.fillRect(0, 0, size, size);
+                ctx.lineWidth = 0.7;
+                for (let i = 0; i < 900; i++) {
+                    const x = Math.random() * size;
+                    const y = Math.random() * size;
+                    const length = 3 + Math.random() * 6;
+                    ctx.strokeStyle = i % 4 === 0 ? 'rgba(205, 161, 113, 0.30)' : 'rgba(28, 19, 14, 0.22)';
+                    ctx.beginPath();
+                    ctx.moveTo(x, y);
+                    ctx.quadraticCurveTo(x + 1.5, y + length * 0.5, x + 1, y + length);
+                    ctx.stroke();
+                }
+                const texture = new THREE.CanvasTexture(canvas);
+                texture.encoding = THREE.sRGBEncoding;
+                return texture;
+            },
+
             // 256x256 Realistic Weathered Male Face Texture + Pore/Stubble Normal Map
             createFaceMaps() {
                 const size = 256;
@@ -703,39 +782,49 @@
                 const hCtx = h.getContext('2d');
 
                 // Warm sub-dermal Caucasian/olive base skin tone
-                ctx.fillStyle = '#bf8b6e';
+                ctx.fillStyle = '#c59b80';
                 ctx.fillRect(0, 0, size, size);
 
                 hCtx.fillStyle = '#808080';
                 hCtx.fillRect(0, 0, size, size);
 
                 // Natural skin color zones: forehead warmth, ruddy nose/cheeks, darker eye sockets
-                const cheekGrad = ctx.createRadialGradient(size * 0.5, size * 0.52, 8, size * 0.5, size * 0.52, 85);
-                cheekGrad.addColorStop(0, 'rgba(155, 72, 55, 0.30)');
-                cheekGrad.addColorStop(1, 'rgba(155, 72, 55, 0)');
-                ctx.fillStyle = cheekGrad;
-                ctx.fillRect(0, 0, size, size);
+                [0.40, 0.60].forEach(x => {
+                    const cheekGrad = ctx.createRadialGradient(size * x, size * 0.52, 2, size * x, size * 0.52, 38);
+                    cheekGrad.addColorStop(0, 'rgba(155, 80, 65, 0.14)');
+                    cheekGrad.addColorStop(1, 'rgba(155, 80, 65, 0)');
+                    ctx.fillStyle = cheekGrad;
+                    ctx.fillRect(0, 0, size, size);
+                });
 
                 // Recessed orbital eye socket shadowing (prevents bug-eyed look)
                 [size * 0.42, size * 0.58].forEach(ex => {
                     const eyeShadow = ctx.createRadialGradient(ex, size * 0.44, 2, ex, size * 0.44, 18);
-                    eyeShadow.addColorStop(0, 'rgba(42, 28, 22, 0.55)');
+                    eyeShadow.addColorStop(0, 'rgba(42, 28, 22, 0.30)');
                     eyeShadow.addColorStop(1, 'rgba(42, 28, 22, 0)');
                     ctx.fillStyle = eyeShadow;
                     ctx.fillRect(0, 0, size, size);
                 });
 
                 // Thick masculine eyebrows above sockets
-                ctx.strokeStyle = '#2d231e';
-                ctx.lineWidth = 4.5;
+                ctx.strokeStyle = 'rgba(45, 35, 30, 0.75)';
+                ctx.lineWidth = 1;
                 ctx.lineCap = 'round';
-                // Left & Right brow
-                ctx.beginPath(); ctx.moveTo(size * 0.36, size * 0.38); ctx.quadraticCurveTo(size * 0.42, size * 0.36, size * 0.47, size * 0.385); ctx.stroke();
-                ctx.beginPath(); ctx.moveTo(size * 0.64, size * 0.38); ctx.quadraticCurveTo(size * 0.58, size * 0.36, size * 0.53, size * 0.385); ctx.stroke();
+                [0.36, 0.53].forEach(start => {
+                    for (let i = 0; i < 18; i++) {
+                        const t = i / 17;
+                        const x = size * (start + t * 0.11);
+                        const y = size * (0.385 - Math.sin(t * Math.PI) * 0.018);
+                        ctx.beginPath();
+                        ctx.moveTo(x, y + 1.5);
+                        ctx.lineTo(x + 1.4, y - 1.5);
+                        ctx.stroke();
+                    }
+                });
 
                 // Nasolabial folds & weathered forehead lines
-                ctx.strokeStyle = 'rgba(65, 42, 32, 0.28)';
-                ctx.lineWidth = 1.8;
+                ctx.strokeStyle = 'rgba(65, 42, 32, 0.12)';
+                ctx.lineWidth = 1.2;
                 ctx.beginPath(); ctx.moveTo(size * 0.45, size * 0.56); ctx.lineTo(size * 0.40, size * 0.70); ctx.stroke();
                 ctx.beginPath(); ctx.moveTo(size * 0.55, size * 0.56); ctx.lineTo(size * 0.60, size * 0.70); ctx.stroke();
 
@@ -748,19 +837,19 @@
 
                 // 5-o'clock beard stubble shadow across jaw, chin & upper lip
                 const jawGrad = ctx.createRadialGradient(size * 0.5, size * 0.74, 10, size * 0.5, size * 0.74, 65);
-                jawGrad.addColorStop(0, 'rgba(38, 34, 30, 0.42)');
-                jawGrad.addColorStop(0.7, 'rgba(38, 34, 30, 0.25)');
+                jawGrad.addColorStop(0, 'rgba(38, 34, 30, 0.25)');
+                jawGrad.addColorStop(0.7, 'rgba(38, 34, 30, 0.15)');
                 jawGrad.addColorStop(1, 'rgba(38, 34, 30, 0)');
                 ctx.fillStyle = jawGrad;
                 ctx.fillRect(0, size * 0.52, size, size * 0.48);
 
                 // Micro skin pores, stubble follicles & battlefield soot smudges
-                for (let i = 0; i < 1800; i++) {
+                for (let i = 0; i < 650; i++) {
                     const x = Math.random() * size;
                     const y = Math.random() * size;
                     const isBeardZone = y > size * 0.58 && x > size * 0.25 && x < size * 0.75;
-                    ctx.fillStyle = isBeardZone ? 'rgba(32, 27, 24, 0.28)' : 'rgba(90, 58, 45, 0.12)';
-                    ctx.fillRect(x, y, 1.3, 1.3);
+                    ctx.fillStyle = isBeardZone ? 'rgba(32, 27, 24, 0.16)' : 'rgba(90, 58, 45, 0.07)';
+                    ctx.fillRect(x, y, 0.8, 0.8);
 
                     const hv = Math.floor(128 + (Math.random() - 0.5) * (isBeardZone ? 75 : 35));
                     hCtx.fillStyle = `rgb(${hv},${hv},${hv})`;
@@ -795,6 +884,7 @@
             const brownLeather   = TextureFactory.createLeatherMaps(0x472c1a);
             const webCanvasMaps  = TextureFactory.createFabricMaps(0x7a6e4a, "Web Gear", 2, 0.18);
             const faceMaps       = TextureFactory.createFaceMaps();
+            const hairTexture    = TextureFactory.createHairTexture();
 
             const registerMat = (mat) => {
                 return mat;
@@ -825,7 +915,7 @@
             // Weathered Combat Steel Helmets
             MATS.usHelmet = registerMat(new THREE.MeshStandardMaterial({
                 map: usHelmetMaps.map, normalMap: usHelmetMaps.normalMap,
-                normalScale: new THREE.Vector2(1.5, 1.5), roughness: 0.72, metalness: 0.22
+                normalScale: new THREE.Vector2(0.65, 0.65), roughness: 0.72, metalness: 0.22
             }));
             MATS.sovietHelmet = registerMat(new THREE.MeshStandardMaterial({
                 map: sovHelmetMaps.map, normalMap: sovHelmetMaps.normalMap,
@@ -864,9 +954,15 @@
             MATS.skin = registerMat(new THREE.MeshStandardMaterial({
                 map: faceMaps.map,
                 normalMap: faceMaps.normalMap,
-                normalScale: new THREE.Vector2(0.45, 0.45),
+                normalScale: new THREE.Vector2(0.22, 0.22),
                 roughness: 0.72,
                 metalness: 0.0            }));
+            MATS.skinPlain = registerMat(new THREE.MeshStandardMaterial({
+                color: new THREE.Color(0xc59b80).convertSRGBToLinear(), roughness: 0.8, metalness: 0.0
+            }));
+            MATS.hair = registerMat(new THREE.MeshStandardMaterial({
+                map: hairTexture, roughness: 0.95, metalness: 0.0
+            }));
             MATS.redInsignia = registerMat(new THREE.MeshStandardMaterial({
                 color: 0x991b1b, roughness: 0.75, metalness: 0.05
             }));
@@ -1198,6 +1294,20 @@
         function buildHelmet(faction) {
             const helmetGroup = new THREE.Group();
 
+            function addRim(geometry, firstVertex, segments, material) {
+                const positions = geometry.attributes.position;
+                const points = [];
+                for (let i = 0; i < segments; i++) {
+                    points.push(new THREE.Vector3(
+                        positions.getX(firstVertex + i),
+                        positions.getY(firstVertex + i),
+                        positions.getZ(firstVertex + i)
+                    ));
+                }
+                const curve = new THREE.CatmullRomCurve3(points, true);
+                helmetGroup.add(new THREE.Mesh(new THREE.TubeGeometry(curve, segments * 2, 0.0025, 5, true), material));
+            }
+
             if (faction === 'us') {
                 // U.S. M1 "Steel Pot" Helmet with authentic elliptical deep dome & front visor lip
                 const domeGeo = new THREE.SphereGeometry(0.118, 24, 16, 0, Math.PI * 2, 0, Math.PI * 0.56);
@@ -1223,6 +1333,7 @@
                 m1Mat.side = THREE.DoubleSide;
                 const dome = new THREE.Mesh(domeGeo, m1Mat);
                 helmetGroup.add(dome);
+                addRim(domeGeo, pos.count - 25, 24, m1Mat);
 
             } else if (faction === 'soviet') {
                 // Soviet SSh-40 Steel Helmet with sloped crown, subtle ear-skirt flare & front brim
@@ -1252,6 +1363,7 @@
                 sshMat.side = THREE.DoubleSide;
                 const dome = new THREE.Mesh(domeGeo, sshMat);
                 helmetGroup.add(dome);
+                addRim(domeGeo, pos.count - 25, 24, sshMat);
 
                 // Embossed 5-Pointed Red Star on front of SSh-40
                 const starShape = new THREE.Shape();
@@ -1297,6 +1409,7 @@
                 stahlMat.side = THREE.DoubleSide;
                 const stahlMesh = new THREE.Mesh(stahlGeo, stahlMat);
                 helmetGroup.add(stahlMesh);
+                addRim(stahlGeo, 0, 28, stahlMat);
 
                 // Side ventilation lugs & split-pin rivets
                 [-0.106, 0.106].forEach(vx => {
@@ -1309,11 +1422,13 @@
 
             // Fitted Leather Chinstrap Hugging the Jawline
             const strapCurve = new THREE.CatmullRomCurve3([
-                new THREE.Vector3(-0.082, 0.005, -0.010),
-                new THREE.Vector3(-0.068, -0.055, 0.025),
-                new THREE.Vector3( 0.000, -0.092, 0.055),
-                new THREE.Vector3( 0.068, -0.055, 0.025),
-                new THREE.Vector3( 0.082, 0.005, -0.010)
+                new THREE.Vector3(-0.101, -0.010, -0.010),
+                new THREE.Vector3(-0.112, -0.075, 0.005),
+                new THREE.Vector3(-0.085, -0.145, 0.015),
+                new THREE.Vector3( 0.000, -0.205, 0.045),
+                new THREE.Vector3( 0.085, -0.145, 0.015),
+                new THREE.Vector3( 0.112, -0.075, 0.005),
+                new THREE.Vector3( 0.101, -0.010, -0.010)
             ]);
             const strapGeo = new THREE.TubeGeometry(strapCurve, 14, 0.0038, 6, false);
             const strap = new THREE.Mesh(strapGeo, MATS.brownLeather);
@@ -1508,11 +1623,12 @@
                 { y:  0.04, rx: 0.056, rz: 0.059, oz: 0.004, squareness: 0.08 },
                 { y:  0.08, rx: 0.058, rz: 0.062, oz: 0.008, squareness: 0.08 }
             ];
-            const neckMesh = new THREE.Mesh(SculptEngine.createLoftedMesh(neckSlices, 18, false, false), MATS.skin);
+            const neckMesh = new THREE.Mesh(SculptEngine.createLoftedMesh(neckSlices, 18, false, false), MATS.skinPlain);
             neck.add(neckMesh);
 
             const head = new THREE.Group();
             head.position.set(0, 0.065, 0.008);
+            head.scale.y = 0.90;
             neck.add(head);
 
             // Anatomically Sculpted Male Head Mesh
@@ -1520,27 +1636,40 @@
             const headMesh = new THREE.Mesh(headGeo, MATS.skin);
             headMesh.position.y = 0.055;
             head.add(headMesh);
+            const hair = new THREE.Mesh(SculptEngine.createHairGeometry(headGeo), MATS.hair);
+            hair.position.y = headMesh.position.y;
+            head.add(hair);
 
-            // Realistic Recessed Eyes (Sclera + Dark Iris/Pupil) inside the sculpted orbital sockets
+            // Recessed, flattened eyes sit within the sculpted orbital sockets.
             const scleraMat = new THREE.MeshStandardMaterial({ color: 0xdcd6ce, roughness: 0.25 });
             const irisMat   = new THREE.MeshStandardMaterial({ color: 0x231d18, roughness: 0.15 });
             [-0.027, 0.027].forEach(ex => {
                 const eyeGroup = new THREE.Group();
-                eyeGroup.position.set(ex, 0.106, 0.072);
+                eyeGroup.position.set(ex, 0.106, 0.0695);
 
-                const eyeball = new THREE.Mesh(new THREE.SphereGeometry(0.0115, 10, 10), scleraMat);
+                const eyeball = new THREE.Mesh(new THREE.SphereGeometry(0.0105, 12, 8), scleraMat);
+                eyeball.scale.set(1, 0.48, 0.45);
                 eyeGroup.add(eyeball);
 
-                const iris = new THREE.Mesh(new THREE.SphereGeometry(0.0065, 8, 8), irisMat);
-                iris.position.z = 0.0065;
+                const iris = new THREE.Mesh(new THREE.CircleGeometry(0.0038, 10), irisMat);
+                iris.position.z = 0.0048;
                 eyeGroup.add(iris);
 
                 head.add(eyeGroup);
             });
 
+            const earGeo = new THREE.SphereGeometry(1, 12, 10);
+            [-1, 1].forEach(side => {
+                const ear = new THREE.Mesh(earGeo, MATS.skinPlain);
+                ear.position.set(side * 0.077, 0.086, -0.010);
+                ear.scale.set(0.012, 0.021, 0.014);
+                head.add(ear);
+            });
+
             // Attach Authentic Faction Helmet
             const helmet = buildHelmet(faction);
-            helmet.position.set(0, 0.125, -0.002);
+            helmet.position.set(0, 0.150, -0.002);
+            helmet.scale.set(0.88, 0.93, 0.88);
             helmet.rotation.x = -0.04; // Slight natural combat tilt over brow
             head.add(helmet);
 
@@ -1587,7 +1716,7 @@
                 wrist.position.y = -0.24;
                 elbow.add(wrist);
 
-                const hand = SculptEngine.createArticulatedHand(isRight, MATS.skin);
+                const hand = SculptEngine.createArticulatedHand(isRight, MATS.skinPlain);
                 wrist.add(hand);
 
                 return { shoulder, elbow, wrist, hand };
@@ -1927,6 +2056,7 @@
             this.rig.root.position.set(this.x, this.y, this.z);
             this.rig.root.rotation.y = this.heading;
             this.rig.root.userData.soldier = this;
+            this.animateJoints(false, 0);
 
             // Simple Red Cursor above target top for enemy combatants
             this.targetCursor = null;
@@ -2514,8 +2644,7 @@
 
             if (isFar) return; // Skip upper-body micro-rotations at distant ranges on mobile
 
-            // 2. Torso, Head & Arms: Authentic WWII Standard Combat Marksmanship Stance
-            // Right arm firmly shoulders weapon into shoulder pocket, left arm uses 2-bone analytical IK holding forend
+            // 2. Torso, head and shared two-handed weapon pose
             if (rig.rifle && rig.rightArm && rig.rightArm.wrist && rig.leftArm && rig.leftArm.shoulder) {
                 // Determine aiming direction
                 const fwdHeadingX = Math.sin(this.heading);
@@ -2531,98 +2660,13 @@
 
                 // Blend aim direction based on aimWeight
                 const aimDir = new THREE.Vector3().lerpVectors(lowReadyDir, adsDir || lowReadyDir, w).normalize();
-                const pitch = Math.asin(THREE.MathUtils.clamp(aimDir.y, -0.95, 0.95));
-
-                // Natural bladed firing stance with forward combat lean
-                const baseTorsoY = THREE.MathUtils.lerp(-0.25, -0.32, w);
-                const baseHeadY  = THREE.MathUtils.lerp(0.18, 0.32, w);
-
-                rig.torso.rotation.x = THREE.MathUtils.lerp(-0.04, -0.08 - pitch * 0.45, w);
-                rig.torso.rotation.y = baseTorsoY;
-                rig.head.rotation.x  = THREE.MathUtils.lerp(0.02, -0.06 - pitch * 0.35, w);
-                rig.head.rotation.y  = baseHeadY;
-                rig.head.rotation.z  = THREE.MathUtils.lerp(0, -0.05, w); // Cheek weld on comb in combat
-
-                // Right arm firmly shoulders the rifle: elbow tucked, buttstock seated in right shoulder pocket
-                const rShX = THREE.MathUtils.lerp(-0.65, -0.85, w) - this.recoilKick * 0.3;
-                const rShY = THREE.MathUtils.lerp(0.10, 0.12, w);
-                const rShZ = THREE.MathUtils.lerp(-0.18, -0.22, w);
-                const rElX = THREE.MathUtils.lerp(-1.18, -1.35, w);
-                const rWrX = THREE.MathUtils.lerp(0.10, 0.14, w);
-                const rWrY = THREE.MathUtils.lerp(-0.02, -0.04, w);
-                const rWrZ = THREE.MathUtils.lerp(-0.06, -0.08, w);
-
-                rig.rightArm.shoulder.rotation.set(rShX, rShY, rShZ);
-                rig.rightArm.elbow.rotation.set(rElX, 0, 0);
-                rig.rightArm.wrist.rotation.set(rWrX, rWrY, rWrZ);
-
-                // Update world matrices for torso and right arm/wrist
-                rig.torso.updateMatrixWorld(true);
-                rig.rightArm.shoulder.updateMatrixWorld(true);
-                rig.rightArm.elbow.updateMatrixWorld(true);
-                rig.rightArm.wrist.updateMatrixWorld(true);
-
-                // Orient rifle along aimDir in world space
-                const fwd = aimDir.clone();
-                const worldUp = new THREE.Vector3(0, 1, 0);
-                let right = new THREE.Vector3().crossVectors(worldUp, fwd);
-                if (right.lengthSq() < 0.0001) {
-                    right.set(Math.cos(this.heading), 0, -Math.sin(this.heading));
-                } else {
-                    right.normalize();
-                }
-                const realUp = new THREE.Vector3().crossVectors(fwd, right).normalize();
-                const rotMat = new THREE.Matrix4().makeBasis(right, realUp, fwd);
-                const targetWorldQuat = new THREE.Quaternion().setFromRotationMatrix(rotMat);
-
-                const wristWorldQuat = new THREE.Quaternion();
-                rig.rightArm.wrist.getWorldQuaternion(wristWorldQuat);
-                const localRifleQuat = wristWorldQuat.clone().invert().multiply(targetWorldQuat);
-                rig.rifle.quaternion.copy(localRifleQuat);
-                rig.rifle.updateMatrixWorld(true);
-
-                // 2-Bone Analytical Inverse Kinematics for Left Arm holding wooden forend
-                const gripWorld = rig.rifle.localToWorld(new THREE.Vector3(0, -0.02, 0.16));
-                const leftShoulderPos = rig.leftArm.shoulder.position; // in torso space
-                const gripTorso = rig.torso.worldToLocal(gripWorld.clone());
-
-                const D = gripTorso.clone().sub(leftShoulderPos);
-                const dist = D.length();
-                const L1 = 0.265; // upper arm length
-                const L2 = 0.24;  // forearm length
-
-                const targetDist = Math.min(dist, L1 + L2 - 0.005);
-                const cosAlpha = Math.max(-1, Math.min(1, (L1 * L1 + targetDist * targetDist - L2 * L2) / (2 * L1 * targetDist)));
-                const alpha = Math.acos(cosAlpha);
-
-                const D_norm = D.clone().normalize();
-                // Tucked support elbow underneath the rifle (standard marksmanship tripod)
-                const pole = new THREE.Vector3(0.12, -0.92, 0.36).normalize();
-                let n = pole.clone().sub(D_norm.clone().multiplyScalar(pole.dot(D_norm)));
-                if (n.lengthSq() < 0.001) n = new THREE.Vector3(1, 0, 0);
-                n.normalize();
-
-                const E = leftShoulderPos.clone()
-                    .add(D_norm.clone().multiplyScalar(L1 * Math.cos(alpha)))
-                    .add(n.clone().multiplyScalar(L1 * Math.sin(alpha)));
-
-                // Upper arm points to elbow E
-                const vUpper = E.clone().sub(leftShoulderPos).normalize();
-                const qUpper = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, -1, 0), vUpper);
-                rig.leftArm.shoulder.quaternion.copy(qUpper);
-                rig.leftArm.shoulder.updateMatrixWorld(true);
-
-                // Forearm points to gripTorso
-                const vForearmTorso = gripTorso.clone().sub(E).normalize();
-                const vForearmShoulder = vForearmTorso.clone().applyQuaternion(qUpper.clone().invert());
-                const qForearm = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, -1, 0), vForearmShoulder);
-                rig.leftArm.elbow.quaternion.copy(qForearm);
-                rig.leftArm.elbow.updateMatrixWorld(true);
-
-                // Left wrist cupping the underside of the wooden fore-end
-                const qHandCup = new THREE.Quaternion().setFromEuler(new THREE.Euler(0.35, 0.25, 0.75));
-                rig.leftArm.wrist.quaternion.copy(qHandCup);
-                rig.leftArm.wrist.updateMatrixWorld(true);
+                const pitch = Math.asin(THREE.MathUtils.clamp(aimDir.y, -0.99, 0.99));
+                rig.torso.rotation.x = -pitch * 0.45;
+                rig.torso.rotation.y = -0.40;
+                rig.head.rotation.x = -pitch * 0.35;
+                rig.head.rotation.y = 0.40;
+                rig.head.rotation.z = 0;
+                window.poseSoldierWeapon(rig, aimDir, this.heading, this.recoilKick);
             }
         }
 

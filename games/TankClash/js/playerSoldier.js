@@ -440,9 +440,6 @@
                 // Direct anti-tank grenade strike knocks out the enemy tank!
                 const hitDir = new THREE.Vector3(et.x - blastPos.x, 0.4, et.z - blastPos.z).normalize();
                 et.onHit(blastPos, hitDir);
-                if (typeof window.showKillFeedBanner === 'function') {
-                    window.showKillFeedBanner('💥 ENEMY TANK DESTROYED BY GRENADE!');
-                }
             }
         }
 
@@ -1142,7 +1139,7 @@
         rig.rifle.getWorldQuaternion(rQuat);
         shootDir.set(0, 0, 1).applyQuaternion(rQuat).normalize();
 
-        // Submachine gun accuracy: much worse accuracy than rifle (0.005) and tank MG (0.015)
+        // Submachine gun accuracy: slightly worse accuracy than rifle (0.005) and tank MG (0.015)
         // High conical dispersion plus dynamic bloom as the gun heats up
         const heatBloom = ((playerSoldier.smgHeat || 0) / 100) * 0.045;
         const spreadH = 0.015 + heatBloom;
@@ -1491,10 +1488,10 @@
             const isThrowingGrenade = (s.grenadeAnimTimer > 0);
 
             // Right arm firmly shoulders the rifle (lifts up simply when throwing grenade)
-            let rShX = -0.70;
+            let rShX = -0.65;
             let rShY = 0.12;
-            let rShZ = -0.22;
-            let rElX = -1.70;
+            let rShZ = 0.60;
+            let rElX = -2.20;
 
             if (isThrowingGrenade) {
                 s.grenadeAnimTimer = Math.max(0, s.grenadeAnimTimer - dt);
@@ -1514,74 +1511,14 @@
                 }
             }
 
-            rig.rightArm.shoulder.rotation.set(rShX, rShY, rShZ);
-            rig.rightArm.elbow.rotation.x = rElX;
-            rig.rightArm.wrist.rotation.set(0, 0, 0);
-
-            // Update world matrices for torso and right arm/wrist
-            rig.torso.updateMatrixWorld(true);
-            rig.rightArm.shoulder.updateMatrixWorld(true);
-            rig.rightArm.elbow.updateMatrixWorld(true);
-            rig.rightArm.wrist.updateMatrixWorld(true);
-
-            // Orient rifle and solve left arm IK only when not throwing (left arm remains completely unchanged during throw)
-            if (!isThrowingGrenade) {
-                const fwd = camLookDir.clone().normalize();
-                const worldUp = new THREE.Vector3(0, 1, 0);
-                let right = new THREE.Vector3().crossVectors(worldUp, fwd);
-                if (right.lengthSq() < 0.0001) {
-                    const camTheta = (window.camOrbit && window.camOrbit.theta !== undefined) ? window.camOrbit.theta : s.heading;
-                    right.set(Math.cos(camTheta), 0, -Math.sin(camTheta));
-                } else {
-                    right.normalize();
-                }
-                const realUp = new THREE.Vector3().crossVectors(fwd, right).normalize();
-                const rotMat = new THREE.Matrix4().makeBasis(right, realUp, fwd);
-                const targetWorldQuat = new THREE.Quaternion().setFromRotationMatrix(rotMat);
-
-                const wristWorldQuat = new THREE.Quaternion();
-                rig.rightArm.wrist.getWorldQuaternion(wristWorldQuat);
-                const localRifleQuat = wristWorldQuat.clone().invert().multiply(targetWorldQuat);
-                rig.rifle.quaternion.copy(localRifleQuat);
-                rig.rifle.updateMatrixWorld(true);
-
-                // 2-Bone Analytical Inverse Kinematics for Left Arm holding wooden forend
-                const gripWorld = rig.rifle.localToWorld(new THREE.Vector3(0, -0.02, 0.15));
-                const leftShoulderPos = rig.leftArm.shoulder.position; // in torso space
-                const gripTorso = rig.torso.worldToLocal(gripWorld.clone());
-
-                const D = gripTorso.clone().sub(leftShoulderPos);
-                const dist = D.length();
-                const L1 = 0.265; // upper arm length
-                const L2 = 0.24; // forearm length
-
-                const targetDist = Math.min(dist, L1 + L2 - 0.005);
-                const cosAlpha = Math.max(-1, Math.min(1, (L1 * L1 + targetDist * targetDist - L2 * L2) / (2 * L1 * targetDist)));
-                const alpha = Math.acos(cosAlpha);
-
-                const D_norm = D.clone().normalize();
-                const pole = new THREE.Vector3(0.5, -0.6, 0.4).normalize();
-                let n = pole.clone().sub(D_norm.clone().multiplyScalar(pole.dot(D_norm)));
-                if (n.lengthSq() < 0.001) n = new THREE.Vector3(1, 0, 0);
-                n.normalize();
-
-                const E = leftShoulderPos.clone()
-                    .add(D_norm.clone().multiplyScalar(L1 * Math.cos(alpha)))
-                    .add(n.clone().multiplyScalar(L1 * Math.sin(alpha)));
-
-                // Shoulder orientation (upper arm points to elbow E)
-                const vUpper = E.clone().sub(leftShoulderPos).normalize();
-                const qUpper = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, -1, 0), vUpper);
-                rig.leftArm.shoulder.quaternion.copy(qUpper);
-                rig.leftArm.shoulder.updateMatrixWorld(true);
-
-                // Elbow orientation (forearm points to gripTorso)
-                const vForearmTorso = gripTorso.clone().sub(E).normalize();
-                const vForearmShoulder = vForearmTorso.clone().applyQuaternion(qUpper.clone().invert());
-                const qForearm = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, -1, 0), vForearmShoulder);
-                rig.leftArm.elbow.quaternion.copy(qForearm);
-                rig.leftArm.elbow.updateMatrixWorld(true);
-                rig.leftArm.wrist.updateMatrixWorld(true);
+            if (isThrowingGrenade) {
+                rig.rightArm.shoulder.rotation.set(rShX, rShY, rShZ);
+                rig.rightArm.elbow.rotation.set(rElX, 0, 0);
+                rig.rightArm.wrist.rotation.set(0, 0, 0);
+                rig.root.updateMatrixWorld(true);
+            } else {
+                const camTheta = (window.camOrbit && window.camOrbit.theta !== undefined) ? window.camOrbit.theta : s.heading;
+                window.poseSoldierWeapon(rig, camLookDir, camTheta);
             }
         }
 
