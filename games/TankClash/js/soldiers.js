@@ -2215,11 +2215,11 @@
                 const nowSec = (window.performance && window.performance.now) ? window.performance.now() * 0.001 : Date.now() * 0.001;
                 const ps = isPlayerOnFoot ? window.playerSoldier : null;
                 const playerFiredRecently = ps ? ((nowSec - (ps.lastFireTime || 0) < 3.0) || (nowSec - (ps.lastGrenadeTime || 0) < 3.0)) : false;
-                const normalDetectDist = isPlayerOnFoot ? ((playerFiredRecently ? 45 : 22) * 1.2) : (135 * 1.2);
+                const normalDetectDist = isPlayerOnFoot ? (playerFiredRecently ? 80 : (22 * 1.2)) : (135 * 1.2);
                 const inDetectRange = (dP < normalDetectDist);
 
                 if (!inDetectRange) {
-                    if (!hasLOS || dP > 165) {
+                    if (!hasLOS || dP > 300) {
                         // Lost sight from enemy -> give up immediately
                         this.alertOnHitTimer = 0;
                         this.provokedTimer = 0;
@@ -2269,7 +2269,7 @@
                 const nowSec = performance.now() * 0.001;
                 const playerFiredRecently = (nowSec - (ps.lastFireTime || 0) < 3.0) || (nowSec - (ps.lastGrenadeTime || 0) < 3.0);
                 // In infantry mode player is hard to detect, only in close range (scaled 1.2x)
-                const detectDist = (playerFiredRecently ? 45 : 22) * 1.2;
+                const detectDist = playerFiredRecently ? 80 : (22 * 1.2);
 
                 if (this.isEnemy && dSoldier < detectDist) {
                     this.currentTarget = {
@@ -2524,6 +2524,7 @@
                         dist: Math.hypot(window.tankState.x - this.x, window.tankState.z - this.z)
                     };
                 }
+                if (typeof window.provokeNearbyEnemies === 'function') window.provokeNearbyEnemies(this);
             }
         }
 

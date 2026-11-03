@@ -434,6 +434,10 @@
     window.packPlayerMortar = packPlayerMortar;
 
     function deployPlayerMortar(s) {
+        if (s.isMountedBicycle) {
+            if (typeof window.showKillFeedBanner === 'function') window.showKillFeedBanner('DISMOUNT TO DEPLOY MORTAR', '#f59e0b');
+            return;
+        }
         if (s.mortarDeployed) return;
         s.mortarDeployed = true;
         s.mortarElevation = Math.PI / 4;
@@ -751,9 +755,9 @@
             const d = Math.hypot(et.x - blastPos.x, et.z - blastPos.z);
             const dy = Math.abs((et.y + 1.2) - blastPos.y);
             if (d < 5.0 && dy < 3.5) {
-                // Direct anti-tank grenade strike knocks out the enemy tank!
+                // Grenades chip tank armor without destroying it in one blast.
                 const hitDir = new THREE.Vector3(et.x - blastPos.x, 0.4, et.z - blastPos.z).normalize();
-                et.onHit(blastPos, hitDir);
+                et.onHit(blastPos, hitDir, 0.5);
             }
         }
 
@@ -1502,6 +1506,10 @@
         if (playerMode !== 'soldier' || !playerSoldier || playerSoldier.isDead) return;
         if (playerSoldier.soldierType === 'mortar') {
             const s = playerSoldier;
+            if (s.isMountedBicycle) {
+                if (typeof window.showKillFeedBanner === 'function') window.showKillFeedBanner('DISMOUNT TO USE MORTAR', '#f59e0b');
+                return;
+            }
             if (!s.mortarDeployed) {
                 deployPlayerMortar(s);
                 return;

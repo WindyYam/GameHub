@@ -40,17 +40,44 @@
     });
     window.TOTAL_ZONE_ENEMIES = MAX_ZONE_ENEMIES;
 
+    const ENEMY_HIT_ALERT_RANGE = 225;
+    const TANK_NEARBY_ENEMY_PROVOKE_RANGE = 75;
+    const SOLDIER_NEARBY_ENEMY_PROVOKE_RANGE = 100;
+    const TANK_FIRE_PROVOKE_RANGE = 60;
+    window.provokeNearbyEnemies = function(source) {
+        if (!source || typeof source.x !== 'number' || typeof source.z !== 'number') return;
+
+        for (let i = 0; i < activeEnemyTanks.length; i++) {
+            const enemy = activeEnemyTanks[i];
+            if (!enemy || enemy.isDestroyed || Math.hypot(enemy.x - source.x, enemy.z - source.z) > TANK_NEARBY_ENEMY_PROVOKE_RANGE) continue;
+            enemy.wasHitAlert = true;
+            enemy.provokedTimer = Math.max(enemy.provokedTimer || 0, 5.0);
+            enemy.detectionTimer = Math.max(enemy.detectionTimer || 0, 7.0);
+            enemy.state = 'ENGAGING';
+        }
+
+        const enemySoldiers = window.activeSoldiers || [];
+        for (let i = 0; i < enemySoldiers.length; i++) {
+            const soldier = enemySoldiers[i];
+            if (!soldier || !soldier.isEnemy || soldier.isDead || Math.hypot(soldier.x - source.x, soldier.z - source.z) > SOLDIER_NEARBY_ENEMY_PROVOKE_RANGE) continue;
+            soldier.alertOnHitTimer = Math.max(soldier.alertOnHitTimer || 0, 8.0);
+            soldier.provokedTimer = Math.max(soldier.provokedTimer || 0, 5.0);
+            soldier.losTimer = 0;
+        }
+    };
+
     // Track when player fired to dynamically alert nearby enemy crews
     let lastPlayerFireTime = -999;
     window.notifyPlayerFired = function() {
         lastPlayerFireTime = (window.performance && window.performance.now) ? window.performance.now() / 1000 : Date.now() / 1000;
-        // Alert all alive enemies within 250m * 1.2 (300m)
-        const pX = window.tankState ? window.tankState.x : 0;
-        const pZ = window.tankState ? window.tankState.z : 0;
+        // Alert enemy tanks within 60m of the player when they fire.
+        const playerOnFoot = window.playerMode === 'soldier' && window.playerSoldier;
+        const pX = playerOnFoot ? window.playerSoldier.x : (window.tankState ? window.tankState.x : 0);
+        const pZ = playerOnFoot ? window.playerSoldier.z : (window.tankState ? window.tankState.z : 0);
         for (let i = 0; i < activeEnemyTanks.length; i++) {
             const e = activeEnemyTanks[i];
             if (e.isDestroyed) continue;
-            if (Math.hypot(e.x - pX, e.z - pZ) < 300) {
+            if (Math.hypot(e.x - pX, e.z - pZ) < TANK_FIRE_PROVOKE_RANGE) {
                 e.wasHitAlert = true;
                 e.provokedTimer = 5.0;
                 e.state = 'ENGAGING';
@@ -300,6 +327,7 @@
                 this.provokedTimer = 5.0;
                 this.detectionTimer = Math.max(this.detectionTimer || 0, 7.0);
                 this.state = 'ENGAGING';
+                if (typeof window.provokeNearbyEnemies === 'function') window.provokeNearbyEnemies(this);
 
                 const dmg = (typeof damage === 'number') ? damage : 1;
                 // Bullets do 0 damage: alert & sparks only, no smoke/damage
@@ -555,7 +583,7 @@
         }
 
         // In infantry mode, player is hard to detect, only in close range (all detection ranges increased by 1.2)
-        const maxDetectRange = (isInfantry ? (playerShotRecently ? 42 : 22) : (playerShotRecently ? 110 : 95)) * 1.2;
+        const maxDetectRange = playerShotRecently ? TANK_FIRE_PROVOKE_RANGE : (isInfantry ? 22 * 1.2 : 95 * 1.2);
         const stealthBuffer = (isInfantry ? 18 : 32) * 1.2;
 
         for (let i = activeEnemyTanks.length - 1; i >= 0; i--) {
@@ -627,7 +655,7 @@
             } else if (isHitAlert && !inDetectRange) {
                 // Player is outside enemy's detection range and provoked the enemy:
                 // Give up if line of sight is lost OR after 5 seconds of being outside detection range
-                const hasSight = clearObstacleSight && (distToPlayer <= 260.0);
+                const hasSight = clearObstacleSight && (distToPlayer <= ENEMY_HIT_ALERT_RANGE);
                 if (!hasSight) {
                     // Player lost sight from the enemy -> give up
                     e.state = 'PATROL';
