@@ -157,7 +157,13 @@ function initControls(renderer) {
                 if (typeof window.firePlayerRifle === 'function') window.firePlayerRifle();
             }
         }
-        if (k === 'x') { if (window.playerMode !== 'soldier') fireSmokeDischargers(); }
+        if (k === 'x') {
+            if (window.playerMode === 'soldier' && typeof window.packPlayerMortar === 'function') {
+                window.packPlayerMortar();
+            } else if (window.playerMode !== 'soldier') {
+                fireSmokeDischargers();
+            }
+        }
         if (k === 'h') { if (window.playerMode !== 'soldier') toggleHeadlights(); }
         if (k === 'b') { if (typeof window.toggleGrass === 'function') window.toggleGrass(); }
         if (k === 'e') { if (typeof window.triggerInteract === 'function') window.triggerInteract(); }

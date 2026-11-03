@@ -145,8 +145,28 @@ const soundFX = {
         }
     },
 
+    updateListenerPosition() {
+        if (!this.ctx || !this.ctx.listener) return;
+        const soldier = window.playerMode === 'soldier' ? window.playerSoldier : null;
+        const actor = soldier || window.tankState || { x: 0, y: 0, z: 0 };
+        const x = actor.x || 0;
+        const y = (actor.y || 0) + 1.5;
+        const z = actor.z || 0;
+        const listener = this.ctx.listener;
+        const now = this.ctx.currentTime;
+
+        if (listener.positionX && typeof listener.positionX.setTargetAtTime === 'function') {
+            listener.positionX.setTargetAtTime(x, now, 0.025);
+            listener.positionY.setTargetAtTime(y, now, 0.025);
+            listener.positionZ.setTargetAtTime(z, now, 0.025);
+        } else if (typeof listener.setPosition === 'function') {
+            listener.setPosition(x, y, z);
+        }
+    },
+
     updateEngine(speedRatio, isDriving) {
         if (!this.initialized || !this.ctx) return;
+        this.updateListenerPosition();
         if (!this.enabled) {
             this.engineGain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.08);
             return;
@@ -1254,11 +1274,20 @@ const soundFX = {
     },
 
     // Soft descending whistle with an octave overtone
-    playBombWhistle(duration = 1.4) {
+    playBombWhistle(duration = 1.4, sourcePosition = null) {
         this.init();
         if (!this.enabled || !this.ctx) return null;
+        this.updateListenerPosition();
         const now = this.ctx.currentTime;
-        const dur = Math.max(0.6, Math.min(2.5, duration));
+        const dur = Math.max(0.6, Math.min(8.0, duration));
+        const panner = (typeof this.ctx.createPanner === 'function') ? this.ctx.createPanner() : null;
+        if (panner) {
+            panner.panningModel = 'HRTF';
+            panner.distanceModel = 'inverse';
+            panner.refDistance = 2;
+            panner.maxDistance = 180;
+            panner.rolloffFactor = 1;
+        }
 
         // 1. Clean fundamental whistle oscillator (pure sine tone descending smoothly)
         const osc1 = this.ctx.createOscillator();
@@ -1285,7 +1314,25 @@ const soundFX = {
         osc1.connect(masterGain);
         osc2.connect(osc2Gain);
         osc2Gain.connect(masterGain);
-        masterGain.connect(this.ctx.destination);
+        if (panner) {
+            masterGain.connect(panner);
+            panner.connect(this.ctx.destination);
+        } else {
+            masterGain.connect(this.ctx.destination);
+        }
+
+        const setPosition = (position) => {
+            if (!panner || !position) return;
+            if (panner.positionX && typeof panner.positionX.setTargetAtTime === 'function') {
+                const positionTime = this.ctx.currentTime;
+                panner.positionX.setTargetAtTime(position.x, positionTime, 0.025);
+                panner.positionY.setTargetAtTime(position.y, positionTime, 0.025);
+                panner.positionZ.setTargetAtTime(position.z, positionTime, 0.025);
+            } else if (typeof panner.setPosition === 'function') {
+                panner.setPosition(position.x, position.y, position.z);
+            }
+        };
+        setPosition(sourcePosition);
 
         osc1.start(now);
         osc2.start(now);
@@ -1294,6 +1341,7 @@ const soundFX = {
 
         let stopped = false;
         return {
+            setPosition,
             stop: () => {
                 if (stopped) return;
                 stopped = true;

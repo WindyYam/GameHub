@@ -1907,9 +1907,11 @@
 
         function buildSoldier(faction, soldierType = 'rifle') {
             initMaterials();
-            const sType = (soldierType === 'smg' || soldierType === 'submachine_gunner') ? 'smg' : 'rifle';
-            const key = `${faction}_${sType}`;
-            if (!SOLDIER_TEMPLATES[key]) SOLDIER_TEMPLATES[key] = buildTemplate(faction, sType);
+            const isSMG = soldierType === 'smg' || soldierType === 'submachine_gunner';
+            const sType = isSMG ? 'smg' : (soldierType === 'mortar' ? 'mortar' : 'rifle');
+            const templateType = sType === 'mortar' ? 'rifle' : sType;
+            const key = `${faction}_${templateType}`;
+            if (!SOLDIER_TEMPLATES[key]) SOLDIER_TEMPLATES[key] = buildTemplate(faction, templateType);
             const tpl = SOLDIER_TEMPLATES[key];
             const root = tpl.root.clone(true);
             root.traverse(c => {

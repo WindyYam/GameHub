@@ -233,7 +233,8 @@ window.TANK_SPECS = TANK_SPECS;
 window.currentTankId = 'tiger';
 
 const TANK_PRICES = {
-    bicycle: 200,
+    bicycle: 400,
+    mortar: 200,
     tiger: 800,
     sherman: 500,
     t34: 500,

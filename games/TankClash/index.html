@@ -671,6 +671,21 @@
                         </div>
                         <span class="soldier-select-radio text-base text-emerald-400">🟢</span>
                     </button>
+
+                    <button type="button" data-soldier-type="mortar" id="btn-soldier-type-mortar" onclick="selectSoldierType('mortar')" class="soldier-type-card hud-btn p-3 rounded-xl text-left flex items-center justify-between border border-white/10 bg-slate-800/60 hover:bg-slate-800 hover:border-amber-400/50 transition-all cursor-pointer">
+                        <div class="flex items-center gap-3">
+                            <span class="text-2xl">💣</span>
+                            <div>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs font-bold text-white">Mortar Crew</span>
+                                    <span class="text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30">INDIRECT FIRE</span>
+                                    <span class="soldier-price-tag text-xs font-extrabold text-emerald-400 mono">$200</span>
+                                </div>
+                                <p class="text-[10px] text-slate-400 mt-0.5">Deployable mortar • Explosive shells • 150 m maximum range</p>
+                            </div>
+                        </div>
+                        <span class="soldier-select-radio text-base text-slate-500">⚪</span>
+                    </button>
                 </div>
                 <button type="button" id="btn-spawn-choose-vehicle" class="w-full mt-3 p-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-bold transition-all cursor-pointer">
                     Choose Vehicle →
@@ -699,7 +714,7 @@
                             <p class="text-[10px] text-slate-400 mt-0.5">Fight on foot with your selected soldier class • Sneak & hijack enemy armor</p>
                         </div>
                     </div>
-                    <span class="px-3.5 py-1.5 rounded-lg bg-sky-500/20 border border-sky-400/40 text-sky-300 text-xs font-extrabold mono">FREE ($0)</span>
+                    <span id="spawn-soldier-deploy-status" class="px-3.5 py-1.5 rounded-lg bg-sky-500/20 border border-sky-400/40 text-sky-300 text-xs font-extrabold mono">FREE ($0)</span>
                 </button>
 
                 <!-- Vehicle Selection Cards Grid -->
@@ -709,11 +724,11 @@
                         <div>
                             <div class="flex items-center justify-between">
                                 <span class="text-xs font-bold text-white">Military Bicycle</span>
-                                <span class="vehicle-price-tag text-xs font-extrabold text-emerald-400 mono">$200</span>
+                                <span class="vehicle-price-tag text-xs font-extrabold text-emerald-400 mono">$400</span>
                             </div>
                             <p class="text-[10px] text-slate-400 mt-1">Light, fast dispatch bicycle • Ride with your selected soldier</p>
                         </div>
-                        <span class="spawn-deploy-status text-[10px] font-bold text-emerald-300 bg-emerald-500/20 border border-emerald-500/30 py-1.5 px-2 rounded-lg text-center">DEPLOY ($200)</span>
+                        <span class="spawn-deploy-status text-[10px] font-bold text-emerald-300 bg-emerald-500/20 border border-emerald-500/30 py-1.5 px-2 rounded-lg text-center">DEPLOY ($400)</span>
                     </button>
 
                     <!-- M4 Sherman -->
@@ -793,7 +808,7 @@
     </div>
 
 <!-- Modularized Tiger Tank Simulation Scripts -->
-    <script src="js/audio.js?v=v2_camp10"></script>
+    <script src="js/audio.js?v=v2_camp13"></script>
     <script src="js/shaders.js?v=v2_dust4"></script>
     <script src="js/environment.js?v=same_world1"></script>
     <script src="js/tankTiger.js?v=v2_camp9"></script>
@@ -802,14 +817,14 @@
     <script src="js/tankPershing.js?v=pershing_1"></script>
     <script src="js/tankT34.js?v=v2_camp9"></script>
     <script src="js/tankKV2.js?v=kv2_2"></script>
-    <script src="js/tankModel.js?v=v2_camp9"></script>
-    <script src="js/physics.js?v=kill_rewards1"></script>
+    <script src="js/tankModel.js?v=v2_camp10"></script>
+    <script src="js/physics.js?v=mortar6"></script>
     <script src="js/enemyAI.js?v=terrain_pose1"></script>
-    <script src="js/soldiers.js?v=sharedpose1"></script>
+    <script src="js/soldiers.js?v=mortar2"></script>
     <script src="js/soldierGrip.js?v=sharedpose1"></script>
     <script src="js/bicycle.js?v=bicycle_headlight1"></script>
-    <script src="js/playerSoldier.js?v=sharedpose1"></script>
-    <script src="js/controls.js?v=smg_1"></script>
-    <script src="js/main.js?v=bicycle_headlight1"></script>
+    <script src="js/playerSoldier.js?v=mortar17"></script>
+    <script src="js/controls.js?v=mortar2"></script>
+    <script src="js/main.js?v=mortar3"></script>
 </body>
 </html>

@@ -116,7 +116,7 @@
             pose: pose.map(([object, axis, target]) => ({ object, axis, start: object[axis], target }))
         };
         if (rig.handGrenade) rig.handGrenade.visible = false;
-        if (rig.rifle) rig.rifle.visible = true;
+        if (rig.rifle) rig.rifle.visible = soldier.soldierType !== 'mortar';
     }
     window.startSoldierDeathAnimation = startSoldierDeathAnimation;
 
@@ -155,6 +155,11 @@
         if (playerSoldier.isMountedBicycle && typeof window.dismountBicycle === 'function') {
             window.dismountBicycle(playerSoldier);
         }
+        if (playerSoldier.rig && playerSoldier.rig.deployedMortar && window.scene) {
+            window.scene.remove(playerSoldier.rig.deployedMortar);
+            playerSoldier.rig.deployedMortar = null;
+            playerSoldier.mortarDeployed = false;
+        }
         playerSoldier.isDead = true;
         playerSoldier.speed = 0;
 
@@ -190,6 +195,314 @@
         if (tid === 'tiger' || tid === 'kingtiger' || tid === 'tiger2' || tid === 'king_tiger') return 'german';
         if (tid === 'sherman' || tid === 'pershing' || tid === 'm26' || tid === 'm26_pershing') return 'us';
         return 'soviet';
+    }
+
+    function createMortarMetalMaterial() {
+        const canvas = document.createElement('canvas');
+        canvas.width = 128;
+        canvas.height = 128;
+        const scratchContext = canvas.getContext('2d');
+        if (scratchContext) {
+            scratchContext.fillStyle = '#252a23';
+            scratchContext.fillRect(0, 0, canvas.width, canvas.height);
+            for (let i = 0; i < 36; i++) {
+                const x = (i * 47 + 11) % canvas.width;
+                const y = (i * 71 + 23) % canvas.height;
+                const length = 3 + (i * 13) % 17;
+                scratchContext.strokeStyle = i % 4 === 0 ? 'rgba(139, 143, 126, 0.72)' : 'rgba(8, 11, 8, 0.86)';
+                scratchContext.lineWidth = i % 7 === 0 ? 1 : 0.55;
+                scratchContext.beginPath();
+                scratchContext.moveTo(x, y);
+                scratchContext.lineTo(Math.min(canvas.width - 1, x + length), y + (i % 3 - 1) * 1.5);
+                scratchContext.stroke();
+            }
+        }
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.wrapT = THREE.RepeatWrapping;
+        if (THREE.sRGBEncoding !== undefined) texture.encoding = THREE.sRGBEncoding;
+        return new THREE.MeshStandardMaterial({ color: 0xffffff, map: texture, roughness: 0.94, metalness: 0.18 });
+    }
+
+    function createCarriedMortar(rig) {
+        const mortar = createMortarEmplacement();
+        mortar.name = 'CarriedMortarPack';
+        mortar.rotation.x = -Math.PI / 2;
+        mortar.position.set(0, -0.13, 0.34);
+        mortar.userData.barrelPivot.rotation.x = 0;
+
+        mortar.userData.baseRing.position.set(0, 0.49, 0.02);
+        mortar.userData.baseRing.rotation.x = 0;
+        mortar.userData.basePlate.position.set(0, 0.49, 0.02);
+        mortar.userData.basePlate.rotation.x = Math.PI / 2;
+        mortar.userData.baseBolts.forEach((bolt, index) => {
+            const angle = index * Math.PI / 3;
+            bolt.position.set(Math.cos(angle) * 0.115, 0.49 + Math.sin(angle) * 0.115, 0.02);
+            bolt.rotation.x = Math.PI / 2;
+        });
+
+        mortar.userData.sideLegs.forEach(({ mesh, side }) => {
+            mesh.position.set(side * 0.075, 0.49, 0.32);
+            mesh.rotation.set(Math.PI / 2, 0, 0);
+        });
+        mortar.userData.thirdLeg.position.set(0, 0.40, 0.32);
+        mortar.userData.thirdLeg.rotation.set(Math.PI / 2, 0, 0);
+        mortar.userData.supportStruts.forEach(strut => { strut.visible = false; });
+
+        const wrapCanvas = document.createElement('canvas');
+        wrapCanvas.width = 64;
+        wrapCanvas.height = 64;
+        const wrapContext = wrapCanvas.getContext('2d');
+        if (wrapContext) {
+            wrapContext.fillStyle = '#414438';
+            wrapContext.fillRect(0, 0, 64, 64);
+            for (let i = 0; i < 64; i += 4) {
+                wrapContext.strokeStyle = i % 8 === 0 ? 'rgba(126, 125, 97, 0.22)' : 'rgba(20, 24, 19, 0.2)';
+                wrapContext.lineWidth = 1;
+                wrapContext.beginPath();
+                wrapContext.moveTo(i, 0);
+                wrapContext.lineTo(i, 64);
+                wrapContext.moveTo(0, i);
+                wrapContext.lineTo(64, i);
+                wrapContext.stroke();
+            }
+        }
+        const wrapTexture = new THREE.CanvasTexture(wrapCanvas);
+        if (THREE.sRGBEncoding !== undefined) wrapTexture.encoding = THREE.sRGBEncoding;
+        const wrapMaterial = new THREE.MeshStandardMaterial({ map: wrapTexture, roughness: 1, metalness: 0 });
+        const wrap = new THREE.Mesh(new THREE.CylinderGeometry(0.105, 0.105, 0.20, 16, 1, true), wrapMaterial);
+        wrap.rotation.x = Math.PI / 2;
+        wrap.position.set(0, 0.49, 0.32);
+        mortar.add(wrap);
+
+        const strapMaterial = new THREE.MeshStandardMaterial({ color: 0x303329, roughness: 1, metalness: 0 });
+        [0.225, 0.415].forEach(z => {
+            const strap = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.035, 16, 1, true), strapMaterial);
+            strap.rotation.x = Math.PI / 2;
+            strap.position.set(0, 0.49, z);
+            mortar.add(strap);
+        });
+
+        rig.torso.add(mortar);
+        rig.carriedMortar = mortar;
+    }
+
+    function createMortarEmplacement() {
+        const emplacement = new THREE.Group();
+        const metal = createMortarMetalMaterial();
+        const hardware = new THREE.MeshStandardMaterial({ color: 0x383c34, roughness: 0.82, metalness: 0.35 });
+        const scratchMaterial = new THREE.MeshStandardMaterial({ color: 0x73776b, roughness: 0.9, metalness: 0.25 });
+        const baseRing = new THREE.Mesh(new THREE.TorusGeometry(0.19, 0.035, 8, 24), metal);
+        baseRing.rotation.x = Math.PI / 2;
+        baseRing.position.y = 0.045;
+        emplacement.add(baseRing);
+
+        const basePlate = new THREE.Mesh(new THREE.CylinderGeometry(0.135, 0.145, 0.055, 20), metal);
+        basePlate.position.y = 0.04;
+        emplacement.add(basePlate);
+
+        const baseBolts = [];
+        for (let i = 0; i < 6; i++) {
+            const angle = i * Math.PI / 3;
+            const bolt = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.012, 8), hardware);
+            bolt.position.set(Math.cos(angle) * 0.115, 0.074, Math.sin(angle) * 0.115);
+            baseBolts.push(bolt);
+            emplacement.add(bolt);
+        }
+
+        [[-0.06, 0.02, 0.045], [0.03, -0.05, 0.035], [-0.015, -0.09, 0.032]].forEach(([x, z, length]) => {
+            const scratch = new THREE.Mesh(new THREE.BoxGeometry(length, 0.0012, 0.002), scratchMaterial);
+            scratch.position.set(x, 0.0685, z);
+            scratch.rotation.y = x * 2.5;
+            basePlate.add(scratch);
+        });
+
+        const supportHead = new THREE.Group();
+        const headPlate = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.045, 0.24), metal);
+        headPlate.position.set(0, 0.41, 0.02);
+        supportHead.add(headPlate);
+        [-1, 1].forEach(side => {
+            const cheek = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.13, 0.12), hardware);
+            cheek.position.set(side * 0.08, 0.49, 0.02);
+            supportHead.add(cheek);
+
+            const bearing = new THREE.Mesh(new THREE.TorusGeometry(0.024, 0.005, 6, 16), hardware);
+            bearing.rotation.y = Math.PI / 2;
+            bearing.position.set(side * 0.095, 0.49, 0.02);
+            supportHead.add(bearing);
+        });
+        emplacement.add(supportHead);
+
+        const sideLegs = [];
+        [-1, 1].forEach(side => {
+            const leg = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.48, 0.045), metal);
+            leg.position.set(side * 0.18, 0.24, -0.08);
+            leg.rotation.z = side * 0.45;
+            emplacement.add(leg);
+            sideLegs.push({ mesh: leg, side });
+        });
+
+        const thirdLeg = new THREE.Mesh(new THREE.BoxGeometry(0.045, 0.48, 0.045), metal);
+        thirdLeg.position.set(0, 0.24, 0.18);
+        thirdLeg.rotation.x = -0.45;
+        emplacement.add(thirdLeg);
+
+        const supportStruts = Array.from({ length: 3 }, () => {
+            const strut = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 1, 8), hardware);
+            strut.castShadow = true;
+            emplacement.add(strut);
+            return strut;
+        });
+
+        const tubeLength = 0.76;
+        const barrelPivot = new THREE.Group();
+        barrelPivot.position.set(0, 0.49, 0.02);
+        barrelPivot.rotation.x = -Math.PI / 4;
+        emplacement.add(barrelPivot);
+
+        [-1, 1].forEach(side => {
+            const trunnion = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.055, 10), hardware);
+            trunnion.rotation.z = Math.PI / 2;
+            trunnion.position.x = side * 0.067;
+            barrelPivot.add(trunnion);
+        });
+
+        const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.06, tubeLength, 12), metal);
+        tube.rotation.x = Math.PI / 2;
+        tube.position.z = tubeLength * 0.5;
+        tube.castShadow = true;
+        barrelPivot.add(tube);
+
+        [
+            { x: -0.025, z: 0.14, length: 0.075, angle: 0.16 },
+            { x: 0.014, z: 0.28, length: 0.055, angle: -0.12 },
+            { x: -0.016, z: 0.43, length: 0.068, angle: 0.09 },
+            { x: 0.012, z: 0.58, length: 0.045, angle: -0.18 }
+        ].forEach(mark => {
+            const centerZ = mark.z + mark.length * 0.5;
+            const radius = 0.06 - 0.015 * centerZ / tubeLength;
+            const surfaceY = Math.sqrt(Math.max(0, radius * radius - mark.x * mark.x));
+            const scratch = new THREE.Mesh(new THREE.BoxGeometry(0.003, 0.0015, mark.length), scratchMaterial);
+            scratch.position.set(mark.x, surfaceY + 0.0008, centerZ);
+            scratch.rotation.y = mark.angle;
+            barrelPivot.add(scratch);
+        });
+
+        [0.22, 0.49].forEach(z => {
+            const band = new THREE.Mesh(new THREE.TorusGeometry(0.049, 0.005, 6, 16), hardware);
+            band.position.z = z;
+            barrelPivot.add(band);
+        });
+
+        const muzzleRing = new THREE.Mesh(new THREE.TorusGeometry(0.042, 0.006, 6, 16), hardware);
+        muzzleRing.position.z = tubeLength;
+        barrelPivot.add(muzzleRing);
+
+        const muzzle = new THREE.Object3D();
+        muzzle.position.z = tubeLength;
+        barrelPivot.add(muzzle);
+        emplacement.userData.barrelPivot = barrelPivot;
+        emplacement.userData.muzzle = muzzle;
+        emplacement.userData.baseRing = baseRing;
+        emplacement.userData.basePlate = basePlate;
+        emplacement.userData.baseBolts = baseBolts;
+        emplacement.userData.sideLegs = sideLegs;
+        emplacement.userData.thirdLeg = thirdLeg;
+        emplacement.userData.supportStruts = supportStruts;
+        return emplacement;
+    }
+
+    function getMortarPosition(s) {
+        const heading = s.heading || 0;
+        return {
+            x: s.x + Math.sin(heading) * 0.15 - Math.cos(heading) * 0.72,
+            z: s.z + Math.cos(heading) * 0.15 + Math.sin(heading) * 0.72
+        };
+    }
+
+    function packPlayerMortar() {
+        const s = playerSoldier || window.playerSoldier;
+        if (!s || s.soldierType !== 'mortar' || !s.mortarDeployed) return;
+        if (s.rig.deployedMortar && window.scene) window.scene.remove(s.rig.deployedMortar);
+        s.rig.deployedMortar = null;
+        s.mortarDeployed = false;
+        if (s.rig.carriedMortar) s.rig.carriedMortar.visible = true;
+        if (s.rig.rifle) s.rig.rifle.visible = false;
+        syncInfantryUI(true);
+        if (typeof window.showKillFeedBanner === 'function') window.showKillFeedBanner('MORTAR PACKED');
+    }
+    window.packPlayerMortar = packPlayerMortar;
+
+    function deployPlayerMortar(s) {
+        if (s.mortarDeployed) return;
+        s.mortarDeployed = true;
+        s.mortarElevation = Math.PI / 4;
+        s.speed = 0;
+        s.rig.deployedMortar = createMortarEmplacement();
+        if (s.rig.carriedMortar) s.rig.carriedMortar.visible = false;
+        if (s.rig.rifle) s.rig.rifle.visible = false;
+        if (window.scene) window.scene.add(s.rig.deployedMortar);
+        syncInfantryUI(true);
+        if (typeof window.showKillFeedBanner === 'function') window.showKillFeedBanner('MORTAR DEPLOYED: W/S ADJUST ELEVATION, FIRE TO LAUNCH, E OR X TO PACK');
+    }
+
+    function applyMortarElevationPose(emplacement, elevation) {
+        if (!emplacement || !emplacement.userData || !emplacement.userData.barrelPivot) return;
+        const angle = Number.isFinite(elevation) ? elevation : Math.PI / 4;
+        const elevationOffset = angle - Math.PI / 4;
+        const { sideLegs, thirdLeg } = emplacement.userData;
+        emplacement.userData.barrelPivot.rotation.x = -angle;
+
+        const setStrutBetween = (strut, start, end) => {
+            const direction = new THREE.Vector3().subVectors(end, start);
+            const length = direction.length();
+            strut.position.copy(start).add(end).multiplyScalar(0.5);
+            strut.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), direction.normalize());
+            strut.scale.set(1, length, 1);
+        };
+
+        const sideSplay = 0.45 + elevationOffset * 0.24;
+        (sideLegs || []).forEach(({ mesh, side }) => {
+            mesh.rotation.z = side * sideSplay;
+            mesh.position.y = 0.24 * Math.cos(sideSplay) + 0.0225 * Math.abs(Math.sin(sideSplay));
+        });
+
+        if (thirdLeg) {
+            const forwardTilt = -0.45 - elevationOffset * 0.45;
+            thirdLeg.rotation.x = forwardTilt;
+            thirdLeg.position.y = 0.24 * Math.cos(forwardTilt) + 0.0225 * Math.abs(Math.sin(forwardTilt));
+        }
+
+        if (emplacement.userData.supportStruts && sideLegs && thirdLeg) {
+            sideLegs.forEach(({ mesh, side }, index) => {
+                const tilt = mesh.rotation.z;
+                const legTop = new THREE.Vector3(
+                    mesh.position.x - Math.sin(tilt) * 0.24,
+                    mesh.position.y + Math.cos(tilt) * 0.24,
+                    mesh.position.z
+                );
+                setStrutBetween(emplacement.userData.supportStruts[index], new THREE.Vector3(side * 0.095, 0.49, 0.02), legTop);
+            });
+
+            const legTop = new THREE.Vector3(
+                0,
+                thirdLeg.position.y + Math.cos(thirdLeg.rotation.x) * 0.24,
+                thirdLeg.position.z + Math.sin(thirdLeg.rotation.x) * 0.24
+            );
+            setStrutBetween(emplacement.userData.supportStruts[2], new THREE.Vector3(0, 0.41, 0.08), legTop);
+        }
+    }
+
+    function adjustMortarElevation(s, forwardInput, dt) {
+        if (!s.mortarDeployed) return;
+        const minElevation = Math.PI / 36;
+        const maxElevation = Math.PI / 2;
+        const input = THREE.MathUtils.clamp(forwardInput, -1, 1);
+        s.mortarElevation = THREE.MathUtils.clamp(
+            (s.mortarElevation || Math.PI / 4) + input * 0.8 * dt,
+            minElevation,
+            maxElevation
+        );
     }
 
     function initPlayerSoldierUI() {
@@ -272,7 +585,8 @@
         }
 
         // 4. Update Main Fire button label/icon & SMG heat gauge
-        const isSMG = (playerSoldier && (playerSoldier.soldierType === 'smg' || playerSoldier.soldierType === 'submachine_gunner')) || (window.selectedSoldierType === 'smg');
+        const isSMG = (playerSoldier && (playerSoldier.soldierType === 'smg' || playerSoldier.soldierType === 'submachine_gunner')) || (!playerSoldier && window.selectedSoldierType === 'smg');
+        const isMortar = (playerSoldier && playerSoldier.soldierType === 'mortar') || (!playerSoldier && window.selectedSoldierType === 'mortar');
         const heatContainer = document.getElementById('hud-soldier-heat-container');
         if (heatContainer) {
             heatContainer.classList.toggle('hidden', !(isInfantry && isSMG));
@@ -280,10 +594,10 @@
         }
         const mobFireIcon = document.getElementById('mob-fire-icon');
         const mobFireCaliber = document.getElementById('mob-fire-caliber');
-        if (mobFireIcon) mobFireIcon.textContent = isInfantry ? (isSMG ? '⚡' : '🎯') : '💥';
+        if (mobFireIcon) mobFireIcon.textContent = isInfantry ? (isMortar ? '💣' : (isSMG ? '⚡' : '🎯')) : '💥';
         if (mobFireCaliber) {
             if (isInfantry) {
-                mobFireCaliber.textContent = isSMG ? 'SMG MG' : 'RIFLE';
+                mobFireCaliber.textContent = isMortar ? (playerSoldier && playerSoldier.mortarDeployed ? 'MORTAR' : 'DEPLOY') : (isSMG ? 'SMG MG' : 'RIFLE');
             } else {
                 const type = (window.tankState && window.tankState.type) || 'tiger';
                 const cal = (window.TANK_SPECS && window.TANK_SPECS[type]) ? window.TANK_SPECS[type].caliber : '8.8cm';
@@ -389,7 +703,7 @@
         // Soft descending grenade whistle
         let soundHandle = null;
         if (window.soundFX && typeof window.soundFX.playBombWhistle === 'function') {
-            soundHandle = window.soundFX.playBombWhistle(1.6);
+            soundHandle = window.soundFX.playBombWhistle(1.6, grenade.pos);
         }
         grenade.soundHandle = soundHandle;
     }
@@ -483,6 +797,9 @@
             g.mesh.rotation.y += g.rotVel.y * dt;
             g.mesh.rotation.z += g.rotVel.z * dt;
             g.mesh.position.copy(g.pos);
+            if (g.soundHandle && typeof g.soundHandle.setPosition === 'function') {
+                g.soundHandle.setPosition(g.pos);
+            }
 
             let shouldExplode = false;
 
@@ -838,6 +1155,10 @@
         }
 
         const rig = window.buildSoldier(faction, sType);
+        if (sType === 'mortar') {
+            rig.rifle.visible = false;
+            createCarriedMortar(rig);
+        }
         if (rig.rightArm && rig.rightArm.wrist) {
             const hg = buildGrenadeMesh();
             hg.scale.setScalar(0.9);
@@ -886,6 +1207,7 @@
             fireCooldown: 0,
             faction,
             soldierType: sType,
+            mortarDeployed: false,
             smgHeat: 0,
             rig,
             takeDamage: function(amount) { onPlayerSoldierDamage(amount); },
@@ -923,6 +1245,7 @@
     // ------------------------------------------------------------------------
     function mountTank() {
         if (playerMode !== 'soldier' || !playerSoldier || playerSoldier.isDead) return;
+        packPlayerMortar();
         if ((window.tankRoot && !window.tankRoot.visible) || (window.tankState && (window.tankState.isKnockedOut || window.tankState.hasTank === false))) {
             if (typeof window.showKillFeedBanner === 'function') {
                 window.showKillFeedBanner('⚠️ NO OPERATIONAL TANK! SNEAK & HIJACK AN ENEMY TANK [E]');
@@ -1177,6 +1500,30 @@
 
     function firePlayerRifle() {
         if (playerMode !== 'soldier' || !playerSoldier || playerSoldier.isDead) return;
+        if (playerSoldier.soldierType === 'mortar') {
+            const s = playerSoldier;
+            if (!s.mortarDeployed) {
+                deployPlayerMortar(s);
+                return;
+            }
+            if (s.fireCooldown > 0) return;
+
+            const emplacement = s.rig.deployedMortar;
+            if (!emplacement) return;
+            emplacement.updateMatrixWorld(true);
+            const muzzlePos = new THREE.Vector3();
+            emplacement.userData.muzzle.getWorldPosition(muzzlePos);
+            const fireDir = emplacement.userData.barrelPivot.getWorldDirection(new THREE.Vector3()).normalize();
+
+            s.fireCooldown = 2.2;
+            s.lastFireTime = (window.performance && window.performance.now) ? window.performance.now() * 0.001 : Date.now() * 0.001;
+            if (window.soundFX && typeof window.soundFX.playMainCannon === 'function') {
+                window.soundFX.playMainCannon(window.currentTankId || 'tiger');
+            }
+            if (typeof window.spawnPlayerMortarShell === 'function') window.spawnPlayerMortarShell(muzzlePos, fireDir, s);
+            if (typeof window.notifyPlayerFired === 'function') window.notifyPlayerFired();
+            return;
+        }
         if (playerSoldier.soldierType === 'smg' || playerSoldier.soldierType === 'submachine_gunner') {
             firePlayerSMGRound();
             return;
@@ -1311,6 +1658,7 @@
         const k = window.keys || (typeof keys !== 'undefined' ? keys : {});
         const fwdInput = ((k['w'] ? 1 : 0) - (k['s'] ? 1 : 0)) + stickForward;
         const strInput = ((k['d'] ? 1 : 0) - (k['a'] ? 1 : 0)) + stickStrafe;
+        adjustMortarElevation(s, fwdInput, dt);
 
         const stickMag = window.touchDrive ? (window.touchDrive.magnitude || Math.hypot(stickForward, stickStrafe)) : 0;
         const isStickRunning = (window.touchDrive && window.touchDrive.isMax) || (stickMag >= 0.85);
@@ -1377,6 +1725,10 @@
 
         let moveX = camFwdX * fwdInput + camRightX * strInput;
         let moveZ = camFwdZ * fwdInput + camRightZ * strInput;
+        if (s.mortarDeployed) {
+            moveX = 0;
+            moveZ = 0;
+        }
         const moveLen = Math.hypot(moveX, moveZ);
 
         if (moveLen > 0.05) {
@@ -1453,6 +1805,12 @@
             rig.rightLeg.kneeJoint.rotation.x = THREE.MathUtils.lerp(rig.rightLeg.kneeJoint.rotation.x, 0.55, dt * 12.0);
             rig.leftLeg.kneeJoint.rotation.x  = THREE.MathUtils.lerp(rig.leftLeg.kneeJoint.rotation.x, 0.40, dt * 12.0);
             rig.hips.position.y = THREE.MathUtils.lerp(rig.hips.position.y, 0.98, dt * 12.0);
+        } else if (s.mortarDeployed) {
+            rig.rightLeg.hipJoint.rotation.x = THREE.MathUtils.lerp(rig.rightLeg.hipJoint.rotation.x, -1.0, dt * 8.0);
+            rig.leftLeg.hipJoint.rotation.x = THREE.MathUtils.lerp(rig.leftLeg.hipJoint.rotation.x, -0.12, dt * 8.0);
+            rig.rightLeg.kneeJoint.rotation.x = THREE.MathUtils.lerp(rig.rightLeg.kneeJoint.rotation.x, 1.82, dt * 8.0);
+            rig.leftLeg.kneeJoint.rotation.x = THREE.MathUtils.lerp(rig.leftLeg.kneeJoint.rotation.x, 1.42, dt * 8.0);
+            rig.hips.position.y = THREE.MathUtils.lerp(rig.hips.position.y, 0.78, dt * 8.0);
         } else if (isMoving) {
             const runMult = isSprinting ? 6.2 : 4.4;
             const walk = s.animTime * runMult;
@@ -1518,13 +1876,33 @@
                 rig.root.updateMatrixWorld(true);
             } else {
                 const camTheta = (window.camOrbit && window.camOrbit.theta !== undefined) ? window.camOrbit.theta : s.heading;
-                window.poseSoldierWeapon(rig, camLookDir, camTheta);
+                if (s.mortarDeployed) {
+                    rig.torso.rotation.x = 0.18;
+                    rig.rightArm.shoulder.rotation.set(-0.25, 0.08, 0.4);
+                    rig.rightArm.elbow.rotation.set(-1.0, 0, 0);
+                    rig.leftArm.shoulder.rotation.set(-0.35, -0.08, -0.35);
+                    rig.leftArm.elbow.rotation.set(-0.75, 0, 0);
+                } else {
+                    window.poseSoldierWeapon(rig, camLookDir, camTheta);
+                }
             }
+        }
+
+        if (s.mortarDeployed && rig.deployedMortar) {
+            const heading = s.heading || 0;
+            const mortarPosition = getMortarPosition(s);
+            const mortarX = mortarPosition.x;
+            const mortarZ = mortarPosition.z;
+            const groundY = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(mortarX, mortarZ) : s.y;
+            rig.deployedMortar.position.set(mortarX, groundY, mortarZ);
+            rig.deployedMortar.rotation.y = heading;
+            applyMortarElevationPose(rig.deployedMortar, s.mortarElevation);
         }
 
         // 3. Update Camera Position to follow player soldier
         if (currentActiveCam && window.camOrbit) {
-            const anchor = new THREE.Vector3(s.x, s.y + 1.45, s.z);
+            const anchorHeight = s.mortarDeployed ? 0.70 : 1.45;
+            const anchor = new THREE.Vector3(s.x, s.y + anchorHeight, s.z);
             const phi = (window.camOrbit.phi !== undefined) ? window.camOrbit.phi : 1.40;
             const theta = window.camOrbit.theta || 0;
             const dist = window.camOrbit.distance || 3.2;
@@ -1611,6 +1989,12 @@
                 !window.tankState.isKnockedOut
             );
 
+            if (playerSoldier.soldierType === 'mortar' && playerSoldier.mortarDeployed) {
+                currentInteractAction = { type: 'pack_mortar' };
+                showInteractPrompt('PACK MORTAR', '📦', false);
+                return;
+            }
+
             // Prioritize hijacking enemy tank when in range!
             if (closestEnemy && closestEnemyDist < 4.8) {
                 currentInteractAction = { type: 'hijack', enemyTank: closestEnemy };
@@ -1680,7 +2064,8 @@
         // Also update mobile button if exists
         const mobInteract = document.getElementById('mob-btn-interact');
         if (mobInteract) {
-            mobInteract.innerHTML = `<span>${icon}</span><span class="text-[9px] font-bold">${isHijack ? 'HIJACK' : (playerMode === 'soldier' ? 'MOUNT' : 'EXIT')}</span>`;
+            const actionLabel = currentInteractAction && currentInteractAction.type === 'pack_mortar' ? 'PACK' : (playerMode === 'soldier' ? 'MOUNT' : 'EXIT');
+            mobInteract.innerHTML = `<span>${icon}</span><span class="text-[9px] font-bold">${isHijack ? 'HIJACK' : actionLabel}</span>`;
         }
     }
 
@@ -1711,6 +2096,8 @@
             if (typeof window.dismountBicycle === 'function') {
                 window.dismountBicycle(playerSoldier);
             }
+        } else if (currentInteractAction.type === 'pack_mortar') {
+            packPlayerMortar();
         }
     }
 
@@ -1787,6 +2174,9 @@
     function resetPlayerSoldier() {
         if (playerSoldier && playerSoldier.isMountedBicycle && typeof window.dismountBicycle === 'function') {
             window.dismountBicycle(playerSoldier);
+        }
+        if (playerSoldier && playerSoldier.rig && playerSoldier.rig.deployedMortar && window.scene) {
+            window.scene.remove(playerSoldier.rig.deployedMortar);
         }
         if (playerSoldier && playerSoldier.rig && playerSoldier.rig.root && window.scene) {
             window.scene.remove(playerSoldier.rig.root);

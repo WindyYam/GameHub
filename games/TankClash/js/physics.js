@@ -1122,6 +1122,42 @@ function spawnEnemyShell(muzzlePos, fireDir, shellSpeed, enemyTank) {
 }
 window.spawnEnemyShell = spawnEnemyShell;
 
+function spawnPlayerMortarShell(muzzlePos, fireDir, owner) {
+    const groundY = (typeof getTerrainHeight === 'function') ? getTerrainHeight(muzzlePos.x, muzzlePos.z) : 0;
+    const launchHeight = Math.max(0, muzzlePos.y - groundY);
+    const horizontalRange = 150;
+    const referenceAngle = Math.PI / 4;
+    const cosAngle = Math.cos(referenceAngle);
+    const speed = Math.sqrt((9.81 * horizontalRange * horizontalRange) /
+        (2 * cosAngle * cosAngle * (launchHeight + horizontalRange * Math.tan(referenceAngle))));
+    const velocity = fireDir.clone().normalize().multiplyScalar(speed);
+    const flightTime = Math.max(0.6, (velocity.y + Math.sqrt(velocity.y * velocity.y + 19.62 * launchHeight)) / 9.81);
+    const soundHandle = (window.soundFX && typeof window.soundFX.playBombWhistle === 'function')
+        ? window.soundFX.playBombWhistle(flightTime, muzzlePos)
+        : null;
+    const shellGroup = shellPool.pop() || createShellObject();
+    shellGroup.visible = true;
+    shellGroup.position.copy(muzzlePos);
+    shellGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), fireDir);
+    if (shellGroup.parent !== window.scene) window.scene.add(shellGroup);
+
+    shells.push({
+        mesh: shellGroup,
+        pos: muzzlePos.clone(),
+        vel: velocity,
+        life: 8.0,
+        isEnemy: false,
+        isMortar: true,
+        sourceSoldier: owner,
+        soundHandle,
+        blastRadius: 5.5,
+        blastDamage: 90,
+        cannonDamage: 1,
+        tankType: 'mortar'
+    });
+}
+window.spawnPlayerMortarShell = spawnPlayerMortarShell;
+
 // Continuous Collision Detection (CCD) and Ballistic Trajectory Updates
 function updateProjectiles(dt) {
     // 1. Update Cannon Shells (Player shells and Enemy combat shells)
@@ -1132,6 +1168,9 @@ function updateProjectiles(dt) {
         s.vel.y -= 9.81 * dt;
         s.pos.addScaledVector(s.vel, dt);
         s.mesh.position.copy(s.pos);
+        if (s.soundHandle && typeof s.soundHandle.setPosition === 'function') {
+            s.soundHandle.setPosition(s.pos);
+        }
 
         const velDir = s.vel.clone().normalize();
         s.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), velDir);
@@ -1404,6 +1443,10 @@ function updateProjectiles(dt) {
 
         // Apply Closest Hit or Expiration
         if (closestHit || s.life <= 0) {
+            if (s.soundHandle && typeof s.soundHandle.stop === 'function') {
+                s.soundHandle.stop();
+                s.soundHandle = null;
+            }
             if (closestHit) {
                 const imp = closestHit.impactPos;
                 const bRad = (typeof s.blastRadius === 'number') ? s.blastRadius : 8.5;
@@ -1413,33 +1456,33 @@ function updateProjectiles(dt) {
                     if (typeof closestHit.targetObj.onHit === 'function') {
                         closestHit.targetObj.onHit(imp, velDir, s.cannonDamage || 1);
                     }
-                    triggerHeavyDetonation(imp, false, bRad, bDmg);
+                    triggerHeavyDetonation(imp, !!s.isMortar, bRad, bDmg);
                 } else if (closestHit.type === 'playerTank') {
                     if (typeof window.onPlayerHit === 'function') {
                         window.onPlayerHit(imp, velDir, s.cannonDamage || 1);
                     }
-                    triggerHeavyDetonation(imp, false, bRad, bDmg);
+                    triggerHeavyDetonation(imp, !!s.isMortar, bRad, bDmg);
                 } else if (closestHit.type === 'tree') {
                     if (window.hitTree) window.hitTree(closestHit.targetObj, s.vel.clone().normalize(), 7.5);
-                    triggerHeavyDetonation(imp, false, bRad, bDmg);
+                    triggerHeavyDetonation(imp, !!s.isMortar, bRad, bDmg);
                 } else if (closestHit.type === 'soldier') {
                     if (typeof closestHit.targetObj.takeDamage === 'function') {
                         closestHit.targetObj.takeDamage(bDmg);
                     }
-                    triggerHeavyDetonation(imp, false, bRad, bDmg);
+                    triggerHeavyDetonation(imp, !!s.isMortar, bRad, bDmg);
                 } else if (closestHit.type === 'wreck') {
                     if (window.soundFX && typeof window.soundFX.playArmorRicochet === 'function') {
                         window.soundFX.playArmorRicochet(imp);
                     }
-                    triggerHeavyDetonation(imp, false, bRad, bDmg);
+                    triggerHeavyDetonation(imp, !!s.isMortar, bRad, bDmg);
                 } else if (closestHit.type === 'target') {
                     closestHit.targetObj.hitAngle = -Math.PI * 0.46;
                     closestHit.targetObj.recoverTimer = 4.5;
                     closestHit.targetObj.plateMat.color.setHex(0xf59e0b);
                     tankState.hitsCount++;
-                    triggerHeavyDetonation(imp, false, bRad, bDmg);
+                    triggerHeavyDetonation(imp, !!s.isMortar, bRad, bDmg);
                 } else if (closestHit.type === 'obstacle' || closestHit.type === 'terrain') {
-                    triggerHeavyDetonation(imp, false, bRad, bDmg);
+                    triggerHeavyDetonation(imp, !!s.isMortar, bRad, bDmg);
                 }
 
                 // Explosive Splash Wave Damage to nearby Tanks
