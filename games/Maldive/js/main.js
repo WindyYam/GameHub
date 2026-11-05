@@ -182,6 +182,9 @@ function animate() {
         cumulusMesh.visible = false;
         oceanMesh.visible = false;
         renderer.shadowMap.autoUpdate = false;
+        if (cumulusMat && cumulusMat.uniforms.uDepthTexture) {
+            cumulusMat.uniforms.uDepthTexture.value = null;
+        }
         try {
             renderer.setRenderTarget(depthRenderTarget);
             renderer.render(scene, camera);
@@ -190,6 +193,9 @@ function animate() {
             renderer.shadowMap.autoUpdate = prevAutoUpdate;
             cumulusMesh.visible = previousCumulusVisible;
             oceanMesh.visible = previousOceanVisible;
+            if (cumulusMat && cumulusMat.uniforms.uDepthTexture) {
+                cumulusMat.uniforms.uDepthTexture.value = depthRenderTarget.depthTexture;
+            }
         }
     }
 
@@ -205,15 +211,20 @@ window.onload = function () {
             initScene();
             setupUIControls();
             updateDayNightAtmosphere(STATE.timeOfDay);
+
+            // Pre-compile scene materials during the loading screen to avoid frame drops
+            renderer.compile(scene, camera);
             animate();
 
-            // Smoothly dismiss the loading overlay
-            if (loadingScreen) {
-                loadingScreen.classList.add('loading-fade-out');
-                setTimeout(() => {
-                    loadingScreen.remove();
-                }, 500);
-            }
+            // Dismiss the loading screen smoothly only after the scene is ready and first frame has rendered
+            requestAnimationFrame(() => {
+                if (loadingScreen) {
+                    loadingScreen.classList.add('loading-fade-out');
+                    setTimeout(() => {
+                        loadingScreen.remove();
+                    }, 500);
+                }
+            });
         }, 20);
     });
 };

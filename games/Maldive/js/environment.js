@@ -142,8 +142,10 @@ function initDepthRenderTarget() {
         magFilter: THREE.NearestFilter,
         format: THREE.RGBAFormat,
         type: THREE.UnsignedByteType,
-        depthBuffer: true
+        depthBuffer: true,
+        encoding: renderer.outputEncoding
     });
+    depthRenderTarget.texture.encoding = renderer.outputEncoding;
     depthRenderTarget.depthTexture = new THREE.DepthTexture();
     depthRenderTarget.depthTexture.type = (isWebGL2 || hasDepthExt)
         ? THREE.UnsignedIntType
