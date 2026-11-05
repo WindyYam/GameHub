@@ -117,6 +117,35 @@ function onPlayerDeath() {
     if (playerIsDead) return;
     playerIsDead = true;
     window.playerIsDead = true;
+
+    // Record last death position for near-death respawn
+    let deathPos = null;
+    if (window.playerMode === 'soldier' && window.playerSoldier) {
+        deathPos = {
+            x: window.playerSoldier.x,
+            y: window.playerSoldier.y || 0,
+            z: window.playerSoldier.z,
+            heading: window.playerSoldier.heading || 0
+        };
+    } else if (window.playerSoldier) {
+        deathPos = {
+            x: window.playerSoldier.x,
+            y: window.playerSoldier.y || 0,
+            z: window.playerSoldier.z,
+            heading: window.playerSoldier.heading || 0
+        };
+    } else if (window.tankState) {
+        deathPos = {
+            x: window.tankState.x,
+            y: window.tankState.y || 0,
+            z: window.tankState.z,
+            heading: window.tankState.heading || 0
+        };
+    }
+    if (deathPos) {
+        window.lastPlayerDeathPosition = deathPos;
+    }
+
     // Money is NOT halved on death; player preserves their accumulated funds
     if (typeof window.showKillFeedBanner === 'function') {
         window.showKillFeedBanner(`☠️ KILLED IN ACTION!`);
@@ -1141,6 +1170,10 @@ function spawnPlayerMortarShell(muzzlePos, fireDir, owner) {
     shellGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), fireDir);
     if (shellGroup.parent !== window.scene) window.scene.add(shellGroup);
 
+    const mortarBlastRadius = (typeof window !== 'undefined' && window.TANK_SPECS && window.TANK_SPECS.t34 && typeof window.TANK_SPECS.t34.blastRadius === 'number')
+        ? window.TANK_SPECS.t34.blastRadius
+        : 16.5;
+
     shells.push({
         mesh: shellGroup,
         pos: muzzlePos.clone(),
@@ -1150,7 +1183,7 @@ function spawnPlayerMortarShell(muzzlePos, fireDir, owner) {
         isMortar: true,
         sourceSoldier: owner,
         soundHandle,
-        blastRadius: 5.5,
+        blastRadius: mortarBlastRadius,
         blastDamage: 90,
         cannonDamage: 1,
         tankType: 'mortar'

@@ -152,6 +152,12 @@
 
     function onPlayerSoldierDie() {
         if (!playerSoldier || playerSoldier.isDead) return;
+        window.lastPlayerDeathPosition = {
+            x: playerSoldier.x,
+            y: playerSoldier.y || 0,
+            z: playerSoldier.z,
+            heading: playerSoldier.heading || 0
+        };
         if (playerSoldier.isMountedBicycle && typeof window.dismountBicycle === 'function') {
             window.dismountBicycle(playerSoldier);
         }

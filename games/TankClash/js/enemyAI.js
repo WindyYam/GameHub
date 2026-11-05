@@ -1117,6 +1117,14 @@
         // Critical Vehicle Knockout when all armor depleted
         if (playerHitsTaken >= maxArmor) {
             window.tankState.isKnockedOut = true;
+            if (window.playerMode !== 'soldier') {
+                window.lastPlayerDeathPosition = {
+                    x: window.tankState.x,
+                    y: window.tankState.y || 0,
+                    z: window.tankState.z,
+                    heading: window.tankState.heading || 0
+                };
+            }
 
             // Turret slumps sideways on player tank
             if (window.turretGroup) {
@@ -1249,6 +1257,23 @@
     window.showKillFeedBanner = showKillFeedBanner;
 
     function showKnockoutModal(titleText) {
+        if (!window.lastPlayerDeathPosition) {
+            if (window.playerMode === 'soldier' && window.playerSoldier) {
+                window.lastPlayerDeathPosition = {
+                    x: window.playerSoldier.x,
+                    y: window.playerSoldier.y || 0,
+                    z: window.playerSoldier.z,
+                    heading: window.playerSoldier.heading || 0
+                };
+            } else if (window.tankState) {
+                window.lastPlayerDeathPosition = {
+                    x: window.tankState.x,
+                    y: window.tankState.y || 0,
+                    z: window.tankState.z,
+                    heading: window.tankState.heading || 0
+                };
+            }
+        }
         if (typeof window.onPlayerDeath === 'function') {
             window.onPlayerDeath();
         }

@@ -4906,50 +4906,118 @@ function updateEnvironment(dt, tankState) {
 // ============================================================================
 // 11. GAME RESPAWN (PRESERVES THE SAME WORLD SEED & BIOME ZONE)
 // ============================================================================
+function getPlayerRespawnPosition() {
+    const death = window.lastPlayerDeathPosition;
+    if (!death || typeof death.x !== 'number' || typeof death.z !== 'number') {
+        const defaultY = (typeof getTerrainHeight === 'function') ? getTerrainHeight(0, 0) : 0;
+        return { x: 0, y: defaultY, z: 0, heading: 0 };
+    }
+
+    const dx = death.x;
+    const dz = death.z;
+    const dh = (typeof death.heading === 'number') ? death.heading : 0;
+
+    // Search for a clear spawn point near where the player was killed (15-20 meters away)
+    // Preference: behind the direction the player was facing (cover / friendly approach direction)
+    const offsetDistance = 18.0;
+    const candidateAngles = [
+        dh + Math.PI,          // Directly behind
+        dh + Math.PI * 0.75,   // Back-left
+        dh - Math.PI * 0.75,   // Back-right
+        dh + Math.PI * 0.5,    // Left
+        dh - Math.PI * 0.5,    // Right
+        dh + Math.PI * 0.25,   // Front-left
+        dh - Math.PI * 0.25,   // Front-right
+        dh                     // Directly ahead
+    ];
+
+    const obstacles = window.worldObstacles || [];
+    const enemyTanks = window.activeEnemyTanks || [];
+
+    for (let i = 0; i < candidateAngles.length; i++) {
+        const ang = candidateAngles[i];
+        const cx = dx + Math.sin(ang) * offsetDistance;
+        const cz = dz + Math.cos(ang) * offsetDistance;
+
+        // Check distance against obstacles
+        let blocked = false;
+        for (let j = 0; j < obstacles.length; j++) {
+            const obs = obstacles[j];
+            if (!obs || typeof obs.x !== 'number' || typeof obs.z !== 'number') continue;
+            const minDist = (obs.radius || 2.0) + 3.2;
+            if ((cx - obs.x) ** 2 + (cz - obs.z) ** 2 < minDist * minDist) {
+                blocked = true;
+                break;
+            }
+        }
+        if (blocked) continue;
+
+        // Check distance against enemy tanks and wrecks
+        for (let j = 0; j < enemyTanks.length; j++) {
+            const et = enemyTanks[j];
+            if (!et || typeof et.x !== 'number' || typeof et.z !== 'number') continue;
+            if ((cx - et.x) ** 2 + (cz - et.z) ** 2 < 6.0 * 6.0) {
+                blocked = true;
+                break;
+            }
+        }
+        if (blocked) continue;
+
+        // Found clear candidate spot
+        const cy = (typeof getTerrainHeight === 'function')
+            ? getTerrainHeight(cx, cz)
+            : ((typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(cx, cz) : 0);
+        // Face toward the location where player was killed so they are oriented toward the battle
+        const lookHeading = Math.atan2(dx - cx, dz - cz);
+        return { x: cx, y: cy, z: cz, heading: lookHeading };
+    }
+
+    // Fallback: 18m behind last death heading
+    const fallbackX = dx - Math.sin(dh) * offsetDistance;
+    const fallbackZ = dz - Math.cos(dh) * offsetDistance;
+    const fallbackY = (typeof getTerrainHeight === 'function')
+        ? getTerrainHeight(fallbackX, fallbackZ)
+        : ((typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(fallbackX, fallbackZ) : 0);
+    const fallbackHeading = Math.atan2(dx - fallbackX, dz - fallbackZ);
+    return { x: fallbackX, y: fallbackY, z: fallbackZ, heading: fallbackHeading };
+}
+window.getPlayerRespawnPosition = getPlayerRespawnPosition;
+
 function restartGame(customSeed, customZone) {
     // Preserve the same world seed and zone every time we respawn
-    const seed = (customSeed !== undefined && customSeed !== null)
-        ? customSeed
-        : currentSeed;
-
-    let nextZone = (customZone !== undefined && customZone !== null)
-        ? customZone
-        : currentZone;
-
+    const seed = (customSeed !== undefined && customSeed !== null) ? customSeed : currentSeed;
+    let nextZone = (customZone !== undefined && customZone !== null) ? customZone : currentZone;
     const isSameWorld = (seed === currentSeed && nextZone === currentZone && activeChunks.size > 0);
 
     if (!isSameWorld) {
+        window.lastPlayerDeathPosition = null;
         setWorldSeed(seed, nextZone);
         rebuildZoneStaticProps();
     }
 
+    const respawnPos = getPlayerRespawnPosition();
+    const spawnY = (typeof getTerrainHeight === 'function') ? getTerrainHeight(respawnPos.x, respawnPos.z) : 0;
+    const spawnHeading = (typeof respawnPos.heading === 'number') ? respawnPos.heading : 0;
+
     if (window.tankState) {
-        window.tankState.x = 0;
-        window.tankState.z = 0;
-        window.tankState.heading = 0;
+        window.tankState.x = respawnPos.x;
+        window.tankState.z = respawnPos.z;
+        window.tankState.heading = spawnHeading;
         window.tankState.speed = 0;
         window.tankState.turnRate = 0;
-        window.tankState.pitch = 0;
-        window.tankState.roll = 0;
-        window.tankState.pitchVel = 0;
-        window.tankState.rollVel = 0;
-        window.tankState.heave = 0;
-        window.tankState.heaveVel = 0;
-        window.tankState.turretYaw = 0;
-        window.tankState.gunElevation = 0;
-        window.tankState.targetTurretYaw = 0;
-        window.tankState.targetGunElevation = 0;
+        window.tankState.pitch = window.tankState.roll = window.tankState.pitchVel = window.tankState.rollVel = 0;
+        window.tankState.heave = window.tankState.heaveVel = 0;
+        window.tankState.turretYaw = window.tankState.gunElevation = 0;
+        window.tankState.targetTurretYaw = window.tankState.targetGunElevation = 0;
         window.tankState.hitsCount = 0;
         window.tankState.reloadTimer = 0;
         window.tankState.mgHeat = 0;
         window.tankState.isKnockedOut = false;
-
-        const spawnY = getTerrainHeight(0, 0);
         window.tankState.y = spawnY;
 
         if (window.tankRoot) {
-            window.tankRoot.position.set(0, spawnY, 0);
-            window.tankRoot.rotation.y = 0;
+            window.tankRoot.position.set(respawnPos.x, spawnY, respawnPos.z);
+            window.tankRoot.rotation.y = spawnHeading;
             window.tankRoot.visible = false;
         }
         if (window.tankState) {
@@ -4968,42 +5036,37 @@ function restartGame(customSeed, customZone) {
     }
 
     if (window.camOrbit) {
-        window.camOrbit.theta = Math.PI + 0.38;
+        window.camOrbit.theta = spawnHeading + Math.PI + 0.38;
         window.camOrbit.phi = 1.42;
         window.camOrbit.distance = 10.5;
     }
 
     if (!isSameWorld) {
-        for (const chunk of activeChunks.values()) {
-            chunk.dispose();
-        }
+        for (const chunk of activeChunks.values()) chunk.dispose();
         activeChunks.clear();
         activeChunkCenterX = null;
         activeChunkCenterZ = null;
         chunkLoadQueue.length = 0;
         chunkLoadSet.clear();
         chunkUnloadQueue.length = 0;
-        updateTerrainChunks(0, 0, true);
+        updateTerrainChunks(respawnPos.x, respawnPos.z, true);
     } else {
-        // Same world: reset any fallen trees back upright
-        for (let i = 0; i < swayTrees.length; i++) {
-            const t = swayTrees[i];
-            if (t && t.isFallen) {
-                t.isFallen = false;
-                t.fallAngle = 0;
-                t.angularVel = 0;
-                if (t.group) t.group.quaternion.identity();
-            }
-        }
-        chunkLoadQueue.length = 0;
-        chunkLoadSet.clear();
-        chunkUnloadQueue.length = 0;
-        updateTerrainChunks(0, 0, false);
+        // Keep the scene intact when respawning in the same battlefield:
+        // Do not unload or reload chunks, do not reset props or trees.
+        chunkUnloadQueue.length = 0; // Clear any pending unloads to guarantee no terrain chunks get removed
+        // Bypassed: updateTerrainChunks(0, 0, false);
     }
     if (typeof window.clearParticles === 'function') window.clearParticles();
-    if (typeof window.resetEnemyTanks === 'function') window.resetEnemyTanks();
+    if (!isSameWorld) {
+        if (typeof window.resetEnemyTanks === 'function') window.resetEnemyTanks();
+        if (typeof window.resetSoldiers === 'function') window.resetSoldiers();
+    } else {
+        // Keep existing enemies on respawn in the same battlefield!
+        if (!window.activeEnemyTanks || window.activeEnemyTanks.length === 0) {
+            if (typeof window.spawnZoneEnemies === 'function') window.spawnZoneEnemies();
+        }
+    }
     if (typeof window.resetPlayerHealth === 'function') window.resetPlayerHealth();
-    if (typeof window.resetSoldiers === 'function') window.resetSoldiers();
     if (typeof window.resetPlayerSoldier === 'function') window.resetPlayerSoldier();
     if (typeof window.initWorldBicycles === 'function') window.initWorldBicycles();
     if (typeof window.hideKnockoutModal === 'function') window.hideKnockoutModal();
@@ -5019,7 +5082,7 @@ function restartGame(customSeed, customZone) {
         window.showKillFeedBanner(currentZoneConfig.banner, '#fbbf24');
     }
 
-    console.log(`[World War 2 Simulator] New Battlefield Generated — Zone: ${currentZoneConfig.name}, Seed: ${seed}`);
+    console.log(`[World War 2 Simulator] Battlefield Active — Zone: ${currentZoneConfig.name}, Seed: ${seed}`);
 }
 
 // ============================================================================
@@ -5131,6 +5194,7 @@ window.initEnvironment = initEnvironment;
 window.buildEnvironment = buildEnvironment;
 window.updateEnvironment = updateEnvironment;
 window.restartGame = restartGame;
+window.getPlayerRespawnPosition = getPlayerRespawnPosition;
 window.setWorldSeed = setWorldSeed;
 window.currentSeed = currentSeed;
 window.spawnZoneIndex = spawnZoneIndex;

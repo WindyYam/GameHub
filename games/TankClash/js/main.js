@@ -1865,7 +1865,12 @@ function deployPurchasedTank(tankId) {
     }
     window.playerMode = 'tank';
 
-    const spawnY = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(0, 0) : 0;
+    const respawnPos = (typeof window.getPlayerRespawnPosition === 'function')
+        ? window.getPlayerRespawnPosition()
+        : (window.lastPlayerDeathPosition ? { x: window.lastPlayerDeathPosition.x, z: window.lastPlayerDeathPosition.z, heading: window.lastPlayerDeathPosition.heading || 0 } : { x: 0, z: 0, heading: 0 });
+    const spawnY = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(respawnPos.x, respawnPos.z) : 0;
+    const spawnHeading = (typeof respawnPos.heading === 'number') ? respawnPos.heading : 0;
+
     if (window.tankState) {
         window.tankState.isKnockedOut = false;
         window.tankState.hasTank = true;
@@ -1879,17 +1884,26 @@ function deployPurchasedTank(tankId) {
         window.tankState.bowMgCooldown = 0;
         window.tankState.x = 0;
         window.tankState.z = 0;
+        if (respawnPos && (respawnPos.x !== 0 || respawnPos.z !== 0)) {
+            window.tankState.x = respawnPos.x;
+            window.tankState.z = respawnPos.z;
+        }
         window.tankState.y = spawnY;
+        window.tankState.heading = spawnHeading;
     }
     if (window.tankRoot) {
         window.tankRoot.visible = true;
-        window.tankRoot.position.set(0, spawnY, 0);
-        window.tankRoot.rotation.y = 0;
+        window.tankRoot.position.set(respawnPos.x, spawnY, respawnPos.z);
+        window.tankRoot.rotation.y = spawnHeading;
     }
 
     if (window.camOrbit) {
         window.camOrbit.distance = 10.5;
         window.camOrbit.phi = 0.35;
+        window.camOrbit.theta = spawnHeading + Math.PI;
+    }
+    if (typeof window.updateTerrainChunks === 'function') {
+        window.updateTerrainChunks(respawnPos.x, respawnPos.z, false);
     }
 
     if (typeof window.switchTank === 'function') {
@@ -1976,17 +1990,24 @@ function deployAsSoldier(suppressBanner = false, soldierCostAlreadyPaid = false)
         window.clearParticles();
     }
 
+    const respawnPos = (typeof window.getPlayerRespawnPosition === 'function')
+        ? window.getPlayerRespawnPosition()
+        : (window.lastPlayerDeathPosition ? { x: window.lastPlayerDeathPosition.x, z: window.lastPlayerDeathPosition.z, heading: window.lastPlayerDeathPosition.heading || 0 } : { x: 0, z: 0, heading: 0 });
+    const spawnY = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(respawnPos.x, respawnPos.z) : 0;
+    const spawnHeading = (typeof respawnPos.heading === 'number') ? respawnPos.heading : 0;
+
     if (window.tankState) {
         window.tankState.hasTank = false;
         window.tankState.isKnockedOut = false;
         window.tankState.speed = 0;
         window.tankState.turnRate = 0;
-        window.tankState.x = 99999;
-        window.tankState.z = 99999;
+        window.tankState.x = respawnPos.x;
+        window.tankState.z = respawnPos.z;
+        window.tankState.heading = spawnHeading;
     }
     if (window.tankRoot) {
         window.tankRoot.visible = false;
-        window.tankRoot.position.set(0, -9999, 0);
+        window.tankRoot.position.set(respawnPos.x, -9999, respawnPos.z);
     }
     if (window.persistentHeadlightSpots) {
         window.persistentHeadlightSpots.forEach(s => {
@@ -2005,14 +2026,23 @@ function deployAsSoldier(suppressBanner = false, soldierCostAlreadyPaid = false)
     }
 
     if (window.playerSoldier) {
-        const spawnY = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(0, 0) : 0;
-        window.playerSoldier.x = 0;
+        window.playerSoldier.x = respawnPos.x;
         window.playerSoldier.y = spawnY;
-        window.playerSoldier.z = 0;
+        window.playerSoldier.z = respawnPos.z;
+        window.playerSoldier.heading = spawnHeading;
+        window.playerSoldier.invulnerableTimer = 2.0;
         if (window.playerSoldier.rig && window.playerSoldier.rig.root) {
-            window.playerSoldier.rig.root.position.set(0, spawnY, 0);
-            window.playerSoldier.rig.root.rotation.y = 0;
+            window.playerSoldier.rig.root.position.set(respawnPos.x, spawnY, respawnPos.z);
+            window.playerSoldier.rig.root.rotation.y = spawnHeading;
         }
+    }
+    if (window.camOrbit) {
+        window.camOrbit.distance = 3.2;
+        window.camOrbit.phi = 1.40;
+        window.camOrbit.theta = spawnHeading + Math.PI;
+    }
+    if (typeof window.updateTerrainChunks === 'function') {
+        window.updateTerrainChunks(respawnPos.x, respawnPos.z, false);
     }
 
     const sName = sType === 'mortar' ? 'Mortar Crew' : (sType === 'smg' ? 'Submachine Gunner' : 'Rifleman');
