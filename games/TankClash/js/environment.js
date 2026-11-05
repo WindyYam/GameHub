@@ -67,11 +67,11 @@ const ZONE_CONFIGS = {
         shortName: 'Desert',
         icon: '🏜️',
         banner: '🏜️ ZONE: SAHARA DESERT DUNES & OASIS',
-        fogColor: 0xe4c79c,
-        fogDensity: 0.00092,
-        dayHorizonTint: 0xd9bf96,
-        groundDayTint: 0xa67c46,
-        trackDustColor: 0xc89d62
+        fogColor: 0xbacfe2,
+        fogDensity: 0.00084,
+        dayHorizonTint: 0x8ebce0,
+        groundDayTint: 0x9c826b,
+        trackDustColor: 0xb89f86
     },
     mountain: {
         id: 'mountain',
@@ -454,21 +454,9 @@ const SHARED_TERRAIN_GLSL = `
 
     const float SEA_LEVEL = -2.5;
 
-    float getZoneTerrainHeight_gpu(float x, float z, int zoneType) {
+    float getZoneTerrainHeight_gpu(float x, float z, int zoneType, float dSpawn, float roadDist, float roadF, vec2 zoneCenter, float coastalDescent, float bayOpen) {
         vec2 s = vec2(x, z) + uSeedOffset;
-        float dSpawn = length(vec2(x, z));
-        float roadDist = getRoadDistance_gpu(x, z);
-        float roadF = getRoadFactor_gpu(x, z);
-        vec2 zoneCenter = floor(getZoneGrid_gpu(vec2(x, z)) + 0.5) * 1600.0;
         float finalH = 0.0;
-
-        // Shared coastal slope and bay framing toward +Z ocean
-        float coastalDist = z + (fbm3_gpu(s * 0.009) * 28.0);
-        float coastalSlope = smoothstep(110.0, 360.0, coastalDist) * 12.8;
-        float headland = smoothstep(60.0, 200.0, abs(x)) * smoothstep(60.0, 420.0, coastalDist) * 6.5;
-        float coastalExtent = (1.0 - smoothstep(600.0, 900.0, abs(x))) * (1.0 - smoothstep(750.0, 1200.0, z));
-        float coastalDescent = (-coastalSlope + headland) * coastalExtent;
-        float bayOpen = (1.0 - smoothstep(90.0, 260.0, coastalDist) * (1.0 - smoothstep(220.0, 450.0, abs(x))));
 
         // ZONE 1: SAHARA DESERT DUNES, SANDSTONE MESAS & OASIS
         if (zoneType == 1) {
@@ -481,10 +469,13 @@ const SHARED_TERRAIN_GLSL = `
             float microRipples = valueNoise2D_gpu(s * 0.09) * 0.18;
             float h = 5.8 + macroErg + duneWave + medDunes + microRipples;
 
-            // Flat-topped Sandstone Mesas / Buttes in the outer desert
+            // Flat-topped Sandstone Mesas / Buttes & Dry Wadi Channels in the outer desert
             float mesaNoise = fbm3_gpu(s * 0.0042 + vec2(37.0, 61.0));
-            float mesaMask = smoothstep(0.34, 0.48, mesaNoise) * smoothstep(55.0, 105.0, dSpawn) * smoothstep(10.0, 32.0, roadDist) * bayOpen;
-            h += mesaMask * 13.5;
+            float outerDesertMask = smoothstep(55.0, 105.0, dSpawn) * smoothstep(10.0, 32.0, roadDist) * bayOpen;
+            float mesaMask = smoothstep(0.34, 0.48, mesaNoise) * outerDesertMask;
+            float terraceStep = smoothstep(0.22, 0.34, mesaNoise) * outerDesertMask * 4.2;
+            float wadiCut = smoothstep(-2.8, -4.6, macroErg + medDunes) * outerDesertMask * 3.0;
+            h += mesaMask * 13.5 + terraceStep - wadiCut;
 
             float dOasis = length(vec2(x, z) - zoneCenter - vec2(58.0, 78.0));
             float oasisDip = (1.0 - smoothstep(14.0, 48.0, dOasis)) * 9.8;
@@ -520,7 +511,8 @@ const SHARED_TERRAIN_GLSL = `
 
             float passCorridor = smoothstep(9.0, 44.0, roadDist);
             float spawnCorridor = smoothstep(22.0, 78.0, dSpawn);
-            h += mountainHeight * passCorridor * spawnCorridor * bayOpen;
+            float screeLedge = foothillBumps * 0.45;
+            h += (mountainHeight + screeLedge) * passCorridor * spawnCorridor * bayOpen;
 
             float dTarn = length(vec2(x, z) - zoneCenter - vec2(-54.0, 92.0));
             float tarnDip = (1.0 - smoothstep(14.0, 46.0, dTarn)) * 11.5;
@@ -548,6 +540,11 @@ const SHARED_TERRAIN_GLSL = `
             float medSlopes = fbm3_gpu(s * 0.020) * 2.4;
             float microTurf = valueNoise2D_gpu(s * 0.08) * 0.28;
             float h = 7.4 + bigHills + drumlins + medSlopes + microTurf;
+
+            // Terraced hillside lynchets & chalky escarpment swells away from spawn
+            float hillOuter = smoothstep(45.0, 95.0, dSpawn) * smoothstep(8.0, 24.0, roadDist) * bayOpen;
+            float lynchet = smoothstep(2.0, 6.5, bigHills) * 2.4 * hillOuter;
+            h += lynchet;
 
             float knoll = (1.0 - smoothstep(15.0, 75.0, dSpawn)) * 3.2;
             h += knoll;
@@ -577,6 +574,12 @@ const SHARED_TERRAIN_GLSL = `
             float microBumps = valueNoise2D_gpu(s * 0.08) * 0.25;
             float h = 6.8 + rollingHills + mediumUndulation + microBumps;
 
+            // Gentle meadow creek hollows & karst knolls away from spawn
+            float meadowOuter = smoothstep(48.0, 100.0, dSpawn) * smoothstep(9.0, 26.0, roadDist) * bayOpen;
+            float karstKnoll = smoothstep(1.2, 3.2, rollingHills + mediumUndulation) * 3.2 * meadowOuter;
+            float creekHollow = smoothstep(-1.4, -3.0, rollingHills + mediumUndulation) * 2.0 * meadowOuter;
+            h += karstKnoll - creekHollow;
+
             // Elevated grassy ridge around tank spawn (0, 0) overlooking the seaside
             float ridgeElev = (1.0 - smoothstep(12.0, 95.0, dSpawn)) * 2.8;
             h += ridgeElev;
@@ -598,30 +601,35 @@ const SHARED_TERRAIN_GLSL = `
     }
 
     float getTerrainHeight_gpu(float x, float z) {
+        vec2 s = vec2(x, z) + uSeedOffset;
+        float dSpawn = length(vec2(x, z));
+        float roadDist = getRoadDistance_gpu(x, z);
+        float roadF = (roadDist > 4.6) ? 0.0 : (1.0 - roadDist / 4.6) * (1.0 - roadDist / 4.6) * (3.0 - 2.0 * (1.0 - roadDist / 4.6));
+        vec2 zoneCenter = floor(getZoneGrid_gpu(vec2(x, z)) + 0.5) * 1600.0;
+
+        float coastalDist = z + (fbm3_gpu(s * 0.009) * 28.0);
+        float coastalSlope = smoothstep(110.0, 360.0, coastalDist) * 12.8;
+        float headland = smoothstep(60.0, 200.0, abs(x)) * smoothstep(60.0, 420.0, coastalDist) * 6.5;
+        float coastalExtent = (1.0 - smoothstep(600.0, 900.0, abs(x))) * (1.0 - smoothstep(750.0, 1200.0, z));
+        float coastalDescent = (-coastalSlope + headland) * coastalExtent;
+        float bayOpen = (1.0 - smoothstep(90.0, 260.0, coastalDist) * (1.0 - smoothstep(220.0, 450.0, abs(x))));
+
         vec4 weights = getZoneWeights_gpu(vec2(x, z));
         float h = 0.0;
-        if (weights.x > 0.0) h += weights.x * getZoneTerrainHeight_gpu(x, z, 0);
-        if (weights.y > 0.0) h += weights.y * getZoneTerrainHeight_gpu(x, z, 1);
-        if (weights.z > 0.0) h += weights.z * getZoneTerrainHeight_gpu(x, z, 2);
-        if (weights.w > 0.0) h += weights.w * getZoneTerrainHeight_gpu(x, z, 3);
+        if (weights.x > 0.0) h += weights.x * getZoneTerrainHeight_gpu(x, z, 0, dSpawn, roadDist, roadF, zoneCenter, coastalDescent, bayOpen);
+        if (weights.y > 0.0) h += weights.y * getZoneTerrainHeight_gpu(x, z, 1, dSpawn, roadDist, roadF, zoneCenter, coastalDescent, bayOpen);
+        if (weights.z > 0.0) h += weights.z * getZoneTerrainHeight_gpu(x, z, 2, dSpawn, roadDist, roadF, zoneCenter, coastalDescent, bayOpen);
+        if (weights.w > 0.0) h += weights.w * getZoneTerrainHeight_gpu(x, z, 3, dSpawn, roadDist, roadF, zoneCenter, coastalDescent, bayOpen);
         return h;
     }
 
     float getTerrainSurfaceHeight_gpu(float x, float z, out vec3 surfaceNormal) {
-        const float terrainCellSize = 2.5;
-        vec2 cell = floor(vec2(x, z) / terrainCellSize) * terrainCellSize;
-        vec2 f = (vec2(x, z) - cell) / terrainCellSize;
-        float h00 = getTerrainHeight_gpu(cell.x, cell.y);
-        float h10 = getTerrainHeight_gpu(cell.x + terrainCellSize, cell.y);
-        float h01 = getTerrainHeight_gpu(cell.x, cell.y + terrainCellSize);
-        float h11 = getTerrainHeight_gpu(cell.x + terrainCellSize, cell.y + terrainCellSize);
-
-        if (f.x + f.y <= 1.0) {
-            surfaceNormal = normalize(vec3(h00 - h10, terrainCellSize, h00 - h01));
-            return h00 * (1.0 - f.x - f.y) + h10 * f.x + h01 * f.y;
-        }
-        surfaceNormal = normalize(vec3(h01 - h11, terrainCellSize, h10 - h11));
-        return h11 * (f.x + f.y - 1.0) + h01 * (1.0 - f.x) + h10 * (1.0 - f.y);
+        vec2 s = vec2(x, z) + uSeedOffset;
+        float h0 = getTerrainHeight_gpu(x, z);
+        float gx = valueNoise2D_gpu((s + vec2(2.0, 0.0)) * 0.015) - valueNoise2D_gpu((s - vec2(2.0, 0.0)) * 0.015);
+        float gz = valueNoise2D_gpu((s + vec2(0.0, 2.0)) * 0.015) - valueNoise2D_gpu((s - vec2(0.0, 2.0)) * 0.015);
+        surfaceNormal = normalize(vec3(-gx * 1.8, 4.0, -gz * 1.8));
+        return h0;
     }
 `;
 
@@ -674,7 +682,7 @@ function getZoneTerrainHeight(x, z, currentZoneIndex) {
     const sz = z + seedOffset.z;
     const dSpawn = Math.hypot(x, z);
     const roadDist = getRoadDistance(x, z);
-    const roadF = getRoadFactor(x, z);
+    const roadF = (roadDist > 4.6) ? 0.0 : (1.0 - roadDist / 4.6) * (1.0 - roadDist / 4.6) * (3.0 - 2.0 * (1.0 - roadDist / 4.6));
     const [zoneX, zoneZ] = getZoneCenter(x, z);
 
     // Shared coastal slope and bay framing toward +Z ocean
@@ -697,8 +705,11 @@ function getZoneTerrainHeight(x, z, currentZoneIndex) {
         let h = 5.8 + macroErg + duneWave + medDunes + microRipples;
 
         const mesaNoise = fbm3(sx * 0.0042 + 37.0, sz * 0.0042 + 61.0);
-        const mesaMask = smoothstep(0.34, 0.48, mesaNoise) * smoothstep(55.0, 105.0, dSpawn) * smoothstep(10.0, 32.0, roadDist) * bayOpen;
-        h += mesaMask * 13.5;
+        const outerDesertMask = smoothstep(55.0, 105.0, dSpawn) * smoothstep(10.0, 32.0, roadDist) * bayOpen;
+        const mesaMask = smoothstep(0.34, 0.48, mesaNoise) * outerDesertMask;
+        const terraceStep = smoothstep(0.22, 0.34, mesaNoise) * outerDesertMask * 4.2;
+        const wadiCut = smoothstep(-2.8, -4.6, macroErg + medDunes) * outerDesertMask * 3.0;
+        h += mesaMask * 13.5 + terraceStep - wadiCut;
 
         const dOasis = Math.hypot(x - zoneX - 58.0, z - zoneZ - 78.0);
         const oasisDip = (1.0 - smoothstep(14.0, 48.0, dOasis)) * 9.8;
@@ -733,7 +744,8 @@ function getZoneTerrainHeight(x, z, currentZoneIndex) {
 
         const passCorridor = smoothstep(9.0, 44.0, roadDist);
         const spawnCorridor = smoothstep(22.0, 78.0, dSpawn);
-        h += mountainHeight * passCorridor * spawnCorridor * bayOpen;
+        const screeLedge = foothillBumps * 0.45;
+        h += (mountainHeight + screeLedge) * passCorridor * spawnCorridor * bayOpen;
 
         const dTarn = Math.hypot(x - zoneX + 54.0, z - zoneZ - 92.0);
         const tarnDip = (1.0 - smoothstep(14.0, 46.0, dTarn)) * 11.5;
@@ -762,6 +774,10 @@ function getZoneTerrainHeight(x, z, currentZoneIndex) {
         const microTurf = valueNoise2D(sx * 0.08, sz * 0.08) * 0.28;
         let h = 7.4 + bigHills + drumlins + medSlopes + microTurf;
 
+        const hillOuter = smoothstep(45.0, 95.0, dSpawn) * smoothstep(8.0, 24.0, roadDist) * bayOpen;
+        const lynchet = smoothstep(2.0, 6.5, bigHills) * 2.4 * hillOuter;
+        h += lynchet;
+
         const knoll = (1.0 - smoothstep(15.0, 75.0, dSpawn)) * 3.2;
         h += knoll;
 
@@ -789,6 +805,11 @@ function getZoneTerrainHeight(x, z, currentZoneIndex) {
     const microBumps = valueNoise2D(sx * 0.08, sz * 0.08) * 0.25;
 
     let h = 6.8 + rollingHills + mediumUndulation + microBumps;
+
+    const meadowOuter = smoothstep(48.0, 100.0, dSpawn) * smoothstep(9.0, 26.0, roadDist) * bayOpen;
+    const karstKnoll = smoothstep(1.2, 3.2, rollingHills + mediumUndulation) * 3.2 * meadowOuter;
+    const creekHollow = smoothstep(-1.4, -3.0, rollingHills + mediumUndulation) * 2.0 * meadowOuter;
+    h += karstKnoll - creekHollow;
 
     const ridgeElev = (1.0 - smoothstep(12.0, 95.0, dSpawn)) * 2.8;
     h += ridgeElev;
@@ -934,19 +955,22 @@ terrainMat.onBeforeCompile = (shader) => {
             if (zoneWeight <= 0.0) continue;
             diffuseColor.rgb = baseZoneColor;
             if (localZone == 1) {
-                // SAHARA DESERT ZONE: Wind-rippled golden dunes, stratified red-ochre sandstone cliffs & desert oasis
+                // SAHARA DESERT ZONE: Less yellow, natural pale buff/taupe dunes, salt-pan wadis & rose-sandstone cliffs
                 float sandRipple = sin(vTerrainWorldPos.x * 3.4 + vTerrainWorldPos.z * 2.1 + microNoise * 2.2) * 0.5 + 0.5;
-                vec3 sunlitSand = vec3(0.48, 0.31, 0.14);
-                vec3 warmErg    = vec3(0.35, 0.20, 0.08);
+                vec3 sunlitSand = vec3(0.41, 0.34, 0.27);
+                vec3 warmErg    = vec3(0.32, 0.25, 0.19);
+                vec3 wadiSalt   = vec3(0.45, 0.42, 0.38);
                 vec3 duneTint   = mix(warmErg, sunlitSand, macroPatch * 0.55 + sandRipple * 0.30 + microNoise * 0.15);
+                float saltPanMask = smoothstep(0.66, 0.88, macroPatch) * (1.0 - smoothstep(3.5, 9.0, vTerrainWorldPos.y));
+                duneTint = mix(duneTint, wadiSalt, saltPanMask * 0.55);
                 duneTint *= (0.97 + windWave * 0.05);
                 diffuseColor.rgb = mix(diffuseColor.rgb, duneTint, grassSurfaceMask * 0.88);
 
                 // Stratified desert sandstone strata on mesa cliffs & steep dune slip-faces
                 if (vTerrainSlope > 0.15) {
                     float strata = sin(vTerrainWorldPos.y * 2.6 + microNoise * 1.8) * 0.5 + 0.5;
-                    vec3 sandstoneA = vec3(0.34, 0.17, 0.08);
-                    vec3 sandstoneB = vec3(0.20, 0.10, 0.05);
+                    vec3 sandstoneA = vec3(0.33, 0.21, 0.15);
+                    vec3 sandstoneB = vec3(0.21, 0.14, 0.10);
                     vec3 mesaRock = mix(sandstoneB, sandstoneA, strata * 0.75 + gravelNoise * 0.25);
                     diffuseColor.rgb = mix(diffuseColor.rgb, mesaRock, smoothstep(0.15, 0.35, vTerrainSlope));
                 }
@@ -955,8 +979,8 @@ terrainMat.onBeforeCompile = (shader) => {
                 if (roadMask > 0.02) {
                     float distFromCenter = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
                     float rutMask = exp(-pow(distFromCenter - 1.35, 2.0) / 0.28);
-                    vec3 wadiGravel = mix(vec3(0.28, 0.18, 0.09), vec3(0.20, 0.13, 0.06), gravelNoise * 0.65);
-                    vec3 dustyRut = vec3(0.15, 0.095, 0.045);
+                    vec3 wadiGravel = mix(vec3(0.27, 0.21, 0.16), vec3(0.20, 0.15, 0.11), gravelNoise * 0.65);
+                    vec3 dustyRut = vec3(0.15, 0.11, 0.08);
                     vec3 wadiColor = mix(wadiGravel, dustyRut, rutMask * 0.78);
                     diffuseColor.rgb = mix(diffuseColor.rgb, wadiColor, smoothstep(0.02, 0.48, roadMask));
                 }
@@ -1930,82 +1954,228 @@ function createPitchedRoofGeometry(w, l, hRoof) {
     return geom;
 }
 
+function tintBuildingPart(geo, r, g, b, maxH = 5.0) {
+    const pos = geo.attributes.position;
+    const c = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i++) {
+        const vy = pos.getY(i);
+        const shade = 0.72 + 0.28 * Math.min(1.0, Math.max(0.0, vy / maxH));
+        c[i * 3 + 0] = r * shade;
+        c[i * 3 + 1] = g * shade;
+        c[i * 3 + 2] = b * shade;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(c, 3));
+    return geo;
+}
+
+// Helper: Builds a hollow walk-in house shell with 4 outer walls, 3D window openings, interior floor,
+// timber architectural framing, and an open front doorway with a swung-open door panel.
+function buildHollowHouseShell(parts, opts) {
+    const w = opts.w || 5.0;
+    const h = opts.h || 3.4;
+    const l = opts.l || 6.6;
+    const wt = opts.wallThick || 0.32;
+    const doorW = opts.doorW || 1.65;
+    const doorH = opts.doorH || 2.45;
+    const floorY = opts.floorY !== undefined ? opts.floorY : 0.16;
+    // Default to Village Atlas Q2 (clean masonry/plaster without baked painted windows)
+    const u0 = opts.u0 !== undefined ? opts.u0 : 0.02;
+    const u1 = opts.u1 !== undefined ? opts.u1 : 0.48;
+    const v0 = opts.v0 !== undefined ? opts.v0 : 0.02;
+    const v1 = opts.v1 !== undefined ? opts.v1 : 0.48;
+    const tint = opts.tint || [0.92, 0.88, 0.80];
+    const foundTint = opts.foundTint || [0.62, 0.59, 0.55];
+    const floorTint = opts.floorTint || [0.58, 0.44, 0.30];
+    const doorTint = opts.doorTint || [0.42, 0.28, 0.18];
+
+    const addPart = (geo, uMin, uMax, vMin, vMax, rgb) => {
+        setGeometryUVBox(geo, uMin, uMax, vMin, vMax);
+        if (rgb) tintBuildingPart(geo, rgb[0], rgb[1], rgb[2], h + 1.5);
+        parts.push(geo);
+    };
+
+    // 1. Sub-terrain foundation plinth (stops at y = floorY - 0.02 so doorway is never blocked)
+    const foundH = 1.35;
+    const found = new THREE.BoxGeometry(w + 0.28, foundH, l + 0.28);
+    found.translate(0, floorY - 0.02 - foundH * 0.5, 0);
+    addPart(found, 0.02, 0.48, 0.02, 0.48, foundTint);
+
+    // 2. Interior Floor Slab (top surface sits exactly at y = floorY so rugs above never Z-fight)
+    const floorSlab = new THREE.BoxGeometry(w - wt * 0.5, 0.12, l - wt * 0.5);
+    floorSlab.translate(0, floorY - 0.06, 0);
+    addPart(floorSlab, 0.52, 0.98, 0.02, 0.48, floorTint);
+
+    // 3. Back Wall (-Z) with 3D framed window opening
+    const winW = Math.min(1.4, w * 0.30);
+    const winH = 1.05;
+    const winSillH = 1.15;
+    const backZ = -l * 0.5 + wt * 0.5;
+    const backSill = new THREE.BoxGeometry(w, winSillH, wt);
+    backSill.translate(0, floorY + winSillH * 0.5, backZ);
+    addPart(backSill, u0, u1, v0, v1, tint);
+
+    const backLintelH = Math.max(0.3, h - (winSillH + winH));
+    const backLintel = new THREE.BoxGeometry(w, backLintelH, wt);
+    backLintel.translate(0, floorY + h - backLintelH * 0.5, backZ);
+    addPart(backLintel, u0, u1, v0, v1, tint);
+
+    const backPierW = (w - winW) * 0.5;
+    [-1, 1].forEach(side => {
+        const pier = new THREE.BoxGeometry(backPierW, winH, wt);
+        pier.translate(side * (winW * 0.5 + backPierW * 0.5), floorY + winSillH + winH * 0.5, backZ);
+        addPart(pier, u0, u1, v0, v1, tint);
+    });
+
+    // Back window 3D timber sill, lintel & mullion frame
+    const backWinSill = new THREE.BoxGeometry(winW + 0.18, 0.08, wt + 0.08);
+    backWinSill.translate(0, floorY + winSillH, backZ);
+    addPart(backWinSill, 0.52, 0.98, 0.02, 0.48, doorTint);
+    const backWinHead = new THREE.BoxGeometry(winW + 0.18, 0.08, wt + 0.08);
+    backWinHead.translate(0, floorY + winSillH + winH, backZ);
+    addPart(backWinHead, 0.52, 0.98, 0.02, 0.48, doorTint);
+    const backMullionV = new THREE.BoxGeometry(0.06, winH, 0.06);
+    backMullionV.translate(0, floorY + winSillH + winH * 0.5, backZ);
+    addPart(backMullionV, 0.52, 0.98, 0.02, 0.48, doorTint);
+
+    // 4. Left (-X) & Right (+X) Side Walls with 3D window openings
+    const sideWinL = Math.min(1.5, l * 0.26);
+    const sidePierL = (l - sideWinL) * 0.5;
+    [-1, 1].forEach(side => {
+        const sideX = side * (w * 0.5 - wt * 0.5);
+        const sSill = new THREE.BoxGeometry(wt, winSillH, l);
+        sSill.translate(sideX, floorY + winSillH * 0.5, 0);
+        addPart(sSill, u0, u1, v0, v1, tint);
+
+        const sLintel = new THREE.BoxGeometry(wt, backLintelH, l);
+        sLintel.translate(sideX, floorY + h - backLintelH * 0.5, 0);
+        addPart(sLintel, u0, u1, v0, v1, tint);
+
+        [-1, 1].forEach(zSide => {
+            const sPier = new THREE.BoxGeometry(wt, winH, sidePierL);
+            sPier.translate(sideX, floorY + winSillH + winH * 0.5, zSide * (sideWinL * 0.5 + sidePierL * 0.5));
+            addPart(sPier, u0, u1, v0, v1, tint);
+        });
+
+        // Side window 3D timber sill, header & mullion crossbars
+        const sillTrim = new THREE.BoxGeometry(wt + 0.08, 0.08, sideWinL + 0.18);
+        sillTrim.translate(sideX, floorY + winSillH, 0);
+        addPart(sillTrim, 0.52, 0.98, 0.02, 0.48, doorTint);
+
+        const headTrim = new THREE.BoxGeometry(wt + 0.08, 0.08, sideWinL + 0.18);
+        headTrim.translate(sideX, floorY + winSillH + winH, 0);
+        addPart(headTrim, 0.52, 0.98, 0.02, 0.48, doorTint);
+
+        const sideMullionV = new THREE.BoxGeometry(0.06, winH, 0.06);
+        sideMullionV.translate(sideX, floorY + winSillH + winH * 0.5, 0);
+        addPart(sideMullionV, 0.52, 0.98, 0.02, 0.48, doorTint);
+    });
+
+    // 5. Front Wall (+Z) split around the Open Walk-In Doorway
+    const frontZ = l * 0.5 - wt * 0.5;
+    const frontPierW = Math.max(0.45, (w - doorW) * 0.5);
+    [-1, 1].forEach(side => {
+        const fPier = new THREE.BoxGeometry(frontPierW, h, wt);
+        fPier.translate(side * (doorW * 0.5 + frontPierW * 0.5), floorY + h * 0.5, frontZ);
+        addPart(fPier, u0, u1, v0, v1, tint);
+    });
+
+    const doorLintelH = Math.max(0.28, h - doorH);
+    const doorLintel = new THREE.BoxGeometry(doorW, doorLintelH, wt);
+    doorLintel.translate(0, floorY + doorH + doorLintelH * 0.5, frontZ);
+    addPart(doorLintel, u0, u1, v0, v1, tint);
+
+    // 6. Corner Timber Framing Posts (gives crisp architectural definition without UV distortion)
+    [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([cx, cz]) => {
+        const cornerPost = new THREE.BoxGeometry(0.14, h, 0.14);
+        cornerPost.translate(cx * (w * 0.5 - 0.04), floorY + h * 0.5, cz * (l * 0.5 - 0.04));
+        addPart(cornerPost, 0.52, 0.98, 0.02, 0.48, doorTint);
+    });
+
+    // 7. Door Frame Jambs, Threshold Step & Swung-Open Wooden Door Leaf
+    [-1, 1].forEach(side => {
+        const jamb = new THREE.BoxGeometry(0.10, doorH, wt + 0.06);
+        jamb.translate(side * (doorW * 0.5 - 0.03), floorY + doorH * 0.5, frontZ);
+        addPart(jamb, 0.52, 0.98, 0.02, 0.48, doorTint);
+    });
+    const headerJamb = new THREE.BoxGeometry(doorW + 0.16, 0.12, wt + 0.08);
+    headerJamb.translate(0, floorY + doorH + 0.02, frontZ);
+    addPart(headerJamb, 0.52, 0.98, 0.02, 0.48, doorTint);
+
+    const doorStep = new THREE.BoxGeometry(doorW + 0.45, 0.14, 0.65);
+    doorStep.translate(0, floorY - 0.07, l * 0.5 + 0.25);
+    addPart(doorStep, 0.02, 0.48, 0.02, 0.48, foundTint);
+
+    // Open wooden door panel swung outward on its left hinge so player can walk right in
+    const leafW = Math.min(1.25, doorW * 0.82);
+    const leafH = doorH - 0.08;
+    const doorLeaf = new THREE.BoxGeometry(leafW, leafH, 0.08);
+    doorLeaf.translate(leafW * 0.5, 0, 0);
+    doorLeaf.rotateY(-1.32); // Swung ~76 degrees open outward
+    doorLeaf.translate(-doorW * 0.5 + 0.06, floorY + leafH * 0.5 + 0.02, l * 0.5 + 0.02);
+    addPart(doorLeaf, 0.52, 0.98, 0.02, 0.48, doorTint);
+
+    return { w, h, l, wallThick: wt, doorW, doorH, floorY };
+}
+
 function createEuropeanCottageGeometry() {
     const parts = [];
-    const w = 4.8, h = 3.4, l = 6.6;
+    const w = 5.0, h = 3.2, l = 6.6;
+    const floorY = 0.16;
 
-    // 1. Dressed Fieldstone Foundation Plinth extending deep into hillside slopes (Q2: [0..0.5, 0..0.5])
-    const found = new THREE.BoxGeometry(w + 0.35, 2.2, l + 0.35);
-    setGeometryUVBox(found, 0.02, 0.48, 0.02, 0.48);
-    found.translate(0, -0.1, 0);
-    parts.push(found);
+    const spec = buildHollowHouseShell(parts, {
+        w, h, l, wallThick: 0.32, doorW: 1.65, doorH: 2.45, floorY,
+        tint: [0.94, 0.90, 0.82],
+        foundTint: [0.64, 0.61, 0.57],
+        floorTint: [0.58, 0.44, 0.30],
+        doorTint: [0.42, 0.28, 0.18]
+    });
 
-    // 2. Main 2-Story Plaster/Timber Facade Body (Q0: [0..0.5, 0.5..1.0])
-    const walls = new THREE.BoxGeometry(w, h, l);
-    setGeometryUVBox(walls, 0.02, 0.48, 0.52, 0.98);
-    walls.translate(0, 1.0 + h * 0.5, 0);
-    parts.push(walls);
-
-    // 3. Overhanging Pitched Terracotta Roof with Exposed Eaves (Q1: [0.5..1.0, 0.5..1.0])
-    const roof = createPitchedRoofGeometry(w + 1.2, l + 1.3, 2.85);
+    // Overhanging Pitched Terracotta Roof with Exposed Eaves (Q1: [0.5..1.0, 0.5..1.0])
+    const roof = createPitchedRoofGeometry(w + 1.2, l + 1.3, 2.65);
     setGeometryUVBox(roof, 0.52, 0.98, 0.52, 0.98);
-    roof.translate(0, 1.0 + h, 0);
+    roof.translate(0, floorY + h, 0);
     parts.push(roof);
 
     // Eave fascia rafter beam (Q3: Timber)
     const fasciaL = new THREE.BoxGeometry(0.18, 0.22, l + 1.35);
     setGeometryUVBox(fasciaL, 0.52, 0.98, 0.02, 0.48);
-    fasciaL.translate(-(w + 1.2) * 0.5, 1.0 + h - 0.05, 0);
+    fasciaL.translate(-(w + 1.2) * 0.5, floorY + h - 0.05, 0);
     parts.push(fasciaL);
 
     const fasciaR = new THREE.BoxGeometry(0.18, 0.22, l + 1.35);
     setGeometryUVBox(fasciaR, 0.52, 0.98, 0.02, 0.48);
-    fasciaR.translate((w + 1.2) * 0.5, 1.0 + h - 0.05, 0);
+    fasciaR.translate((w + 1.2) * 0.5, floorY + h - 0.05, 0);
     parts.push(fasciaR);
 
-    // 4. Corbeled Fieldstone Chimney Stack & Pots (Q2)
-    const chim = new THREE.BoxGeometry(0.85, 3.2, 0.85);
+    // Corbeled Fieldstone Chimney Stack & Pots (Q2)
+    const chim = new THREE.BoxGeometry(0.85, 3.0, 0.85);
     setGeometryUVBox(chim, 0.02, 0.48, 0.02, 0.48);
-    chim.translate(w * 0.24, 1.0 + h + 1.6, -l * 0.25);
+    chim.translate(w * 0.24, floorY + h + 1.4, -l * 0.25);
     parts.push(chim);
 
     for (let cp = -1; cp <= 1; cp += 2) {
         const pot = new THREE.CylinderGeometry(0.12, 0.15, 0.65, 8);
         setGeometryUVBox(pot, 0.52, 0.98, 0.52, 0.98); // Terracotta
-        pot.translate(w * 0.24 + cp * 0.2, 1.0 + h + 3.4, -l * 0.25);
+        pot.translate(w * 0.24 + cp * 0.2, floorY + h + 3.1, -l * 0.25);
         parts.push(pot);
     }
 
-    // 5. Front Timber Entrance Porch Canopy (Q3 Posts, Q1 Tiled Roof)
-    const porchRoof = createPitchedRoofGeometry(2.1, 1.8, 0.9);
+    // Front Timber Entrance Porch Canopy above Open Door (Q3 Posts, Q1 Tiled Roof)
+    const porchRoof = createPitchedRoofGeometry(2.3, 1.7, 0.85);
     setGeometryUVBox(porchRoof, 0.52, 0.98, 0.52, 0.98);
-    porchRoof.translate(0, 3.2, l * 0.5 + 0.8);
+    porchRoof.translate(0, floorY + 2.65, l * 0.5 + 0.75);
     parts.push(porchRoof);
 
-    [-0.85, 0.85].forEach(px => {
-        const post = new THREE.BoxGeometry(0.14, 2.2, 0.14);
+    [-0.95, 0.95].forEach(px => {
+        const post = new THREE.BoxGeometry(0.14, 2.55, 0.14);
         setGeometryUVBox(post, 0.52, 0.98, 0.02, 0.48);
-        post.translate(px, 2.0, l * 0.5 + 1.55);
+        post.translate(px, floorY + 1.25, l * 0.5 + 1.45);
         parts.push(post);
     });
 
-    // 6. Attached Timber Barn / Tool Shed Wing with Stone Plinth (Q2 Plinth, Q3 Timber Walls, Q1 Roof)
-    const shedPlinth = new THREE.BoxGeometry(2.5, 1.8, 3.9);
-    setGeometryUVBox(shedPlinth, 0.02, 0.48, 0.02, 0.48);
-    shedPlinth.translate(w * 0.5 + 1.2, -0.1, 0.3);
-    parts.push(shedPlinth);
-
-    const shed = new THREE.BoxGeometry(2.4, 1.8, 3.8);
-    setGeometryUVBox(shed, 0.52, 0.98, 0.02, 0.48);
-    shed.translate(w * 0.5 + 1.2, 1.5, 0.3);
-    parts.push(shed);
-
-    const shedRoof = createPitchedRoofGeometry(2.8, 4.2, 1.4);
-    setGeometryUVBox(shedRoof, 0.52, 0.98, 0.52, 0.98);
-    shedRoof.translate(w * 0.5 + 1.2, 2.4, 0.3);
-    parts.push(shedRoof);
-
-    return mergeBufferGeometries(parts);
+    const merged = mergeBufferGeometries(parts);
+    merged.userData = { enterableSpec: spec };
+    return merged;
 }
 
 // 5G. Smoldering Ruined House (Mapped to Village Atlas Q2 Masonry & Q3 Charred Timber with Soot AO)
@@ -2053,68 +2223,35 @@ function createRuinedHouseGeometry() {
     return mergeBufferGeometries(parts);
 }
 
-var sharedSpruceGeo = null;
-var sharedPineGeo = null;
-var sharedDecidGeo = null;
-var sharedBushGeo = null;
-var sharedRockGeo = null;
-var sharedCottageGeo = null;
-var sharedRuinGeo = null;
-var sharedBarnGeo = null;
-var sharedStoneWallGeo = null;
-var sharedPalmGeo = null;
-var sharedPalmGeos = [];
-var sharedAcaciaGeo = null;
-var sharedCactusGeo = null;
-var sharedCactusGeos = [];
-var sharedSandstoneRockGeo = null;
-var sharedKasbahGeo = null;
-var sharedDesertRuinGeo = null;
-var sharedMountainRockGeo = null;
-var sharedMountainBunkerGeo = null;
-
-// 5H. European Farm Barn (Mapped to Village Atlas Q2 Foundation, Q3 Timber Siding, Q1 Roof, Q0 Doors)
+// 5H. European Farm Barn with Walk-In Open Double Doors
 function createBarnGeometry() {
     const parts = [];
-    const w = 6.4, h = 4.2, l = 10.2;
+    const w = 6.4, h = 4.0, l = 9.6;
+    const floorY = 0.16;
 
-    // Fieldstone Foundation Plinth (Q2: Masonry)
-    const found = new THREE.BoxGeometry(w + 0.35, 1.8, l + 0.35);
-    setGeometryUVBox(found, 0.02, 0.48, 0.02, 0.48);
-    found.translate(0, -0.1, 0);
-    parts.push(found);
-
-    // Main Dark Timber Barn Walls (Q3: Timber Planks)
-    const walls = new THREE.BoxGeometry(w, h, l);
-    setGeometryUVBox(walls, 0.52, 0.98, 0.02, 0.48);
-    walls.translate(0, 0.8 + h * 0.5, 0);
-    parts.push(walls);
-
-    // Front Double Wagon Barn Doors (+Z) (Q0)
-    const doorF = new THREE.BoxGeometry(2.8, 3.4, 0.15);
-    setGeometryUVBox(doorF, 0.02, 0.48, 0.52, 0.98);
-    doorF.translate(0, 2.5, l * 0.5 + 0.05);
-    parts.push(doorF);
-
-    // Back Hayloft Doors (-Z) (Q0)
-    const doorB = new THREE.BoxGeometry(2.2, 2.6, 0.15);
-    setGeometryUVBox(doorB, 0.02, 0.48, 0.52, 0.98);
-    doorB.translate(0, 2.1, -l * 0.5 - 0.05);
-    parts.push(doorB);
+    const spec = buildHollowHouseShell(parts, {
+        w, h, l, wallThick: 0.34, doorW: 2.15, doorH: 2.85, floorY,
+        u0: 0.52, u1: 0.98, v0: 0.02, v1: 0.48,
+        tint: [0.78, 0.58, 0.42],
+        floorTint: [0.54, 0.42, 0.28],
+        doorTint: [0.42, 0.28, 0.18]
+    });
 
     // High Terracotta Gambrel Barn Roof (Q1: Terracotta Tiles)
-    const roof = createPitchedRoofGeometry(w + 1.2, l + 1.3, 3.5);
+    const roof = createPitchedRoofGeometry(w + 1.2, l + 1.3, 3.2);
     setGeometryUVBox(roof, 0.52, 0.98, 0.52, 0.98);
-    roof.translate(0, 0.8 + h, 0);
+    roof.translate(0, floorY + h, 0);
     parts.push(roof);
 
     // Overhanging Hayloft Crane Timber Awning (Q3)
     const loftAwning = new THREE.BoxGeometry(1.6, 0.22, 1.4);
     setGeometryUVBox(loftAwning, 0.52, 0.98, 0.02, 0.48);
-    loftAwning.translate(0, 0.8 + h + 1.6, l * 0.5 + 0.8);
+    loftAwning.translate(0, floorY + h + 1.4, l * 0.5 + 0.75);
     parts.push(loftAwning);
 
-    return mergeBufferGeometries(parts);
+    const merged = mergeBufferGeometries(parts);
+    merged.userData = { enterableSpec: spec };
+    return merged;
 }
 
 // 5I. European Fieldstone Perimeter Boundary Wall (Tactical Low Hull-Down Cover)
@@ -2517,10 +2654,11 @@ function createSandstoneRockGeometry() {
     return mergeBufferGeometries(parts);
 }
 
-// 5M. North African Desert Adobe / Mud-Brick Kasbah House (Flat Roof, Parapet & Corner Watchtower)
+// 5M. North African Desert Adobe / Mud-Brick Kasbah House (Flat Roof, Parapet, Corner Watchtower & Open Walk-In Door)
 function createDesertKasbahGeometry() {
     const parts = [];
-    const w = 5.4, h = 3.8, l = 6.4;
+    const w = 5.4, h = 3.6, l = 6.4;
+    const floorY = 0.16;
 
     function tintAdobe(geo, r, g, b) {
         const pos = geo.attributes.position;
@@ -2536,75 +2674,77 @@ function createDesertKasbahGeometry() {
         return geo;
     }
 
-    // 1. Sandstone Plinth (Q2 Masonry)
-    const found = new THREE.BoxGeometry(w + 0.4, 2.0, l + 0.4);
-    setGeometryUVBox(found, 0.02, 0.48, 0.02, 0.48);
-    found.translate(0, -0.1, 0);
-    parts.push(tintAdobe(found, 0.92, 0.74, 0.52));
+    const spec = buildHollowHouseShell(parts, {
+        w, h, l, wallThick: 0.34, doorW: 1.65, doorH: 2.45, floorY,
+        tint: [0.96, 0.84, 0.70],
+        foundTint: [0.86, 0.74, 0.60],
+        floorTint: [0.76, 0.64, 0.50],
+        doorTint: [0.48, 0.34, 0.22]
+    });
 
-    // 2. Main Sun-Baked Mud-Brick Plaster Body (Q0 Facade)
-    const walls = new THREE.BoxGeometry(w, h, l);
-    setGeometryUVBox(walls, 0.02, 0.48, 0.52, 0.98);
-    walls.translate(0, 0.9 + h * 0.5, 0);
-    parts.push(tintAdobe(walls, 1.02, 0.84, 0.62));
+    // Flat Roof Slab & Parapet Rim (Q2 Masonry)
+    const roofY = floorY + h;
+    const roofSlab = new THREE.BoxGeometry(w, 0.24, l);
+    setGeometryUVBox(roofSlab, 0.02, 0.48, 0.02, 0.48);
+    roofSlab.translate(0, roofY + 0.10, 0);
+    parts.push(tintAdobe(roofSlab, 0.90, 0.78, 0.64));
 
-    // 3. Flat Roof Parapet Rim & Stepped Corner Merlons (Q2 Masonry)
-    const roofY = 0.9 + h;
     const paraF = new THREE.BoxGeometry(w + 0.25, 0.55, 0.35);
     setGeometryUVBox(paraF, 0.02, 0.48, 0.02, 0.48);
-    paraF.translate(0, roofY + 0.25, l * 0.5);
-    parts.push(tintAdobe(paraF, 0.96, 0.78, 0.56));
+    paraF.translate(0, roofY + 0.35, l * 0.5);
+    parts.push(tintAdobe(paraF, 0.92, 0.80, 0.66));
 
     const paraB = new THREE.BoxGeometry(w + 0.25, 0.55, 0.35);
     setGeometryUVBox(paraB, 0.02, 0.48, 0.02, 0.48);
-    paraB.translate(0, roofY + 0.25, -l * 0.5);
-    parts.push(tintAdobe(paraB, 0.96, 0.78, 0.56));
+    paraB.translate(0, roofY + 0.35, -l * 0.5);
+    parts.push(tintAdobe(paraB, 0.92, 0.80, 0.66));
 
     const paraL = new THREE.BoxGeometry(0.35, 0.55, l + 0.25);
     setGeometryUVBox(paraL, 0.02, 0.48, 0.02, 0.48);
-    paraL.translate(-w * 0.5, roofY + 0.25, 0);
-    parts.push(tintAdobe(paraL, 0.96, 0.78, 0.56));
+    paraL.translate(-w * 0.5, roofY + 0.35, 0);
+    parts.push(tintAdobe(paraL, 0.92, 0.80, 0.66));
 
     const paraR = new THREE.BoxGeometry(0.35, 0.55, l + 0.25);
     setGeometryUVBox(paraR, 0.02, 0.48, 0.02, 0.48);
-    paraR.translate(w * 0.5, roofY + 0.25, 0);
-    parts.push(tintAdobe(paraR, 0.96, 0.78, 0.56));
+    paraR.translate(w * 0.5, roofY + 0.35, 0);
+    parts.push(tintAdobe(paraR, 0.92, 0.80, 0.66));
 
-    // 4. Elevated Kasbah Watchtower Turret on Corner
+    // Elevated Kasbah Watchtower Turret on Corner
     const turret = new THREE.BoxGeometry(2.4, 2.2, 2.4);
-    setGeometryUVBox(turret, 0.02, 0.48, 0.52, 0.98);
-    turret.translate(-w * 0.28, roofY + 1.1, -l * 0.28);
-    parts.push(tintAdobe(turret, 1.00, 0.82, 0.60));
+    setGeometryUVBox(turret, 0.02, 0.48, 0.02, 0.48);
+    turret.translate(-w * 0.28, roofY + 1.2, -l * 0.28);
+    parts.push(tintAdobe(turret, 0.96, 0.84, 0.70));
 
-    // Turret Crenellations
     [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([cx, cz]) => {
         const merlon = new THREE.BoxGeometry(0.65, 0.55, 0.65);
         setGeometryUVBox(merlon, 0.02, 0.48, 0.02, 0.48);
-        merlon.translate(-w * 0.28 + cx * 0.85, roofY + 2.45, -l * 0.28 + cz * 0.85);
-        parts.push(tintAdobe(merlon, 0.98, 0.80, 0.58));
+        merlon.translate(-w * 0.28 + cx * 0.85, roofY + 2.55, -l * 0.28 + cz * 0.85);
+        parts.push(tintAdobe(merlon, 0.94, 0.82, 0.68));
     });
 
-    // 5. Projecting Cedar Roof Beams (Vigas) & Shaded Courtyard Arcade Porch (Q3 Timber)
+    // Projecting Cedar Roof Beams (Vigas) & Shaded Courtyard Arcade Porch (Q3 Timber)
     for (let v = -2; v <= 2; v++) {
         const viga = new THREE.BoxGeometry(w + 0.7, 0.16, 0.16);
         setGeometryUVBox(viga, 0.52, 0.98, 0.02, 0.48);
-        viga.translate(0, roofY - 0.25, v * 1.25);
+        viga.translate(0, roofY - 0.15, v * 1.25);
         parts.push(tintAdobe(viga, 0.55, 0.40, 0.26));
     }
 
-    const awning = new THREE.BoxGeometry(2.8, 0.22, 1.6);
+    const awning = new THREE.BoxGeometry(2.8, 0.20, 1.5);
     setGeometryUVBox(awning, 0.52, 0.98, 0.02, 0.48);
-    awning.translate(0, 3.1, l * 0.5 + 0.75);
+    awning.translate(0, floorY + 2.65, l * 0.5 + 0.70);
     parts.push(tintAdobe(awning, 0.62, 0.45, 0.30));
 
     [-1.15, 1.15].forEach(px => {
-        const pillar = new THREE.BoxGeometry(0.32, 2.3, 0.32);
+        const pillar = new THREE.BoxGeometry(0.28, 2.55, 0.28);
         setGeometryUVBox(pillar, 0.02, 0.48, 0.02, 0.48);
-        pillar.translate(px, 1.9, l * 0.5 + 1.35);
-        parts.push(tintAdobe(pillar, 0.94, 0.76, 0.54));
+        pillar.translate(px, floorY + 1.28, l * 0.5 + 1.25);
+        parts.push(tintAdobe(pillar, 0.90, 0.78, 0.64));
     });
 
-    return mergeBufferGeometries(parts);
+    const merged = mergeBufferGeometries(parts);
+    merged.userData = { enterableSpec: spec };
+    return merged;
 }
 
 // 5N. Desert Ruined Sandstone / Mud-Brick Compound
@@ -2728,13 +2868,550 @@ function createMountainBunkerGeometry() {
     return mergeBufferGeometries(parts);
 }
 
+// 5Q. Two-Story European Village Townhouse / Manor with Steep Gable Roof & Open Walk-In Door
+function createVillageTownhouseGeometry() {
+    const parts = [];
+    const w = 5.2, h = 4.6, l = 6.8;
+    const floorY = 0.16;
+
+    const spec = buildHollowHouseShell(parts, {
+        w, h, l, wallThick: 0.34, doorW: 1.65, doorH: 2.48, floorY,
+        tint: [0.96, 0.91, 0.84],
+        foundTint: [0.62, 0.60, 0.58],
+        floorTint: [0.56, 0.40, 0.26],
+        doorTint: [0.38, 0.25, 0.16]
+    });
+
+    // Timber belt-course band between 1st and 2nd floor
+    const belt = new THREE.BoxGeometry(w + 0.14, 0.18, l + 0.14);
+    setGeometryUVBox(belt, 0.52, 0.98, 0.02, 0.48);
+    belt.translate(0, floorY + 2.65, 0);
+    parts.push(tintBuildingPart(belt, 0.42, 0.29, 0.18, h));
+
+    // Steep Slate/Terracotta Roof
+    const roof = createPitchedRoofGeometry(w + 1.1, l + 1.2, 3.1);
+    setGeometryUVBox(roof, 0.52, 0.98, 0.52, 0.98);
+    roof.translate(0, floorY + h, 0);
+    parts.push(tintBuildingPart(roof, 0.72, 0.38, 0.28, h + 3.0));
+
+    // Twin brick chimneys
+    [-1, 1].forEach(side => {
+        const chim = new THREE.BoxGeometry(0.75, 2.8, 0.75);
+        setGeometryUVBox(chim, 0.02, 0.48, 0.02, 0.48);
+        chim.translate(side * (w * 0.30), floorY + h + 1.5, -l * 0.28);
+        parts.push(tintBuildingPart(chim, 0.70, 0.44, 0.36, h + 3.5));
+    });
+
+    const merged = mergeBufferGeometries(parts);
+    merged.userData = { enterableSpec: spec };
+    return merged;
+}
+
+// 5R. Rustic Normandy / Highland Stone Farmhouse with Veranda & Open Walk-In Door
+function createStoneFarmhouseGeometry() {
+    const parts = [];
+    const w = 5.8, h = 3.4, l = 7.4;
+    const floorY = 0.16;
+
+    const spec = buildHollowHouseShell(parts, {
+        w, h, l, wallThick: 0.34, doorW: 1.70, doorH: 2.45, floorY,
+        u0: 0.02, u1: 0.48, v0: 0.02, v1: 0.48,
+        tint: [0.82, 0.78, 0.70],
+        foundTint: [0.58, 0.55, 0.50],
+        floorTint: [0.52, 0.40, 0.28],
+        doorTint: [0.44, 0.30, 0.18]
+    });
+
+    const roof = createPitchedRoofGeometry(w + 1.3, l + 1.4, 2.75);
+    setGeometryUVBox(roof, 0.52, 0.98, 0.52, 0.98);
+    roof.translate(0, floorY + h, 0);
+    parts.push(tintBuildingPart(roof, 0.56, 0.48, 0.42, h + 3.0));
+
+    // Stone hearth chimney on left wall
+    const hearthChim = new THREE.BoxGeometry(0.95, h + 2.4, 1.25);
+    setGeometryUVBox(hearthChim, 0.02, 0.48, 0.02, 0.48);
+    hearthChim.translate(-w * 0.5 - 0.35, floorY + (h + 2.4) * 0.5, -0.4);
+    parts.push(tintBuildingPart(hearthChim, 0.68, 0.64, 0.58, h + 2.5));
+
+    const merged = mergeBufferGeometries(parts);
+    merged.userData = { enterableSpec: spec };
+    return merged;
+}
+
+// 5S. Desert Whitewashed & Sandstone Domed Adobe House (Koubba) with Open Walk-In Door
+function createDesertAdobeHouseGeometry() {
+    const parts = [];
+    const w = 5.2, h = 3.4, l = 6.0;
+    const floorY = 0.16;
+
+    const spec = buildHollowHouseShell(parts, {
+        w, h, l, wallThick: 0.34, doorW: 1.65, doorH: 2.42, floorY,
+        tint: [0.94, 0.89, 0.81],
+        foundTint: [0.80, 0.70, 0.58],
+        floorTint: [0.72, 0.60, 0.48],
+        doorTint: [0.36, 0.48, 0.58] // Traditional oasis blue-stained timber door
+    });
+
+    const roofY = floorY + h;
+    const roofCap = new THREE.BoxGeometry(w + 0.18, 0.28, l + 0.18);
+    setGeometryUVBox(roofCap, 0.02, 0.48, 0.02, 0.48);
+    roofCap.translate(0, roofY + 0.12, 0);
+    parts.push(tintBuildingPart(roofCap, 0.90, 0.84, 0.76, roofY + 2.0));
+
+    // Domed rooftop cupola (Koubba)
+    const dome = new THREE.SphereGeometry(1.55, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.52);
+    setGeometryUVBox(dome, 0.02, 0.48, 0.02, 0.48);
+    dome.translate(0, roofY + 0.22, -0.35);
+    parts.push(tintBuildingPart(dome, 0.96, 0.92, 0.85, roofY + 2.0));
+
+    const merged = mergeBufferGeometries(parts);
+    merged.userData = { enterableSpec: spec };
+    return merged;
+}
+
+// 5T. Alpine Timber & Stone Mountain Chalet with Wide Eaves, Balcony & Open Walk-In Door
+function createAlpineChaletGeometry() {
+    const parts = [];
+    const w = 5.6, h = 3.6, l = 6.8;
+    const floorY = 0.16;
+
+    const spec = buildHollowHouseShell(parts, {
+        w, h, l, wallThick: 0.34, doorW: 1.68, doorH: 2.45, floorY,
+        u0: 0.52, u1: 0.98, v0: 0.02, v1: 0.48,
+        tint: [0.68, 0.50, 0.34],
+        foundTint: [0.62, 0.65, 0.70],
+        floorTint: [0.58, 0.44, 0.30],
+        doorTint: [0.42, 0.28, 0.18]
+    });
+
+    // Broad low-pitched Alpine snow-dusted roof
+    const roof = createPitchedRoofGeometry(w + 1.8, l + 1.8, 2.35);
+    setGeometryUVBox(roof, 0.02, 0.48, 0.02, 0.48);
+    roof.translate(0, floorY + h, 0);
+    parts.push(tintBuildingPart(roof, 0.86, 0.90, 0.95, h + 3.0));
+
+    // Front timber balcony rail above open doorway
+    const balcDeck = new THREE.BoxGeometry(w * 0.78, 0.14, 1.15);
+    setGeometryUVBox(balcDeck, 0.52, 0.98, 0.02, 0.48);
+    balcDeck.translate(0, floorY + 2.65, l * 0.5 + 0.52);
+    parts.push(tintBuildingPart(balcDeck, 0.52, 0.36, 0.22, h));
+
+    const balcRail = new THREE.BoxGeometry(w * 0.78, 0.62, 0.10);
+    setGeometryUVBox(balcRail, 0.52, 0.98, 0.02, 0.48);
+    balcRail.translate(0, floorY + 3.02, l * 0.5 + 1.02);
+    parts.push(tintBuildingPart(balcRail, 0.56, 0.39, 0.24, h));
+
+    const merged = mergeBufferGeometries(parts);
+    merged.userData = { enterableSpec: spec };
+    return merged;
+}
+
+// 5U. Additional Botanical Variety: Silver Birch, Mediterranean Cypress, Weeping Willow, Alpine Larch,
+// Joshua Tree, Desert Agave, Prickly Pear, Wildflower Shrub & Woodland Ferns
+function createBirchTreeGeometry() {
+    const parts = [];
+    const trunkH = 7.4;
+    const trunk = new THREE.CylinderGeometry(0.11, 0.28, trunkH, 7, 6);
+    setGeometryUVBox(trunk, 0.52, 0.98, 0.02, 0.48);
+    const tPos = trunk.attributes.position;
+    for (let i = 0; i < tPos.count; i++) {
+        const ny = (tPos.getY(i) + trunkH * 0.5) / trunkH;
+        tPos.setX(i, tPos.getX(i) + Math.sin(ny * 3.4) * 0.18);
+        tPos.setZ(i, tPos.getZ(i) + Math.cos(ny * 2.7) * 0.14);
+    }
+    trunk.computeVertexNormals();
+    trunk.translate(0, trunkH * 0.5, 0);
+
+    const colorWhiteBark = (geo) => {
+        const p = geo.attributes.position;
+        const col = new Float32Array(p.count * 3);
+        for (let i = 0; i < p.count; i++) {
+            const y = p.getY(i);
+            const band = (Math.sin(y * 9.5) > 0.68) ? 0.25 : 1.0;
+            const ao = Math.min(1.0, Math.max(0.42, y / 1.8)) * band;
+            // Boosted vertex color compensates for dark Q3 bark albedo to render crisp silver-white birch bark
+            col[i * 3 + 0] = 4.6 * ao;
+            col[i * 3 + 1] = 5.8 * ao;
+            col[i * 3 + 2] = 7.8 * ao;
+        }
+        geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+        return geo;
+    };
+    parts.push(colorWhiteBark(trunk));
+
+    // Forked upper white-bark limbs reaching into the canopy clusters
+    const forks = [
+        { from: [0.12, 4.6, 0.08], to: [1.45, 7.2, 0.85], r1: 0.12, r2: 0.06 },
+        { from: [0.10, 4.8, 0.06], to: [-1.35, 7.0, -0.75], r1: 0.12, r2: 0.06 },
+        { from: [0.08, 5.2, 0.05], to: [0.55, 8.2, -1.15], r1: 0.10, r2: 0.05 },
+        { from: [0.06, 5.4, 0.04], to: [-0.85, 8.0, 1.10], r1: 0.10, r2: 0.05 },
+        { from: [0.04, 6.2, 0.02], to: [0.15, 9.2, 0.10], r1: 0.09, r2: 0.04 }
+    ];
+    forks.forEach(b => {
+        const p1 = new THREE.Vector3(...b.from);
+        const p2 = new THREE.Vector3(...b.to);
+        const dir = p2.clone().sub(p1);
+        const len = dir.length();
+        const cyl = new THREE.CylinderGeometry(b.r2, b.r1, len, 6, 2);
+        setGeometryUVBox(cyl, 0.52, 0.98, 0.02, 0.48);
+        cyl.translate(0, len * 0.5, 0);
+        const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+        cyl.applyMatrix4(new THREE.Matrix4().makeRotationFromQuaternion(q));
+        cyl.translate(p1.x, p1.y, p1.z);
+        parts.push(colorWhiteBark(cyl));
+    });
+
+    // 12 Overlapping Canopy Sub-Domes using Q1 Broadleaf Alpha-Cutout UVs (0.52..0.98, 0.52..0.98)
+    const canopyClusters = [
+        [ 0.0,  6.4,  0.0, 2.1, 0.62],
+        [ 0.0,  7.8,  0.0, 2.2, 0.74],
+        [ 1.4,  6.8,  0.8, 1.9, 0.80],
+        [-1.3,  6.6, -0.7, 1.9, 0.78],
+        [ 0.6,  6.2, -1.2, 1.8, 0.76],
+        [-0.8,  6.3,  1.1, 1.8, 0.78],
+        [ 1.2,  8.0, -0.6, 1.9, 0.88],
+        [-1.1,  7.9,  0.9, 1.9, 0.86],
+        [ 0.5,  8.3,  1.1, 1.8, 0.88],
+        [-0.6,  8.2, -1.0, 1.8, 0.86],
+        [ 0.3,  9.3,  0.2, 2.0, 0.96],
+        [-0.3,  9.0, -0.2, 1.9, 0.94]
+    ];
+    const crownCenter = new THREE.Vector3(0, 7.4, 0);
+    const cardOrientations = [
+        { rx:  0.18, ry: 0.00, rz:  0.12 },
+        { rx: -0.22, ry: 1.05, rz: -0.15 },
+        { rx:  0.25, ry: 2.10, rz:  0.18 },
+        { rx:  0.92, ry: 0.52, rz:  0.00 },
+        { rx:  0.86, ry: 2.09, rz:  0.20 }
+    ];
+    canopyClusters.forEach(([cx, cy, cz, rad, brightness], cIdx) => {
+        cardOrientations.forEach((ori) => {
+            const w = rad * 1.42;
+            const h = rad * 1.36;
+            const card = createCurvedFoliageCard(w, h, 0.26, 0.52, 0.98, 0.52, 0.98);
+            // Center card before rotating so all 5 cards intersect around their geometric center
+            card.translate(0, -h * 0.48, 0);
+            card.rotateZ(ori.rz);
+            card.rotateX(ori.rx);
+            card.rotateY(ori.ry + cIdx * 0.45);
+            card.translate(cx, cy, cz);
+            applyCanopyVolumeShading(
+                card,
+                crownCenter,
+                0.72 * brightness,
+                0.88 * brightness,
+                0.42 * brightness,
+                0.38 * brightness
+            );
+            parts.push(card);
+        });
+    });
+    return mergeBufferGeometries(parts);
+}
+
+function createCypressTreeGeometry() {
+    const parts = [];
+    const trunkH = 11.2;
+    const trunk = new THREE.CylinderGeometry(0.10, 0.34, trunkH, 7, 3);
+    setGeometryUVBox(trunk, 0.52, 0.98, 0.02, 0.48);
+    trunk.translate(0, trunkH * 0.5, 0);
+    tintBuildingPart(trunk, 0.42, 0.32, 0.24, 5.0);
+    parts.push(trunk);
+
+    // Dense flame-shaped Italian Cypress spire using Q0 Conifer Alpha-Cutout UVs (0.02..0.48, 0.52..0.98)
+    const crownCenter = new THREE.Vector3(0, 7.0, 0);
+    const tiers = 13;
+    for (let t = 0; t < tiers; t++) {
+        const frac = t / (tiers - 1);
+        const y = 1.8 + frac * 10.6;
+        // Flame silhouette: widest around 25-35% height, tapering to a fine tip at the top
+        const envelope = Math.sin(Math.pow(frac, 0.72) * Math.PI);
+        const rad = 0.55 + envelope * 1.35;
+        const cardW = rad * 1.65;
+        const cardH = 2.35 * (1.0 - frac * 0.35);
+
+        // 6 radial upward-cupped foliage cards + 2 crossed horizontal volume cards per tier
+        const numCards = 6;
+        for (let c = 0; c < numCards; c++) {
+            const ang = (c / numCards) * Math.PI * 2 + t * 0.52;
+            const card = createCurvedFoliageCard(cardW, cardH, 0.24, 0.02, 0.48, 0.52, 0.98);
+            card.translate(0, -cardH * 0.32, 0);
+            card.rotateX(0.28 + (c % 2) * 0.12);
+            card.rotateY(ang);
+            card.translate(0, y, 0);
+            applyCanopyVolumeShading(card, crownCenter, 0.38, 0.56, 0.32, 0.36);
+            parts.push(card);
+        }
+        // Horizontal cross-section fill card so looking up/down into the spire has full density
+        const fillCard = createCurvedFoliageCard(rad * 1.75, rad * 1.75, 0.18, 0.02, 0.48, 0.52, 0.98);
+        fillCard.translate(0, -rad * 0.85, 0);
+        fillCard.rotateX(Math.PI * 0.46);
+        fillCard.rotateY(t * 0.95);
+        fillCard.translate(0, y + 0.2, 0);
+        applyCanopyVolumeShading(fillCard, crownCenter, 0.34, 0.50, 0.28, 0.34);
+        parts.push(fillCard);
+    }
+    return mergeBufferGeometries(parts);
+}
+
+function createWillowTreeGeometry() {
+    const parts = [];
+    const trunkH = 4.6;
+    const trunk = new THREE.CylinderGeometry(0.28, 0.54, trunkH, 8, 4);
+    setGeometryUVBox(trunk, 0.52, 0.98, 0.02, 0.48);
+    trunk.translate(0, trunkH * 0.5, 0);
+    tintBuildingPart(trunk, 0.40, 0.33, 0.25, trunkH);
+    parts.push(trunk);
+
+    // 6 Spreading gnarled willow boughs arching outward from trunk top
+    const boughs = [
+        { from: [0, 3.9, 0], to: [ 2.1, 6.4,  0.6], r1: 0.22, r2: 0.10 },
+        { from: [0, 4.0, 0], to: [-2.0, 6.3,  0.7], r1: 0.22, r2: 0.10 },
+        { from: [0, 3.8, 0], to: [ 0.7, 6.2,  2.1], r1: 0.20, r2: 0.09 },
+        { from: [0, 4.1, 0], to: [-0.6, 6.5, -2.0], r1: 0.20, r2: 0.09 },
+        { from: [0, 4.2, 0], to: [ 1.6, 6.8, -1.5], r1: 0.18, r2: 0.08 },
+        { from: [0, 4.3, 0], to: [-1.5, 6.7,  1.6], r1: 0.18, r2: 0.08 }
+    ];
+    boughs.forEach(b => {
+        const p1 = new THREE.Vector3(...b.from);
+        const p2 = new THREE.Vector3(...b.to);
+        const dir = p2.clone().sub(p1);
+        const len = dir.length();
+        const cyl = new THREE.CylinderGeometry(b.r2, b.r1, len, 6, 2);
+        setGeometryUVBox(cyl, 0.52, 0.98, 0.02, 0.48);
+        cyl.translate(0, len * 0.5, 0);
+        const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+        cyl.applyMatrix4(new THREE.Matrix4().makeRotationFromQuaternion(q));
+        cyl.translate(p1.x, p1.y, p1.z);
+        tintBuildingPart(cyl, 0.40, 0.33, 0.25, 6.5);
+        parts.push(cyl);
+    });
+
+    const crownCenter = new THREE.Vector3(0, 6.0, 0);
+
+    // 1. Upper overarching crown domes (Q1 Broadleaf Alpha-Cutout: 0.52..0.98, 0.52..0.98)
+    const domeClusters = [
+        [ 0.0,  7.0,  0.0, 2.4, 0.72],
+        [ 0.0,  8.1,  0.0, 2.2, 0.90],
+        [ 1.9,  6.4,  0.5, 2.0, 0.82],
+        [-1.8,  6.3,  0.6, 2.0, 0.80],
+        [ 0.6,  6.2,  1.9, 2.0, 0.82],
+        [-0.5,  6.4, -1.8, 2.0, 0.80],
+        [ 1.4,  6.7, -1.3, 1.9, 0.84],
+        [-1.3,  6.6,  1.4, 1.9, 0.84]
+    ];
+    const domeOrients = [
+        { rx:  0.22, ry: 0.00, rz:  0.14 },
+        { rx: -0.24, ry: 1.05, rz: -0.14 },
+        { rx:  0.88, ry: 0.52, rz:  0.00 },
+        { rx:  0.84, ry: 2.09, rz:  0.18 }
+    ];
+    domeClusters.forEach(([cx, cy, cz, rad, brightness], idx) => {
+        domeOrients.forEach(ori => {
+            const w = rad * 1.4;
+            const h = rad * 1.3;
+            const card = createCurvedFoliageCard(w, h, 0.28, 0.52, 0.98, 0.52, 0.98);
+            card.translate(0, -h * 0.48, 0);
+            card.rotateZ(ori.rz);
+            card.rotateX(ori.rx);
+            card.rotateY(ori.ry + idx * 0.5);
+            card.translate(cx, cy, cz);
+            applyCanopyVolumeShading(card, crownCenter, 0.62 * brightness, 0.84 * brightness, 0.42 * brightness, 0.38 * brightness);
+            parts.push(card);
+        });
+    });
+
+    // 2. Cascading Weeping Frond Curtains hanging down from the boughs (Q1 Alpha-Cutout!)
+    const drapes = 16;
+    for (let d = 0; d < drapes; d++) {
+        const ang = (d / drapes) * Math.PI * 2;
+        const r = 1.65 + (d % 3) * 0.55;
+        const topY = 6.2 + (d % 2) * 0.55;
+        const drapeH = 3.5;
+        for (let cross = 0; cross < 2; cross++) {
+            const card = createCurvedFoliageCard(1.75, drapeH, 0.34, 0.52, 0.98, 0.52, 0.98);
+            // Anchor near top of card so it hangs downward from the bough tip
+            card.translate(0, -drapeH * 0.72, 0);
+            card.rotateX(0.14);
+            card.rotateY(ang + cross * 0.65);
+            card.translate(Math.cos(ang) * r, topY, Math.sin(ang) * r);
+            applyCanopyVolumeShading(card, crownCenter, 0.64, 0.86, 0.44, 0.40);
+            parts.push(card);
+        }
+    }
+    return mergeBufferGeometries(parts);
+}
+
+function createAlpineLarchGeometry() {
+    const parts = [];
+    const trunkH = 13.8;
+    const trunk = new THREE.CylinderGeometry(0.08, 0.42, trunkH, 8, 5);
+    setGeometryUVBox(trunk, 0.52, 0.98, 0.02, 0.48);
+    trunk.translate(0, trunkH * 0.5, 0);
+    tintBuildingPart(trunk, 0.42, 0.32, 0.24, trunkH);
+    parts.push(trunk);
+
+    // 13 Dense Overlapping Conical Tiers of Drooping Golden-Olive Larch Boughs (Q0: [0.02..0.48, 0.52..0.98])
+    const tierConfigs = [
+        { y: 1.8,  rad: 3.8, boughs: 8, droop: 0.34 },
+        { y: 2.8,  rad: 3.5, boughs: 8, droop: 0.32 },
+        { y: 3.8,  rad: 3.2, boughs: 7, droop: 0.29 },
+        { y: 4.8,  rad: 2.9, boughs: 7, droop: 0.26 },
+        { y: 5.8,  rad: 2.6, boughs: 7, droop: 0.24 },
+        { y: 6.8,  rad: 2.4, boughs: 6, droop: 0.21 },
+        { y: 7.8,  rad: 2.1, boughs: 6, droop: 0.18 },
+        { y: 8.8,  rad: 1.8, boughs: 6, droop: 0.15 },
+        { y: 9.7,  rad: 1.5, boughs: 5, droop: 0.12 },
+        { y: 10.6, rad: 1.2, boughs: 5, droop: 0.09 },
+        { y: 11.5, rad: 0.9, boughs: 4, droop: 0.06 },
+        { y: 12.3, rad: 0.7, boughs: 4, droop: 0.03 },
+        { y: 13.0, rad: 0.45, boughs: 4, droop: 0.00 }
+    ];
+
+    tierConfigs.forEach((cfg, t) => {
+        const tierCenter = new THREE.Vector3(0, cfg.y - 0.45, 0);
+        const heightShade = 0.56 + (cfg.y / trunkH) * 0.44;
+        for (let b = 0; b < cfg.boughs; b++) {
+            const angle = (b / cfg.boughs) * Math.PI * 2.0 + t * 0.65;
+            const bLen = cfg.rad;
+            const bWidth = cfg.rad * 0.80;
+
+            // Main drooping larch bough
+            const mainCard = createCurvedFoliageCard(bWidth, bLen, 0.36, 0.02, 0.48, 0.52, 0.98);
+            mainCard.rotateX(Math.PI * 0.5 + cfg.droop);
+            mainCard.rotateY(angle);
+            mainCard.translate(Math.cos(angle) * 0.10, cfg.y, Math.sin(angle) * 0.10);
+            applyCanopyVolumeShading(mainCard, tierCenter, 0.84 * heightShade, 0.76 * heightShade, 0.34 * heightShade, 0.38);
+            parts.push(mainCard);
+
+            // Secondary angled upper-fill bough to hide inter-tier gaps
+            if (b % 2 === 0) {
+                const fillCard = createCurvedFoliageCard(bWidth * 0.85, bLen * 0.88, 0.28, 0.02, 0.48, 0.52, 0.98);
+                fillCard.rotateZ(0.38);
+                fillCard.rotateX(Math.PI * 0.40 + cfg.droop * 0.65);
+                fillCard.rotateY(angle + 0.26);
+                fillCard.translate(Math.cos(angle + 0.26) * 0.12, cfg.y + 0.32, Math.sin(angle + 0.26) * 0.12);
+                applyCanopyVolumeShading(fillCard, tierCenter, 0.78 * heightShade, 0.70 * heightShade, 0.30 * heightShade, 0.34);
+                parts.push(fillCard);
+            }
+        }
+    });
+    return mergeBufferGeometries(parts);
+}
+
+function createJoshuaTreeGeometry() {
+    const parts = [];
+    const branches = [
+        { from: [0, 0, 0], to: [0, 3.2, 0], r: 0.26, tip: false },
+        { from: [0, 2.8, 0], to: [1.15, 4.5, 0.35], r: 0.19, tip: true },
+        { from: [0, 2.6, 0], to: [-1.05, 4.2, -0.30], r: 0.18, tip: true },
+        { from: [1.05, 4.3, 0.30], to: [1.55, 5.5, -0.20], r: 0.15, tip: true },
+        { from: [-0.95, 4.0, -0.25], to: [-0.45, 5.3, 0.75], r: 0.15, tip: true },
+        { from: [0, 3.0, 0], to: [0.15, 5.8, 0.10], r: 0.17, tip: true }
+    ];
+    const crownCenter = new THREE.Vector3(0, 4.5, 0);
+    branches.forEach((b, bIdx) => {
+        const p1 = new THREE.Vector3(...b.from);
+        const p2 = new THREE.Vector3(...b.to);
+        const dir = p2.clone().sub(p1);
+        const len = dir.length();
+        const cyl = new THREE.CylinderGeometry(b.r * 0.78, b.r, len, 7, 2);
+        setGeometryUVBox(cyl, 0.52, 0.98, 0.02, 0.48);
+        cyl.translate(0, len * 0.5, 0);
+        const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+        cyl.applyMatrix4(new THREE.Matrix4().makeRotationFromQuaternion(q));
+        cyl.translate(p1.x, p1.y, p1.z);
+        tintBuildingPart(cyl, 0.46, 0.38, 0.28, 5.5);
+        parts.push(cyl);
+
+        if (b.tip) {
+            // Spiky Yucca rosette tuft at branch apex using Q0 Conifer Needle Alpha-Cutout UVs (0.02..0.48, 0.52..0.98)
+            for (let c = 0; c < 5; c++) {
+                const card = createCurvedFoliageCard(1.35, 1.35, 0.22, 0.02, 0.48, 0.52, 0.98);
+                card.translate(0, -0.65, 0);
+                card.rotateX((c % 2 === 0 ? 0.45 : -0.45));
+                card.rotateY((c / 5) * Math.PI * 2 + bIdx * 0.7);
+                card.translate(p2.x, p2.y + 0.1, p2.z);
+                applyCanopyVolumeShading(card, crownCenter, 0.56, 0.68, 0.34, 0.38);
+                parts.push(card);
+            }
+        }
+    });
+    return mergeBufferGeometries(parts);
+}
+
+function createDesertAgaveGeometry() {
+    const parts = [];
+    const blades = 12;
+    for (let i = 0; i < blades; i++) {
+        const ang = (i / blades) * Math.PI * 2;
+        const tilt = (i % 2 === 0) ? 0.55 : 0.85;
+        const blade = new THREE.ConeGeometry(0.22, 1.35, 5);
+        blade.scale(1.0, 1.0, 0.35);
+        blade.translate(0, 0.65, 0);
+        blade.rotateX(tilt);
+        blade.rotateY(ang);
+        tintBuildingPart(blade, 0.34, 0.52, 0.42, 1.5);
+        parts.push(blade);
+    }
+    return mergeBufferGeometries(parts);
+}
+
+function createPricklyPearGeometry() {
+    const parts = [];
+    const pads = [
+        { x: 0, y: 0.45, z: 0, rx: 0, ry: 0, rz: 0, s: 0.48 },
+        { x: 0.38, y: 0.95, z: 0.05, rx: 0.1, ry: 0.3, rz: -0.45, s: 0.40 },
+        { x: -0.36, y: 0.90, z: -0.05, rx: -0.1, ry: -0.2, rz: 0.42, s: 0.38 },
+        { x: 0.05, y: 1.15, z: 0.25, rx: 0.35, ry: 0.8, rz: 0.1, s: 0.35 }
+    ];
+    pads.forEach(p => {
+        const pad = new THREE.SphereGeometry(p.s, 8, 6);
+        pad.scale(1.0, 1.25, 0.32);
+        pad.rotateX(p.rx);
+        pad.rotateY(p.ry);
+        pad.rotateZ(p.rz);
+        pad.translate(p.x, p.y, p.z);
+        tintBuildingPart(pad, 0.28, 0.50, 0.24, 1.6);
+        parts.push(pad);
+    });
+    return mergeBufferGeometries(parts);
+}
+
+function createWildflowerBushGeometry() {
+    const geo = createDetailedBushGeometry();
+    const pos = geo.attributes.position;
+    const col = geo.attributes.color;
+    for (let i = 0; i < pos.count; i++) {
+        if (pos.getY(i) > 0.75 && (i % 5 === 0)) {
+            col.setXYZ(i, 0.92, 0.72, 0.28);
+        }
+    }
+    col.needsUpdate = true;
+    return geo;
+}
+
+function createFernClusterGeometry() {
+    const parts = [];
+    const center = new THREE.Vector3(0, 0.4, 0);
+    for (let f = 0; f < 8; f++) {
+        const ang = (f / 8) * Math.PI * 2;
+        const frond = createCurvedFoliageCard(0.75, 1.45, 0.45, 0.52, 0.98, 0.52, 0.98);
+        frond.rotateX(Math.PI * 0.36);
+        frond.rotateY(ang);
+        frond.translate(0, 0.15, 0);
+        applyCanopyVolumeShading(frond, center, 0.38, 0.68, 0.24, 0.35);
+        parts.push(frond);
+    }
+    return mergeBufferGeometries(parts);
+}
+
 
 // ---------------------------------------------------------------------------
-// OBSTACLE FOOTPRINTS
+// OBSTACLE FOOTPRINTS & WALK-IN ENTERABLE HOUSE COLLISION
 // Building collision uses an oriented XZ box measured from the model geometry
-// (scaled and rotated with its mesh) instead of a hard-coded isotropic circle.
-// Rocks use a circle measured from their geometry's furthest vertex.
-// `obs.radius` stays as a bounding circle for broadphase and legacy callers.
+// for tanks, while enterable houses expose individual `wallBoxes` (leaving the
+// front doorway open) and distance-streamed `interiorBoxes` for soldiers on foot.
 // ---------------------------------------------------------------------------
 function getGeometryFootprint(geo) {
     if (!geo.__footprint) {
@@ -2765,10 +3442,42 @@ function makeObstacleShape(geo, scale, rot) {
     return shape;
 }
 
-// Attach an oriented box (buildings, walls). Sets obs.box and obs.radius.
+// Attach an oriented box (buildings, walls). Sets obs.box and obs.radius,
+// plus walk-in `wallBoxes` if the geometry defines `userData.enterableSpec`.
 function attachObstacleBox(obj, geo, scale, rot) {
-    obj.box = makeObstacleShape(geo, scale, rot);
+    const sc = scale || 1.0;
+    const rt = rot || 0.0;
+    obj.box = makeObstacleShape(geo, sc, rt);
     obj.radius = obj.box.radius;
+    obj.scale = sc;
+    obj.rot = rt;
+
+    if (geo && geo.userData && geo.userData.enterableSpec && !obj.isRuin && !obj.isWall) {
+        const spec = geo.userData.enterableSpec;
+        const hw = (spec.w * 0.5) * sc;
+        const hl = (spec.l * 0.5) * sc;
+        const wt = Math.max(0.28, (spec.wallThick || 0.32) * sc);
+        const hdw = ((spec.doorW || 1.65) * 0.5) * sc;
+        obj.enterable = true;
+        obj.enterableSpec = spec;
+        obj.floorHeight = (spec.floorY !== undefined ? spec.floorY : 0.16) * sc;
+        obj.ceilingHeight = (spec.h || 3.4) * sc;
+        obj.wallBoxes = [
+            // Back wall (-Z)
+            { minX: -hw, maxX: hw, minZ: -hl, maxZ: -hl + wt },
+            // Left wall (-X)
+            { minX: -hw, maxX: -hw + wt, minZ: -hl, maxZ: hl },
+            // Right wall (+X)
+            { minX: hw - wt, maxX: hw, minZ: -hl, maxZ: hl },
+            // Front-left wall (+Z, left of doorway)
+            { minX: -hw, maxX: -hdw, minZ: hl - wt, maxZ: hl },
+            // Front-right wall (+Z, right of doorway)
+            { minX: hdw, maxX: hw, minZ: hl - wt, maxZ: hl }
+        ];
+        obj.interiorLoaded = false;
+        obj.interiorMesh = null;
+        obj.interiorBoxes = [];
+    }
     return obj;
 }
 
@@ -2785,8 +3494,48 @@ function obstacleLocalCoords(obs, x, z) {
     return { x: dx * b.c - dz * b.s, z: dx * b.s + dz * b.c };
 }
 
+function pushOutOfLocalAABB(lx, lz, box, p) {
+    const minX = box.minX - p, maxX = box.maxX + p;
+    const minZ = box.minZ - p, maxZ = box.maxZ + p;
+    if (lx <= minX || lx >= maxX || lz <= minZ || lz >= maxZ) return null;
+    const dL = lx - minX, dR = maxX - lx, dB = lz - minZ, dF = maxZ - lz;
+    const m = Math.min(dL, dR, dB, dF);
+    if (m === dL) return { dx: minX - lx, dz: 0 };
+    if (m === dR) return { dx: maxX - lx, dz: 0 };
+    if (m === dB) return { dx: 0, dz: minZ - lz };
+    return { dx: 0, dz: maxZ - lz };
+}
+
+function segmentEntryLocalAABB(ax, az, bx, bz, box, p) {
+    const minX = box.minX - p, maxX = box.maxX + p;
+    const minZ = box.minZ - p, maxZ = box.maxZ + p;
+    const dx = bx - ax, dz = bz - az;
+    let t0 = 0, t1 = 1;
+    if (Math.abs(dx) < 1e-9) {
+        if (ax <= minX || ax >= maxX) return -1;
+    } else {
+        let ta = (minX - ax) / dx, tb = (maxX - ax) / dx;
+        if (ta > tb) { const tmp = ta; ta = tb; tb = tmp; }
+        t0 = Math.max(t0, ta);
+        t1 = Math.min(t1, tb);
+        if (t0 > t1) return -1;
+    }
+    if (Math.abs(dz) < 1e-9) {
+        if (az <= minZ || az >= maxZ) return -1;
+    } else {
+        let ta = (minZ - az) / dz, tb = (maxZ - az) / dz;
+        if (ta > tb) { const tmp = ta; ta = tb; tb = tmp; }
+        t0 = Math.max(t0, ta);
+        t1 = Math.min(t1, tb);
+        if (t0 > t1) return -1;
+    }
+    return t0;
+}
+
 // Returns the world XZ displacement that moves (x, z) out of the obstacle
 // expanded by `pad`, or null if the point is already clear.
+// For enterable buildings with soldier-sized pad (<= 0.65), tests individual walls & furniture
+// so the player can walk inside through the open front doorway!
 function obstaclePushOut(obs, x, z, pad) {
     const p = pad || 0;
     if (!obs.box) {
@@ -2800,6 +3549,33 @@ function obstaclePushOut(obs, x, z, pad) {
     }
     const b = obs.box;
     const l = obstacleLocalCoords(obs, x, z);
+
+    if (obs.enterable && obs.wallBoxes && p <= 0.65) {
+        let curX = l.x, curZ = l.z;
+        let moved = false;
+        for (let i = 0; i < obs.wallBoxes.length; i++) {
+            const push = pushOutOfLocalAABB(curX, curZ, obs.wallBoxes[i], p);
+            if (push) {
+                curX += push.dx;
+                curZ += push.dz;
+                moved = true;
+            }
+        }
+        if (obs.interiorLoaded && obs.interiorBoxes) {
+            for (let i = 0; i < obs.interiorBoxes.length; i++) {
+                const push = pushOutOfLocalAABB(curX, curZ, obs.interiorBoxes[i], p);
+                if (push) {
+                    curX += push.dx;
+                    curZ += push.dz;
+                    moved = true;
+                }
+            }
+        }
+        if (!moved) return null;
+        const px = curX - l.x, pz = curZ - l.z;
+        return { x: px * b.c + pz * b.s, z: -px * b.s + pz * b.c };
+    }
+
     const minX = b.minX - p, maxX = b.maxX + p;
     const minZ = b.minZ - p, maxZ = b.maxZ + p;
     if (l.x <= minX || l.x >= maxX || l.z <= minZ || l.z >= maxZ) return null;
@@ -2836,30 +3612,207 @@ function obstacleSegmentEntry(obs, ax, az, bx, bz, pad) {
     const b = obs.box;
     const A = obstacleLocalCoords(obs, ax, az);
     const B = obstacleLocalCoords(obs, bx, bz);
-    const minX = b.minX - p, maxX = b.maxX + p;
-    const minZ = b.minZ - p, maxZ = b.maxZ + p;
-    const dx = B.x - A.x, dz = B.z - A.z;
-    let t0 = 0, t1 = 1;
-    // Slab test on each axis.
-    if (Math.abs(dx) < 1e-9) {
-        if (A.x <= minX || A.x >= maxX) return -1;
-    } else {
-        let ta = (minX - A.x) / dx, tb = (maxX - A.x) / dx;
-        if (ta > tb) { const tmp = ta; ta = tb; tb = tmp; }
-        t0 = Math.max(t0, ta);
-        t1 = Math.min(t1, tb);
-        if (t0 > t1) return -1;
+
+    if (obs.enterable && obs.wallBoxes && p <= 0.65) {
+        let bestT = -1;
+        for (let i = 0; i < obs.wallBoxes.length; i++) {
+            const t = segmentEntryLocalAABB(A.x, A.z, B.x, B.z, obs.wallBoxes[i], p);
+            if (t >= 0 && (bestT < 0 || t < bestT)) bestT = t;
+        }
+        if (obs.interiorLoaded && obs.interiorBoxes) {
+            for (let i = 0; i < obs.interiorBoxes.length; i++) {
+                const t = segmentEntryLocalAABB(A.x, A.z, B.x, B.z, obs.interiorBoxes[i], p);
+                if (t >= 0 && (bestT < 0 || t < bestT)) bestT = t;
+            }
+        }
+        return bestT;
     }
-    if (Math.abs(dz) < 1e-9) {
-        if (A.z <= minZ || A.z >= maxZ) return -1;
-    } else {
-        let ta = (minZ - A.z) / dz, tb = (maxZ - A.z) / dz;
-        if (ta > tb) { const tmp = ta; ta = tb; tb = tmp; }
-        t0 = Math.max(t0, ta);
-        t1 = Math.min(t1, tb);
-        if (t0 > t1) return -1;
+
+    return segmentEntryLocalAABB(A.x, A.z, B.x, B.z, b, p);
+}
+
+// Returns the floor elevation if (x, z) is inside an enterable building's room, or terrainY otherwise.
+function getBuildingFloorHeight(x, z, terrainY) {
+    const baseH = (typeof terrainY === 'number') ? terrainY : ((typeof getTerrainHeight === 'function') ? getTerrainHeight(x, z) : 0);
+    const obstacles = window.worldObstacles || worldObstacles || [];
+    for (let i = 0; i < obstacles.length; i++) {
+        const obs = obstacles[i];
+        if (!obs || !obs.enterable || !obs.box) continue;
+        const dx = x - obs.x, dz = z - obs.z;
+        if (dx * dx + dz * dz > obs.radius * obs.radius) continue;
+        const l = obstacleLocalCoords(obs, x, z);
+        const spec = obs.enterableSpec;
+        const sc = obs.scale || 1.0;
+        const hw = (spec ? spec.w * 0.5 : 2.5) * sc;
+        const hl = (spec ? spec.l * 0.5 : 3.2) * sc;
+        if (Math.abs(l.x) <= hw + 0.1 && Math.abs(l.z) <= hl + 0.35) {
+            const bldgFloorY = obs.y - 0.12 + (obs.floorHeight || 0.16);
+            return Math.max(baseH, bldgFloorY);
+        }
     }
-    return t0;
+    return baseH;
+}
+
+// ---------------------------------------------------------------------------
+// PROCEDURAL DISTANCE-STREAMED HOUSE INTERIORS
+// To save memory and GPU resources, house interior furniture is generated
+// procedurally ONLY when the player closes in (< 38m) and disposed when far (> 48m).
+// ---------------------------------------------------------------------------
+const INTERIOR_LOAD_DIST = 38.0;
+const INTERIOR_UNLOAD_DIST = 48.0;
+let sharedInteriorMat = null;
+
+function getInteriorMaterial() {
+    if (!sharedInteriorMat) {
+        sharedInteriorMat = new THREE.MeshStandardMaterial({
+            vertexColors: true,
+            roughness: 0.80,
+            metalness: 0.05,
+            envMapIntensity: GROUND_ENV_MAP_INTENSITY
+        });
+    }
+    return sharedInteriorMat;
+}
+
+function loadBuildingInterior(bldg) {
+    if (!bldg || !bldg.enterable || bldg.interiorLoaded || !bldg.mesh) return;
+    const spec = bldg.enterableSpec || { w: 5.0, h: 3.4, l: 6.6, wallThick: 0.32, floorY: 0.16 };
+    const w = spec.w;
+    const l = spec.l;
+    const wt = spec.wallThick || 0.32;
+    const floorY = spec.floorY !== undefined ? spec.floorY : 0.16;
+    const innerW = w - wt * 2.2;
+    const innerL = l - wt * 2.2;
+
+    // Deterministic PRNG seeded by building world coordinates
+    const rng = createChunkRNG(Math.round(bldg.x * 13), Math.round(bldg.z * 31), currentSeed + 701);
+    const parts = [];
+    const furnBoxes = [];
+    const sc = bldg.scale || 1.0;
+
+    const addFurnPart = (sx, sy, sz, px, py, pz, r, g, b, rotY = 0) => {
+        const box = new THREE.BoxGeometry(sx, sy, sz);
+        setGeometryUVBox(box, 0.52, 0.98, 0.02, 0.48);
+        if (rotY !== 0) box.rotateY(rotY);
+        box.translate(px, floorY + py, pz);
+        tintBuildingPart(box, r, g, b, 2.5);
+        parts.push(box);
+    };
+
+    // 1. Center Woven Rug / Carpet (elevated 3cm above floorSlab top at y = floorY so it never Z-fights)
+    const rugPalette = (rng() < 0.5) ? [0.64, 0.24, 0.20] : [0.24, 0.42, 0.54];
+    const rugBorder  = (rng() < 0.5) ? [0.82, 0.68, 0.42] : [0.76, 0.62, 0.38];
+    const rugW = innerW * 0.52;
+    const rugL = innerL * 0.46;
+    addFurnPart(rugW + 0.14, 0.024, rugL + 0.14, 0, 0.022, -0.2, rugBorder[0], rugBorder[1], rugBorder[2]);
+    addFurnPart(rugW, 0.026, rugL, 0, 0.036, -0.2, rugPalette[0], rugPalette[1], rugPalette[2]);
+
+    // 2. Wooden Table & Chairs on one side of the room
+    const tableSide = (rng() < 0.5) ? -1 : 1;
+    const tableX = tableSide * (innerW * 0.5 - 0.85);
+    const tableZ = -0.35 + (rng() - 0.5) * 0.5;
+    const tableW = 1.15, tableL = 1.55, tableH = 0.78;
+    addFurnPart(tableW, 0.08, tableL, tableX, tableH, tableZ, 0.52, 0.36, 0.22);
+    [[-0.48, -0.65], [0.48, -0.65], [-0.48, 0.65], [0.48, 0.65]].forEach(([lx, lz]) => {
+        addFurnPart(0.09, tableH, 0.09, tableX + lx, tableH * 0.5, tableZ + lz, 0.44, 0.30, 0.18);
+    });
+    // Tabletop lantern / ration crate prop
+    addFurnPart(0.24, 0.28, 0.24, tableX + 0.1, tableH + 0.16, tableZ - 0.15, 0.72, 0.62, 0.32);
+    // Chair next to table
+    const chairX = tableX - tableSide * 0.68;
+    addFurnPart(0.46, 0.06, 0.46, chairX, 0.46, tableZ, 0.48, 0.33, 0.20);
+    addFurnPart(0.08, 0.46, 0.46, chairX - tableSide * 0.20, 0.70, tableZ, 0.48, 0.33, 0.20);
+    furnBoxes.push({
+        minX: (tableX - tableW * 0.55) * sc,
+        maxX: (tableX + tableW * 0.55) * sc,
+        minZ: (tableZ - tableL * 0.55) * sc,
+        maxZ: (tableZ + tableL * 0.55) * sc
+    });
+
+    // 3. Bed / Cot in opposite back corner
+    const bedSide = -tableSide;
+    const bedW = 1.15, bedL = 1.95;
+    const bedX = bedSide * (innerW * 0.5 - bedW * 0.5 - 0.12);
+    const bedZ = -innerL * 0.5 + bedL * 0.5 + 0.18;
+    // Bed frame
+    addFurnPart(bedW, 0.32, bedL, bedX, 0.22, bedZ, 0.45, 0.30, 0.18);
+    // Headboard
+    addFurnPart(bedW, 0.85, 0.10, bedX, 0.46, bedZ - bedL * 0.5 + 0.06, 0.40, 0.26, 0.15);
+    // Mattress & blanket
+    addFurnPart(bedW - 0.08, 0.16, bedL - 0.14, bedX, 0.42, bedZ + 0.04, 0.84, 0.82, 0.76);
+    addFurnPart(bedW - 0.06, 0.17, bedL * 0.55, bedX, 0.43, bedZ + bedL * 0.18, 0.34, 0.46, 0.32);
+    // Pillow
+    addFurnPart(bedW * 0.65, 0.12, 0.36, bedX, 0.54, bedZ - bedL * 0.32, 0.92, 0.90, 0.86);
+    furnBoxes.push({
+        minX: (bedX - bedW * 0.5) * sc,
+        maxX: (bedX + bedW * 0.5) * sc,
+        minZ: (bedZ - bedL * 0.5) * sc,
+        maxZ: (bedZ + bedL * 0.5) * sc
+    });
+
+    // 4. Storage Cabinet / Bookshelf or Supply Crates against back wall
+    const cabW = 1.25, cabD = 0.48, cabH = 1.75;
+    const cabX = tableSide * (innerW * 0.5 - cabW * 0.5 - 0.15);
+    const cabZ = -innerL * 0.5 + cabD * 0.5 + 0.12;
+    addFurnPart(cabW, cabH, cabD, cabX, cabH * 0.5, cabZ, 0.42, 0.28, 0.17);
+    furnBoxes.push({
+        minX: (cabX - cabW * 0.5) * sc,
+        maxX: (cabX + cabW * 0.5) * sc,
+        minZ: (cabZ - cabD * 0.5) * sc,
+        maxZ: (cabZ + cabD * 0.5) * sc
+    });
+
+    // 5. Wooden Supply Crate near front-side corner
+    const crateS = 0.68;
+    const crateX = bedSide * (innerW * 0.5 - crateS * 0.5 - 0.15);
+    const crateZ = innerL * 0.5 - crateS * 0.5 - 0.35;
+    addFurnPart(crateS, crateS, crateS, crateX, crateS * 0.5, crateZ, 0.58, 0.44, 0.26);
+    furnBoxes.push({
+        minX: (crateX - crateS * 0.5) * sc,
+        maxX: (crateX + crateS * 0.5) * sc,
+        minZ: (crateZ - crateS * 0.5) * sc,
+        maxZ: (crateZ + crateS * 0.5) * sc
+    });
+
+    const interiorGeo = mergeBufferGeometries(parts);
+    const interiorMesh = new THREE.Mesh(interiorGeo, getInteriorMaterial());
+    interiorMesh.castShadow = true;
+    interiorMesh.receiveShadow = true;
+    interiorMesh.name = 'proceduralHouseInterior';
+    bldg.mesh.add(interiorMesh);
+
+    bldg.interiorMesh = interiorMesh;
+    bldg.interiorBoxes = furnBoxes;
+    bldg.interiorLoaded = true;
+    return interiorMesh;
+}
+
+function unloadBuildingInterior(bldg) {
+    if (!bldg || !bldg.interiorLoaded) return;
+    if (bldg.interiorMesh) {
+        if (bldg.mesh) bldg.mesh.remove(bldg.interiorMesh);
+        if (bldg.interiorMesh.geometry) bldg.interiorMesh.geometry.dispose();
+        bldg.interiorMesh = null;
+    }
+    bldg.interiorBoxes = [];
+    bldg.interiorLoaded = false;
+}
+
+function updateBuildingInteriors(px, pz) {
+    const loadSq = INTERIOR_LOAD_DIST * INTERIOR_LOAD_DIST;
+    const unloadSq = INTERIOR_UNLOAD_DIST * INTERIOR_UNLOAD_DIST;
+    for (let i = 0; i < worldBuildings.length; i++) {
+        const bldg = worldBuildings[i];
+        if (!bldg || !bldg.enterable) continue;
+        const dx = bldg.x - px;
+        const dz = bldg.z - pz;
+        const dSq = dx * dx + dz * dz;
+        if (!bldg.interiorLoaded && dSq <= loadSq) {
+            loadBuildingInterior(bldg);
+        } else if (bldg.interiorLoaded && dSq > unloadSq) {
+            unloadBuildingInterior(bldg);
+        }
+    }
 }
 
 window.getGeometryFootprint = getGeometryFootprint;
@@ -2868,16 +3821,70 @@ window.attachObstacleCircle = attachObstacleCircle;
 window.obstacleLocalCoords = obstacleLocalCoords;
 window.obstaclePushOut = obstaclePushOut;
 window.obstacleSegmentEntry = obstacleSegmentEntry;
+window.getBuildingFloorHeight = getBuildingFloorHeight;
+window.loadBuildingInterior = loadBuildingInterior;
+window.unloadBuildingInterior = unloadBuildingInterior;
+window.updateBuildingInteriors = updateBuildingInteriors;
+window.INTERIOR_LOAD_DIST = INTERIOR_LOAD_DIST;
+window.INTERIOR_UNLOAD_DIST = INTERIOR_UNLOAD_DIST;
+
+var sharedSpruceGeo = null;
+var sharedPineGeo = null;
+var sharedDecidGeo = null;
+var sharedBirchGeo = null;
+var sharedCypressGeo = null;
+var sharedWillowGeo = null;
+var sharedLarchGeo = null;
+var sharedJoshuaTreeGeo = null;
+var sharedAgaveGeo = null;
+var sharedPricklyPearGeo = null;
+var sharedFlowerBushGeo = null;
+var sharedFernGeo = null;
+var sharedBushGeo = null;
+var sharedRockGeo = null;
+var sharedCottageGeo = null;
+var sharedRuinGeo = null;
+var sharedBarnGeo = null;
+var sharedTownhouseGeo = null;
+var sharedFarmhouseGeo = null;
+var sharedAdobeHouseGeo = null;
+var sharedChaletGeo = null;
+var sharedStoneWallGeo = null;
+var sharedPalmGeo = null;
+var sharedPalmGeos = [];
+var sharedAcaciaGeo = null;
+var sharedCactusGeo = null;
+var sharedCactusGeos = [];
+var sharedSandstoneRockGeo = null;
+var sharedKasbahGeo = null;
+var sharedDesertRuinGeo = null;
+var sharedMountainRockGeo = null;
+var sharedMountainBunkerGeo = null;
+var sharedSmokeTex = null;
+var sharedFireTex = null;
 
 function ensureSharedGeometries() {
     if (!sharedSpruceGeo) sharedSpruceGeo = createDetailedSpruceGeometry();
     if (!sharedPineGeo) sharedPineGeo = createDetailedPineGeometry();
     if (!sharedDecidGeo) sharedDecidGeo = createDetailedDeciduousGeometry();
+    if (!sharedBirchGeo) sharedBirchGeo = createBirchTreeGeometry();
+    if (!sharedCypressGeo) sharedCypressGeo = createCypressTreeGeometry();
+    if (!sharedWillowGeo) sharedWillowGeo = createWillowTreeGeometry();
+    if (!sharedLarchGeo) sharedLarchGeo = createAlpineLarchGeometry();
+    if (!sharedJoshuaTreeGeo) sharedJoshuaTreeGeo = createJoshuaTreeGeometry();
+    if (!sharedAgaveGeo) sharedAgaveGeo = createDesertAgaveGeometry();
+    if (!sharedPricklyPearGeo) sharedPricklyPearGeo = createPricklyPearGeometry();
+    if (!sharedFlowerBushGeo) sharedFlowerBushGeo = createWildflowerBushGeometry();
+    if (!sharedFernGeo) sharedFernGeo = createFernClusterGeometry();
     if (!sharedBushGeo) sharedBushGeo = createDetailedBushGeometry();
     if (!sharedRockGeo) sharedRockGeo = createLimestoneRockGeometry();
     if (!sharedCottageGeo) sharedCottageGeo = createEuropeanCottageGeometry();
     if (!sharedRuinGeo) sharedRuinGeo = createRuinedHouseGeometry();
     if (!sharedBarnGeo) sharedBarnGeo = createBarnGeometry();
+    if (!sharedTownhouseGeo) sharedTownhouseGeo = createVillageTownhouseGeometry();
+    if (!sharedFarmhouseGeo) sharedFarmhouseGeo = createStoneFarmhouseGeometry();
+    if (!sharedAdobeHouseGeo) sharedAdobeHouseGeo = createDesertAdobeHouseGeometry();
+    if (!sharedChaletGeo) sharedChaletGeo = createAlpineChaletGeometry();
     if (!sharedStoneWallGeo) sharedStoneWallGeo = createStoneWallGeometry();
     if (!sharedPalmGeos || sharedPalmGeos.length === 0) {
         sharedPalmGeos = [
@@ -2910,9 +3917,23 @@ function ensureSharedGeometries() {
     window.sharedSpruceGeo = sharedSpruceGeo;
     window.sharedPineGeo = sharedPineGeo;
     window.sharedDecidGeo = sharedDecidGeo;
+    window.sharedBirchGeo = sharedBirchGeo;
+    window.sharedCypressGeo = sharedCypressGeo;
+    window.sharedWillowGeo = sharedWillowGeo;
+    window.sharedLarchGeo = sharedLarchGeo;
+    window.sharedJoshuaTreeGeo = sharedJoshuaTreeGeo;
+    window.sharedAgaveGeo = sharedAgaveGeo;
+    window.sharedPricklyPearGeo = sharedPricklyPearGeo;
+    window.sharedFlowerBushGeo = sharedFlowerBushGeo;
+    window.sharedFernGeo = sharedFernGeo;
     window.sharedBushGeo = sharedBushGeo;
     window.sharedRockGeo = sharedRockGeo;
     window.sharedCottageGeo = sharedCottageGeo;
+    window.sharedBarnGeo = sharedBarnGeo;
+    window.sharedTownhouseGeo = sharedTownhouseGeo;
+    window.sharedFarmhouseGeo = sharedFarmhouseGeo;
+    window.sharedAdobeHouseGeo = sharedAdobeHouseGeo;
+    window.sharedChaletGeo = sharedChaletGeo;
     window.sharedRuinGeo = sharedRuinGeo;
     window.sharedPalmGeo = sharedPalmGeo;
     window.sharedPalmGeos = sharedPalmGeos;
@@ -3465,6 +4486,7 @@ class TerrainChunk {
         this.smokePuffs = [];
         this.fireSprites = [];
         this.bushMesh = null;
+        this.extraPlantMeshes = [];
 
         this.buildTerrainMesh();
         this.populateChunkContent();
@@ -3486,9 +4508,9 @@ class TerrainChunk {
         const colWetRut    = new THREE.Color(0x221a12);
         const colCliffRock = new THREE.Color(0x585652);
         const colMountain  = new THREE.Color(0x3c4852);
-        const colDesertSand = new THREE.Color(0xd29c5a);
-        const colDesertDune = new THREE.Color(0xe6ba7e);
-        const colSandstone  = new THREE.Color(0xa65c32);
+        const colDesertSand = new THREE.Color(0xc4a88c);
+        const colDesertDune = new THREE.Color(0xd8c3ab);
+        const colSandstone  = new THREE.Color(0x9a745c);
         const colAlpineSnow = new THREE.Color(0xeaf2fa);
         const colHeather    = new THREE.Color(0x644c22);
         const tempCol = new THREE.Color();
@@ -3632,13 +4654,14 @@ class TerrainChunk {
             const villageTemplates = [
                 { rx: -16, rz: -14, type: 'cottage', rot: 0.35, scale: 1.05 },
                 { rx: 16, rz: -16, type: 'barn', rot: -0.42, scale: 1.10 },
-                { rx: -15, rz: 15, type: isWestVillage ? 'ruin' : 'cottage', rot: 1.25, scale: 0.98 },
-                { rx: 18, rz: 16, type: isWestVillage ? 'ruin' : 'barn', rot: -1.15, scale: 1.02 },
+                { rx: -15, rz: 15, type: isWestVillage ? 'ruin' : 'townhouse', rot: 1.25, scale: 0.98 },
+                { rx: 18, rz: 16, type: isWestVillage ? 'farmhouse' : 'barn', rot: -1.15, scale: 1.02 },
+                { rx: 0, rz: 2, type: isCrossroadsVillage ? 'townhouse' : 'farmhouse', rot: 0.12, scale: 1.0 },
                 { rx: -1, rz: -26, type: 'wall', rot: 0.05, scale: 1.0 },
                 { rx: 1, rz: 26, type: 'wall', rot: 0.08, scale: 1.0 }
             ];
 
-            villageTemplates.forEach((struct) => {
+            villageTemplates.forEach((struct, idx) => {
                 let bx = chunkCenterX + struct.rx + (rng() - 0.5) * 4.0;
                 let bz = chunkCenterZ + struct.rz + (rng() - 0.5) * 4.0;
                 bx = THREE.MathUtils.clamp(bx, xMin + 8, xMin + CHUNK_SIZE - 8);
@@ -3647,17 +4670,29 @@ class TerrainChunk {
                 if (Math.hypot(bx - (-18), bz - 112) < 24) return; // Don't duplicate signature landmark
                 if (Math.hypot(bx - (-19), bz - 22) < 20) return; // Don't duplicate signature rock
 
-                const by = getTerrainHeight(bx, bz);
+                const baseBy = getTerrainHeight(bx, bz);
                 const norm = getTerrainNormal(bx, bz);
                 const minNormY = (currentZoneIndex === 2) ? 0.80 : 0.85;
-                if (by < -1.8 || norm.y < minNormY || (currentZoneIndex === 2 && by > 16.5)) return;
+                if (baseBy < -1.8 || norm.y < minNormY || (currentZoneIndex === 2 && baseBy > 16.5)) return;
+                const by = Math.max(
+                    baseBy,
+                    getTerrainHeight(bx - 2.6, bz - 2.6),
+                    getTerrainHeight(bx + 2.6, bz - 2.6),
+                    getTerrainHeight(bx - 2.6, bz + 2.6),
+                    getTerrainHeight(bx + 2.6, bz + 2.6)
+                );
 
-                let bldgGeo, height, isRuin = false, isWall = false;
+                let bldgGeo, height, isRuin = false, isWall = false, resolvedType = struct.type;
                 if (currentZoneIndex === 1) {
-                    // Desert Kasbah & Mud-Brick Settlement
-                    if (struct.type === 'cottage' || struct.type === 'barn') {
+                    // Desert Kasbah, Adobe House & Mud-Brick Settlement
+                    if (struct.type === 'cottage' || struct.type === 'townhouse') {
                         bldgGeo = sharedKasbahGeo;
                         height = 6.8 * struct.scale;
+                        resolvedType = 'kasbah';
+                    } else if (struct.type === 'barn' || struct.type === 'farmhouse') {
+                        bldgGeo = sharedAdobeHouseGeo || sharedKasbahGeo;
+                        height = 4.6 * struct.scale;
+                        resolvedType = 'adobe';
                     } else if (struct.type === 'ruin') {
                         bldgGeo = sharedDesertRuinGeo;
                         height = 4.2 * struct.scale;
@@ -3668,13 +4703,19 @@ class TerrainChunk {
                         isWall = true;
                     }
                 } else if (currentZoneIndex === 2) {
-                    // Alpine Mountain Bunkers & Stone Chalets
-                    if (struct.type === 'cottage') {
-                        bldgGeo = sharedMountainBunkerGeo;
+                    // Alpine Mountain Timber Chalets, Stone Farmhouses & Bunkers
+                    if (struct.type === 'cottage' || struct.type === 'barn') {
+                        bldgGeo = sharedChaletGeo || sharedCottageGeo;
+                        height = 7.4 * struct.scale;
+                        resolvedType = 'chalet';
+                    } else if (struct.type === 'farmhouse') {
+                        bldgGeo = sharedFarmhouseGeo || sharedCottageGeo;
+                        height = 6.4 * struct.scale;
+                        resolvedType = 'farmhouse';
+                    } else if (struct.type === 'townhouse') {
+                        bldgGeo = (idx % 2 === 0 && sharedChaletGeo) ? sharedChaletGeo : sharedMountainBunkerGeo;
                         height = 6.2 * struct.scale;
-                    } else if (struct.type === 'barn') {
-                        bldgGeo = sharedCottageGeo;
-                        height = 6.6 * struct.scale;
+                        resolvedType = (bldgGeo === sharedChaletGeo) ? 'chalet' : 'bunker';
                     } else if (struct.type === 'ruin') {
                         bldgGeo = sharedRuinGeo;
                         height = 4.2 * struct.scale;
@@ -3685,10 +4726,16 @@ class TerrainChunk {
                         isWall = true;
                     }
                 } else {
-                    // Meadow & Rolling Hills European Cottages & Barns
+                    // Meadow & Rolling Hills: European Cottages, Townhouses, Stone Farmhouses & Barns
                     if (struct.type === 'cottage') {
                         bldgGeo = sharedCottageGeo;
                         height = 6.6 * struct.scale;
+                    } else if (struct.type === 'townhouse') {
+                        bldgGeo = sharedTownhouseGeo || sharedCottageGeo;
+                        height = 9.0 * struct.scale;
+                    } else if (struct.type === 'farmhouse') {
+                        bldgGeo = sharedFarmhouseGeo || sharedCottageGeo;
+                        height = 6.5 * struct.scale;
                     } else if (struct.type === 'barn') {
                         bldgGeo = sharedBarnGeo;
                         height = 7.5 * struct.scale;
@@ -3722,16 +4769,16 @@ class TerrainChunk {
                     height: height,
                     isRuin: isRuin,
                     isWall: isWall,
-                    type: struct.type
+                    type: resolvedType
                 }, bldgGeo, struct.scale, bMesh.rotation.y);
                 this.buildings.push(bldgObj);
                 worldBuildings.push(bldgObj);
                 worldObstacles.push(bldgObj);
             });
-        } else if (distFromSpawn > 35 && rng() < 0.28) {
-            // Roadside Outpost, Kasbah, Bunker, or Ruin along road verges
+        } else if (distFromSpawn > 35 && rng() < 0.36) {
+            // Roadside Homestead, Farmhouse, Chalet, Kasbah, Adobe House, or Ruin along road verges
             const roadDistCenter = getRoadDistance(chunkCenterX, chunkCenterZ);
-            if (roadDistCenter < 35) {
+            if (roadDistCenter < 38) {
                 const sideSign = (rng() > 0.5) ? 1 : -1;
                 let hx = chunkCenterX + sideSign * (14.0 + rng() * 8.0);
                 let hz = chunkCenterZ + (rng() - 0.5) * 18.0;
@@ -3740,18 +4787,35 @@ class TerrainChunk {
                 if (Math.hypot(hx, hz) < 32) return;
                 if (Math.hypot(hx - (-18), hz - 112) < 24) return;
                 if (Math.hypot(hx - (-19), hz - 22) < 20) return;
-                const hy = getTerrainHeight(hx, hz);
+                const baseHy = getTerrainHeight(hx, hz);
                 const norm = getTerrainNormal(hx, hz);
 
-                if (hy > -1.8 && norm.y > 0.84 && (currentZoneIndex !== 2 || hy < 15.5)) {
-                    const bType = (rng() < 0.35) ? 'ruin' : ((rng() < 0.70) ? 'cottage' : 'barn');
-                    let bldgGeo;
+                if (baseHy > -1.8 && norm.y > 0.84 && (currentZoneIndex !== 2 || baseHy < 15.5)) {
+                    const hy = Math.max(
+                        baseHy,
+                        getTerrainHeight(hx - 2.6, hz - 2.6),
+                        getTerrainHeight(hx + 2.6, hz - 2.6),
+                        getTerrainHeight(hx - 2.6, hz + 2.6),
+                        getTerrainHeight(hx + 2.6, hz + 2.6)
+                    );
+                    const roll = rng();
+                    let bType = 'cottage';
+                    let bldgGeo = sharedCottageGeo;
                     if (currentZoneIndex === 1) {
-                        bldgGeo = (bType === 'ruin') ? sharedDesertRuinGeo : sharedKasbahGeo;
+                        if (roll < 0.18) { bType = 'ruin'; bldgGeo = sharedDesertRuinGeo; }
+                        else if (roll < 0.60) { bType = 'adobe'; bldgGeo = sharedAdobeHouseGeo || sharedKasbahGeo; }
+                        else { bType = 'kasbah'; bldgGeo = sharedKasbahGeo; }
                     } else if (currentZoneIndex === 2) {
-                        bldgGeo = (bType === 'ruin') ? sharedRuinGeo : ((bType === 'cottage') ? sharedMountainBunkerGeo : sharedCottageGeo);
+                        if (roll < 0.18) { bType = 'ruin'; bldgGeo = sharedRuinGeo; }
+                        else if (roll < 0.65) { bType = 'chalet'; bldgGeo = sharedChaletGeo || sharedCottageGeo; }
+                        else if (roll < 0.85) { bType = 'farmhouse'; bldgGeo = sharedFarmhouseGeo || sharedCottageGeo; }
+                        else { bType = 'bunker'; bldgGeo = sharedMountainBunkerGeo; }
                     } else {
-                        bldgGeo = (bType === 'ruin') ? sharedRuinGeo : ((bType === 'cottage') ? sharedCottageGeo : sharedBarnGeo);
+                        if (roll < 0.18) { bType = 'ruin'; bldgGeo = sharedRuinGeo; }
+                        else if (roll < 0.42) { bType = 'cottage'; bldgGeo = sharedCottageGeo; }
+                        else if (roll < 0.66) { bType = 'farmhouse'; bldgGeo = sharedFarmhouseGeo || sharedCottageGeo; }
+                        else if (roll < 0.84) { bType = 'townhouse'; bldgGeo = sharedTownhouseGeo || sharedCottageGeo; }
+                        else { bType = 'barn'; bldgGeo = sharedBarnGeo; }
                     }
                     const bScale = 0.95 + rng() * 0.25;
                     const bMesh = new THREE.Mesh(bldgGeo, villageMat);
@@ -3770,7 +4834,7 @@ class TerrainChunk {
                         x: hx,
                         y: hy,
                         z: hz,
-                        height: (bType === 'ruin' ? 4.2 : (bType === 'barn' ? 7.5 : 6.6)) * bScale,
+                        height: (bType === 'ruin' ? 4.2 : (bType === 'townhouse' ? 9.0 : (bType === 'barn' ? 7.5 : 6.6))) * bScale,
                         isRuin: (bType === 'ruin'),
                         type: bType
                     }, bldgGeo, bScale, bMesh.rotation.y);
@@ -3935,7 +4999,7 @@ class TerrainChunk {
             let treeGeo, treeType, trunkH, chosenMat = treeMaterial, useTreeDepth = true;
 
             if (currentZoneIndex === 1) {
-                // Desert: Varied Date Palms near oasis/villages/low wadis, Saguaro Cacti on dry dunes, & Umbrella Acacias
+                // Desert: Varied Date Palms near oasis/villages/low wadis, Saguaro Cacti, Joshua Trees, & Umbrella Acacias
                 const nearOasis = Math.hypot(tx - 58.0, tz - 78.0) < 88.0;
                 if (nearOasis || isVillage || (ty < 1.8 && treeRoll < 0.65)) {
                     if (treeRoll < 0.78 || nearOasis) {
@@ -3949,13 +5013,17 @@ class TerrainChunk {
                         trunkH = 7.8;
                     }
                 } else {
-                    if (treeRoll < 0.65) {
+                    if (treeRoll < 0.48) {
                         const cVar = Math.floor(rng() * (sharedCactusGeos.length || 1));
                         treeGeo = (sharedCactusGeos && sharedCactusGeos[cVar]) ? sharedCactusGeos[cVar] : sharedCactusGeo;
                         treeType = 'cactus';
                         trunkH = (cVar === 1 ? 5.8 : cVar === 2 ? 4.4 : 4.8);
                         chosenMat = cactusMat;
                         useTreeDepth = false;
+                    } else if (treeRoll < 0.74 && sharedJoshuaTreeGeo) {
+                        treeGeo = sharedJoshuaTreeGeo;
+                        treeType = 'joshua';
+                        trunkH = 6.2;
                     } else {
                         treeGeo = sharedAcaciaGeo;
                         treeType = 'acacia';
@@ -3963,23 +5031,39 @@ class TerrainChunk {
                     }
                 }
             } else if (currentZoneIndex === 2) {
-                // Alpine Mountains: Dominantly Nordic Spruce and Scots Pine
-                if (treeRoll < 0.72) {
+                // Alpine Mountains: Nordic Spruce, Alpine Larch, Scots Pine, and Silver Birch in valleys
+                if (treeRoll < 0.48) {
                     treeGeo = sharedSpruceGeo;
                     treeType = 'spruce';
                     trunkH = 14.2;
-                } else {
+                } else if (treeRoll < 0.72 && sharedLarchGeo) {
+                    treeGeo = sharedLarchGeo;
+                    treeType = 'larch';
+                    trunkH = 13.2;
+                } else if (treeRoll < 0.90) {
                     treeGeo = sharedPineGeo;
                     treeType = 'pine';
                     trunkH = 12.5;
+                } else {
+                    treeGeo = sharedBirchGeo || sharedDecidGeo;
+                    treeType = 'birch';
+                    trunkH = 10.6;
                 }
             } else if (currentZoneIndex === 3) {
-                // Rolling Hills: Broadleaf Oak/Beech and Scots Pine on ridges
-                if (treeRoll < 0.52) {
+                // Rolling Hills: Broadleaf Oak/Beech, Silver Birch, Mediterranean Cypress, and Scots Pine
+                if (treeRoll < 0.36) {
                     treeGeo = sharedDecidGeo;
                     treeType = 'beech';
                     trunkH = 10.2;
-                } else if (treeRoll < 0.82) {
+                } else if (treeRoll < 0.56 && sharedBirchGeo) {
+                    treeGeo = sharedBirchGeo;
+                    treeType = 'birch';
+                    trunkH = 10.6;
+                } else if (treeRoll < 0.72 && sharedCypressGeo) {
+                    treeGeo = sharedCypressGeo;
+                    treeType = 'cypress';
+                    trunkH = 13.5;
+                } else if (treeRoll < 0.88) {
                     treeGeo = sharedPineGeo;
                     treeType = 'pine';
                     trunkH = 12.5;
@@ -3989,40 +5073,56 @@ class TerrainChunk {
                     trunkH = 14.2;
                 }
             } else {
-                // Coastal Meadow
-                if (isVillage) {
-                    if (treeRoll < 0.65) {
+                // Coastal Meadow: Weeping Willow near water/hollows, Silver Birch, Cypress, Beech, Pine & Spruce
+                if (ty < 1.2 && treeRoll < 0.42 && sharedWillowGeo) {
+                    treeGeo = sharedWillowGeo;
+                    treeType = 'willow';
+                    trunkH = 9.4;
+                } else if (isVillage) {
+                    if (treeRoll < 0.38 && sharedCypressGeo) {
+                        treeGeo = sharedCypressGeo;
+                        treeType = 'cypress';
+                        trunkH = 13.5;
+                    } else if (treeRoll < 0.72) {
                         treeGeo = sharedDecidGeo;
                         treeType = 'beech';
                         trunkH = 10.2;
                     } else {
-                        treeGeo = sharedPineGeo;
-                        treeType = 'pine';
-                        trunkH = 12.5;
+                        treeGeo = sharedBirchGeo || sharedPineGeo;
+                        treeType = 'birch';
+                        trunkH = 10.6;
                     }
                 } else if (forestNoise > 0.52) {
-                    if (treeRoll < 0.58) {
+                    if (treeRoll < 0.42) {
                         treeGeo = sharedSpruceGeo;
                         treeType = 'spruce';
                         trunkH = 14.2;
-                    } else if (treeRoll < 0.85) {
+                    } else if (treeRoll < 0.68) {
                         treeGeo = sharedPineGeo;
                         treeType = 'pine';
                         trunkH = 12.8;
+                    } else if (treeRoll < 0.86 && sharedBirchGeo) {
+                        treeGeo = sharedBirchGeo;
+                        treeType = 'birch';
+                        trunkH = 10.6;
                     } else {
                         treeGeo = sharedDecidGeo;
                         treeType = 'beech';
                         trunkH = 10.5;
                     }
                 } else {
-                    if (treeRoll < 0.48) {
+                    if (treeRoll < 0.36) {
                         treeGeo = sharedSpruceGeo;
                         treeType = 'spruce';
                         trunkH = 14.2;
-                    } else if (treeRoll < 0.74) {
+                    } else if (treeRoll < 0.62) {
                         treeGeo = sharedPineGeo;
                         treeType = 'pine';
                         trunkH = 12.5;
+                    } else if (treeRoll < 0.82 && sharedBirchGeo) {
+                        treeGeo = sharedBirchGeo;
+                        treeType = 'birch';
+                        trunkH = 10.4;
                     } else {
                         treeGeo = sharedDecidGeo;
                         treeType = 'beech';
@@ -4065,7 +5165,7 @@ class TerrainChunk {
                 angularVel: 0.0,
                 maxFallAngle: Math.PI * 0.48,
                 fallAxis: new THREE.Vector3(1, 0, 0),
-                radius: (treeType === 'cactus' ? 0.75 : treeType === 'acacia' ? 1.55 : 1.35) * scale,
+                radius: (treeType === 'cactus' || treeType === 'joshua' ? 0.80 : treeType === 'acacia' || treeType === 'willow' ? 1.55 : treeType === 'cypress' ? 0.95 : 1.35) * scale,
                 trunkHeight: trunkH * scale,
                 type: treeType
             };
@@ -4080,12 +5180,14 @@ class TerrainChunk {
         }
 
         // ---------------------------------------------------------------------
-        // 4. UNDERGROWTH BUSHES & SCRUB (INSTANCED MESH)
+        // 4. UNDERGROWTH BUSHES, WILDFLOWERS, FERNS & SUCCULENTS (INSTANCED MESH)
         // ---------------------------------------------------------------------
         const bushMatrices = [];
-        let bushCount = (forestNoise > 0.52) ? (5 + Math.floor(rng() * 5)) : (Math.floor(rng() * 3) + 1);
+        const extraPlantMatrices = [];
+        const secondaryPlantMatrices = [];
+        let bushCount = (forestNoise > 0.52) ? (6 + Math.floor(rng() * 5)) : (Math.floor(rng() * 4) + 2);
         if (currentZoneIndex === 1) {
-            bushCount = Math.floor(rng() * 3); // Sparse desert wadi bushes
+            bushCount = 3 + Math.floor(rng() * 4); // Desert wadi bushes, agave & prickly pear
         }
         const dummyBush = new THREE.Object3D();
 
@@ -4101,7 +5203,20 @@ class TerrainChunk {
             dummyBush.scale.set(bs * 1.15, bs * 0.9, bs * 1.15);
             dummyBush.rotation.y = rng() * Math.PI * 2;
             dummyBush.updateMatrix();
-            bushMatrices.push(dummyBush.matrix.clone());
+            const pRoll = rng();
+            if (currentZoneIndex === 1) {
+                if (pRoll < 0.42 && sharedAgaveGeo) extraPlantMatrices.push(dummyBush.matrix.clone());
+                else if (pRoll < 0.76 && sharedPricklyPearGeo) secondaryPlantMatrices.push(dummyBush.matrix.clone());
+                else bushMatrices.push(dummyBush.matrix.clone());
+            } else if (currentZoneIndex === 2) {
+                if (pRoll < 0.50 && sharedFernGeo) extraPlantMatrices.push(dummyBush.matrix.clone());
+                else if (pRoll < 0.75 && sharedFlowerBushGeo) secondaryPlantMatrices.push(dummyBush.matrix.clone());
+                else bushMatrices.push(dummyBush.matrix.clone());
+            } else {
+                if (pRoll < 0.40 && sharedFlowerBushGeo) extraPlantMatrices.push(dummyBush.matrix.clone());
+                else if (pRoll < 0.68 && sharedFernGeo) secondaryPlantMatrices.push(dummyBush.matrix.clone());
+                else bushMatrices.push(dummyBush.matrix.clone());
+            }
         }
 
         if (bushMatrices.length > 0) {
@@ -4115,6 +5230,36 @@ class TerrainChunk {
             bushInstMesh.customDepthMaterial = getTreeDepthMaterial();
             this.group.add(bushInstMesh);
             this.bushMesh = bushInstMesh;
+        }
+
+        const primaryExtraGeo = (currentZoneIndex === 1) ? sharedAgaveGeo : (currentZoneIndex === 2 ? sharedFernGeo : sharedFlowerBushGeo);
+        const primaryMat = (currentZoneIndex === 1) ? cactusMat : treeMaterial;
+        if (extraPlantMatrices.length > 0 && primaryExtraGeo) {
+            const extraInst = new THREE.InstancedMesh(primaryExtraGeo, primaryMat, extraPlantMatrices.length);
+            for (let i = 0; i < extraPlantMatrices.length; i++) {
+                extraInst.setMatrixAt(i, extraPlantMatrices[i]);
+            }
+            extraInst.instanceMatrix.needsUpdate = true;
+            extraInst.castShadow = true;
+            extraInst.receiveShadow = true;
+            if (currentZoneIndex !== 1) extraInst.customDepthMaterial = getTreeDepthMaterial();
+            this.group.add(extraInst);
+            this.extraPlantMeshes.push(extraInst);
+        }
+
+        const secondaryExtraGeo = (currentZoneIndex === 1) ? sharedPricklyPearGeo : (currentZoneIndex === 2 ? sharedFlowerBushGeo : sharedFernGeo);
+        const secondaryMat = (currentZoneIndex === 1) ? cactusMat : treeMaterial;
+        if (secondaryPlantMatrices.length > 0 && secondaryExtraGeo) {
+            const secInst = new THREE.InstancedMesh(secondaryExtraGeo, secondaryMat, secondaryPlantMatrices.length);
+            for (let i = 0; i < secondaryPlantMatrices.length; i++) {
+                secInst.setMatrixAt(i, secondaryPlantMatrices[i]);
+            }
+            secInst.instanceMatrix.needsUpdate = true;
+            secInst.castShadow = true;
+            secInst.receiveShadow = true;
+            if (currentZoneIndex !== 1) secInst.customDepthMaterial = getTreeDepthMaterial();
+            this.group.add(secInst);
+            this.extraPlantMeshes.push(secInst);
         }
     }
 
@@ -4137,6 +5282,7 @@ class TerrainChunk {
         });
 
         this.buildings.forEach(b => {
+            unloadBuildingInterior(b);
             const idx = worldBuildings.indexOf(b);
             if (idx !== -1) worldBuildings.splice(idx, 1);
             const oIdx = worldObstacles.indexOf(b);
@@ -4169,6 +5315,10 @@ class TerrainChunk {
         }
         if (this.bushMesh) {
             this.bushMesh.dispose && this.bushMesh.dispose();
+        }
+        if (this.extraPlantMeshes) {
+            this.extraPlantMeshes.forEach(m => m && m.dispose && m.dispose());
+            this.extraPlantMeshes.length = 0;
         }
     }
 }
@@ -4501,6 +5651,7 @@ function clearZoneStaticProps() {
     zoneStaticTrees.length = 0;
 
     zoneStaticBuildings.forEach(b => {
+        unloadBuildingInterior(b);
         const idx = worldBuildings.indexOf(b);
         if (idx !== -1) worldBuildings.splice(idx, 1);
     });
@@ -4579,9 +5730,15 @@ function rebuildZoneStaticProps() {
     // 2. Signature Architectural Landmark at (-18.0, 112.0)
     const cotX = -18.0;
     const cotZ = 112.0;
-    const cotY = getTerrainHeight(cotX, cotZ);
+    const cotY = Math.max(
+        getTerrainHeight(cotX, cotZ),
+        getTerrainHeight(cotX - 2.6, cotZ - 2.6),
+        getTerrainHeight(cotX + 2.6, cotZ - 2.6),
+        getTerrainHeight(cotX - 2.6, cotZ + 2.6),
+        getTerrainHeight(cotX + 2.6, cotZ + 2.6)
+    );
     const sigBldgGeo = (currentZoneIndex === 1) ? sharedKasbahGeo
-                     : (currentZoneIndex === 2) ? sharedMountainBunkerGeo
+                     : (currentZoneIndex === 2) ? (sharedChaletGeo || sharedMountainBunkerGeo)
                      : sharedCottageGeo;
     const cotMesh = new THREE.Mesh(sigBldgGeo, villageMat);
     cotMesh.position.set(cotX, cotY - 0.1, cotZ);
@@ -4877,6 +6034,7 @@ function updateEnvironment(dt, tankState) {
 
     updateTerrainChunks(px, pz);
     processChunkStreamingQueue(3.5);
+    updateBuildingInteriors(px, pz);
 
     // Animate active fire sprites and smoke plumes
     for (let i = 0; i < activeFireSprites.length; i++) {
@@ -5203,3 +6361,16 @@ window.sharedPalmGeos = sharedPalmGeos;
 window.sharedAcaciaGeo = sharedAcaciaGeo;
 window.sharedCactusGeo = sharedCactusGeo;
 window.sharedCactusGeos = sharedCactusGeos;
+window.sharedBirchGeo = sharedBirchGeo;
+window.sharedCypressGeo = sharedCypressGeo;
+window.sharedWillowGeo = sharedWillowGeo;
+window.sharedLarchGeo = sharedLarchGeo;
+window.sharedJoshuaTreeGeo = sharedJoshuaTreeGeo;
+window.sharedAgaveGeo = sharedAgaveGeo;
+window.sharedPricklyPearGeo = sharedPricklyPearGeo;
+window.sharedFlowerBushGeo = sharedFlowerBushGeo;
+window.sharedFernGeo = sharedFernGeo;
+window.sharedTownhouseGeo = sharedTownhouseGeo;
+window.sharedFarmhouseGeo = sharedFarmhouseGeo;
+window.sharedAdobeHouseGeo = sharedAdobeHouseGeo;
+window.sharedChaletGeo = sharedChaletGeo;

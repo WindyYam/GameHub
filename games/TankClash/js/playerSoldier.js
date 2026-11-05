@@ -1796,8 +1796,9 @@
         s.y += s.vy * dt;
         if (typeof window.getTerrainHeight === 'function') {
             const gh = window.getTerrainHeight(s.x, s.z);
-            if (s.y <= gh) {
-                s.y = gh;
+            const floorH = (typeof window.getBuildingFloorHeight === 'function') ? window.getBuildingFloorHeight(s.x, s.z, gh) : gh;
+            if (s.y <= floorH) {
+                s.y = floorH;
                 s.vy = 0;
                 s.isGrounded = true;
             } else {
@@ -1943,6 +1944,40 @@
             }
 
             const camPos = anchor.clone().addScaledVector(lookDir, -effectiveDist).add(rightOffset).add(new THREE.Vector3(0, 0.35, 0));
+
+            // Pull camera forward if an enterable house wall blocks the line from player to camera,
+            // and keep camera below ceiling when inside a house
+            if (typeof window.obstacleSegmentEntry === 'function' && Array.isArray(window.worldObstacles)) {
+                let minWallT = 1.0;
+                let insideObs = null;
+                for (let i = 0; i < window.worldObstacles.length; i++) {
+                    const obs = window.worldObstacles[i];
+                    if (!obs || !obs.enterable || !obs.box) continue;
+                    const dx = s.x - obs.x, dz = s.z - obs.z;
+                    if (dx * dx + dz * dz > (obs.radius + 5.0) * (obs.radius + 5.0)) continue;
+                    const t = window.obstacleSegmentEntry(obs, anchor.x, anchor.z, camPos.x, camPos.z, 0.18);
+                    if (t >= 0 && t < minWallT) {
+                        minWallT = t;
+                    }
+                    if (typeof window.obstacleLocalCoords === 'function' && obs.enterableSpec) {
+                        const loc = window.obstacleLocalCoords(obs, s.x, s.z);
+                        const sc = obs.scale || 1.0;
+                        if (Math.abs(loc.x) < obs.enterableSpec.w * 0.5 * sc && Math.abs(loc.z) < obs.enterableSpec.l * 0.5 * sc) {
+                            insideObs = obs;
+                        }
+                    }
+                }
+                if (minWallT < 1.0) {
+                    const safeT = Math.max(0.22, minWallT - 0.08);
+                    camPos.x = THREE.MathUtils.lerp(anchor.x, camPos.x, safeT);
+                    camPos.z = THREE.MathUtils.lerp(anchor.z, camPos.z, safeT);
+                    camPos.y = THREE.MathUtils.lerp(anchor.y + 0.15, camPos.y, safeT);
+                }
+                if (insideObs) {
+                    const maxCeilY = insideObs.y + (insideObs.floorHeight || 0.16) + (insideObs.ceilingHeight || 3.2) - 0.32;
+                    if (camPos.y > maxCeilY) camPos.y = maxCeilY;
+                }
+            }
 
             // Terrain safety clearance
             const terrainUnderCam = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(camPos.x, camPos.z) + 0.30 : 0.8;

@@ -309,8 +309,8 @@
             detectionTimer: 0,
             reloadTimer: 1.5 + Math.random() * (spec.reloadTime || 3.5),
             barrelRecoil: 0,
-            aimErrorYaw: (Math.random() - 0.5) * ((spec.spread || 0.005) * 8.0),
-            aimErrorElev: (Math.random() - 0.5) * ((spec.spread || 0.005) * 5.0),
+            aimErrorYaw: (Math.random() - 0.5) * ((spec.spread || 0.005) * 5.0),
+            aimErrorElev: (Math.random() - 0.5) * ((spec.spread || 0.005) * 3.2),
             aimErrorTimer: 0,
             speed: 0,
             isDestroyed: false,
@@ -583,7 +583,7 @@
         }
 
         // In infantry mode, player is hard to detect, only in close range (all detection ranges increased by 1.2)
-        const maxDetectRange = playerShotRecently ? TANK_FIRE_PROVOKE_RANGE : (isInfantry ? 22 * 1.2 : 95 * 1.2);
+        const maxDetectRange = playerShotRecently ? TANK_FIRE_PROVOKE_RANGE : (isInfantry ? 22 * 1.2 : 120 * 1.2);
         const stealthBuffer = (isInfantry ? 18 : 32) * 1.2;
 
         for (let i = activeEnemyTanks.length - 1; i >= 0; i--) {
@@ -643,7 +643,7 @@
             const distToPlayer = Math.hypot(dx, dz);
 
             const clearObstacleSight = checkObstacleLineOfSight(e.x, e.z, targetX, targetZ);
-            const hasLOS = (distToPlayer < 125 * 1.2) && clearObstacleSight;
+            const hasLOS = (distToPlayer < 155 * 1.2) && clearObstacleSight;
             const inDetectRange = (distToPlayer < maxDetectRange);
             const canDetectNormally = hasLOS && inDetectRange;
             const isHitAlert = !!(e.wasHitAlert && (e.detectionTimer > 0 || (e.provokedTimer && e.provokedTimer > 0)));
@@ -850,8 +850,8 @@
             if (e.aimErrorTimer > 2.8) {
                 e.aimErrorTimer = 0;
                 const spr = (e.spec && typeof e.spec.spread === 'number') ? e.spec.spread : 0.005;
-                e.aimErrorYaw = (Math.random() - 0.5) * (spr * 8.0);
-                e.aimErrorElev = (Math.random() - 0.5) * (spr * 5.0);
+                e.aimErrorYaw = (Math.random() - 0.5) * (spr * 5.0);
+                e.aimErrorElev = (Math.random() - 0.5) * (spr * 3.2);
             }
 
             // 1. Calculate Target Turret Angle in enemy local space (with crew aim error)
@@ -1016,9 +1016,9 @@
                     muzzlePos.set(e.x, e.y + 1.8, e.z).add(new THREE.Vector3(Math.sin(worldAngleToPlayer), 0, Math.cos(worldAngleToPlayer)).multiplyScalar(4.0));
                 }
 
-                // Authentic gun barrel world direction with wider dispersion so they miss frequently
-                const shotYaw = e.heading + e.turretYaw + (Math.random() - 0.5) * 0.10;
-                const shotElev = e.gunElevation + (Math.random() - 0.5) * 0.08;
+                // Authentic gun barrel world direction with improved dispersion precision
+                const shotYaw = e.heading + e.turretYaw + (Math.random() - 0.5) * 0.06;
+                const shotElev = e.gunElevation + (Math.random() - 0.5) * 0.045;
                 const cosElev = Math.cos(shotElev);
                 const fireDir = new THREE.Vector3(
                     Math.sin(shotYaw) * cosElev,
@@ -1028,8 +1028,8 @@
 
                 // Re-randomize aim error for subsequent shots based on tank precision
                 const shotSpr = (e.spec && typeof e.spec.spread === 'number') ? e.spec.spread : 0.005;
-                e.aimErrorYaw = (Math.random() - 0.5) * (shotSpr * 9.0);
-                e.aimErrorElev = (Math.random() - 0.5) * (shotSpr * 6.0);
+                e.aimErrorYaw = (Math.random() - 0.5) * (shotSpr * 5.5);
+                e.aimErrorElev = (Math.random() - 0.5) * (shotSpr * 3.8);
                 e.aimErrorTimer = 0;
 
                 // Dynamic Muzzle Flash Light

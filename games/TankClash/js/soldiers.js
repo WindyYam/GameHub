@@ -2181,7 +2181,8 @@
                         this.wanderTarget.x = this.homeX;
                         this.wanderTarget.z = this.homeZ;
                     } else {
-                        this.y = THREE.MathUtils.lerp(this.y, gh, dt * 10);
+                        const floorH = (typeof window.getBuildingFloorHeight === 'function') ? window.getBuildingFloorHeight(this.x, this.z, gh) : gh;
+                        this.y = THREE.MathUtils.lerp(this.y, floorH, dt * 10);
                     }
                 }
             }
@@ -2215,7 +2216,7 @@
                 const nowSec = (window.performance && window.performance.now) ? window.performance.now() * 0.001 : Date.now() * 0.001;
                 const ps = isPlayerOnFoot ? window.playerSoldier : null;
                 const playerFiredRecently = ps ? ((nowSec - (ps.lastFireTime || 0) < 3.0) || (nowSec - (ps.lastGrenadeTime || 0) < 3.0)) : false;
-                const normalDetectDist = isPlayerOnFoot ? (playerFiredRecently ? 80 : (22 * 1.2)) : (135 * 1.2);
+                const normalDetectDist = isPlayerOnFoot ? (playerFiredRecently ? 80 : (22 * 1.2)) : (155 * 1.2);
                 const inDetectRange = (dP < normalDetectDist);
 
                 if (!inDetectRange) {
@@ -2284,7 +2285,7 @@
                 }
             } else {
                 // A. Check Player Tank (scaled 1.2x)
-                if (this.isEnemy && !window.tankState.isKnockedOut && window.tankState.hasTank !== false && distToPlayer < 135 * 1.2) {
+                if (this.isEnemy && !window.tankState.isKnockedOut && window.tankState.hasTank !== false && distToPlayer < 155 * 1.2) {
                     this.currentTarget = {
                         type: 'tank',
                         x: playerX,
@@ -2461,8 +2462,8 @@
                 if (right.lengthSq() < 0.000001) right.set(1, 0, 0);
                 right.normalize();
                 const up = new THREE.Vector3().crossVectors(shootDir, right).normalize();
-                const spreadH = isSMG ? 0.16 : 0.07;
-                const spreadV = isSMG ? 0.10 : 0.04;
+                const spreadH = isSMG ? 0.125 : 0.062;
+                const spreadV = isSMG ? 0.078 : 0.032;
                 shootDir.addScaledVector(right, (Math.random() - 0.5) * spreadH);
                 shootDir.addScaledVector(up, (Math.random() - 0.5) * spreadV);
                 shootDir.normalize();
