@@ -623,6 +623,28 @@
     const activeGrenades = [];
     window.activeGrenades = activeGrenades;
 
+    function isPointInObstacleWindow(obs, pt) {
+        if (typeof window !== 'undefined' && typeof window.isPointInObstacleWindow === 'function') {
+            return window.isPointInObstacleWindow(obs, pt);
+        }
+        if (!obs || !pt || !obs.box || !obs.windows || obs.windows.length === 0) return false;
+        const l = (typeof obstacleLocalCoords === 'function')
+            ? obstacleLocalCoords(obs, pt.x, pt.z)
+            : (typeof window !== 'undefined' && typeof window.obstacleLocalCoords === 'function')
+                ? window.obstacleLocalCoords(obs, pt.x, pt.z)
+                : { x: pt.x - obs.x, z: pt.z - obs.z };
+        const ly = pt.y - (typeof obs.y === 'number' ? obs.y : 0);
+        for (let i = 0; i < obs.windows.length; i++) {
+            const win = obs.windows[i];
+            if (l.x >= win.minX && l.x <= win.maxX &&
+                l.z >= win.minZ && l.z <= win.maxZ &&
+                ly >= win.minY && ly <= win.maxY) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     function buildGrenadeMesh() {
         const group = new THREE.Group();
         
@@ -888,22 +910,30 @@
                             : new THREE.Vector3(0, 0, 1);
                         const raycaster = new THREE.Raycaster(prevPos, segDir, 0, segLen + 0.2);
                         const hits = raycaster.intersectObject(obs.mesh, true);
-                        if (hits.length > 0 && hits[0].distance <= segLen + 0.2) {
-                            hitPoint = hits[0].point.clone();
+                        for (let hIdx = 0; hIdx < hits.length; hIdx++) {
+                            const hit = hits[hIdx];
+                            if (hit.distance <= segLen + 0.2) {
+                                if (isPointInObstacleWindow(obs, hit.point)) {
+                                    continue; // Grenade passes through window!
+                                }
+                                hitPoint = hit.point.clone();
+                                break;
+                            }
                         }
-                    }
-
-                    if (!hitPoint) {
+                    } else if (!obs.mesh) {
                         const inY = g.pos.y >= obsY - 0.5 && g.pos.y <= obsY + obsH + 0.5;
                         if (typeof obstacleSegmentEntry === 'function') {
                             // Measured footprint: find where the flight segment enters the box.
                             const entry = obstacleSegmentEntry(obs, prevPos.x, prevPos.z, g.pos.x, g.pos.z, 0);
                             if (entry >= 0 && inY) {
-                                hitPoint = new THREE.Vector3(
+                                const pt = new THREE.Vector3(
                                     prevPos.x + (g.pos.x - prevPos.x) * entry,
                                     g.pos.y,
                                     prevPos.z + (g.pos.z - prevPos.z) * entry
                                 );
+                                if (!isPointInObstacleWindow(obs, pt)) {
+                                    hitPoint = pt;
+                                }
                             }
                         } else {
                             const dNow = Math.hypot(g.pos.x - obs.x, g.pos.z - obs.z);

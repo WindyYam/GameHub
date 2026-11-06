@@ -811,6 +811,13 @@ function updateSimulation(dt) {
         const hits = raycaster.intersectObjects(aimCandidates, false);
         for (let i = 0; i < hits.length; i++) {
             if (hits[i].distance > 3.0) {
+                const obs = hits[i].object && hits[i].object.userData && hits[i].object.userData.obstacle;
+                const checkWinFn = (typeof isPointInObstacleWindow === 'function')
+                    ? isPointInObstacleWindow
+                    : (typeof window !== 'undefined' ? window.isPointInObstacleWindow : null);
+                if (obs && checkWinFn && checkWinFn(obs, hits[i].point)) {
+                    continue; // Aim through window!
+                }
                 worldAimPoint.copy(hits[i].point);
                 foundHit = true;
                 break;
@@ -919,9 +926,21 @@ function updateSimulation(dt) {
     let boreDist = 250.0;
     const boreCandidates = getAimRaycastCandidates(muzzleWorldPos);
     const boreHits = raycaster.intersectObjects(boreCandidates, false);
-    if (boreHits.length > 0) {
-        actualGunHitPoint.copy(boreHits[0].point);
-        boreDist = boreHits[0].distance;
+    let validBoreHit = null;
+    for (let i = 0; i < boreHits.length; i++) {
+        const obs = boreHits[i].object && boreHits[i].object.userData && boreHits[i].object.userData.obstacle;
+        const checkWinFn = (typeof isPointInObstacleWindow === 'function')
+            ? isPointInObstacleWindow
+            : (typeof window !== 'undefined' ? window.isPointInObstacleWindow : null);
+        if (obs && checkWinFn && checkWinFn(obs, boreHits[i].point)) {
+            continue;
+        }
+        validBoreHit = boreHits[i];
+        break;
+    }
+    if (validBoreHit) {
+        actualGunHitPoint.copy(validBoreHit.point);
+        boreDist = validBoreHit.distance;
     } else {
         raycaster.ray.at(250.0, actualGunHitPoint);
     }

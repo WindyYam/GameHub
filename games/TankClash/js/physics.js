@@ -1035,6 +1035,28 @@ function triggerHeavyDetonation(pos, ignorePlayer = false, customBlastRadius = 8
 
 const _obstacleRaycaster = new THREE.Raycaster();
 
+function isPointInObstacleWindow(obs, pt) {
+    if (typeof window !== 'undefined' && typeof window.isPointInObstacleWindow === 'function') {
+        return window.isPointInObstacleWindow(obs, pt);
+    }
+    if (!obs || !pt || !obs.box || !obs.windows || obs.windows.length === 0) return false;
+    const l = (typeof obstacleLocalCoords === 'function')
+        ? obstacleLocalCoords(obs, pt.x, pt.z)
+        : (typeof window !== 'undefined' && typeof window.obstacleLocalCoords === 'function')
+            ? window.obstacleLocalCoords(obs, pt.x, pt.z)
+            : { x: pt.x - obs.x, z: pt.z - obs.z };
+    const ly = pt.y - (typeof obs.y === 'number' ? obs.y : 0);
+    for (let i = 0; i < obs.windows.length; i++) {
+        const win = obs.windows[i];
+        if (l.x >= win.minX && l.x <= win.maxX &&
+            l.z >= win.minZ && l.z <= win.maxZ &&
+            ly >= win.minY && ly <= win.maxY) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // Hitbox dimensions based on authentic historical vehicle profiles
 function getTankHitboxDims(specOrType) {
     const t = typeof specOrType === 'string' ? specOrType.toLowerCase() : (specOrType && specOrType.tankType ? specOrType.tankType.toLowerCase() : 'tiger');
@@ -1321,21 +1343,34 @@ function updateProjectiles(dt) {
                 _obstacleRaycaster.set(prevPos, segDir);
                 _obstacleRaycaster.far = segLen + 0.2;
                 const hits = _obstacleRaycaster.intersectObject(obs.mesh, true);
-                if (hits.length > 0 && hits[0].distance <= segLen + 0.2) {
-                    const tNorm = hits[0].distance / (segLen || 1);
+                let validHit = null;
+                for (let hIdx = 0; hIdx < hits.length; hIdx++) {
+                    const hit = hits[hIdx];
+                    if (hit.distance <= segLen + 0.2) {
+                        if (isPointInObstacleWindow(obs, hit.point)) {
+                            continue; // Passes through window!
+                        }
+                        validHit = hit;
+                        break;
+                    }
+                }
+                if (validHit) {
+                    const tNorm = validHit.distance / (segLen || 1);
                     if (!closestHit || tNorm < closestHit.t) {
                         closestHit = {
                             t: tNorm,
                             type: 'obstacle',
-                            impactPos: hits[0].point.clone(),
+                            impactPos: validHit.point.clone(),
                             targetObj: obs
                         };
                     }
-                    continue;
                 }
+                // When obs.mesh is present, do NOT fall back to analytical cylinder/box footprint!
+                continue;
             }
 
             // Analytical entry point against the measured footprint (oriented box or circle)
+            // Used ONLY when obs.mesh is not available (e.g. headless tests)
             let tHitDist = -1;
             if (typeof obstacleSegmentEntry === 'function') {
                 const s = obstacleSegmentEntry(obs, prevPos.x, prevPos.z,
@@ -1365,13 +1400,15 @@ function updateProjectiles(dt) {
                 const obsBottom = obs.y - 0.5;
 
                 if (testPt.y >= obsBottom && testPt.y <= obsTop) {
-                    if (!closestHit || tNorm < closestHit.t) {
-                        closestHit = {
-                            t: tNorm,
-                            type: 'obstacle',
-                            impactPos: testPt,
-                            targetObj: obs
-                        };
+                    if (!isPointInObstacleWindow(obs, testPt)) {
+                        if (!closestHit || tNorm < closestHit.t) {
+                            closestHit = {
+                                t: tNorm,
+                                type: 'obstacle',
+                                impactPos: testPt,
+                                targetObj: obs
+                            };
+                        }
                     }
                 }
             }
@@ -1587,16 +1624,34 @@ function updateProjectiles(dt) {
                 _obstacleRaycaster.set(prevPos, trSegDir);
                 _obstacleRaycaster.far = trSegLen;
                 const hits = _obstacleRaycaster.intersectObject(obs.mesh, true);
-                if (hits.length > 0 && hits[0].distance <= trSegLen) distance = hits[0].distance;
-            }
-            if (distance === null) {
+                for (let hIdx = 0; hIdx < hits.length; hIdx++) {
+                    const hit = hits[hIdx];
+                    if (hit.distance <= trSegLen) {
+                        if (isPointInObstacleWindow(obs, hit.point)) {
+                            continue; // Bullet passes through window!
+                        }
+                        distance = hit.distance;
+                        break;
+                    }
+                }
+            } else {
+                // Used ONLY when obs.mesh is not available (e.g. headless tests)
                 if (typeof obstacleSegmentEntry === 'function') {
                     const s = obstacleSegmentEntry(obs, prevPos.x, prevPos.z,
                         prevPos.x + trSegDir.x * trSegLen, prevPos.z + trSegDir.z * trSegLen, 0);
                     if (s >= 0) {
                         const entry = s * trSegLen;
                         const y = prevPos.y + trSegDir.y * entry;
-                        if (y >= obs.y - 0.5 && y <= obs.y + (obs.height || 4.5)) distance = entry;
+                        if (y >= obs.y - 0.5 && y <= obs.y + (obs.height || 4.5)) {
+                            const testPt = {
+                                x: prevPos.x + trSegDir.x * entry,
+                                y: y,
+                                z: prevPos.z + trSegDir.z * entry
+                            };
+                            if (!isPointInObstacleWindow(obs, testPt)) {
+                                distance = entry;
+                            }
+                        }
                     }
                 } else {
                     const dx = prevPos.x - obs.x;

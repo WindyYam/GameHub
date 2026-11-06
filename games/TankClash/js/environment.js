@@ -1299,7 +1299,8 @@ const rockMat = new THREE.MeshStandardMaterial({
     color: new THREE.Color(0x6b6861).convertSRGBToLinear(),
     roughness: 0.92,
     metalness: 0.04,
-    envMapIntensity: GROUND_ENV_MAP_INTENSITY
+    envMapIntensity: GROUND_ENV_MAP_INTENSITY,
+    side: THREE.DoubleSide
 });
 
 const desertRockMat = new THREE.MeshStandardMaterial({
@@ -1307,7 +1308,8 @@ const desertRockMat = new THREE.MeshStandardMaterial({
     vertexColors: true,
     roughness: 0.90,
     metalness: 0.03,
-    envMapIntensity: GROUND_ENV_MAP_INTENSITY
+    envMapIntensity: GROUND_ENV_MAP_INTENSITY,
+    side: THREE.DoubleSide
 });
 
 const mountainRockMat = new THREE.MeshStandardMaterial({
@@ -1315,7 +1317,8 @@ const mountainRockMat = new THREE.MeshStandardMaterial({
     vertexColors: true,
     roughness: 0.88,
     metalness: 0.06,
-    envMapIntensity: GROUND_ENV_MAP_INTENSITY
+    envMapIntensity: GROUND_ENV_MAP_INTENSITY,
+    side: THREE.DoubleSide
 });
 
 let sharedRockNormalMap = null;
@@ -2114,7 +2117,7 @@ function buildHollowHouseShell(parts, opts) {
     doorLeaf.translate(-doorW * 0.5 + 0.06, floorY + leafH * 0.5 + 0.02, l * 0.5 + 0.02);
     addPart(doorLeaf, 0.52, 0.98, 0.02, 0.48, doorTint);
 
-    return { w, h, l, wallThick: wt, doorW, doorH, floorY };
+    return { w, h, l, wallThick: wt, doorW, doorH, floorY, winW, winH, winSillH, sideWinL };
 }
 
 function createEuropeanCottageGeometry() {
@@ -3458,9 +3461,15 @@ function attachObstacleBox(obj, geo, scale, rot) {
         const hl = (spec.l * 0.5) * sc;
         const wt = Math.max(0.28, (spec.wallThick || 0.32) * sc);
         const hdw = ((spec.doorW || 1.65) * 0.5) * sc;
+        const winW = (spec.winW || Math.min(1.4, spec.w * 0.30)) * sc;
+        const winH = (spec.winH || 1.05) * sc;
+        const winSillH = (spec.winSillH || 1.15) * sc;
+        const sideWinL = (spec.sideWinL || Math.min(1.5, spec.l * 0.26)) * sc;
+        const flY = (spec.floorY !== undefined ? spec.floorY : 0.16) * sc;
+
         obj.enterable = true;
         obj.enterableSpec = spec;
-        obj.floorHeight = (spec.floorY !== undefined ? spec.floorY : 0.16) * sc;
+        obj.floorHeight = flY;
         obj.ceilingHeight = (spec.h || 3.4) * sc;
         obj.wallBoxes = [
             // Back wall (-Z)
@@ -3474,9 +3483,45 @@ function attachObstacleBox(obj, geo, scale, rot) {
             // Front-right wall (+Z, right of doorway)
             { minX: hdw, maxX: hw, minZ: hl - wt, maxZ: hl }
         ];
+        obj.windows = [
+            // Back window (-Z)
+            {
+                type: 'back',
+                minX: -winW * 0.5 - 0.10,
+                maxX: winW * 0.5 + 0.10,
+                minY: flY + winSillH - 0.10,
+                maxY: flY + winSillH + winH + 0.10,
+                minZ: -hl - wt * 0.8,
+                maxZ: -hl + wt * 1.8
+            },
+            // Left window (-X)
+            {
+                type: 'left',
+                minX: -hw - wt * 1.8,
+                maxX: -hw + wt * 0.8,
+                minY: flY + winSillH - 0.10,
+                maxY: flY + winSillH + winH + 0.10,
+                minZ: -sideWinL * 0.5 - 0.10,
+                maxZ: sideWinL * 0.5 + 0.10
+            },
+            // Right window (+X)
+            {
+                type: 'right',
+                minX: hw - wt * 0.8,
+                maxX: hw + wt * 1.8,
+                minY: flY + winSillH - 0.10,
+                maxY: flY + winSillH + winH + 0.10,
+                minZ: -sideWinL * 0.5 - 0.10,
+                maxZ: sideWinL * 0.5 + 0.10
+            }
+        ];
         obj.interiorLoaded = false;
         obj.interiorMesh = null;
         obj.interiorBoxes = [];
+    }
+    if (obj.mesh) {
+        obj.mesh.userData = obj.mesh.userData || {};
+        obj.mesh.userData.obstacle = obj;
     }
     return obj;
 }
@@ -3484,7 +3529,27 @@ function attachObstacleBox(obj, geo, scale, rot) {
 // Attach a measured circle (rocks). Sets obs.radius from the furthest vertex.
 function attachObstacleCircle(obj, geo, scale) {
     obj.radius = getGeometryFootprint(geo).maxR * scale;
+    if (obj.mesh) {
+        obj.mesh.userData = obj.mesh.userData || {};
+        obj.mesh.userData.obstacle = obj;
+    }
     return obj;
+}
+
+// Checks if a 3D world position is within any window opening of an enterable obstacle
+function isPointInObstacleWindow(obs, pt) {
+    if (!obs || !pt || !obs.box || !obs.windows || obs.windows.length === 0) return false;
+    const l = obstacleLocalCoords(obs, pt.x, pt.z);
+    const ly = pt.y - (typeof obs.y === 'number' ? obs.y : 0);
+    for (let i = 0; i < obs.windows.length; i++) {
+        const win = obs.windows[i];
+        if (l.x >= win.minX && l.x <= win.maxX &&
+            l.z >= win.minZ && l.z <= win.maxZ &&
+            ly >= win.minY && ly <= win.maxY) {
+            return true;
+        }
+    }
+    return false;
 }
 
 // World XZ offset -> obstacle local (un-rotated) coordinates.
@@ -3825,6 +3890,7 @@ window.getBuildingFloorHeight = getBuildingFloorHeight;
 window.loadBuildingInterior = loadBuildingInterior;
 window.unloadBuildingInterior = unloadBuildingInterior;
 window.updateBuildingInteriors = updateBuildingInteriors;
+window.isPointInObstacleWindow = isPointInObstacleWindow;
 window.INTERIOR_LOAD_DIST = INTERIOR_LOAD_DIST;
 window.INTERIOR_UNLOAD_DIST = INTERIOR_UNLOAD_DIST;
 
@@ -4913,7 +4979,8 @@ class TerrainChunk {
                 y: ry,
                 z: rz,
                 height: 4.4 * rs,
-                type: 'rock'
+                type: 'rock',
+                isRock: true
             }, zoneRockGeo, rs);
             this.rocks.push(rockObj);
             worldObstacles.push(rockObj);
@@ -5774,7 +5841,7 @@ function rebuildZoneStaticProps() {
     zoneStaticGroup.add(sigRockMesh);
     aimRaycastMeshes.push(sigRockMesh);
     zoneStaticRaycastMeshes.push(sigRockMesh);
-    const sigRockObj = attachObstacleCircle({ mesh: sigRockMesh, x: sigRockX, y: sigRockY, z: sigRockZ, height: 4.8, type: 'rock' }, sigRGeo, 1.2);
+    const sigRockObj = attachObstacleCircle({ mesh: sigRockMesh, x: sigRockX, y: sigRockY, z: sigRockZ, height: 4.8, type: 'rock', isRock: true }, sigRGeo, 1.2);
     const sigRockBldg = { x: sigRockX, z: sigRockZ, radius: sigRockObj.radius, isRuin: false, isRock: true };
     worldBuildings.push(sigRockBldg);
     worldObstacles.push(sigRockObj);
