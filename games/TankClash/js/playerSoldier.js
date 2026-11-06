@@ -444,6 +444,10 @@
             if (typeof window.showKillFeedBanner === 'function') window.showKillFeedBanner('DISMOUNT TO DEPLOY MORTAR', '#f59e0b');
             return;
         }
+        if (s.isSwimming) {
+            if (typeof window.showKillFeedBanner === 'function') window.showKillFeedBanner('CANNOT DEPLOY MORTAR IN WATER', '#f87171');
+            return;
+        }
         if (s.mortarDeployed) return;
         s.mortarDeployed = true;
         s.mortarElevation = Math.PI / 4;
@@ -624,9 +628,6 @@
     window.activeGrenades = activeGrenades;
 
     function isPointInObstacleWindow(obs, pt) {
-        if (typeof window !== 'undefined' && typeof window.isPointInObstacleWindow === 'function') {
-            return window.isPointInObstacleWindow(obs, pt);
-        }
         if (!obs || !pt || !obs.box || !obs.windows || obs.windows.length === 0) return false;
         const l = (typeof obstacleLocalCoords === 'function')
             ? obstacleLocalCoords(obs, pt.x, pt.z)
@@ -904,6 +905,10 @@
                     if (dCenterSq > (obsR + segLen + 0.5) ** 2) continue;
 
                     let hitPoint = null;
+                    const checkWinFn = (typeof isPointInObstacleWindow === 'function')
+                        ? isPointInObstacleWindow
+                        : ((typeof window !== 'undefined' && typeof window.isPointInObstacleWindow === 'function') ? window.isPointInObstacleWindow : null);
+
                     if (obs.mesh && typeof THREE !== 'undefined' && typeof THREE.Raycaster === 'function') {
                         const segDir = (segLen > 0.0001)
                             ? new THREE.Vector3(segX / segLen, segY / segLen, segZ / segLen)
@@ -913,14 +918,20 @@
                         for (let hIdx = 0; hIdx < hits.length; hIdx++) {
                             const hit = hits[hIdx];
                             if (hit.distance <= segLen + 0.2) {
-                                if (isPointInObstacleWindow(obs, hit.point)) {
+                                if (checkWinFn && checkWinFn(obs, hit.point)) {
                                     continue; // Grenade passes through window!
                                 }
                                 hitPoint = hit.point.clone();
                                 break;
                             }
                         }
-                    } else if (!obs.mesh) {
+                        // For rocks with 3D mesh: if the ray missed the mesh, do not fall back to giant cylinder
+                        if (!hitPoint && (obs.isRock || obs.type === 'rock')) {
+                            continue;
+                        }
+                    }
+
+                    if (!hitPoint) {
                         const inY = g.pos.y >= obsY - 0.5 && g.pos.y <= obsY + obsH + 0.5;
                         if (typeof obstacleSegmentEntry === 'function') {
                             // Measured footprint: find where the flight segment enters the box.
@@ -931,11 +942,11 @@
                                     g.pos.y,
                                     prevPos.z + (g.pos.z - prevPos.z) * entry
                                 );
-                                if (!isPointInObstacleWindow(obs, pt)) {
+                                if (!checkWinFn || !checkWinFn(obs, pt)) {
                                     hitPoint = pt;
                                 }
                             }
-                        } else {
+                        } else if (!obs.mesh) {
                             const dNow = Math.hypot(g.pos.x - obs.x, g.pos.z - obs.z);
                             if (dNow <= obsR && inY) {
                                 hitPoint = g.pos.clone();
@@ -1157,13 +1168,24 @@
     // INFANTRY JUMP MECHANIC
     // ------------------------------------------------------------------------
     function soldierJump() {
-        if (playerMode !== 'soldier' || !playerSoldier || playerSoldier.isDead) return;
-        if (!playerSoldier.isGrounded) return;
+        const mode = (typeof window !== 'undefined' && window.playerMode) ? window.playerMode : playerMode;
+        const s = (typeof window !== 'undefined' && window.playerSoldier) ? window.playerSoldier : playerSoldier;
+        if (mode !== 'soldier' || !s || s.isDead) return;
+        const isSwimmer = Boolean(s.isSwimming);
+        if (!s.isGrounded && !isSwimmer) return;
         const now = performance.now();
-        if (now - (playerSoldier.lastJumpTime || 0) < 350) return;
-        playerSoldier.lastJumpTime = now;
-        playerSoldier.vy = 6.8; // Vertical velocity (~0.9m jump clearance)
-        playerSoldier.isGrounded = false;
+        if (now - (s.lastJumpTime || 0) < 350) return;
+        s.lastJumpTime = now;
+        if (isSwimmer) {
+            s.vy = 3.6; // Water stroke / surface treading boost
+            if (typeof window.spawnShockwave === 'function') {
+                const waterLvl = (typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5;
+                window.spawnShockwave(new THREE.Vector3(s.x, waterLvl + 0.02, s.z), 1.6, 0.5, 0x93c5fd);
+            }
+        } else {
+            s.vy = 6.8; // Vertical velocity (~0.9m jump clearance)
+            s.isGrounded = false;
+        }
     }
     window.soldierJump = soldierJump;
 
@@ -1213,7 +1235,9 @@
         // Spawn player soldier 2.4 meters to the left of the tank hull
         const spawnX = window.tankState.x - Math.cos(tH) * 2.4;
         const spawnZ = window.tankState.z + Math.sin(tH) * 2.4;
-        const spawnY = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(spawnX, spawnZ) : 0;
+        const groundY = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(spawnX, spawnZ) : 0;
+        const waterLvl = (typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5;
+        const spawnY = (groundY < waterLvl - 1.25) ? (waterLvl - 1.25) : groundY;
 
         rig.root.position.set(spawnX, spawnY, spawnZ);
         rig.root.rotation.y = tH;
@@ -1228,7 +1252,9 @@
             y: spawnY,
             z: spawnZ,
             vy: 0,
-            isGrounded: true,
+            isGrounded: (groundY >= waterLvl - 1.15),
+            isSwimming: (groundY < waterLvl - 1.15),
+            waterDepth: Math.max(0, waterLvl - groundY),
             lastJumpTime: 0,
             lastGrenadeTime: 0,
             grenadeAnimTimer: 0,
@@ -1684,15 +1710,31 @@
             s.invulnerableTimer = Math.max(0, s.invulnerableTimer - dt);
             const hudArmor = document.getElementById('hud-armor');
             if (hudArmor) {
+                const swimTag = s.isSwimming ? ' 🏊' : '';
                 if (s.invulnerableTimer > 0) {
                     const sec = s.invulnerableTimer.toFixed(1);
-                    hudArmor.textContent = `HP: ${s.health}/100 🛡️ [${sec}s]`;
+                    hudArmor.textContent = `HP: ${s.health}/100 🛡️ [${sec}s]${swimTag}`;
                     hudArmor.className = 'text-amber-300 font-bold';
                 } else {
-                    hudArmor.textContent = `HP: ${s.health}/100`;
-                    hudArmor.className = 'text-emerald-400 font-bold';
+                    hudArmor.textContent = `HP: ${s.health}/100${swimTag}`;
+                    hudArmor.className = s.isSwimming ? 'text-cyan-300 font-bold' : (s.health > 40 ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold');
                 }
             }
+        }
+
+        // Detect water environment and swimming status
+        const WATER_LEVEL = (typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5;
+        const currentGH = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(s.x, s.z) : 0;
+        const currentFloorH = (typeof window.getBuildingFloorHeight === 'function') ? window.getBuildingFloorHeight(s.x, s.z, currentGH) : currentGH;
+        const currentWaterDepth = WATER_LEVEL - currentFloorH;
+        const isSwimming = currentWaterDepth >= 1.15;
+        const isWading = !isSwimming && currentWaterDepth > 0.05;
+        s.isSwimming = isSwimming;
+        s.isWading = isWading;
+        s.waterDepth = Math.max(0, currentWaterDepth);
+
+        if (isSwimming && s.mortarDeployed && typeof packPlayerMortar === 'function') {
+            packPlayerMortar(s);
         }
 
         // 1. WASD Input relative to Camera Look Direction
@@ -1716,7 +1758,16 @@
             moveSpeed = 2.8; // Gentle virtual stick tilt walks
         }
 
-        const isSprinting = moveSpeed > 3.5;
+        if (isSwimming) {
+            // Swimming speed: standard stroke ~2.4 m/s, fast stroke ~3.8 m/s
+            moveSpeed = (moveSpeed > 3.5) ? 3.8 : 2.4;
+        } else if (isWading) {
+            // Wading through shallow water: mild drag
+            const wadeFactor = THREE.MathUtils.lerp(0.85, 0.55, Math.min(1.0, currentWaterDepth / 1.15));
+            moveSpeed *= wadeFactor;
+        }
+
+        const isSprinting = moveSpeed > 3.2;
 
         // Mounted Dispatch Bicycle Locomotion, Pedaling Kinematics & Combat
         if (s.isMountedBicycle && s.currentBicycle && typeof window.updateBicycleRider === 'function') {
@@ -1785,15 +1836,21 @@
             // Blocked by obstacles (buildings, walls, rocks, trees)
             resolveSoldierObstacleCollisions(s);
 
-            if (typeof window.getTerrainHeight === 'function') {
-                const gh = window.getTerrainHeight(s.x, s.z);
-                if (gh < -2.2) { // Edge of sea
-                    s.x -= moveX * dt;
-                    s.z -= moveZ * dt;
-                }
-            }
             s.speed = THREE.MathUtils.lerp(s.speed, moveSpeed, dt * 8.0);
             s.heading = Math.atan2(camFwdX, camFwdZ);
+
+            // Water displacement & ripple VFX when moving through water
+            if (isSwimming || isWading) {
+                s.swimSplashTimer = (s.swimSplashTimer || 0) + dt;
+                const splashInterval = isSprinting ? 0.30 : 0.45;
+                if (s.swimSplashTimer >= splashInterval) {
+                    s.swimSplashTimer = 0;
+                    if (typeof window.spawnShockwave === 'function') {
+                        const ripplePos = new THREE.Vector3(s.x, WATER_LEVEL + 0.02, s.z);
+                        window.spawnShockwave(ripplePos, isSwimming ? (isSprinting ? 1.8 : 1.3) : 0.85, 0.65, 0x93c5fd);
+                    }
+                }
+            }
         } else {
             // Also ensure collision resolution even when standing still / idle against moving into obstacle
             resolveSoldierObstacleCollisions(s);
@@ -1813,22 +1870,42 @@
 
                 const hudArmor = document.getElementById('hud-armor');
                 if (hudArmor && (!s.invulnerableTimer || s.invulnerableTimer <= 0)) {
-                    hudArmor.textContent = `HP: ${s.health}/100`;
-                    hudArmor.className = s.health > 40 ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold';
+                    const statusTag = s.isSwimming ? ' 🏊 [SWIMMING]' : '';
+                    hudArmor.textContent = `HP: ${s.health}/100${statusTag}`;
+                    hudArmor.className = s.isSwimming ? 'text-cyan-300 font-bold' : (s.health > 40 ? 'text-emerald-400 font-bold' : 'text-red-400 font-bold');
                 }
             }
         } else {
             s.healTimer = 0;
         }
 
-        // Vertical physics (gravity and jump clearance)
-        s.vy = (s.vy !== undefined ? s.vy : 0) - 18.0 * dt;
-        s.y += s.vy * dt;
-        if (typeof window.getTerrainHeight === 'function') {
-            const gh = window.getTerrainHeight(s.x, s.z);
-            const floorH = (typeof window.getBuildingFloorHeight === 'function') ? window.getBuildingFloorHeight(s.x, s.z, gh) : gh;
-            if (s.y <= floorH) {
-                s.y = floorH;
+        // Vertical physics (gravity, buoyancy and flotation)
+        const floatTargetY = WATER_LEVEL - 1.25; // Chest/neck at surface, head above surface at WATER_LEVEL + 0.43m
+        if (isSwimming) {
+            s.isGrounded = false;
+            const targetY = Math.max(currentFloorH, floatTargetY);
+            if (s.y < targetY) {
+                // Submerged: buoyancy pulls soldier upward towards the floating surface
+                s.y = THREE.MathUtils.lerp(s.y, targetY, dt * 7.0);
+                s.vy = Math.max(0, (s.vy || 0));
+            } else {
+                // Above water (jump or surface entry): gravity pulls back down to water surface
+                s.vy = (s.vy !== undefined ? s.vy : 0) - 14.0 * dt;
+                s.y += s.vy * dt;
+                if (s.y <= targetY) {
+                    s.y = targetY;
+                    s.vy = 0;
+                }
+            }
+            // Gentle ocean wave surface bobbing
+            const swimBob = Math.sin((s.animTime || 0) * 2.8 + (s.x + s.z) * 0.35) * 0.035;
+            s.y += swimBob;
+            if (s.y < currentFloorH) s.y = currentFloorH;
+        } else {
+            s.vy = (s.vy !== undefined ? s.vy : 0) - 18.0 * dt;
+            s.y += s.vy * dt;
+            if (s.y <= currentFloorH) {
+                s.y = currentFloorH;
                 s.vy = 0;
                 s.isGrounded = true;
             } else {
@@ -1841,9 +1918,30 @@
         rig.root.position.set(s.x, s.y, s.z);
         rig.root.rotation.y = s.heading;
 
-        // 2. Procedural Bone Animation (Airborne jump / Leg sprint cycle / ADS Rifle Aim)
+        // 2. Procedural Bone Animation (Airborne jump / Swimming / Leg sprint cycle / ADS Rifle Aim)
         const isMoving = s.speed > 0.15;
-        if (!s.isGrounded) {
+        if (s.isSwimming) {
+            if (isMoving) {
+                const swimFreq = isSprinting ? 9.5 : 6.5;
+                const swim = s.animTime * swimFreq;
+                const kick = Math.sin(swim);
+                const kick2 = -kick;
+                // Flutter kick with legs extended horizontally behind body
+                rig.rightLeg.hipJoint.rotation.x = THREE.MathUtils.lerp(rig.rightLeg.hipJoint.rotation.x, 0.45 + kick * 0.38, dt * 12.0);
+                rig.leftLeg.hipJoint.rotation.x  = THREE.MathUtils.lerp(rig.leftLeg.hipJoint.rotation.x,  0.45 + kick2 * 0.38, dt * 12.0);
+                rig.rightLeg.kneeJoint.rotation.x = THREE.MathUtils.lerp(rig.rightLeg.kneeJoint.rotation.x, 0.25 + Math.max(0, -kick * 0.45), dt * 12.0);
+                rig.leftLeg.kneeJoint.rotation.x  = THREE.MathUtils.lerp(rig.leftLeg.kneeJoint.rotation.x,  0.25 + Math.max(0, -kick2 * 0.45), dt * 12.0);
+                rig.hips.position.y = 0.95;
+            } else {
+                // Treading water idle leg cycle
+                const tread = Math.sin(s.animTime * 2.8);
+                rig.rightLeg.hipJoint.rotation.x = THREE.MathUtils.lerp(rig.rightLeg.hipJoint.rotation.x, 0.16 + tread * 0.16, dt * 8.0);
+                rig.leftLeg.hipJoint.rotation.x  = THREE.MathUtils.lerp(rig.leftLeg.hipJoint.rotation.x,  0.16 - tread * 0.16, dt * 8.0);
+                rig.rightLeg.kneeJoint.rotation.x = THREE.MathUtils.lerp(rig.rightLeg.kneeJoint.rotation.x, 0.35 + Math.abs(tread) * 0.25, dt * 8.0);
+                rig.leftLeg.kneeJoint.rotation.x  = THREE.MathUtils.lerp(rig.leftLeg.kneeJoint.rotation.x,  0.35 + Math.abs(tread) * 0.25, dt * 8.0);
+                rig.hips.position.y = 0.95;
+            }
+        } else if (!s.isGrounded) {
             // Airborne jump tuck
             rig.rightLeg.hipJoint.rotation.x = THREE.MathUtils.lerp(rig.rightLeg.hipJoint.rotation.x, -0.42, dt * 12.0);
             rig.leftLeg.hipJoint.rotation.x  = THREE.MathUtils.lerp(rig.leftLeg.hipJoint.rotation.x, -0.32, dt * 12.0);
@@ -1885,8 +1983,15 @@
             const camLookDir = new THREE.Vector3();
             currentActiveCam.getWorldDirection(camLookDir);
             const camPitch = Math.asin(THREE.MathUtils.clamp(camLookDir.y, -0.99, 0.99));
-            rig.torso.rotation.x = -camPitch * 0.45;
-            rig.head.rotation.x = -camPitch * 0.35;
+
+            if (s.isSwimming) {
+                const swimTorsoX = isMoving ? -0.42 : -0.08;
+                rig.torso.rotation.x = THREE.MathUtils.lerp(rig.torso.rotation.x, swimTorsoX - camPitch * 0.35, dt * 8.0);
+                rig.head.rotation.x = THREE.MathUtils.lerp(rig.head.rotation.x, -swimTorsoX * 0.85 - camPitch * 0.30, dt * 8.0);
+            } else {
+                rig.torso.rotation.x = -camPitch * 0.45;
+                rig.head.rotation.x = -camPitch * 0.35;
+            }
 
             const isThrowingGrenade = (s.grenadeAnimTimer > 0);
 
@@ -1963,7 +2068,7 @@
 
             // Dynamically adjust distance if camera descends close to ground when looking high up
             const groundAtSoldier = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(s.x, s.z) : 0;
-            const minCamY = groundAtSoldier + 0.35;
+            const minCamY = Math.max(groundAtSoldier + 0.35, WATER_LEVEL + 0.25);
 
             let effectiveDist = dist;
             if (lookDir.y > 0.05) {
@@ -2009,9 +2114,10 @@
                 }
             }
 
-            // Terrain safety clearance
+            // Terrain & water safety clearance
             const terrainUnderCam = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(camPos.x, camPos.z) + 0.30 : 0.8;
-            if (camPos.y < terrainUnderCam) camPos.y = terrainUnderCam;
+            const minAllowedCamY = Math.max(terrainUnderCam, WATER_LEVEL + 0.25);
+            if (camPos.y < minAllowedCamY) camPos.y = minAllowedCamY;
 
             const lookTarget = anchor.clone().add(rightOffset.clone().multiplyScalar(0.4)).addScaledVector(lookDir, 50.0);
             currentActiveCam.position.copy(camPos);

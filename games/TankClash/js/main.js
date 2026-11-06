@@ -1887,7 +1887,9 @@ function deployPurchasedTank(tankId) {
     const respawnPos = (typeof window.getPlayerRespawnPosition === 'function')
         ? window.getPlayerRespawnPosition()
         : (window.lastPlayerDeathPosition ? { x: window.lastPlayerDeathPosition.x, z: window.lastPlayerDeathPosition.z, heading: window.lastPlayerDeathPosition.heading || 0 } : { x: 0, z: 0, heading: 0 });
-    const spawnY = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(respawnPos.x, respawnPos.z) : 0;
+    const groundY = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(respawnPos.x, respawnPos.z) : 0;
+    const waterLvl = (typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5;
+    const spawnY = (groundY < waterLvl - 1.25) ? (waterLvl - 1.25) : groundY;
     const spawnHeading = (typeof respawnPos.heading === 'number') ? respawnPos.heading : 0;
 
     if (window.tankState) {
@@ -2012,7 +2014,9 @@ function deployAsSoldier(suppressBanner = false, soldierCostAlreadyPaid = false)
     const respawnPos = (typeof window.getPlayerRespawnPosition === 'function')
         ? window.getPlayerRespawnPosition()
         : (window.lastPlayerDeathPosition ? { x: window.lastPlayerDeathPosition.x, z: window.lastPlayerDeathPosition.z, heading: window.lastPlayerDeathPosition.heading || 0 } : { x: 0, z: 0, heading: 0 });
-    const spawnY = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(respawnPos.x, respawnPos.z) : 0;
+    const groundY = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(respawnPos.x, respawnPos.z) : 0;
+    const waterLvl = (typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5;
+    const spawnY = (groundY < waterLvl - 1.25) ? (waterLvl - 1.25) : groundY;
     const spawnHeading = (typeof respawnPos.heading === 'number') ? respawnPos.heading : 0;
 
     if (window.tankState) {

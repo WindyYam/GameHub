@@ -2569,7 +2569,15 @@
         }
 
         handleWander(dt) {
-            // Clustered with escort tank
+            // Clustered with escort tank or rally to surviving tank in group
+            if (this.escortTank && this.escortTank.isDestroyed) {
+                if (this.escortGroup && this.escortGroup.length > 0) {
+                    const alive = this.escortGroup.find(t => t && !t.isDestroyed);
+                    if (alive) {
+                        this.escortTank = alive;
+                    }
+                }
+            }
             if (this.escortTank && !this.escortTank.isDestroyed) {
                 this.homeX = this.escortTank.x;
                 this.homeZ = this.escortTank.z;
@@ -2705,15 +2713,24 @@
     function spawnBattlefieldInfantry() {
         clearSoldiers();
 
-        // Spawn soldiers always clustered around enemy tanks (Panzergrenadiers / Infantry escorts)
+        // Spawn soldiers clustered around enemy tanks (Panzergrenadiers / Infantry escorts)
         const tanks = window.activeEnemyTanks || [];
         if (tanks.length > 0) {
-            const escortCount = Math.min(tanks.length, 4);
-            for (let i = 0; i < escortCount; i++) {
-                const tank = tanks[i];
-                const tType = (tank && tank.tankType) ? tank.tankType : 'tiger';
+            const visited = new Set();
+            for (let i = 0; i < tanks.length; i++) {
+                if (visited.has(i)) continue;
+                const platoon = [tanks[i]];
+                visited.add(i);
+                for (let j = i + 1; j < tanks.length; j++) {
+                    if (visited.has(j)) continue;
+                    if (Math.hypot(tanks[i].x - tanks[j].x, tanks[i].z - tanks[j].z) < 38.0) {
+                        platoon.push(tanks[j]);
+                        visited.add(j);
+                    }
+                }
+                const tType = (platoon[0] && platoon[0].tankType) ? platoon[0].tankType : 'tiger';
                 const f = (tType === 'sherman' || tType === 'pershing') ? 'us' : ((tType === 't34' || tType === 'kv2') ? 'soviet' : 'german');
-                spawnSoldierEscortForTank(tank, f);
+                spawnSoldierEscortForGroup(platoon, f);
             }
         }
 
@@ -2755,47 +2772,77 @@
     }
     window.spawnEjectedDriver = spawnEjectedDriver;
 
-    function spawnSoldierEscortForTank(enemyTank, enemyFaction, spawnRate = 0.80) {
-        if (!enemyTank) return;
+    // 8 tactical infantry escort offsets relative to an armored vehicle
+    const TACTICAL_ESCORT_OFFSETS = [
+        { dx:  6.5, dz:  4.5, heading:  0.20, type: 'rifle' }, // Forward Right Flanker
+        { dx: -6.5, dz:  4.5, heading: -0.20, type: 'smg'   }, // Forward Left Flanker
+        { dx:  7.5, dz: -0.5, heading:  0.10, type: 'smg'   }, // Mid Right Escort
+        { dx: -7.5, dz: -0.5, heading: -0.10, type: 'rifle' }, // Mid Left Escort
+        { dx:  5.5, dz: -5.5, heading:  0.05, type: 'rifle' }, // Rear Right Guard
+        { dx: -5.5, dz: -5.5, heading: -0.05, type: 'smg'   }, // Rear Left Guard
+        { dx:  0.0, dz:  8.5, heading:  0.00, type: 'rifle' }, // Vanguard Point Scout
+        { dx:  0.0, dz: -7.5, heading:  3.14, type: 'smg'   }  // Rear Anchor Scout
+    ];
+
+    function spawnSoldierEscortForGroup(tankGroup, enemyFaction, requestedCount = null) {
+        const tanks = Array.isArray(tankGroup) ? tankGroup.filter(t => t && !t.isDestroyed) : (tankGroup ? [tankGroup] : []);
+        if (tanks.length === 0) return [];
         const faction = enemyFaction || (window.getOpposingFaction ? window.getOpposingFaction() : 'us');
-        // 4 infantry escorts per tank (reduced to 80% spawn rate)
-        const offsets = [
-            { dx: 6.5, dz: 3.5, heading: 0.2, type: 'rifle' },
-            { dx: -6.5, dz: 3.5, heading: -0.2, type: 'smg' },
-            { dx: 5.2, dz: -4.0, heading: 0.1, type: 'rifle' },
-            { dx: -5.2, dz: -4.0, heading: -0.1, type: 'smg' }
-        ];
-        let spawned = 0;
-        offsets.forEach((off, idx) => {
-            // Reduce soldiers spawning with the tank to 80%
-            if (Math.random() > spawnRate) return;
-            spawned++;
-            const sx = enemyTank.x + off.dx;
-            const sz = enemyTank.z + off.dz;
-            const sId = `${enemyTank.id || 'tank'}:escort:${idx + 1}`;
+
+        // Up to 8 soldiers per group based on group size
+        let count = requestedCount;
+        if (typeof count !== 'number' || count <= 0) {
+            if (tanks.length === 1) {
+                // 1 tank: 3 to 6 soldiers, chance of up to 8
+                count = Math.min(8, Math.floor(Math.random() * 6) + 3);
+            } else if (tanks.length === 2) {
+                // 2 tanks: 4 to 8 soldiers
+                count = Math.min(8, Math.floor(Math.random() * 5) + 4);
+            } else if (tanks.length === 3) {
+                // 3 tanks: 5 to 8 soldiers
+                count = Math.min(8, Math.floor(Math.random() * 4) + 5);
+            } else {
+                // 4 tanks: 6 to 8 soldiers
+                count = Math.min(8, Math.floor(Math.random() * 3) + 6);
+            }
+        }
+        count = Math.min(8, Math.max(1, count));
+
+        const maxTotalSoldiers = 38;
+        if (activeSoldiers.length + count > maxTotalSoldiers) {
+            count = Math.max(0, maxTotalSoldiers - activeSoldiers.length);
+        }
+        if (count <= 0) return [];
+
+        const spawned = [];
+        for (let i = 0; i < count; i++) {
+            const assignedTank = tanks[i % tanks.length];
+            const off = TACTICAL_ESCORT_OFFSETS[i % TACTICAL_ESCORT_OFFSETS.length];
+            const th = assignedTank.heading || 0;
+            const cosH = Math.cos(th);
+            const sinH = Math.sin(th);
+            const sx = assignedTank.x + (off.dx * cosH - off.dz * sinH);
+            const sz = assignedTank.z + (off.dx * sinH + off.dz * cosH);
+            const sId = `${assignedTank.id || 'grp'}:escort:${i + 1}`;
+
             const soldier = new SoldierAI(sId, faction, sx, sz, {
                 isEnemy: true,
-                heading: off.heading,
+                heading: th + off.heading,
                 patrolRadius: 18,
-                escortTank: enemyTank,
+                escortTank: assignedTank,
                 soldierType: off.type
             });
+            soldier.escortGroup = tanks;
             activeSoldiers.push(soldier);
-        });
-        if (spawned === 0 && offsets.length > 0 && Math.random() < spawnRate) {
-            const firstOff = offsets[0];
-            const sx = enemyTank.x + firstOff.dx;
-            const sz = enemyTank.z + firstOff.dz;
-            const sId = `${enemyTank.id || 'tank'}:escort:1`;
-            const soldier = new SoldierAI(sId, faction, sx, sz, {
-                isEnemy: true,
-                heading: firstOff.heading,
-                patrolRadius: 18,
-                escortTank: enemyTank,
-                soldierType: firstOff.type
-            });
-            activeSoldiers.push(soldier);
+            spawned.push(soldier);
         }
+        return spawned;
+    }
+    window.spawnSoldierEscortForGroup = spawnSoldierEscortForGroup;
+
+    function spawnSoldierEscortForTank(enemyTank, enemyFaction, requestedCount = null) {
+        if (!enemyTank) return [];
+        return spawnSoldierEscortForGroup([enemyTank], enemyFaction, requestedCount);
     }
     window.spawnSoldierEscortForTank = spawnSoldierEscortForTank;
 

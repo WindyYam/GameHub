@@ -19,7 +19,7 @@
     let playerHitsTaken = 0;
     const sessionDestroyedEnemyTanks = new Set();
     const activeEnemyTanks = [];
-    const MAX_ZONE_ENEMIES = 15;
+    const MAX_ZONE_ENEMIES = 16;
     const MIN_SPAWN_DIST = 192.0; // 160.0 * 1.2
     const MAX_SPAWN_DIST = 288.0; // 240.0 * 1.2
     const DESPAWN_DIST = 336.0;   // 280.0 * 1.2
@@ -792,10 +792,10 @@
 
                     if (canMove && window.activeEnemyTanks) {
                         for (let ei = 0; ei < window.activeEnemyTanks.length; ei++) {
-                            const wreck = window.activeEnemyTanks[ei];
-                            if (!wreck || !wreck.isDestroyed || wreck === e) continue;
-                            const dW = Math.hypot(nextX - wreck.x, nextZ - wreck.z);
-                            if (dW < 4.8) {
+                            const otherTank = window.activeEnemyTanks[ei];
+                            if (!otherTank || otherTank === e) continue;
+                            const dW = Math.hypot(nextX - otherTank.x, nextZ - otherTank.z);
+                            if (dW < 6.2) {
                                 canMove = false;
                                 e.patrolState = 'SCAN';
                                 e.patrolTimer = 2.0;
@@ -950,6 +950,19 @@
                         e.tacticTimer = 2.0;
                     } else {
                         e.y = nextY;
+                    }
+                }
+                if (canMove && window.activeEnemyTanks) {
+                    for (let ei = 0; ei < window.activeEnemyTanks.length; ei++) {
+                        const otherTank = window.activeEnemyTanks[ei];
+                        if (!otherTank || otherTank === e) continue;
+                        const dW = Math.hypot(nextX - otherTank.x, nextZ - otherTank.z);
+                        if (dW < 6.2) {
+                            canMove = false;
+                            e.combatTactic = 'STAND_AND_FIRE';
+                            e.tacticTimer = 1.8;
+                            break;
+                        }
                     }
                 }
                 if (canMove) {
@@ -1316,13 +1329,64 @@
     }
 
     // ========================================================================
-    // 6. GRADUAL DISTANT ENEMY SPAWNER & RESOURCE DEGENERATION (Max 15 per Zone)
+    // 6. GRADUAL DISTANT ENEMY SPAWNER & RESOURCE DEGENERATION (Max 16 per Zone)
+    // Multi-Tank Group Spawner: chance of up to 4 tanks accompanied by up to 8 soldiers
     // ========================================================================
+    const TANK_FORMATION_OFFSETS = [
+        // 1 tank (Solo patrol)
+        [
+            { dx: 0, dz: 0 }
+        ],
+        // 2 tanks (Combat Section)
+        [
+            { dx: -8.5, dz:  0.0 },
+            { dx:  8.5, dz: -2.5 }
+        ],
+        // 3 tanks (Tactical Wedge / Arrowhead)
+        [
+            { dx:   0.0, dz:   0.0 }, // Lead Point
+            { dx: -15.0, dz: -12.0 }, // Left Wing
+            { dx:  15.0, dz: -12.0 }  // Right Wing
+        ],
+        // 4 tanks (Armored Platoon / Double Section)
+        [
+            { dx:  -7.5, dz:   0.0 }, // Lead Left
+            { dx:   8.5, dz:  -3.5 }, // Lead Right
+            { dx: -18.0, dz: -16.0 }, // Trail Left
+            { dx:  18.0, dz: -17.5 }  // Trail Right
+        ]
+    ];
+
+    function isPositionBlockedByObstacle(px, pz, radius = 4.5) {
+        const obstacles = window.worldObstacles || [];
+        for (let o = 0; o < obstacles.length; o++) {
+            const obs = obstacles[o];
+            const tooClose = (typeof obstaclePushOut === 'function')
+                ? obstaclePushOut(obs, px, pz, radius) !== null
+                : Math.hypot(px - obs.x, pz - obs.z) < (obs.radius || radius) + radius;
+            if (tooClose) return true;
+        }
+        return false;
+    }
+
     function spawnSingleFarEnemy(playerX, playerZ) {
         if (activeEnemyTanks.length >= MAX_ZONE_ENEMIES) return null;
 
-        const currentTank = window.currentTankId || 'tiger';
-        const isPlayerGerman = (currentTank === 'tiger' || currentTank === 'kingtiger' || currentTank === 'tiger2' || currentTank === 'king_tiger');
+        // Roll chance for group size: up to 4 tanks
+        const roll = Math.random();
+        let targetTankCount = 1;
+        if (roll < 0.40) {
+            targetTankCount = 1; // 40% Solo patrol
+        } else if (roll < 0.70) {
+            targetTankCount = 2; // 30% Combat pair
+        } else if (roll < 0.88) {
+            targetTankCount = 3; // 18% 3-tank wedge
+        } else {
+            targetTankCount = 4; // 12% 4-tank armor platoon
+        }
+
+        const availableSlots = Math.max(1, MAX_ZONE_ENEMIES - activeEnemyTanks.length);
+        const groupTankCount = Math.min(targetTankCount, availableSlots);
 
         // Golden angle offset (~2.3999 rad) to distribute spawns evenly around 360 degrees
         lastSpawnAngle += 2.39996 + (Math.random() - 0.5) * 0.4;
@@ -1347,19 +1411,7 @@
             if (Math.hypot(testX - playerX, testZ - playerZ) < 168.0) continue;
 
             // Reject if colliding with building or rock
-            let collidesObstacle = false;
-            const obstacles = window.worldObstacles || [];
-            for (let o = 0; o < obstacles.length; o++) {
-                const obs = obstacles[o];
-                const tooClose = (typeof obstaclePushOut === 'function')
-                    ? obstaclePushOut(obs, testX, testZ, 4.5) !== null
-                    : Math.hypot(testX - obs.x, testZ - obs.z) < (obs.radius || 4.5) + 4.5;
-                if (tooClose) {
-                    collidesObstacle = true;
-                    break;
-                }
-            }
-            if (collidesObstacle) continue;
+            if (isPositionBlockedByObstacle(testX, testZ, 4.5)) continue;
 
             // Reject if too close to an existing active enemy tank
             let collidesTank = false;
@@ -1384,7 +1436,7 @@
                 const tx = playerX + Math.cos(lastSpawnAngle) * r;
                 const tz = playerZ + Math.sin(lastSpawnAngle) * r;
                 const ty = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(tx, tz) : 0;
-                if (ty > -1.5) {
+                if (ty > -1.5 && !isPositionBlockedByObstacle(tx, tz, 4.5)) {
                     bestX = tx;
                     bestY = ty;
                     bestZ = tz;
@@ -1395,18 +1447,92 @@
             if (!found) return null;
         }
 
-        const enemyId = `zone:enemy:${nextEnemySeq++}`;
-        const tankType = getRandomCampaignTankType();
+        // Faction assignment for the platoon
+        const FACTION_CAMPAIGNS = {
+            german: ['tiger', 'kingtiger'],
+            us:     ['sherman', 'pershing'],
+            soviet: ['t34', 'kv2']
+        };
+        const allFactions = ['german', 'us', 'soviet'];
+        const platoonFaction = allFactions[Math.floor(Math.random() * allFactions.length)];
+        const factionPool = FACTION_CAMPAIGNS[platoonFaction];
 
-        const enemy = spawnEnemyCombatTank(enemyId, bestX, bestY, bestZ, window.scene, tankType);
-        if (enemy && typeof window.spawnSoldierEscortForTank === 'function') {
-            const currentSoldiers = window.activeSoldiers ? window.activeSoldiers.length : 0;
-            if (currentSoldiers < 28) {
-                const enemyFaction = (tankType === 'sherman' || tankType === 'pershing') ? 'us' : ((tankType === 't34' || tankType === 'kv2') ? 'soviet' : 'german');
-                window.spawnSoldierEscortForTank(enemy, enemyFaction);
+        // Platoon heading: generally oriented towards player with slight tactical spread
+        const angleToPlayer = Math.atan2(playerX - bestX, playerZ - bestZ);
+        const platoonHeading = angleToPlayer + (Math.random() - 0.5) * 0.45;
+        const cosH = Math.cos(platoonHeading);
+        const sinH = Math.sin(platoonHeading);
+
+        const formation = TANK_FORMATION_OFFSETS[groupTankCount - 1];
+        const spawnedTanks = [];
+
+        for (let i = 0; i < groupTankCount; i++) {
+            const off = formation[i];
+            let sx = bestX + (off.dx * cosH - off.dz * sinH);
+            let sz = bestZ + (off.dx * sinH + off.dz * cosH);
+            let sy = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(sx, sz) : bestY;
+            let sNorm = (typeof window.getTerrainNormal === 'function') ? window.getTerrainNormal(sx, sz) : { y: 1 };
+
+            // If offset falls in water or on steep cliff or in obstacle, search locally
+            if (sy < -1.5 || sNorm.y < 0.80 || isPositionBlockedByObstacle(sx, sz, 4.5)) {
+                let resolved = false;
+                for (let rTry = 0; rTry < 8; rTry++) {
+                    const testAng = (rTry / 8) * Math.PI * 2;
+                    const testRad = 6.0 + (rTry % 3) * 4.0;
+                    const jx = sx + Math.cos(testAng) * testRad;
+                    const jz = sz + Math.sin(testAng) * testRad;
+                    const jy = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(jx, jz) : sy;
+                    const jNorm = (typeof window.getTerrainNormal === 'function') ? window.getTerrainNormal(jx, jz) : { y: 1 };
+                    if (jy >= -1.5 && jNorm.y >= 0.80 && !isPositionBlockedByObstacle(jx, jz, 4.5)) {
+                        sx = jx;
+                        sz = jz;
+                        sy = jy;
+                        resolved = true;
+                        break;
+                    }
+                }
+                if (!resolved && i > 0) {
+                    continue;
+                }
+            }
+
+            const enemyId = `zone:enemy:${nextEnemySeq++}`;
+            const tankType = factionPool[i % factionPool.length];
+            const enemy = spawnEnemyCombatTank(enemyId, sx, sy, sz, window.scene, tankType);
+            if (enemy) {
+                enemy.heading = platoonHeading + (Math.random() - 0.5) * 0.2;
+                if (enemy.enemyRoot) enemy.enemyRoot.rotation.y = enemy.heading;
+                spawnedTanks.push(enemy);
             }
         }
-        return enemy;
+
+        // Spawn infantry escorts for the group: up to 8 soldiers
+        if (spawnedTanks.length > 0) {
+            let soldierCount = 4;
+            if (spawnedTanks.length === 1) {
+                soldierCount = Math.floor(Math.random() * 7) + 2; // 2 to 8 soldiers
+            } else if (spawnedTanks.length === 2) {
+                soldierCount = Math.floor(Math.random() * 5) + 4; // 4 to 8 soldiers
+            } else if (spawnedTanks.length === 3) {
+                soldierCount = Math.floor(Math.random() * 4) + 5; // 5 to 8 soldiers
+            } else {
+                soldierCount = Math.floor(Math.random() * 3) + 6; // 6 to 8 soldiers
+            }
+            soldierCount = Math.min(8, soldierCount);
+
+            if (typeof window.spawnSoldierEscortForGroup === 'function') {
+                window.spawnSoldierEscortForGroup(spawnedTanks, platoonFaction, soldierCount);
+            } else if (typeof window.spawnSoldierEscortForTank === 'function') {
+                for (let k = 0; k < spawnedTanks.length; k++) {
+                    window.spawnSoldierEscortForTank(spawnedTanks[k], platoonFaction);
+                }
+            }
+        }
+
+        // Paced spawner cooldown according to platoon size
+        enemySpawnCooldown = SPAWN_INTERVAL_SEC + spawnedTanks.length * 2.5;
+
+        return spawnedTanks[0] || null;
     }
 
     function spawnZoneEnemies() {
@@ -1425,6 +1551,8 @@
     window.resetEnemyTanks = resetEnemyTanks;
     window.spawnZoneEnemies = spawnZoneEnemies;
     window.spawnInitialFieldEnemies = spawnZoneEnemies;
+    window.spawnSingleFarEnemy = spawnSingleFarEnemy;
+    window.spawnEnemyGroup = spawnSingleFarEnemy;
 
     // Called when player switches to another tank (e.g., via hijacking)
     function onPlayerTankChanged(newPlayerTankId) {

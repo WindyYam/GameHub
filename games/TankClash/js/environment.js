@@ -1292,7 +1292,8 @@ const villageMat = new THREE.MeshStandardMaterial({
     vertexColors: true,
     roughness: 0.85,
     metalness: 0.04,
-    envMapIntensity: GROUND_ENV_MAP_INTENSITY
+    envMapIntensity: GROUND_ENV_MAP_INTENSITY,
+    side: THREE.DoubleSide
 });
 
 const rockMat = new THREE.MeshStandardMaterial({
@@ -1443,6 +1444,8 @@ function mergeBufferGeometries(geometries) {
     out.setAttribute('color', new THREE.BufferAttribute(mergedCol, 3));
     out.setAttribute('uv', new THREE.BufferAttribute(mergedUv, 2));
     out.setIndex(new THREE.BufferAttribute(mergedIdx, 1));
+    out.computeBoundingSphere();
+    out.computeBoundingBox();
     return out;
 }
 
@@ -3487,32 +3490,32 @@ function attachObstacleBox(obj, geo, scale, rot) {
             // Back window (-Z)
             {
                 type: 'back',
-                minX: -winW * 0.5 - 0.10,
-                maxX: winW * 0.5 + 0.10,
-                minY: flY + winSillH - 0.10,
-                maxY: flY + winSillH + winH + 0.10,
-                minZ: -hl - wt * 0.8,
-                maxZ: -hl + wt * 1.8
+                minX: -winW * 0.5 - 0.20,
+                maxX: winW * 0.5 + 0.20,
+                minY: flY + winSillH - 0.15,
+                maxY: flY + winSillH + winH + 0.15,
+                minZ: -hl - 0.80,
+                maxZ: -hl + wt + 0.80
             },
             // Left window (-X)
             {
                 type: 'left',
-                minX: -hw - wt * 1.8,
-                maxX: -hw + wt * 0.8,
-                minY: flY + winSillH - 0.10,
-                maxY: flY + winSillH + winH + 0.10,
-                minZ: -sideWinL * 0.5 - 0.10,
-                maxZ: sideWinL * 0.5 + 0.10
+                minX: -hw - 0.80,
+                maxX: -hw + wt + 0.80,
+                minY: flY + winSillH - 0.15,
+                maxY: flY + winSillH + winH + 0.15,
+                minZ: -sideWinL * 0.5 - 0.25,
+                maxZ: sideWinL * 0.5 + 0.25
             },
             // Right window (+X)
             {
                 type: 'right',
-                minX: hw - wt * 0.8,
-                maxX: hw + wt * 1.8,
-                minY: flY + winSillH - 0.10,
-                maxY: flY + winSillH + winH + 0.10,
-                minZ: -sideWinL * 0.5 - 0.10,
-                maxZ: sideWinL * 0.5 + 0.10
+                minX: hw - wt - 0.80,
+                maxX: hw + 0.80,
+                minY: flY + winSillH - 0.15,
+                maxY: flY + winSillH + winH + 0.15,
+                minZ: -sideWinL * 0.5 - 0.25,
+                maxZ: sideWinL * 0.5 + 0.25
             }
         ];
         obj.interiorLoaded = false;
@@ -3684,7 +3687,7 @@ function obstacleSegmentEntry(obs, ax, az, bx, bz, pad) {
             const t = segmentEntryLocalAABB(A.x, A.z, B.x, B.z, obs.wallBoxes[i], p);
             if (t >= 0 && (bestT < 0 || t < bestT)) bestT = t;
         }
-        if (obs.interiorLoaded && obs.interiorBoxes) {
+        if (p > 0.05 && obs.interiorLoaded && obs.interiorBoxes) {
             for (let i = 0; i < obs.interiorBoxes.length; i++) {
                 const t = segmentEntryLocalAABB(A.x, A.z, B.x, B.z, obs.interiorBoxes[i], p);
                 if (t >= 0 && (bestT < 0 || t < bestT)) bestT = t;
@@ -3733,7 +3736,8 @@ function getInteriorMaterial() {
             vertexColors: true,
             roughness: 0.80,
             metalness: 0.05,
-            envMapIntensity: GROUND_ENV_MAP_INTENSITY
+            envMapIntensity: GROUND_ENV_MAP_INTENSITY,
+            side: THREE.DoubleSide
         });
     }
     return sharedInteriorMat;
@@ -6133,18 +6137,19 @@ function updateEnvironment(dt, tankState) {
 // ============================================================================
 function getPlayerRespawnPosition() {
     const death = window.lastPlayerDeathPosition;
+    const WATER_LEVEL = (typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5;
     if (!death || typeof death.x !== 'number' || typeof death.z !== 'number') {
         const defaultY = (typeof getTerrainHeight === 'function') ? getTerrainHeight(0, 0) : 0;
-        return { x: 0, y: defaultY, z: 0, heading: 0 };
+        return { x: 0, y: Math.max(defaultY, WATER_LEVEL - 1.25), z: 0, heading: 0 };
     }
 
     const dx = death.x;
     const dz = death.z;
     const dh = (typeof death.heading === 'number') ? death.heading : 0;
 
-    // Search for a clear spawn point near where the player was killed (15-20 meters away)
-    // Preference: behind the direction the player was facing (cover / friendly approach direction)
-    const offsetDistance = 18.0;
+    // Search for a clear spawn point near where the player was killed (12-24 meters away)
+    // Preference: behind the direction the player was facing (cover / friendly approach direction), on dry land
+    const testDistances = [18.0, 12.0, 24.0];
     const candidateAngles = [
         dh + Math.PI,          // Directly behind
         dh + Math.PI * 0.75,   // Back-left
@@ -6159,50 +6164,72 @@ function getPlayerRespawnPosition() {
     const obstacles = window.worldObstacles || [];
     const enemyTanks = window.activeEnemyTanks || [];
 
-    for (let i = 0; i < candidateAngles.length; i++) {
-        const ang = candidateAngles[i];
-        const cx = dx + Math.sin(ang) * offsetDistance;
-        const cz = dz + Math.cos(ang) * offsetDistance;
+    let bestWaterCandidate = null;
 
-        // Check distance against obstacles
-        let blocked = false;
-        for (let j = 0; j < obstacles.length; j++) {
-            const obs = obstacles[j];
-            if (!obs || typeof obs.x !== 'number' || typeof obs.z !== 'number') continue;
-            const minDist = (obs.radius || 2.0) + 3.2;
-            if ((cx - obs.x) ** 2 + (cz - obs.z) ** 2 < minDist * minDist) {
-                blocked = true;
-                break;
+    for (let d = 0; d < testDistances.length; d++) {
+        const offsetDistance = testDistances[d];
+        for (let i = 0; i < candidateAngles.length; i++) {
+            const ang = candidateAngles[i];
+            const cx = dx + Math.sin(ang) * offsetDistance;
+            const cz = dz + Math.cos(ang) * offsetDistance;
+
+            // Check distance against obstacles
+            let blocked = false;
+            for (let j = 0; j < obstacles.length; j++) {
+                const obs = obstacles[j];
+                if (!obs || typeof obs.x !== 'number' || typeof obs.z !== 'number') continue;
+                const minDist = (obs.radius || 2.0) + 3.2;
+                if ((cx - obs.x) ** 2 + (cz - obs.z) ** 2 < minDist * minDist) {
+                    blocked = true;
+                    break;
+                }
+            }
+            if (blocked) continue;
+
+            // Check distance against enemy tanks and wrecks
+            for (let j = 0; j < enemyTanks.length; j++) {
+                const et = enemyTanks[j];
+                if (!et || typeof et.x !== 'number' || typeof et.z !== 'number') continue;
+                if ((cx - et.x) ** 2 + (cz - et.z) ** 2 < 6.0 * 6.0) {
+                    blocked = true;
+                    break;
+                }
+            }
+            if (blocked) continue;
+
+            // Sample terrain height
+            const cy = (typeof getTerrainHeight === 'function')
+                ? getTerrainHeight(cx, cz)
+                : ((typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(cx, cz) : 0);
+
+            // Face toward the location where player was killed so they are oriented toward the battle
+            const lookHeading = Math.atan2(dx - cx, dz - cz);
+
+            // Prioritize dry land above sea level
+            if (cy >= WATER_LEVEL + 0.3) {
+                return { x: cx, y: cy, z: cz, heading: lookHeading };
+            }
+
+            // Save water candidate in case dry land isn't found
+            if (!bestWaterCandidate) {
+                bestWaterCandidate = { x: cx, y: Math.max(cy, WATER_LEVEL - 1.25), z: cz, heading: lookHeading };
             }
         }
-        if (blocked) continue;
+    }
 
-        // Check distance against enemy tanks and wrecks
-        for (let j = 0; j < enemyTanks.length; j++) {
-            const et = enemyTanks[j];
-            if (!et || typeof et.x !== 'number' || typeof et.z !== 'number') continue;
-            if ((cx - et.x) ** 2 + (cz - et.z) ** 2 < 6.0 * 6.0) {
-                blocked = true;
-                break;
-            }
-        }
-        if (blocked) continue;
-
-        // Found clear candidate spot
-        const cy = (typeof getTerrainHeight === 'function')
-            ? getTerrainHeight(cx, cz)
-            : ((typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(cx, cz) : 0);
-        // Face toward the location where player was killed so they are oriented toward the battle
-        const lookHeading = Math.atan2(dx - cx, dz - cz);
-        return { x: cx, y: cy, z: cz, heading: lookHeading };
+    if (bestWaterCandidate) {
+        return bestWaterCandidate;
     }
 
     // Fallback: 18m behind last death heading
-    const fallbackX = dx - Math.sin(dh) * offsetDistance;
-    const fallbackZ = dz - Math.cos(dh) * offsetDistance;
-    const fallbackY = (typeof getTerrainHeight === 'function')
+    const fallbackX = dx - Math.sin(dh) * 18.0;
+    const fallbackZ = dz - Math.cos(dh) * 18.0;
+    let fallbackY = (typeof getTerrainHeight === 'function')
         ? getTerrainHeight(fallbackX, fallbackZ)
         : ((typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(fallbackX, fallbackZ) : 0);
+    if (fallbackY < WATER_LEVEL - 1.25) {
+        fallbackY = WATER_LEVEL - 1.25;
+    }
     const fallbackHeading = Math.atan2(dx - fallbackX, dz - fallbackZ);
     return { x: fallbackX, y: fallbackY, z: fallbackZ, heading: fallbackHeading };
 }
@@ -6221,7 +6248,9 @@ function restartGame(customSeed, customZone) {
     }
 
     const respawnPos = getPlayerRespawnPosition();
-    const spawnY = (typeof getTerrainHeight === 'function') ? getTerrainHeight(respawnPos.x, respawnPos.z) : 0;
+    const groundY = (typeof getTerrainHeight === 'function') ? getTerrainHeight(respawnPos.x, respawnPos.z) : 0;
+    const waterLvl = (typeof window !== 'undefined' && typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5;
+    const spawnY = (groundY < waterLvl - 1.25) ? (waterLvl - 1.25) : groundY;
     const spawnHeading = (typeof respawnPos.heading === 'number') ? respawnPos.heading : 0;
 
     if (window.tankState) {
