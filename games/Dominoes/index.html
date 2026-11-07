@@ -55,6 +55,17 @@
             border-color: #3b82f6;
             color: #93c5fd;
         }
+        .tool-radio.active {
+            background: linear-gradient(135deg, rgba(30, 58, 138, 0.45) 0%, rgba(30, 64, 175, 0.35) 100%);
+            border-color: #38bdf8;
+            box-shadow: 0 2px 10px rgba(56, 189, 248, 0.25);
+        }
+        .tool-radio.active .radio-indicator {
+            border-color: #38bdf8;
+        }
+        .tool-radio.active .radio-dot {
+            display: block;
+        }
         .color-swatch.active {
             transform: scale(1.2);
             box-shadow: 0 0 0 2px #0f172a, 0 0 0 4px #ffffff;
@@ -127,6 +138,13 @@
 
             <!-- Action Controls -->
             <div class="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                <!-- Place Mode Button (Next to Push Button) -->
+                <button id="btn-top-place" class="flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl font-bold text-xs bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 transition shadow active:scale-95" title="Toggle Place Mode (P) - When OFF, 1-finger rotates camera">
+                    <i data-lucide="pen-tool" id="top-place-icon" class="w-3.5 h-3.5"></i>
+                    <span id="top-place-text">Place</span>
+                    <span id="top-place-badge" class="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-700 text-cyan-300 font-medium">OFF</span>
+                </button>
+
                 <!-- Dedicated PUSH Button -->
                 <button id="btn-push-now" class="flex items-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl font-bold text-xs bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 transition shadow-lg shadow-amber-500/30 active:scale-95" title="Push the first standing domino to start the chain reaction, or switch to Push cursor!">
                     <i data-lucide="zap" class="w-3.5 h-3.5 fill-slate-950"></i>
@@ -220,6 +238,14 @@
             <span class="font-bold text-xs text-white tracking-tight hidden sm:inline">DominoSky</span>
         </div>
 
+        <!-- Place Button in Floating Pill (Next to Push Button) -->
+        <button id="btn-pill-place" class="flex items-center gap-1 px-2.5 py-1.5 rounded-xl font-bold text-xs bg-slate-800 text-slate-300 border border-slate-700 transition shadow active:scale-95" title="Toggle Place Mode (P) - When OFF, 1-finger rotates camera">
+            <i data-lucide="pen-tool" id="pill-place-icon" class="w-3.5 h-3.5"></i>
+            <span id="pill-place-text">Place</span>
+            <span id="pill-place-badge" class="text-[9px] px-1 py-0.2 rounded-full bg-slate-700 text-cyan-300 font-medium">OFF</span>
+        </button>
+
+        <!-- Push Button -->
         <button id="btn-pill-push" class="flex items-center gap-1 px-2.5 py-1.5 rounded-xl font-bold text-xs bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 shadow active:scale-95 transition" title="Push Domino!">
             <i data-lucide="zap" class="w-3.5 h-3.5 fill-slate-950"></i>
             <span>Push</span>
@@ -243,12 +269,6 @@
 
     <!-- Mobile & Quick Action Floating Dock (Bottom-Right) -->
     <div class="fixed right-2.5 sm:right-4 bottom-14 sm:bottom-20 z-20 flex sm:flex-col flex-row items-center gap-1.5 pointer-events-auto">
-        <!-- Confirm Placement Button (shown when placing single items on touch devices) -->
-        <button id="btn-touch-place" class="hidden items-center justify-center gap-1 px-2.5 py-2 sm:px-3.5 sm:py-2.5 rounded-2xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-bold text-xs shadow-xl shadow-blue-600/30 border border-sky-300/40 active:scale-95 transition" title="Confirm placement at preview ghost">
-            <i data-lucide="check-circle-2" class="w-4 h-4"></i>
-            <span>Place</span>
-        </button>
-
         <!-- Rotate Button -->
         <button id="btn-quick-rotate" class="flex items-center justify-center gap-1 px-2.5 py-2 sm:px-3 sm:py-2.5 rounded-2xl glass-panel hover:bg-slate-800/90 text-sky-300 font-semibold text-xs shadow-xl active:scale-95 transition" title="Rotate Item 22.5° (Shortcut: R)">
             <i data-lucide="rotate-cw" class="w-4 h-4"></i>
@@ -260,12 +280,6 @@
             <i data-lucide="undo-2" class="w-4 h-4"></i>
             <span class="hidden sm:inline">Undo</span>
         </button>
-
-        <!-- 1-Finger Camera Orbit Quick Toggle -->
-        <button id="btn-quick-orbit" class="flex items-center justify-center gap-1 px-2.5 py-2 sm:px-3 sm:py-2.5 rounded-2xl glass-panel hover:bg-slate-800/90 text-cyan-300 font-semibold text-xs shadow-xl active:scale-95 transition" title="Toggle 1-Finger Camera Orbit Mode">
-            <i data-lucide="orbit" class="w-4 h-4"></i>
-            <span id="text-quick-orbit" class="hidden sm:inline">1-Finger Orbit</span>
-        </button>
     </div>
 
     <!-- Left Sidebar Backdrop for Mobile -->
@@ -273,41 +287,79 @@
 
     <!-- Left Sidebar: Collapsible Mode & Object Catalog -->
     <div id="left-sidebar" class="fixed left-2.5 sm:left-4 top-2.5 sm:top-20 bottom-14 sm:bottom-20 z-30 flex flex-col gap-3 w-80 max-w-[88vw] pointer-events-none">
-        <!-- Interaction Modes -->
+        <!-- Interaction Modes (Radio Buttons for Place Button Function) -->
         <div class="glass-panel p-3 sm:p-3.5 rounded-2xl shadow-2xl pointer-events-auto flex flex-col gap-2 shrink-0">
             <div class="flex items-center justify-between">
-                <span class="text-[11px] font-bold uppercase tracking-wider text-sky-300">Interaction Tool</span>
+                <div>
+                    <span class="text-[11px] font-bold uppercase tracking-wider text-sky-300">Place Button Function</span>
+                    <span class="text-[10px] text-slate-400 block leading-none mt-0.5">Decides what the Place button does</span>
+                </div>
                 <button id="btn-collapse-inner" class="px-2 py-1 rounded-lg bg-slate-800/80 text-[11px] text-slate-300 hover:text-white flex items-center gap-1 transition" title="Collapse Menu">
                     <span>Close</span>
                     <i data-lucide="x" class="w-3.5 h-3.5"></i>
                 </button>
             </div>
 
-            <div class="grid grid-cols-2 gap-1.5">
-                <button data-mode="draw" class="tool-btn active flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-medium bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 border border-slate-700/80 transition">
-                    <i data-lucide="pen-tool" class="w-4 h-4 shrink-0"></i>
-                    <span>Draw Line</span>
-                </button>
-                <button data-mode="place" class="tool-btn flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-medium bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 border border-slate-700/80 transition">
-                    <i data-lucide="plus-square" class="w-4 h-4 shrink-0"></i>
-                    <span>Place Item</span>
-                </button>
-                <button data-mode="push" class="tool-btn flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-medium bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 border border-slate-700/80 transition">
-                    <i data-lucide="zap" class="w-4 h-4 shrink-0 text-amber-400"></i>
-                    <span>Push / Flick</span>
-                </button>
-                <button data-mode="move" class="tool-btn flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-medium bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 border border-slate-700/80 transition">
-                    <i data-lucide="move" class="w-4 h-4 shrink-0"></i>
-                    <span>Drag / Move</span>
-                </button>
-                <button data-mode="delete" class="tool-btn flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-medium bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 border border-slate-700/80 transition">
-                    <i data-lucide="eraser" class="w-4 h-4 shrink-0 text-rose-400"></i>
-                    <span>Delete</span>
-                </button>
-                <button data-mode="camera" class="tool-btn flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-medium bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 border border-slate-700/80 transition">
-                    <i data-lucide="orbit" class="w-4 h-4 shrink-0 text-cyan-400"></i>
-                    <span>Camera Only</span>
-                </button>
+            <div class="grid grid-cols-2 gap-1.5" role="radiogroup" aria-label="Place button function">
+                <!-- 1. Draw Line -->
+                <label class="tool-radio active flex items-center gap-2 p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/80 cursor-pointer transition text-left" title="Continuous domino line drawing">
+                    <input type="radio" name="place-function" value="draw" checked class="hidden">
+                    <div class="radio-indicator w-3.5 h-3.5 rounded-full border-2 border-sky-400 flex items-center justify-center shrink-0">
+                        <div class="radio-dot w-1.5 h-1.5 rounded-full bg-sky-400"></div>
+                    </div>
+                    <div class="flex items-center gap-1.5 min-w-0">
+                        <i data-lucide="pen-tool" class="w-3.5 h-3.5 shrink-0 text-sky-400"></i>
+                        <span class="text-xs font-medium text-slate-200 truncate">Draw Line</span>
+                    </div>
+                </label>
+
+                <!-- 2. Place Single Item -->
+                <label class="tool-radio flex items-center gap-2 p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/80 cursor-pointer transition text-left" title="Single domino or object placement">
+                    <input type="radio" name="place-function" value="place" class="hidden">
+                    <div class="radio-indicator w-3.5 h-3.5 rounded-full border-2 border-slate-500 flex items-center justify-center shrink-0">
+                        <div class="radio-dot w-1.5 h-1.5 rounded-full bg-sky-400 hidden"></div>
+                    </div>
+                    <div class="flex items-center gap-1.5 min-w-0">
+                        <i data-lucide="plus-square" class="w-3.5 h-3.5 shrink-0 text-blue-400"></i>
+                        <span class="text-xs font-medium text-slate-200 truncate">Place Item</span>
+                    </div>
+                </label>
+
+                <!-- 3. Push / Force -->
+                <label class="tool-radio flex items-center gap-2 p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/80 cursor-pointer transition text-left" title="Tap or flick domino to topple">
+                    <input type="radio" name="place-function" value="push" class="hidden">
+                    <div class="radio-indicator w-3.5 h-3.5 rounded-full border-2 border-slate-500 flex items-center justify-center shrink-0">
+                        <div class="radio-dot w-1.5 h-1.5 rounded-full bg-amber-400 hidden"></div>
+                    </div>
+                    <div class="flex items-center gap-1.5 min-w-0">
+                        <i data-lucide="zap" class="w-3.5 h-3.5 shrink-0 text-amber-400"></i>
+                        <span class="text-xs font-medium text-slate-200 truncate">Push / Force</span>
+                    </div>
+                </label>
+
+                <!-- 4. Drag / Move -->
+                <label class="tool-radio flex items-center gap-2 p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/80 cursor-pointer transition text-left" title="Drag to reposition pieces">
+                    <input type="radio" name="place-function" value="move" class="hidden">
+                    <div class="radio-indicator w-3.5 h-3.5 rounded-full border-2 border-slate-500 flex items-center justify-center shrink-0">
+                        <div class="radio-dot w-1.5 h-1.5 rounded-full bg-emerald-400 hidden"></div>
+                    </div>
+                    <div class="flex items-center gap-1.5 min-w-0">
+                        <i data-lucide="move" class="w-3.5 h-3.5 shrink-0 text-emerald-400"></i>
+                        <span class="text-xs font-medium text-slate-200 truncate">Drag / Move</span>
+                    </div>
+                </label>
+
+                <!-- 5. Delete -->
+                <label class="tool-radio col-span-2 flex items-center gap-2 p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/80 cursor-pointer transition text-left" title="Tap or drag to delete pieces">
+                    <input type="radio" name="place-function" value="delete" class="hidden">
+                    <div class="radio-indicator w-3.5 h-3.5 rounded-full border-2 border-slate-500 flex items-center justify-center shrink-0">
+                        <div class="radio-dot w-1.5 h-1.5 rounded-full bg-rose-400 hidden"></div>
+                    </div>
+                    <div class="flex items-center gap-1.5 min-w-0">
+                        <i data-lucide="eraser" class="w-3.5 h-3.5 shrink-0 text-rose-400"></i>
+                        <span class="text-xs font-medium text-slate-200 truncate">Delete / Erase</span>
+                    </div>
+                </label>
             </div>
         </div>
 
@@ -1062,7 +1114,6 @@
         // - 2-Finger Pinch/Drag ALWAYS orbits & zooms on mobile touchscreens
         // - 1-Finger / Left-Click performs the active tool (or orbits in 'camera' mode)
         function updateCameraControlsForMode(mode) {
-            const quickOrbitBtn = document.getElementById('btn-quick-orbit');
             if (mode === 'camera') {
                 controls.mouseButtons = {
                     LEFT: THREE.MOUSE.ROTATE,
@@ -1073,7 +1124,6 @@
                     ONE: THREE.TOUCH.ROTATE,
                     TWO: THREE.TOUCH.DOLLY_PAN
                 };
-                if (quickOrbitBtn) quickOrbitBtn.classList.add('ring-2', 'ring-cyan-400', 'bg-cyan-950/80');
             } else {
                 controls.mouseButtons = {
                     LEFT: -1,
@@ -1084,7 +1134,6 @@
                     ONE: -1,
                     TWO: THREE.TOUCH.DOLLY_ROTATE
                 };
-                if (quickOrbitBtn) quickOrbitBtn.classList.remove('ring-2', 'ring-cyan-400', 'bg-cyan-950/80');
             }
         }
 
@@ -1936,7 +1985,19 @@
         // 5. INTERACTIVE TOOLS, GHOST PREVIEW & RAYCASTING
         // ==========================================
         const state = {
-            mode: 'draw',          // 'draw', 'place', 'move', 'push', 'delete', 'camera'
+            isPlaceActive: false,   // Default to 1-finger camera rotate mode when place button is not on!
+            placeFunction: 'draw',  // Function of place button decided by radio buttons: 'draw', 'place', 'push', 'move', 'delete'
+            get mode() {
+                return this.isPlaceActive ? this.placeFunction : 'camera';
+            },
+            set mode(val) {
+                if (val === 'camera') {
+                    this.isPlaceActive = false;
+                } else {
+                    this.placeFunction = val;
+                    this.isPlaceActive = true;
+                }
+            },
             item: 'domino',        // 'domino', 'plank', 'cube', 'ramp', 'chair', 'table'
             selectedColor: '#cbd5e1',
             rotationY: 0,
@@ -2076,8 +2137,10 @@
                 toppleObject(standingDominoes[0]);
                 showToast('Pushed starting domino! Watch the cascade!');
             } else {
-                setMode('push');
-                showToast('Switched to Push Tool — click any object to topple it!');
+                state.placeFunction = 'push';
+                state.isPlaceActive = true;
+                updatePlaceButtonUI();
+                showToast('Switched to Push / Force Tool — tap any object to topple it!');
             }
         }
 
@@ -2582,12 +2645,12 @@
         // 7. UI CONTROLS, COLLAPSIBLE SIDEBAR & SHORTCUTS
         // ==========================================
         const HINTS = {
-            draw:   '<strong>Draw Domino Line:</strong> 1-finger / Left-drag to draw dominoes! Use 2 fingers (or Right-drag) to orbit/zoom.',
-            place:  '<strong>Place Single Item:</strong> Tap or click on floor/tables to place item. Use <strong>Rotate</strong> button or <strong>R</strong>.',
-            move:   '<strong>Drag / Move:</strong> 1-finger / Left-drag any domino, block, chair, or table to reposition it.',
-            push:   '<strong>Push / Flick Mode:</strong> Tap or click any domino or structure to gently tap it and start the cascade!',
-            delete: '<strong>Delete Mode:</strong> Tap or drag across objects to remove them from the sky arena.',
-            camera: '<strong>1-Finger Camera Orbit:</strong> Drag with 1 finger (or Left-drag) to orbit camera, 2-finger pinch to zoom.'
+            draw:   '<strong>Draw Line Mode:</strong> 1-finger / Left-drag on arena to place domino trail! Turn <strong>Place OFF</strong> to orbit.',
+            place:  '<strong>Place Single Item:</strong> Tap on arena or floor to place piece. Turn <strong>Place OFF</strong> to orbit.',
+            push:   '<strong>Push / Force Mode:</strong> Tap or flick any domino or structure to topple it! Turn <strong>Place OFF</strong> to orbit.',
+            move:   '<strong>Drag / Move:</strong> 1-finger / Left-drag any piece to reposition it. Turn <strong>Place OFF</strong> to orbit.',
+            delete: '<strong>Delete Mode:</strong> Tap or drag across pieces to remove them. Turn <strong>Place OFF</strong> to orbit.',
+            camera: '<strong>1-Finger Camera Orbit:</strong> Drag with 1 finger to orbit camera view. Turn <strong>Place ON</strong> to build.'
         };
 
         // Collapsible Left Sidebar Logic
@@ -2605,8 +2668,13 @@
             const icon = document.getElementById('icon-sidebar-toggle');
             if (isSidebarCollapsed) {
                 if (icon) icon.setAttribute('data-lucide', 'panel-left-open');
-                btnExpandFloating.classList.remove('hidden');
-                btnExpandFloating.classList.add('flex');
+                if (isTopMenuCollapsed) {
+                    btnExpandFloating.classList.remove('hidden');
+                    btnExpandFloating.classList.add('flex');
+                } else {
+                    btnExpandFloating.classList.add('hidden');
+                    btnExpandFloating.classList.remove('flex');
+                }
                 if (sidebarBackdrop) sidebarBackdrop.classList.add('hidden');
             } else {
                 if (icon) icon.setAttribute('data-lucide', 'panel-left-close');
@@ -2639,9 +2707,15 @@
             if (isTopMenuCollapsed) {
                 topFloatingBar.classList.remove('hidden');
                 topFloatingBar.classList.add('flex');
+                if (isSidebarCollapsed) {
+                    btnExpandFloating.classList.remove('hidden');
+                    btnExpandFloating.classList.add('flex');
+                }
             } else {
                 topFloatingBar.classList.add('hidden');
                 topFloatingBar.classList.remove('flex');
+                btnExpandFloating.classList.add('hidden');
+                btnExpandFloating.classList.remove('flex');
             }
             lucide.createIcons();
         }
@@ -2674,25 +2748,115 @@
             pushFirstStandingDomino();
         });
 
-        let previousNonCameraMode = 'draw';
+        const TOOL_META = {
+            draw:   { name: 'Line', full: 'Draw Line', icon: 'pen-tool', color: 'from-sky-500 to-blue-600' },
+            place:  { name: 'Place', full: 'Place Item', icon: 'plus-square', color: 'from-blue-500 to-indigo-600' },
+            push:   { name: 'Force', full: 'Push / Force', icon: 'zap', color: 'from-amber-500 to-orange-500' },
+            move:   { name: 'Move', full: 'Drag / Move', icon: 'move', color: 'from-emerald-500 to-teal-600' },
+            delete: { name: 'Delete', full: 'Delete / Erase', icon: 'eraser', color: 'from-rose-500 to-red-600' }
+        };
 
-        function setMode(newMode) {
-            if (newMode !== 'camera') previousNonCameraMode = newMode;
-            state.mode = newMode;
-            document.querySelectorAll('.tool-btn').forEach(btn => {
-                btn.classList.toggle('active', btn.dataset.mode === newMode);
-            });
-            document.getElementById('status-hint').innerHTML = `
-                <span class="w-2 h-2 rounded-full bg-blue-400 animate-pulse shrink-0"></span>
-                <span>${HINTS[newMode]}</span>
-            `;
-            const btnTouchPlace = document.getElementById('btn-touch-place');
-            if (btnTouchPlace && newMode !== 'place') {
-                btnTouchPlace.classList.add('hidden');
-                btnTouchPlace.classList.remove('flex');
+        function updatePlaceButtonUI() {
+            const meta = TOOL_META[state.placeFunction] || TOOL_META.draw;
+
+            // 1. Top Bar Place Button
+            const topBtn = document.getElementById('btn-top-place');
+            const topIcon = document.getElementById('top-place-icon');
+            const topText = document.getElementById('top-place-text');
+            const topBadge = document.getElementById('top-place-badge');
+
+            // 2. Floating Pill Place Button
+            const pillBtn = document.getElementById('btn-pill-place');
+            const pillIcon = document.getElementById('pill-place-icon');
+            const pillText = document.getElementById('pill-place-text');
+            const pillBadge = document.getElementById('pill-place-badge');
+
+            if (state.isPlaceActive) {
+                // Place is ON
+                if (topBtn) {
+                    topBtn.className = `flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl font-bold text-xs bg-gradient-to-r ${meta.color} text-white shadow-lg shadow-sky-500/25 ring-2 ring-sky-300/60 active:scale-95 transition`;
+                }
+                if (topIcon) topIcon.setAttribute('data-lucide', meta.icon);
+                if (topText) topText.textContent = `Place (${meta.name})`;
+                if (topBadge) {
+                    topBadge.textContent = 'ON';
+                    topBadge.className = 'text-[10px] px-1.5 py-0.5 rounded-full bg-white/25 text-white font-bold';
+                }
+
+                if (pillBtn) {
+                    pillBtn.className = `flex items-center gap-1 px-2.5 py-1.5 rounded-xl font-bold text-xs bg-gradient-to-r ${meta.color} text-white shadow active:scale-95 transition ring-1 ring-sky-300/50`;
+                }
+                if (pillIcon) pillIcon.setAttribute('data-lucide', meta.icon);
+                if (pillText) pillText.textContent = meta.name;
+                if (pillBadge) {
+                    pillBadge.textContent = 'ON';
+                    pillBadge.className = 'text-[9px] px-1 py-0.2 rounded-full bg-white/30 text-white font-bold';
+                }
+            } else {
+                // Place is OFF -> Default 1-finger rotate mode!
+                if (topBtn) {
+                    topBtn.className = 'flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl font-medium text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 active:scale-95 transition shadow';
+                }
+                if (topIcon) topIcon.setAttribute('data-lucide', meta.icon);
+                if (topText) topText.textContent = `Place (${meta.name})`;
+                if (topBadge) {
+                    topBadge.textContent = 'OFF';
+                    topBadge.className = 'text-[10px] px-1.5 py-0.5 rounded-full bg-slate-700 text-cyan-300 font-medium';
+                }
+
+                if (pillBtn) {
+                    pillBtn.className = 'flex items-center gap-1 px-2.5 py-1.5 rounded-xl font-medium text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 active:scale-95 transition shadow';
+                }
+                if (pillIcon) pillIcon.setAttribute('data-lucide', meta.icon);
+                if (pillText) pillText.textContent = meta.name;
+                if (pillBadge) {
+                    pillBadge.textContent = 'OFF';
+                    pillBadge.className = 'text-[9px] px-1 py-0.2 rounded-full bg-slate-700 text-cyan-300 font-medium';
+                }
             }
-            updateCameraControlsForMode(newMode);
+
+            // Update radio buttons on the left sidebar
+            document.querySelectorAll('input[name="place-function"]').forEach(radio => {
+                const isSelected = radio.value === state.placeFunction;
+                radio.checked = isSelected;
+                const label = radio.closest('.tool-radio');
+                if (label) {
+                    label.classList.toggle('active', isSelected);
+                    const dot = label.querySelector('.radio-dot');
+                    if (dot) dot.classList.toggle('hidden', !isSelected);
+                }
+            });
+
+            // Update contextual status hint at bottom
+            const hintElem = document.getElementById('status-hint');
+            if (hintElem) {
+                if (!state.isPlaceActive) {
+                    hintElem.innerHTML = `
+                        <span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse shrink-0"></span>
+                        <span><strong>1-Finger Rotate:</strong> Drag 1 finger to rotate camera. Turn <strong>Place ON</strong> (top menu) to ${meta.full.toLowerCase()}.</span>
+                    `;
+                } else {
+                    hintElem.innerHTML = `
+                        <span class="w-2 h-2 rounded-full bg-sky-400 animate-pulse shrink-0"></span>
+                        <span>${HINTS[state.placeFunction] || HINTS.draw}</span>
+                    `;
+                }
+            }
+
+            updateCameraControlsForMode(state.mode);
             rebuildGhostMesh();
+            lucide.createIcons();
+        }
+
+        function togglePlace(forceState = null) {
+            state.isPlaceActive = forceState !== null ? forceState : !state.isPlaceActive;
+            updatePlaceButtonUI();
+            const meta = TOOL_META[state.placeFunction] || TOOL_META.draw;
+            if (state.isPlaceActive) {
+                showToast(`Place ON: ${meta.full}`);
+            } else {
+                showToast('Place OFF: 1-Finger Camera Rotate');
+            }
         }
 
         function rotateActiveItem() {
@@ -2717,6 +2881,17 @@
             }
         }
 
+        // Place Button Listeners (Top Bar & Floating Pill)
+        const btnTopPlace = document.getElementById('btn-top-place');
+        if (btnTopPlace) {
+            btnTopPlace.addEventListener('click', () => togglePlace());
+        }
+
+        const btnPillPlace = document.getElementById('btn-pill-place');
+        if (btnPillPlace) {
+            btnPillPlace.addEventListener('click', () => togglePlace());
+        }
+
         // Floating Quick Action Buttons (Mobile & Desktop)
         document.getElementById('btn-quick-rotate').addEventListener('click', () => {
             rotateActiveItem();
@@ -2724,24 +2899,6 @@
 
         document.getElementById('btn-quick-undo').addEventListener('click', () => {
             undoLastObject();
-        });
-
-        document.getElementById('btn-quick-orbit').addEventListener('click', () => {
-            if (state.mode === 'camera') {
-                setMode(previousNonCameraMode || 'draw');
-                showToast(`Switched back to ${state.mode.toUpperCase()} tool`);
-            } else {
-                setMode('camera');
-                showToast('1-Finger Camera Orbit enabled');
-            }
-        });
-
-        document.getElementById('btn-touch-place').addEventListener('click', () => {
-            if (ghostMesh && ghostMesh.visible) {
-                spawnObject(state.item, ghostMesh.position, state.rotationY);
-                saveCurrentStateAsInitial();
-                showToast(`Placed ${state.item}`);
-            }
         });
 
         document.getElementById('quality-select').addEventListener('change', (e) => {
@@ -2757,19 +2914,29 @@
             });
         }
 
-        document.querySelectorAll('.tool-btn').forEach(btn => {
-            btn.addEventListener('click', () => setMode(btn.dataset.mode));
+        // Radio buttons in Left Sidebar deciding Place button function
+        document.querySelectorAll('input[name="place-function"]').forEach(radio => {
+            radio.addEventListener('change', () => {
+                state.placeFunction = radio.value;
+                state.isPlaceActive = true; // Selecting function automatically activates Place mode!
+                updatePlaceButtonUI();
+                const meta = TOOL_META[state.placeFunction] || TOOL_META.draw;
+                showToast(`Place Function: ${meta.full}`);
+            });
         });
 
         document.querySelectorAll('.item-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 state.item = btn.dataset.item;
                 document.querySelectorAll('.item-btn').forEach(b => b.classList.toggle('active', b === btn));
-                // If user selects a furniture/block item while in 'draw' mode, automatically switch to 'place' mode
-                if (state.item !== 'domino' && state.mode === 'draw') {
-                    setMode('place');
+                // If user selects a furniture/block item while in 'draw' mode, automatically switch radio to 'place'
+                if (state.item !== 'domino' && state.placeFunction === 'draw') {
+                    state.placeFunction = 'place';
+                    state.isPlaceActive = true;
+                    updatePlaceButtonUI();
+                } else {
+                    rebuildGhostMesh();
                 }
-                rebuildGhostMesh();
             });
         });
 
@@ -2864,6 +3031,29 @@
             } else if (e.code === 'KeyT' || e.code === 'KeyM') {
                 e.preventDefault();
                 toggleTopMenu();
+            } else if (e.code === 'KeyP') {
+                e.preventDefault();
+                togglePlace();
+            } else if (e.code === 'Digit1') {
+                state.placeFunction = 'draw';
+                state.isPlaceActive = true;
+                updatePlaceButtonUI();
+            } else if (e.code === 'Digit2') {
+                state.placeFunction = 'place';
+                state.isPlaceActive = true;
+                updatePlaceButtonUI();
+            } else if (e.code === 'Digit3') {
+                state.placeFunction = 'push';
+                state.isPlaceActive = true;
+                updatePlaceButtonUI();
+            } else if (e.code === 'Digit4') {
+                state.placeFunction = 'move';
+                state.isPlaceActive = true;
+                updatePlaceButtonUI();
+            } else if (e.code === 'Digit5') {
+                state.placeFunction = 'delete';
+                state.isPlaceActive = true;
+                updatePlaceButtonUI();
             }
         });
 
@@ -2946,7 +3136,7 @@
 
         window.onload = function () {
             applyGraphicsQuality(graphicsQuality);
-            updateCameraControlsForMode(state.mode);
+            updatePlaceButtonUI();
             loadPreset('cascade');
             animate(performance.now());
         };
