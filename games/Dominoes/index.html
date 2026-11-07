@@ -67,6 +67,24 @@
             opacity: 0;
             pointer-events: none;
         }
+        #top-bar {
+            transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease;
+        }
+        #top-bar.collapsed {
+            transform: translateY(calc(-100% - 24px));
+            opacity: 0;
+            pointer-events: none;
+        }
+        #top-floating-bar {
+            transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease;
+        }
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
         /* Custom scrollbar */
         ::-webkit-scrollbar {
             width: 6px;
@@ -86,146 +104,182 @@
     <!-- 3D Canvas Container -->
     <div id="canvas-container"></div>
 
-    <!-- Top Simulation & Preset Bar -->
-    <div class="fixed top-4 left-4 right-4 z-20 flex flex-wrap items-center justify-between gap-3 pointer-events-none">
+    <!-- Top Simulation & Preset Bar (Collapsible) -->
+    <div id="top-bar" class="fixed top-2 sm:top-4 left-2 sm:left-4 right-2 sm:right-4 z-20 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2 pointer-events-none max-h-[85vh] overflow-y-auto no-scrollbar">
         <!-- Brand & Sim Controls -->
-        <div class="glass-panel px-4 py-2.5 rounded-2xl shadow-2xl flex flex-wrap items-center gap-2.5 pointer-events-auto">
-            <!-- Sidebar Toggle Button -->
-            <button id="btn-toggle-sidebar" class="flex items-center justify-center w-9 h-9 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-600/80 transition shadow" title="Toggle Left Menu (Tab)">
-                <i data-lucide="panel-left-close" id="icon-sidebar-toggle" class="w-4 h-4 text-sky-400"></i>
-            </button>
+        <div class="glass-panel px-3 py-2 sm:px-4 sm:py-2.5 rounded-2xl shadow-2xl flex flex-wrap items-center justify-between sm:justify-start gap-2 pointer-events-auto">
+            <!-- Left: Sidebar toggle + Brand -->
+            <div class="flex items-center gap-2">
+                <button id="btn-toggle-sidebar" class="flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-600/80 transition shadow" title="Toggle Left Menu (Tab)">
+                    <i data-lucide="panel-left-close" id="icon-sidebar-toggle" class="w-4 h-4 text-sky-400"></i>
+                </button>
 
-            <div class="flex items-center gap-2.5 pr-3 border-r border-slate-700/80">
-                <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-sky-400 to-blue-600 flex items-center justify-center shadow-lg shadow-sky-500/30">
-                    <i data-lucide="cloud-sun" class="w-5 h-5 text-white"></i>
-                </div>
-                <div>
-                    <h1 class="font-bold text-sm tracking-tight text-white leading-none">DominoSky 3D</h1>
-                    <span class="text-[11px] text-sky-300 font-medium">Cloud Physics Studio</span>
+                <div class="flex items-center gap-2 pr-2 sm:pr-3 sm:border-r border-slate-700/80">
+                    <div class="w-7 h-7 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-br from-sky-400 to-blue-600 flex items-center justify-center shadow-lg shadow-sky-500/30">
+                        <i data-lucide="cloud-sun" class="w-4 h-4 sm:w-5 sm:h-5 text-white"></i>
+                    </div>
+                    <div>
+                        <h1 class="font-bold text-xs sm:text-sm tracking-tight text-white leading-none">DominoSky 3D</h1>
+                        <span class="text-[10px] sm:text-[11px] text-sky-300 font-medium hidden xs:inline sm:inline">Physics Studio</span>
+                    </div>
                 </div>
             </div>
 
-            <!-- Dedicated PUSH Button -->
-            <button id="btn-push-now" class="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 transition shadow-lg shadow-amber-500/30 active:scale-95" title="Push the first standing domino to start the chain reaction, or switch to Push cursor!">
-                <i data-lucide="zap" class="w-4 h-4 fill-slate-950"></i>
-                <span>Push Domino!</span>
-            </button>
+            <!-- Action Controls -->
+            <div class="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                <!-- Dedicated PUSH Button -->
+                <button id="btn-push-now" class="flex items-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl font-bold text-xs bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 transition shadow-lg shadow-amber-500/30 active:scale-95" title="Push the first standing domino to start the chain reaction, or switch to Push cursor!">
+                    <i data-lucide="zap" class="w-3.5 h-3.5 fill-slate-950"></i>
+                    <span>Push!</span>
+                </button>
 
-            <!-- Play / Pause -->
-            <button id="btn-play-pause" class="flex items-center gap-2 px-3.5 py-2 rounded-xl font-semibold text-xs bg-emerald-600 hover:bg-emerald-500 text-white transition shadow-lg shadow-emerald-600/25">
-                <i data-lucide="pause" id="icon-play-pause" class="w-4 h-4"></i>
-                <span id="text-play-pause">Simulating</span>
-            </button>
+                <!-- Play / Pause -->
+                <button id="btn-play-pause" class="flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3.5 sm:py-2 rounded-xl font-semibold text-xs bg-emerald-600 hover:bg-emerald-500 text-white transition shadow-lg shadow-emerald-600/25">
+                    <i data-lucide="pause" id="icon-play-pause" class="w-3.5 h-3.5"></i>
+                    <span id="text-play-pause">Simulating</span>
+                </button>
 
-            <!-- Reset to Standing -->
-            <button id="btn-reset" class="flex items-center gap-1.5 px-3 py-2 rounded-xl font-medium text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition" title="Rewind all pieces to their standing positions before toppling">
-                <i data-lucide="rotate-ccw" class="w-4 h-4 text-amber-400"></i>
-                <span>Reset Stand</span>
-            </button>
+                <!-- Reset to Standing -->
+                <button id="btn-reset" class="flex items-center gap-1 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl font-medium text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition" title="Rewind all pieces to their standing positions before toppling">
+                    <i data-lucide="rotate-ccw" class="w-3.5 h-3.5 text-amber-400"></i>
+                    <span>Reset</span>
+                </button>
 
-            <!-- Save Checkpoint -->
-            <button id="btn-checkpoint" class="flex items-center gap-1.5 px-3 py-2 rounded-xl font-medium text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition" title="Save current positions as the reset state">
-                <i data-lucide="bookmark-check" class="w-4 h-4 text-sky-400"></i>
-                <span class="hidden sm:inline">Save State</span>
-            </button>
+                <!-- Save Checkpoint -->
+                <button id="btn-checkpoint" class="flex items-center gap-1 px-2 py-1.5 sm:px-3 sm:py-2 rounded-xl font-medium text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition" title="Save current positions as the reset state">
+                    <i data-lucide="bookmark-check" class="w-3.5 h-3.5 text-sky-400"></i>
+                    <span class="hidden md:inline">Save</span>
+                </button>
 
-            <!-- Clear All -->
-            <button id="btn-clear" class="flex items-center gap-1.5 px-3 py-2 rounded-xl font-medium text-xs bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/60 transition">
-                <i data-lucide="trash-2" class="w-4 h-4"></i>
-                <span class="hidden sm:inline">Clear</span>
-            </button>
+                <!-- Clear All -->
+                <button id="btn-clear" class="flex items-center gap-1 px-2 py-1.5 sm:px-3 sm:py-2 rounded-xl font-medium text-xs bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/60 transition" title="Clear All Pieces">
+                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                    <span class="hidden md:inline">Clear</span>
+                </button>
+
+                <!-- Top Menu Collapse Button -->
+                <button id="btn-collapse-top" class="flex items-center gap-1 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl font-medium text-xs bg-slate-800/90 hover:bg-slate-700 text-sky-300 border border-slate-600/80 transition ml-auto" title="Collapse Top Menu">
+                    <i data-lucide="chevron-up" class="w-4 h-4"></i>
+                    <span class="hidden sm:inline">Hide Menu</span>
+                </button>
+            </div>
         </div>
 
         <!-- Presets, Graphics Quality, Audio & Stats -->
-        <div class="glass-panel px-3.5 py-2 rounded-2xl shadow-2xl flex flex-wrap items-center gap-2.5 pointer-events-auto">
+        <div class="glass-panel px-3 py-2 sm:px-3.5 sm:py-2 rounded-2xl shadow-2xl flex flex-wrap items-center justify-between sm:justify-start gap-2 pointer-events-auto">
             <div class="flex items-center gap-1.5">
-                <span class="text-xs font-medium text-slate-300 hidden md:inline">Preset:</span>
+                <span class="text-xs font-medium text-slate-300 hidden sm:inline">Preset:</span>
                 <select id="preset-select" class="bg-slate-800/90 text-xs font-medium text-slate-100 rounded-xl px-2.5 py-1.5 border border-slate-700 focus:outline-none focus:border-sky-400 cursor-pointer">
-                    <option value="cascade">Tabletop & Chair Cascade</option>
-                    <option value="spiral">Grand Sky Spiral & Bridge</option>
-                    <option value="fortress">Block Tower Destruction</option>
-                    <option value="dining">Full Dining Room Course</option>
-                </select>
-            </div>
-
-            <div class="h-5 w-[1px] bg-slate-700/80 hidden sm:block"></div>
-
-            <!-- Graphics / AO Quality Selector -->
-            <div class="flex items-center gap-1.5" title="Lighting & Ambient Occlusion Quality">
-                <i data-lucide="sun-medium" class="w-3.5 h-3.5 text-amber-400 hidden sm:inline"></i>
-                <select id="quality-select" class="bg-slate-800/90 text-xs font-medium text-sky-300 rounded-xl px-2.5 py-1.5 border border-slate-700 focus:outline-none focus:border-sky-400 cursor-pointer">
-                    <option value="balanced" selected>Clean Studio (Hardware MSAA + Shadows)</option>
-                    <option value="high">Experimental SSAO (Post-Processing)</option>
-                    <option value="mobile">Mobile Fast (1x Pixel Ratio)</option>
+                    <option value="cascade">Tabletop Cascade</option>
+                    <option value="spiral">Sky Spiral & Bridge</option>
+                    <option value="fortress">Block Tower</option>
+                    <option value="dining">Full Dining Course</option>
                 </select>
             </div>
 
             <!-- Platform Surface Material Selector -->
             <div class="flex items-center gap-1.5" title="Platform Floor Surface Material">
                 <i data-lucide="layers" class="w-3.5 h-3.5 text-emerald-400 hidden sm:inline"></i>
-                <select id="material-select" class="bg-slate-800/90 text-xs font-medium text-emerald-300 rounded-xl px-2.5 py-1.5 border border-slate-700 focus:outline-none focus:border-emerald-400 cursor-pointer">
-                    <option value="slate">Platform: Dark Slate Pavers</option>
-                    <option value="walnut">Platform: Smoked Dark Walnut</option>
-                    <option value="obsidian">Platform: Satin Obsidian Studio</option>
+                <select id="material-select" class="bg-slate-800/90 text-xs font-medium text-emerald-300 rounded-xl px-2 py-1.5 border border-slate-700 focus:outline-none focus:border-emerald-400 cursor-pointer">
+                    <option value="slate">Dark Slate</option>
+                    <option value="walnut">Smoked Walnut</option>
+                    <option value="obsidian">Obsidian</option>
                 </select>
             </div>
 
-            <!-- Sound Toggle -->
-            <button id="btn-sound" class="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-slate-700 transition" title="Toggle Synthesized Collision Audio">
-                <i data-lucide="volume-2" id="icon-sound" class="w-4 h-4"></i>
-            </button>
+            <!-- Graphics / AO Quality Selector -->
+            <div class="flex items-center gap-1.5" title="Lighting & Ambient Occlusion Quality">
+                <i data-lucide="sun-medium" class="w-3.5 h-3.5 text-amber-400 hidden sm:inline"></i>
+                <select id="quality-select" class="bg-slate-800/90 text-xs font-medium text-sky-300 rounded-xl px-2 py-1.5 border border-slate-700 focus:outline-none focus:border-sky-400 cursor-pointer">
+                    <option value="balanced" selected>Clean Studio</option>
+                    <option value="high">Experimental SSAO</option>
+                    <option value="mobile">Mobile Fast</option>
+                </select>
+            </div>
 
-            <!-- Object & Live FPS Counter -->
-            <div class="px-2.5 py-1 rounded-lg bg-slate-900/90 border border-slate-800 text-xs font-mono text-slate-300 flex items-center gap-2">
-                <span><span id="stat-count" class="text-sky-400 font-bold">0</span> items</span>
-                <span class="text-slate-600">|</span>
-                <span><span id="stat-fps" class="text-emerald-400 font-bold">60</span> FPS</span>
+            <div class="flex items-center gap-2 ml-auto">
+                <!-- Sound Toggle -->
+                <button id="btn-sound" class="p-1.5 sm:p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-slate-700 transition" title="Toggle Sound">
+                    <i data-lucide="volume-2" id="icon-sound" class="w-4 h-4"></i>
+                </button>
+
+                <!-- Object & Live FPS Counter -->
+                <div class="px-2 py-1 rounded-lg bg-slate-900/90 border border-slate-800 text-[11px] font-mono text-slate-300 flex items-center gap-1.5">
+                    <span><span id="stat-count" class="text-sky-400 font-bold">0</span> pcs</span>
+                    <span class="text-slate-600">|</span>
+                    <span><span id="stat-fps" class="text-emerald-400 font-bold">60</span> fps</span>
+                </div>
             </div>
         </div>
     </div>
 
-    <!-- Floating Expand Button when Sidebar is Collapsed -->
-    <button id="btn-expand-floating" class="fixed left-4 top-28 sm:top-20 z-10 hidden items-center gap-2 px-3.5 py-2.5 rounded-2xl glass-panel text-xs font-semibold text-white hover:bg-slate-800/90 transition shadow-2xl pointer-events-auto">
-        <i data-lucide="panel-left-open" class="w-4 h-4 text-sky-400"></i>
-        <span>Builder Menu</span>
-    </button>
+    <!-- Floating Compact Bar when Top Bar is Collapsed -->
+    <div id="top-floating-bar" class="fixed top-2.5 left-1/2 -translate-x-1/2 z-20 hidden items-center gap-1.5 p-1.5 pl-2.5 rounded-2xl glass-panel shadow-2xl pointer-events-auto">
+        <div class="flex items-center gap-1.5 pr-2 border-r border-slate-700/80">
+            <i data-lucide="cloud-sun" class="w-4 h-4 text-sky-400 shrink-0"></i>
+            <span class="font-bold text-xs text-white tracking-tight hidden sm:inline">DominoSky</span>
+        </div>
 
-    <!-- Mobile & Quick Action Floating Dock (Right / Bottom-Right) -->
-    <div class="fixed right-4 bottom-20 z-20 flex flex-col gap-2 pointer-events-auto">
-        <!-- Confirm Placement Button (shown when placing single items on touch devices) -->
-        <button id="btn-touch-place" class="hidden items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-2xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-bold text-xs shadow-xl shadow-blue-600/30 border border-sky-300/40 active:scale-95 transition" title="Confirm placement at preview ghost">
-            <i data-lucide="check-circle-2" class="w-4 h-4"></i>
-            <span>Place Here</span>
+        <button id="btn-pill-push" class="flex items-center gap-1 px-2.5 py-1.5 rounded-xl font-bold text-xs bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 shadow active:scale-95 transition" title="Push Domino!">
+            <i data-lucide="zap" class="w-3.5 h-3.5 fill-slate-950"></i>
+            <span>Push</span>
         </button>
 
-        <!-- Rotate 45° Button -->
-        <button id="btn-quick-rotate" class="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-2xl glass-panel hover:bg-slate-800/90 text-sky-300 font-semibold text-xs shadow-xl active:scale-95 transition" title="Rotate Item 22.5° (Shortcut: R)">
-            <i data-lucide="rotate-cw" class="w-4 h-4"></i>
-            <span>Rotate</span>
+        <button id="btn-pill-play" class="flex items-center gap-1 px-2 py-1.5 rounded-xl font-medium text-xs bg-emerald-600 hover:bg-emerald-500 text-white transition shadow" title="Toggle Simulation">
+            <i data-lucide="pause" id="icon-pill-play" class="w-3.5 h-3.5"></i>
         </button>
 
-        <!-- Undo Last Item Button -->
-        <button id="btn-quick-undo" class="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-2xl glass-panel hover:bg-slate-800/90 text-amber-300 font-semibold text-xs shadow-xl active:scale-95 transition" title="Undo Last Placed Domino or Item (Ctrl+Z)">
-            <i data-lucide="undo-2" class="w-4 h-4"></i>
-            <span>Undo</span>
-        </button>
-
-        <!-- 1-Finger Camera Orbit Quick Toggle -->
-        <button id="btn-quick-orbit" class="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-2xl glass-panel hover:bg-slate-800/90 text-cyan-300 font-semibold text-xs shadow-xl active:scale-95 transition" title="Toggle 1-Finger Camera Orbit Mode">
-            <i data-lucide="orbit" class="w-4 h-4"></i>
-            <span id="text-quick-orbit">1-Finger Orbit</span>
+        <button id="btn-expand-top" class="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-sky-300 hover:text-white bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/80 transition shadow" title="Expand Top Menu">
+            <span>Menu</span>
+            <i data-lucide="chevron-down" class="w-3.5 h-3.5"></i>
         </button>
     </div>
 
+    <!-- Floating Expand Button when Sidebar is Collapsed -->
+    <button id="btn-expand-floating" class="fixed left-2.5 sm:left-4 top-2.5 sm:top-20 z-20 hidden items-center gap-1.5 px-2.5 py-1.5 sm:px-3.5 sm:py-2.5 rounded-2xl glass-panel text-xs font-semibold text-white hover:bg-slate-800/90 transition shadow-2xl pointer-events-auto" title="Open Builder Menu">
+        <i data-lucide="panel-left-open" class="w-4 h-4 text-sky-400"></i>
+        <span class="hidden sm:inline">Builder Menu</span>
+    </button>
+
+    <!-- Mobile & Quick Action Floating Dock (Bottom-Right) -->
+    <div class="fixed right-2.5 sm:right-4 bottom-14 sm:bottom-20 z-20 flex sm:flex-col flex-row items-center gap-1.5 pointer-events-auto">
+        <!-- Confirm Placement Button (shown when placing single items on touch devices) -->
+        <button id="btn-touch-place" class="hidden items-center justify-center gap-1 px-2.5 py-2 sm:px-3.5 sm:py-2.5 rounded-2xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-bold text-xs shadow-xl shadow-blue-600/30 border border-sky-300/40 active:scale-95 transition" title="Confirm placement at preview ghost">
+            <i data-lucide="check-circle-2" class="w-4 h-4"></i>
+            <span>Place</span>
+        </button>
+
+        <!-- Rotate Button -->
+        <button id="btn-quick-rotate" class="flex items-center justify-center gap-1 px-2.5 py-2 sm:px-3 sm:py-2.5 rounded-2xl glass-panel hover:bg-slate-800/90 text-sky-300 font-semibold text-xs shadow-xl active:scale-95 transition" title="Rotate Item 22.5° (Shortcut: R)">
+            <i data-lucide="rotate-cw" class="w-4 h-4"></i>
+            <span class="hidden sm:inline">Rotate</span>
+        </button>
+
+        <!-- Undo Last Item Button -->
+        <button id="btn-quick-undo" class="flex items-center justify-center gap-1 px-2.5 py-2 sm:px-3 sm:py-2.5 rounded-2xl glass-panel hover:bg-slate-800/90 text-amber-300 font-semibold text-xs shadow-xl active:scale-95 transition" title="Undo Last Placed Domino or Item (Ctrl+Z)">
+            <i data-lucide="undo-2" class="w-4 h-4"></i>
+            <span class="hidden sm:inline">Undo</span>
+        </button>
+
+        <!-- 1-Finger Camera Orbit Quick Toggle -->
+        <button id="btn-quick-orbit" class="flex items-center justify-center gap-1 px-2.5 py-2 sm:px-3 sm:py-2.5 rounded-2xl glass-panel hover:bg-slate-800/90 text-cyan-300 font-semibold text-xs shadow-xl active:scale-95 transition" title="Toggle 1-Finger Camera Orbit Mode">
+            <i data-lucide="orbit" class="w-4 h-4"></i>
+            <span id="text-quick-orbit" class="hidden sm:inline">1-Finger Orbit</span>
+        </button>
+    </div>
+
+    <!-- Left Sidebar Backdrop for Mobile -->
+    <div id="sidebar-backdrop" class="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-25 hidden transition-opacity pointer-events-auto"></div>
+
     <!-- Left Sidebar: Collapsible Mode & Object Catalog -->
-    <div id="left-sidebar" class="fixed left-4 top-28 sm:top-20 bottom-20 z-10 flex flex-col gap-3 w-72 max-w-[86vw] pointer-events-none">
+    <div id="left-sidebar" class="fixed left-2.5 sm:left-4 top-2.5 sm:top-20 bottom-14 sm:bottom-20 z-30 flex flex-col gap-3 w-80 max-w-[88vw] pointer-events-none">
         <!-- Interaction Modes -->
-        <div class="glass-panel p-3.5 rounded-2xl shadow-2xl pointer-events-auto flex flex-col gap-2.5">
+        <div class="glass-panel p-3 sm:p-3.5 rounded-2xl shadow-2xl pointer-events-auto flex flex-col gap-2 shrink-0">
             <div class="flex items-center justify-between">
                 <span class="text-[11px] font-bold uppercase tracking-wider text-sky-300">Interaction Tool</span>
-                <button id="btn-collapse-inner" class="text-[11px] text-slate-400 hover:text-white flex items-center gap-1 transition" title="Collapse Menu">
-                    <span>Hide</span>
-                    <i data-lucide="chevron-left" class="w-3.5 h-3.5"></i>
+                <button id="btn-collapse-inner" class="px-2 py-1 rounded-lg bg-slate-800/80 text-[11px] text-slate-300 hover:text-white flex items-center gap-1 transition" title="Collapse Menu">
+                    <span>Close</span>
+                    <i data-lucide="x" class="w-3.5 h-3.5"></i>
                 </button>
             </div>
 
@@ -325,14 +379,14 @@
                     </label>
                 </div>
                 <div id="color-palette" class="flex items-center justify-between px-1 py-1">
-                    <button data-color="#f8fafc" class="color-swatch active w-6 h-6 rounded-full bg-slate-50 border border-slate-400 transition" title="Classic Ivory"></button>
-                    <button data-color="#ef4444" class="color-swatch w-6 h-6 rounded-full bg-red-500 transition" title="Crimson Red"></button>
-                    <button data-color="#f59e0b" class="color-swatch w-6 h-6 rounded-full bg-amber-500 transition" title="Amber Gold"></button>
-                    <button data-color="#10b981" class="color-swatch w-6 h-6 rounded-full bg-emerald-500 transition" title="Emerald Green"></button>
-                    <button data-color="#3b82f6" class="color-swatch w-6 h-6 rounded-full bg-blue-500 transition" title="Cobalt Blue"></button>
-                    <button data-color="#8b5cf6" class="color-swatch w-6 h-6 rounded-full bg-violet-500 transition" title="Royal Violet"></button>
-                    <button data-color="#ec4899" class="color-swatch w-6 h-6 rounded-full bg-pink-500 transition" title="Magenta Pink"></button>
-                    <button data-color="#1e293b" class="color-swatch w-6 h-6 rounded-full bg-slate-800 border border-slate-500 transition" title="Obsidian Black"></button>
+                    <button data-color="#cbd5e1" class="color-swatch active w-6 h-6 rounded-full bg-slate-300 border border-slate-500 transition" title="Classic Ivory"></button>
+                    <button data-color="#dc2626" class="color-swatch w-6 h-6 rounded-full bg-red-600 transition" title="Crimson Red"></button>
+                    <button data-color="#d97706" class="color-swatch w-6 h-6 rounded-full bg-amber-600 transition" title="Amber Gold"></button>
+                    <button data-color="#059669" class="color-swatch w-6 h-6 rounded-full bg-emerald-600 transition" title="Emerald Green"></button>
+                    <button data-color="#2563eb" class="color-swatch w-6 h-6 rounded-full bg-blue-600 transition" title="Cobalt Blue"></button>
+                    <button data-color="#7c3aed" class="color-swatch w-6 h-6 rounded-full bg-violet-600 transition" title="Royal Violet"></button>
+                    <button data-color="#db2777" class="color-swatch w-6 h-6 rounded-full bg-pink-600 transition" title="Magenta Pink"></button>
+                    <button data-color="#0f172a" class="color-swatch w-6 h-6 rounded-full bg-slate-900 border border-slate-600 transition" title="Obsidian Black"></button>
                 </div>
             </div>
 
@@ -358,17 +412,17 @@
     </div>
 
         <!-- Bottom Contextual Instructions Banner -->
-    <div class="fixed bottom-4 left-1/2 -translate-x-1/2 z-10 pointer-events-none w-max max-w-[95vw]">
-        <div class="glass-panel px-4 py-2 rounded-full shadow-2xl flex items-center gap-3 text-xs text-slate-200 pointer-events-auto">
-            <div id="status-hint" class="flex items-center gap-2 font-medium truncate max-w-[82vw] sm:max-w-none">
+    <div class="fixed bottom-2 sm:bottom-4 left-1/2 -translate-x-1/2 z-10 pointer-events-none w-max max-w-[95vw]">
+        <div class="glass-panel px-3 py-1.5 sm:px-4 sm:py-2 rounded-full shadow-2xl flex items-center gap-3 text-[11px] sm:text-xs text-slate-200 pointer-events-auto">
+            <div id="status-hint" class="flex items-center gap-1.5 sm:gap-2 font-medium truncate max-w-[84vw] sm:max-w-none">
                 <span class="w-2 h-2 rounded-full bg-sky-400 animate-pulse shrink-0"></span>
                 <span><strong>Draw Line:</strong> 1-finger / Left-drag to draw dominoes! Use 2 fingers (or Right-drag) to orbit/zoom.</span>
             </div>
             <div class="hidden lg:flex items-center gap-2.5 pl-3 border-l border-slate-700 text-slate-300 text-[11px] shrink-0">
-                <span><kbd class="px-1.5 py-0.5 bg-slate-800 rounded border border-slate-700 text-white">Tab</kbd> Menu</span>
+                <span><kbd class="px-1.5 py-0.5 bg-slate-800 rounded border border-slate-700 text-white">Tab</kbd> Builder</span>
+                <span><kbd class="px-1.5 py-0.5 bg-slate-800 rounded border border-slate-700 text-white">T</kbd> Top Menu</span>
                 <span><kbd class="px-1.5 py-0.5 bg-slate-800 rounded border border-slate-700 text-white">R</kbd> Rotate</span>
                 <span><kbd class="px-1.5 py-0.5 bg-slate-800 rounded border border-slate-700 text-white">Space</kbd> Play</span>
-                <span><kbd class="px-1.5 py-0.5 bg-slate-800 rounded border border-slate-700 text-white">2-Finger / R-Drag</kbd> Orbit</span>
             </div>
         </div>
     </div>
@@ -773,29 +827,34 @@
             canvas.height = 512;
             const ctx = canvas.getContext('2d');
 
+            // Apply darkening multiplier so dominoes have a deeper, richer, non-washed-out tone
+            const baseColor = new THREE.Color(hexColor).multiplyScalar(0.85);
+            const dominoTone = '#' + baseColor.getHexString();
+
             // Base color fill
-            ctx.fillStyle = hexColor;
+            ctx.fillStyle = dominoTone;
             ctx.fillRect(0, 0, 256, 512);
 
             // Soft baked bevel & bottom-edge cavity AO gradient on domino face
             const aoGrad = ctx.createLinearGradient(0, 0, 0, 512);
-            aoGrad.addColorStop(0.0, 'rgba(255,255,255,0.08)');
-            aoGrad.addColorStop(0.15, 'rgba(0,0,0,0.0)');
-            aoGrad.addColorStop(0.82, 'rgba(0,0,0,0.0)');
-            aoGrad.addColorStop(1.0, 'rgba(0,0,0,0.18)');
+            aoGrad.addColorStop(0.0, 'rgba(0,0,0,0.08)');
+            aoGrad.addColorStop(0.12, 'rgba(0,0,0,0.02)');
+            aoGrad.addColorStop(0.80, 'rgba(0,0,0,0.04)');
+            aoGrad.addColorStop(1.0, 'rgba(0,0,0,0.28)');
             ctx.fillStyle = aoGrad;
             ctx.fillRect(0, 0, 256, 512);
 
-            const isLight = (hexColor === '#f8fafc' || hexColor === '#f59e0b');
+            const lum = 0.299 * baseColor.r + 0.587 * baseColor.g + 0.114 * baseColor.b;
+            const isLight = lum > 0.42;
             const pipColor = isLight ? '#0f172a' : '#f8fafc';
 
             // Subtle rounded border inset with recessed cavity shadow
-            ctx.strokeStyle = isLight ? 'rgba(15,23,42,0.16)' : 'rgba(0,0,0,0.28)';
+            ctx.strokeStyle = isLight ? 'rgba(15,23,42,0.22)' : 'rgba(0,0,0,0.36)';
             ctx.lineWidth = 8;
             ctx.strokeRect(14, 14, 228, 484);
 
             // Center divider bar with recessed groove AO
-            ctx.fillStyle = 'rgba(0,0,0,0.22)';
+            ctx.fillStyle = 'rgba(0,0,0,0.32)';
             ctx.fillRect(34, 250, 188, 12);
             ctx.fillStyle = pipColor;
             ctx.fillRect(36, 252, 184, 8);
@@ -806,7 +865,7 @@
                 const pGrad = ctx.createRadialGradient(x - 3, y - 3, 2, x, y, 18);
                 pGrad.addColorStop(0, pipColor);
                 pGrad.addColorStop(0.78, pipColor);
-                pGrad.addColorStop(1, 'rgba(0,0,0,0.35)');
+                pGrad.addColorStop(1, 'rgba(0,0,0,0.40)');
                 ctx.fillStyle = pGrad;
                 ctx.beginPath();
                 ctx.arc(x, y, 16.5, 0, Math.PI * 2);
@@ -832,18 +891,18 @@
             faceTex.anisotropy = 4;
 
             const sideMat = new THREE.MeshStandardMaterial({
-                color: hexColor,
-                roughness: 0.22,
+                color: baseColor,
+                roughness: 0.28,
                 metalness: 0.04,
-                envMapIntensity: 0.9,
+                envMapIntensity: 0.58,
                 vertexColors: true
             });
 
             const faceMat = new THREE.MeshStandardMaterial({
                 map: faceTex,
-                roughness: 0.20,
+                roughness: 0.25,
                 metalness: 0.04,
-                envMapIntensity: 0.95,
+                envMapIntensity: 0.60,
                 vertexColors: true
             });
 
@@ -1530,14 +1589,14 @@
 
         // Shared Cached Geometries with Baked Vertex Cavity AO for zero allocation overhead
         const SHARED_GEOS = {
-            domino: applyBakedBoxVertexAO(new THREE.BoxGeometry(DIMENSIONS.domino.w, DIMENSIONS.domino.h, DIMENSIONS.domino.d), 0.78, 1.03),
+            domino: applyBakedBoxVertexAO(new THREE.BoxGeometry(DIMENSIONS.domino.w, DIMENSIONS.domino.h, DIMENSIONS.domino.d), 0.70, 0.92),
             plank:  applyBakedBoxVertexAO(new THREE.BoxGeometry(DIMENSIONS.plank.w, DIMENSIONS.plank.h, DIMENSIONS.plank.d), 0.82, 1.02),
             cube:   applyBakedBoxVertexAO(new THREE.BoxGeometry(DIMENSIONS.cube.w, DIMENSIONS.cube.h, DIMENSIONS.cube.d), 0.75, 1.02)
         };
 
         const RAINBOW_COLORS = [
-            '#ef4444', '#f97316', '#f59e0b', '#10b981',
-            '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899'
+            '#dc2626', '#ea580c', '#d97706', '#059669',
+            '#0891b2', '#2563eb', '#7c3aed', '#db2777'
         ];
         let rainbowIndex = 0;
 
@@ -1879,7 +1938,7 @@
         const state = {
             mode: 'draw',          // 'draw', 'place', 'move', 'push', 'delete', 'camera'
             item: 'domino',        // 'domino', 'plank', 'cube', 'ramp', 'chair', 'table'
-            selectedColor: '#f8fafc',
+            selectedColor: '#cbd5e1',
             rotationY: 0,
             spacing: 0.82,
             pushForce: 0.55,
@@ -2534,6 +2593,7 @@
         // Collapsible Left Sidebar Logic
         let isSidebarCollapsed = false;
         const leftSidebar = document.getElementById('left-sidebar');
+        const sidebarBackdrop = document.getElementById('sidebar-backdrop');
         const btnToggleSidebar = document.getElementById('btn-toggle-sidebar');
         const btnCollapseInner = document.getElementById('btn-collapse-inner');
         const btnExpandFloating = document.getElementById('btn-expand-floating');
@@ -2544,13 +2604,17 @@
 
             const icon = document.getElementById('icon-sidebar-toggle');
             if (isSidebarCollapsed) {
-                icon.setAttribute('data-lucide', 'panel-left-open');
+                if (icon) icon.setAttribute('data-lucide', 'panel-left-open');
                 btnExpandFloating.classList.remove('hidden');
                 btnExpandFloating.classList.add('flex');
+                if (sidebarBackdrop) sidebarBackdrop.classList.add('hidden');
             } else {
-                icon.setAttribute('data-lucide', 'panel-left-close');
+                if (icon) icon.setAttribute('data-lucide', 'panel-left-close');
                 btnExpandFloating.classList.add('hidden');
                 btnExpandFloating.classList.remove('flex');
+                if (sidebarBackdrop && window.innerWidth < 768) {
+                    sidebarBackdrop.classList.remove('hidden');
+                }
             }
             lucide.createIcons();
         }
@@ -2558,9 +2622,49 @@
         btnToggleSidebar.addEventListener('click', () => toggleSidebar());
         btnCollapseInner.addEventListener('click', () => toggleSidebar(true));
         btnExpandFloating.addEventListener('click', () => toggleSidebar(false));
+        if (sidebarBackdrop) {
+            sidebarBackdrop.addEventListener('click', () => toggleSidebar(true));
+        }
 
-        // Auto-collapse sidebar on narrow mobile screens so the 3D sky arena is unobstructed
-        if (window.innerWidth < 640) {
+        // Collapsible Top Menu Logic
+        let isTopMenuCollapsed = false;
+        const topBar = document.getElementById('top-bar');
+        const topFloatingBar = document.getElementById('top-floating-bar');
+        const btnCollapseTop = document.getElementById('btn-collapse-top');
+        const btnExpandTop = document.getElementById('btn-expand-top');
+
+        function toggleTopMenu(forceState = null) {
+            isTopMenuCollapsed = forceState !== null ? forceState : !isTopMenuCollapsed;
+            topBar.classList.toggle('collapsed', isTopMenuCollapsed);
+            if (isTopMenuCollapsed) {
+                topFloatingBar.classList.remove('hidden');
+                topFloatingBar.classList.add('flex');
+            } else {
+                topFloatingBar.classList.add('hidden');
+                topFloatingBar.classList.remove('flex');
+            }
+            lucide.createIcons();
+        }
+
+        if (btnCollapseTop) btnCollapseTop.addEventListener('click', () => toggleTopMenu(true));
+        if (btnExpandTop) btnExpandTop.addEventListener('click', () => toggleTopMenu(false));
+
+        const btnPillPush = document.getElementById('btn-pill-push');
+        if (btnPillPush) {
+            btnPillPush.addEventListener('click', () => {
+                sound.init();
+                pushFirstStandingDomino();
+            });
+        }
+
+        const btnPillPlay = document.getElementById('btn-pill-play');
+        if (btnPillPlay) {
+            btnPillPlay.addEventListener('click', () => toggleSimulation());
+        }
+
+        // Auto-collapse top bar & sidebar on mobile screens for an uncluttered 3D arena
+        if (window.innerWidth < 768) {
+            toggleTopMenu(true);
             toggleSidebar(true);
         }
 
@@ -2692,21 +2796,27 @@
 
         // Top Bar Buttons
         const btnPlayPause = document.getElementById('btn-play-pause');
+        const iconPillPlay = document.getElementById('icon-pill-play');
+
         function toggleSimulation() {
             state.isSimulating = !state.isSimulating;
             const textSpan = document.getElementById('text-play-pause');
             const icon = document.getElementById('icon-play-pause');
 
             if (state.isSimulating) {
-                btnPlayPause.className = 'flex items-center gap-2 px-3.5 py-2 rounded-xl font-semibold text-xs bg-emerald-600 hover:bg-emerald-500 text-white transition shadow-lg shadow-emerald-600/25';
-                textSpan.textContent = 'Simulating';
-                icon.setAttribute('data-lucide', 'pause');
+                btnPlayPause.className = 'flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3.5 sm:py-2 rounded-xl font-semibold text-xs bg-emerald-600 hover:bg-emerald-500 text-white transition shadow-lg shadow-emerald-600/25';
+                if (textSpan) textSpan.textContent = 'Simulating';
+                if (icon) icon.setAttribute('data-lucide', 'pause');
+                if (iconPillPlay) iconPillPlay.setAttribute('data-lucide', 'pause');
+                if (btnPillPlay) btnPillPlay.className = 'flex items-center gap-1 px-2 py-1.5 rounded-xl font-medium text-xs bg-emerald-600 hover:bg-emerald-500 text-white transition shadow';
                 // Wake up bodies
                 objects.forEach(o => o.body.wakeUp());
             } else {
-                btnPlayPause.className = 'flex items-center gap-2 px-3.5 py-2 rounded-xl font-semibold text-xs bg-amber-600 hover:bg-amber-500 text-white transition shadow-lg shadow-amber-600/25';
-                textSpan.textContent = 'Paused';
-                icon.setAttribute('data-lucide', 'play');
+                btnPlayPause.className = 'flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3.5 sm:py-2 rounded-xl font-semibold text-xs bg-amber-600 hover:bg-amber-500 text-white transition shadow-lg shadow-amber-600/25';
+                if (textSpan) textSpan.textContent = 'Paused';
+                if (icon) icon.setAttribute('data-lucide', 'play');
+                if (iconPillPlay) iconPillPlay.setAttribute('data-lucide', 'play');
+                if (btnPillPlay) btnPillPlay.className = 'flex items-center gap-1 px-2 py-1.5 rounded-xl font-medium text-xs bg-amber-600 hover:bg-amber-500 text-white transition shadow';
             }
             lucide.createIcons();
         }
@@ -2751,6 +2861,9 @@
             } else if (e.code === 'Tab') {
                 e.preventDefault();
                 toggleSidebar();
+            } else if (e.code === 'KeyT' || e.code === 'KeyM') {
+                e.preventDefault();
+                toggleTopMenu();
             }
         });
 
