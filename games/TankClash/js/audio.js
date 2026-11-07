@@ -636,19 +636,76 @@ const soundFX = {
         this.playImpactExplosion(posOrDist);
     },
 
-    playHit(posOrDist = 0) {
-        this.playArmorRicochet(posOrDist);
+    playHit(posOrDist = 0, isSoldier = false, volumeScale = 1.0) {
+        if (isSoldier) {
+            this.playSoldierHit(posOrDist, volumeScale);
+        } else {
+            this.playArmorRicochet(posOrDist, volumeScale);
+        }
     },
 
     // Realistic Multi-Stage Tree Toppling & Canopy Ground Crash (Deep Low-Pitch Timber Snap)
 
-    // Deep heavy-armor impact thud & low resonant steel plate gong (Visceral low pitch hit)
-    playArmorRicochet(posOrDist = 0) {
+    // Bullet impact on soldier: muted organic flesh & fabric punch (soft low-frequency thud, non-fatiguing)
+    playSoldierHit(posOrDist = 0, volumeScale = 1.0) {
         this.init();
         if (!this.enabled || !this.ctx) return;
-        const spatial = this.createSpatialGain(posOrDist, 32.0, 1.30, 0.0, 10000);
+        const spatial = this.createSpatialGain(posOrDist, 20.0, 1.35, 0.0, 5000);
         if (spatial.gain < 0.01) return;
         const now = this.ctx.currentTime + (spatial.delay || 0);
+
+        // Soldier Hit Master Bus (Controlled, gentle volume)
+        const hitBus = this.ctx.createGain();
+        hitBus.gain.setValueAtTime(0.24 * Math.max(0.1, volumeScale), now);
+        hitBus.connect(spatial.input);
+
+        // 1. Organic body impact thud (140Hz down to 42Hz)
+        const thud = this.ctx.createOscillator();
+        const thudGain = this.ctx.createGain();
+        thud.type = 'triangle';
+        thud.frequency.setValueAtTime(140, now);
+        thud.frequency.exponentialRampToValueAtTime(42, now + 0.07);
+        thudGain.gain.setValueAtTime(0.38, now);
+        thudGain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+        thud.connect(thudGain);
+        thudGain.connect(hitBus);
+        thud.start(now);
+        thud.stop(now + 0.08);
+
+        // 2. Cloth/fabric impact transient (soft bandpass crackle: 650Hz)
+        const snapLen = Math.floor(this.ctx.sampleRate * 0.045);
+        const snapBuf = this.ctx.createBuffer(1, snapLen, this.ctx.sampleRate);
+        const snapData = snapBuf.getChannelData(0);
+        for (let i = 0; i < snapLen; i++) {
+            snapData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (snapLen * 0.25));
+        }
+        const snapSrc = this.ctx.createBufferSource();
+        snapSrc.buffer = snapBuf;
+        const snapFilt = this.ctx.createBiquadFilter();
+        snapFilt.type = 'bandpass';
+        snapFilt.frequency.setValueAtTime(650, now);
+        snapFilt.Q.value = 1.4;
+        const snapGain = this.ctx.createGain();
+        snapGain.gain.setValueAtTime(0.28, now);
+        snapGain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+        snapSrc.connect(snapFilt);
+        snapFilt.connect(snapGain);
+        snapGain.connect(hitBus);
+        snapSrc.start(now);
+    },
+
+    // Deep heavy-armor impact thud & low resonant steel plate gong (Visceral low pitch hit, comfortably balanced volume)
+    playArmorRicochet(posOrDist = 0, volumeScale = 1.0) {
+        this.init();
+        if (!this.enabled || !this.ctx) return;
+        const spatial = this.createSpatialGain(posOrDist, 28.0, 1.30, 0.0, 9000);
+        if (spatial.gain < 0.01) return;
+        const now = this.ctx.currentTime + (spatial.delay || 0);
+
+        // Master impact bus to prevent clipping and reduce loud jarring bursts
+        const hitMaster = this.ctx.createGain();
+        hitMaster.gain.setValueAtTime(0.28 * Math.max(0.1, volumeScale), now);
+        hitMaster.connect(spatial.input);
 
         // 1. Heavy Armor Solid Mass Thud (Punchy deep hull substrate: 90Hz down to 32Hz)
         const thud = this.ctx.createOscillator();
@@ -656,10 +713,10 @@ const soundFX = {
         thud.type = 'triangle';
         thud.frequency.setValueAtTime(90, now);
         thud.frequency.exponentialRampToValueAtTime(32, now + 0.10);
-        thudGain.gain.setValueAtTime(0.95, now);
+        thudGain.gain.setValueAtTime(0.36, now);
         thudGain.gain.exponentialRampToValueAtTime(0.001, now + 0.11);
         thud.connect(thudGain);
-        thudGain.connect(spatial.input);
+        thudGain.connect(hitMaster);
         thud.start(now);
         thud.stop(now + 0.11);
 
@@ -669,10 +726,10 @@ const soundFX = {
         subThud.type = 'sine';
         subThud.frequency.setValueAtTime(68, now);
         subThud.frequency.exponentialRampToValueAtTime(25, now + 0.15);
-        subThudGain.gain.setValueAtTime(0.90, now);
+        subThudGain.gain.setValueAtTime(0.28, now);
         subThudGain.gain.exponentialRampToValueAtTime(0.001, now + 0.16);
         subThud.connect(subThudGain);
-        subThudGain.connect(spatial.input);
+        subThudGain.connect(hitMaster);
         subThud.start(now);
         subThud.stop(now + 0.16);
 
@@ -690,11 +747,11 @@ const soundFX = {
         snapFilt.frequency.setValueAtTime(820, now);
         snapFilt.Q.value = 1.8;
         const snapGain = this.ctx.createGain();
-        snapGain.gain.setValueAtTime(0.90, now);
+        snapGain.gain.setValueAtTime(0.32, now);
         snapGain.gain.exponentialRampToValueAtTime(0.001, now + 0.065);
         snapSrc.connect(snapFilt);
         snapFilt.connect(snapGain);
-        snapGain.connect(spatial.input);
+        snapGain.connect(hitMaster);
         snapSrc.start(now);
 
         // 3. Resonant Low-Q Metallic Hull Gong (Vibrating heavy 80-100mm armor plate: 580Hz)
@@ -711,11 +768,11 @@ const soundFX = {
         clangFilt.frequency.setValueAtTime(580, now);
         clangFilt.Q.value = 12.0; // Resonant low ringing gong
         const clangGain = this.ctx.createGain();
-        clangGain.gain.setValueAtTime(0.85, now);
+        clangGain.gain.setValueAtTime(0.30, now);
         clangGain.gain.exponentialRampToValueAtTime(0.001, now + 0.32);
         clangSrc.connect(clangFilt);
         clangFilt.connect(clangGain);
-        clangGain.connect(spatial.input);
+        clangGain.connect(hitMaster);
         clangSrc.start(now);
 
         // 4. Inharmonic Low Steel Armor Plate Modes (Low deep hull gonging)
@@ -725,10 +782,10 @@ const soundFX = {
         ring1.type = 'sine';
         ring1.frequency.setValueAtTime(280, now + 0.002);
         ring1.frequency.exponentialRampToValueAtTime(265, now + 0.40);
-        ring1Gain.gain.setValueAtTime(0.55, now + 0.002);
+        ring1Gain.gain.setValueAtTime(0.18, now + 0.002);
         ring1Gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.40);
         ring1.connect(ring1Gain);
-        ring1Gain.connect(spatial.input);
+        ring1Gain.connect(hitMaster);
         ring1.start(now + 0.002);
         ring1.stop(now + 0.40);
 
@@ -738,10 +795,10 @@ const soundFX = {
         ring2.type = 'sine';
         ring2.frequency.setValueAtTime(440, now + 0.002);
         ring2.frequency.exponentialRampToValueAtTime(415, now + 0.28);
-        ring2Gain.gain.setValueAtTime(0.42, now + 0.002);
+        ring2Gain.gain.setValueAtTime(0.14, now + 0.002);
         ring2Gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.28);
         ring2.connect(ring2Gain);
-        ring2Gain.connect(spatial.input);
+        ring2Gain.connect(hitMaster);
         ring2.start(now + 0.002);
         ring2.stop(now + 0.28);
 
@@ -750,10 +807,10 @@ const soundFX = {
         const ring3Gain = this.ctx.createGain();
         ring3.type = 'sine';
         ring3.frequency.setValueAtTime(620, now + 0.001);
-        ring3Gain.gain.setValueAtTime(0.28, now + 0.001);
+        ring3Gain.gain.setValueAtTime(0.09, now + 0.001);
         ring3Gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
         ring3.connect(ring3Gain);
-        ring3Gain.connect(spatial.input);
+        ring3Gain.connect(hitMaster);
         ring3.start(now + 0.001);
         ring3.stop(now + 0.16);
 
@@ -763,10 +820,10 @@ const soundFX = {
         whine.type = 'triangle';
         whine.frequency.setValueAtTime(520, now + 0.005);
         whine.frequency.exponentialRampToValueAtTime(160, now + 0.22);
-        whineGain.gain.setValueAtTime(0.35, now + 0.005);
+        whineGain.gain.setValueAtTime(0.11, now + 0.005);
         whineGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
         whine.connect(whineGain);
-        whineGain.connect(spatial.input);
+        whineGain.connect(hitMaster);
         whine.start(now + 0.005);
         whine.stop(now + 0.22);
     },

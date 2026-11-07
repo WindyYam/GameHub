@@ -3312,6 +3312,7 @@ const TIGER_SKY_FRAGMENT_SHADER = `
     uniform float uSkyRotation;
     uniform float uTime;
     uniform float uCloudCoverage;
+    uniform sampler2D uCloudTex;
     varying vec3 vWorldPos;
 
     float hash(vec2 p) {
@@ -3396,23 +3397,16 @@ const TIGER_SKY_FRAGMENT_SHADER = `
         return v;
     }
 
+    // Puffy cumulus density from a pre-baked tileable noise texture: 2 texture taps instead of ~20
+    // procedural noise octaves per call. R = large cloud masses, G = billowy cauliflower detail.
     float sampleCloudDensity(vec2 uv) {
-        vec2 windMacro = vec2(uTime * 0.016, uTime * 0.006);
-        vec2 windMicro = vec2(uTime * 0.038, -uTime * 0.012);
-
-        vec2 warp = vec2(
-            fbm(uv * 0.85 + windMacro),
-            fbm(uv * 0.85 - windMacro + vec2(11.7, 4.3))
-        ) - 0.5;
-
-        vec2 p = uv + warp * 0.55 + windMacro;
-        float baseFronts = fbm(p * 0.55);
-        float billowingTurbulence = ridgedFbm(p * 1.45 + windMicro * 0.5);
-        float wispyEdges = fbm(p * 3.8 - windMicro);
-
-        float composite = baseFronts * 0.65 + billowingTurbulence * 0.28 + wispyEdges * 0.15;
-        float threshold = mix(0.56, 0.30, uCloudCoverage);
-        return smoothstep(threshold, threshold + 0.18, composite);
+        vec2 wind = vec2(uTime * 0.018, uTime * 0.0065);
+        float masses = texture2D(uCloudTex, uv * 0.22 + wind).r;
+        float billow = texture2D(uCloudTex, uv * 0.85 - wind * 1.4 + vec2(0.37, 0.61)).g;
+        float wisp   = texture2D(uCloudTex, uv * 1.95 + wind * 2.1 + vec2(0.73, 0.19)).g;
+        float composite = masses * 0.66 + billow * 0.23 + wisp * 0.11;
+        float threshold = mix(0.68, 0.45, uCloudCoverage);
+        return smoothstep(threshold - 0.04, threshold + 0.24, composite);
     }
 
     void main() {
@@ -3553,23 +3547,20 @@ const TIGER_SKY_FRAGMENT_SHADER = `
             float planeDist = 1.9 / (pow(dir.y, 0.82) + 0.06);
             vec2 cloudUV = dir.xz * planeDist * 0.32;
 
-            float d1 = sampleCloudDensity(cloudUV);
-            float d2 = sampleCloudDensity(cloudUV * 1.85 + vec2(21.4, -11.8)) * 0.45;
-            float density = clamp(d1 + d2 * 0.5, 0.0, 1.0);
+            float density = sampleCloudDensity(cloudUV);
 
             if (density > 0.004) {
                 vec3 primaryLightDir = sunAlt > 0.0 ? uSunDir : uMoonDir;
                 vec2 lightStep = primaryLightDir.xz * 0.085;
                 float s1 = sampleCloudDensity(cloudUV + lightStep * 0.5);
                 float s2 = sampleCloudDensity(cloudUV + lightStep * 1.2);
-                float s3 = sampleCloudDensity(cloudUV + lightStep * 2.2);
-                float opticalDepth = (s1 * 0.45 + s2 * 0.35 + s3 * 0.20) * 1.35;
+                float opticalDepth = (s1 * 0.55 + s2 * 0.45) * 1.25;
                 float transmittance = exp(-opticalDepth * 1.65);
 
                 vec3 sunlitTop = mix(vec3(0.10, 0.16, 0.28), vec3(1.0, 1.0, 1.0), dayFactor);
                 sunlitTop = mix(sunlitTop, vec3(1.0, 0.65, 0.35), twilightFactor * 0.94);
 
-                vec3 ambientBelly = mix(vec3(0.02, 0.035, 0.08), vec3(0.52, 0.64, 0.78), dayFactor);
+                vec3 ambientBelly = mix(vec3(0.02, 0.035, 0.08), vec3(0.62, 0.72, 0.84), dayFactor);
                 ambientBelly = mix(ambientBelly, vec3(0.30, 0.18, 0.30), twilightFactor * 0.92);
 
                 vec3 cloudCol = mix(ambientBelly, sunlitTop, clamp(transmittance * 0.92 + (1.0 - density) * 0.35, 0.0, 1.0));
@@ -3594,6 +3585,54 @@ const TIGER_SKY_FRAGMENT_SHADER = `
     }
 `;
 
+// Tileable value-noise texture (R: fbm cloud masses, G: billowy detail) baked once on the CPU for the sky shader.
+function createCloudNoiseTexture() {
+    const size = 256;
+    const data = new Uint8Array(size * size * 4);
+    const lattice = (ix, iy, seed) => {
+        let h = Math.imul(ix, 374761393) ^ Math.imul(iy, 668265263) ^ Math.imul(seed, 1442695041);
+        h = Math.imul(h ^ (h >>> 13), 1274126177);
+        h ^= h >>> 16;
+        return (h >>> 0) / 4294967296;
+    };
+    const tileNoise = (u, v, period, seed) => {
+        const x = u * period, y = v * period;
+        const x0 = Math.floor(x), y0 = Math.floor(y);
+        let fx = x - x0, fy = y - y0;
+        fx = fx * fx * (3 - 2 * fx);
+        fy = fy * fy * (3 - 2 * fy);
+        const xa = ((x0 % period) + period) % period, xb = (xa + 1) % period;
+        const ya = ((y0 % period) + period) % period, yb = (ya + 1) % period;
+        const a = lattice(xa, ya, seed), b = lattice(xb, ya, seed);
+        const c = lattice(xa, yb, seed), d = lattice(xb, yb, seed);
+        return (a + (b - a) * fx) + ((c + (d - c) * fx) - (a + (b - a) * fx)) * fy;
+    };
+    for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+            const u = x / size, v = y / size;
+            const masses = tileNoise(u, v, 4, 1) * 0.50 + tileNoise(u, v, 8, 2) * 0.27
+                + tileNoise(u, v, 16, 3) * 0.15 + tileNoise(u, v, 32, 4) * 0.08;
+            const billow = Math.abs(tileNoise(u, v, 8, 5) * 2 - 1) * 0.50 + Math.abs(tileNoise(u, v, 16, 6) * 2 - 1) * 0.28
+                + Math.abs(tileNoise(u, v, 32, 7) * 2 - 1) * 0.14 + Math.abs(tileNoise(u, v, 64, 8) * 2 - 1) * 0.08;
+            // Contrast stretch so cloud masses have clear gaps of blue sky between them
+            const m = Math.min(1, Math.max(0, (masses - 0.5) * 1.55 + 0.5));
+            const i = (y * size + x) * 4;
+            data[i] = Math.round(m * 255);
+            data[i + 1] = Math.round(Math.min(1, billow * 1.15) * 255);
+            data[i + 2] = 0;
+            data[i + 3] = 255;
+        }
+    }
+    const tex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.minFilter = THREE.LinearMipmapLinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.generateMipmaps = true;
+    tex.needsUpdate = true;
+    return tex;
+}
+
 function createMaldiveSkyDome() {
     const skyGeo = new THREE.SphereGeometry(720, 64, 32);
     const skyMat = new THREE.ShaderMaterial({
@@ -3605,7 +3644,8 @@ function createMaldiveSkyDome() {
             uSkyHorizonColor: { value: new THREE.Color(0x397cca) },
             uSkyRotation:     { value: 0 },
             uTime:            { value: 0 },
-            uCloudCoverage:   { value: 0.02 }
+            uCloudCoverage:   { value: 0.42 },
+            uCloudTex:        { value: createCloudNoiseTexture() }
         },
         side: THREE.BackSide,
         depthWrite: false,

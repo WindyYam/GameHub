@@ -1,0 +1,2842 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Dominoes & Physics Studio</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- Three.js r128 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- OrbitControls -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <!-- Cannon.js 0.6.2 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js"></script>
+
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            overflow: hidden;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+            overscroll-behavior: none;
+            background-color: #38bdf8;
+        }
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+            display: block;
+            touch-action: none;
+        }
+        #canvas-container canvas {
+            touch-action: none;
+            outline: none;
+        }
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.80);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+        }
+        .tool-btn.active {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            color: white;
+            border-color: #60a5fa;
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.4);
+        }
+        .item-btn.active {
+            background: rgba(59, 130, 246, 0.25);
+            border-color: #3b82f6;
+            color: #93c5fd;
+        }
+        .color-swatch.active {
+            transform: scale(1.2);
+            box-shadow: 0 0 0 2px #0f172a, 0 0 0 4px #ffffff;
+        }
+        #left-sidebar {
+            transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease;
+        }
+        #left-sidebar.collapsed {
+            transform: translateX(calc(-100% - 24px));
+            opacity: 0;
+            pointer-events: none;
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.4);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(148, 163, 184, 0.4);
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body class="text-slate-100 antialiased">
+
+    <!-- 3D Canvas Container -->
+    <div id="canvas-container"></div>
+
+    <!-- Top Simulation & Preset Bar -->
+    <div class="fixed top-4 left-4 right-4 z-20 flex flex-wrap items-center justify-between gap-3 pointer-events-none">
+        <!-- Brand & Sim Controls -->
+        <div class="glass-panel px-4 py-2.5 rounded-2xl shadow-2xl flex flex-wrap items-center gap-2.5 pointer-events-auto">
+            <!-- Sidebar Toggle Button -->
+            <button id="btn-toggle-sidebar" class="flex items-center justify-center w-9 h-9 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-600/80 transition shadow" title="Toggle Left Menu (Tab)">
+                <i data-lucide="panel-left-close" id="icon-sidebar-toggle" class="w-4 h-4 text-sky-400"></i>
+            </button>
+
+            <div class="flex items-center gap-2.5 pr-3 border-r border-slate-700/80">
+                <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-sky-400 to-blue-600 flex items-center justify-center shadow-lg shadow-sky-500/30">
+                    <i data-lucide="cloud-sun" class="w-5 h-5 text-white"></i>
+                </div>
+                <div>
+                    <h1 class="font-bold text-sm tracking-tight text-white leading-none">DominoSky 3D</h1>
+                    <span class="text-[11px] text-sky-300 font-medium">Cloud Physics Studio</span>
+                </div>
+            </div>
+
+            <!-- Dedicated PUSH Button -->
+            <button id="btn-push-now" class="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-xs bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 transition shadow-lg shadow-amber-500/30 active:scale-95" title="Push the first standing domino to start the chain reaction, or switch to Push cursor!">
+                <i data-lucide="zap" class="w-4 h-4 fill-slate-950"></i>
+                <span>Push Domino!</span>
+            </button>
+
+            <!-- Play / Pause -->
+            <button id="btn-play-pause" class="flex items-center gap-2 px-3.5 py-2 rounded-xl font-semibold text-xs bg-emerald-600 hover:bg-emerald-500 text-white transition shadow-lg shadow-emerald-600/25">
+                <i data-lucide="pause" id="icon-play-pause" class="w-4 h-4"></i>
+                <span id="text-play-pause">Simulating</span>
+            </button>
+
+            <!-- Reset to Standing -->
+            <button id="btn-reset" class="flex items-center gap-1.5 px-3 py-2 rounded-xl font-medium text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition" title="Rewind all pieces to their standing positions before toppling">
+                <i data-lucide="rotate-ccw" class="w-4 h-4 text-amber-400"></i>
+                <span>Reset Stand</span>
+            </button>
+
+            <!-- Save Checkpoint -->
+            <button id="btn-checkpoint" class="flex items-center gap-1.5 px-3 py-2 rounded-xl font-medium text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition" title="Save current positions as the reset state">
+                <i data-lucide="bookmark-check" class="w-4 h-4 text-sky-400"></i>
+                <span class="hidden sm:inline">Save State</span>
+            </button>
+
+            <!-- Clear All -->
+            <button id="btn-clear" class="flex items-center gap-1.5 px-3 py-2 rounded-xl font-medium text-xs bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/60 transition">
+                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                <span class="hidden sm:inline">Clear</span>
+            </button>
+        </div>
+
+        <!-- Presets, Graphics Quality, Audio & Stats -->
+        <div class="glass-panel px-3.5 py-2 rounded-2xl shadow-2xl flex flex-wrap items-center gap-2.5 pointer-events-auto">
+            <div class="flex items-center gap-1.5">
+                <span class="text-xs font-medium text-slate-300 hidden md:inline">Preset:</span>
+                <select id="preset-select" class="bg-slate-800/90 text-xs font-medium text-slate-100 rounded-xl px-2.5 py-1.5 border border-slate-700 focus:outline-none focus:border-sky-400 cursor-pointer">
+                    <option value="cascade">Tabletop & Chair Cascade</option>
+                    <option value="spiral">Grand Sky Spiral & Bridge</option>
+                    <option value="fortress">Block Tower Destruction</option>
+                    <option value="dining">Full Dining Room Course</option>
+                </select>
+            </div>
+
+            <div class="h-5 w-[1px] bg-slate-700/80 hidden sm:block"></div>
+
+            <!-- Graphics / AO Quality Selector -->
+            <div class="flex items-center gap-1.5" title="Lighting & Ambient Occlusion Quality">
+                <i data-lucide="sun-medium" class="w-3.5 h-3.5 text-amber-400 hidden sm:inline"></i>
+                <select id="quality-select" class="bg-slate-800/90 text-xs font-medium text-sky-300 rounded-xl px-2.5 py-1.5 border border-slate-700 focus:outline-none focus:border-sky-400 cursor-pointer">
+                    <option value="balanced" selected>Clean Studio (Hardware MSAA + Shadows)</option>
+                    <option value="high">Experimental SSAO (Post-Processing)</option>
+                    <option value="mobile">Mobile Fast (1x Pixel Ratio)</option>
+                </select>
+            </div>
+
+            <!-- Platform Surface Material Selector -->
+            <div class="flex items-center gap-1.5" title="Platform Floor Surface Material">
+                <i data-lucide="layers" class="w-3.5 h-3.5 text-emerald-400 hidden sm:inline"></i>
+                <select id="material-select" class="bg-slate-800/90 text-xs font-medium text-emerald-300 rounded-xl px-2.5 py-1.5 border border-slate-700 focus:outline-none focus:border-emerald-400 cursor-pointer">
+                    <option value="slate">Platform: Dark Slate Pavers</option>
+                    <option value="walnut">Platform: Smoked Dark Walnut</option>
+                    <option value="obsidian">Platform: Satin Obsidian Studio</option>
+                </select>
+            </div>
+
+            <!-- Sound Toggle -->
+            <button id="btn-sound" class="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-slate-700 transition" title="Toggle Synthesized Collision Audio">
+                <i data-lucide="volume-2" id="icon-sound" class="w-4 h-4"></i>
+            </button>
+
+            <!-- Object & Live FPS Counter -->
+            <div class="px-2.5 py-1 rounded-lg bg-slate-900/90 border border-slate-800 text-xs font-mono text-slate-300 flex items-center gap-2">
+                <span><span id="stat-count" class="text-sky-400 font-bold">0</span> items</span>
+                <span class="text-slate-600">|</span>
+                <span><span id="stat-fps" class="text-emerald-400 font-bold">60</span> FPS</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Floating Expand Button when Sidebar is Collapsed -->
+    <button id="btn-expand-floating" class="fixed left-4 top-28 sm:top-20 z-10 hidden items-center gap-2 px-3.5 py-2.5 rounded-2xl glass-panel text-xs font-semibold text-white hover:bg-slate-800/90 transition shadow-2xl pointer-events-auto">
+        <i data-lucide="panel-left-open" class="w-4 h-4 text-sky-400"></i>
+        <span>Builder Menu</span>
+    </button>
+
+    <!-- Mobile & Quick Action Floating Dock (Right / Bottom-Right) -->
+    <div class="fixed right-4 bottom-20 z-20 flex flex-col gap-2 pointer-events-auto">
+        <!-- Confirm Placement Button (shown when placing single items on touch devices) -->
+        <button id="btn-touch-place" class="hidden items-center justify-center gap-1.5 px-3.5 py-2.5 rounded-2xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white font-bold text-xs shadow-xl shadow-blue-600/30 border border-sky-300/40 active:scale-95 transition" title="Confirm placement at preview ghost">
+            <i data-lucide="check-circle-2" class="w-4 h-4"></i>
+            <span>Place Here</span>
+        </button>
+
+        <!-- Rotate 45° Button -->
+        <button id="btn-quick-rotate" class="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-2xl glass-panel hover:bg-slate-800/90 text-sky-300 font-semibold text-xs shadow-xl active:scale-95 transition" title="Rotate Item 22.5° (Shortcut: R)">
+            <i data-lucide="rotate-cw" class="w-4 h-4"></i>
+            <span>Rotate</span>
+        </button>
+
+        <!-- Undo Last Item Button -->
+        <button id="btn-quick-undo" class="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-2xl glass-panel hover:bg-slate-800/90 text-amber-300 font-semibold text-xs shadow-xl active:scale-95 transition" title="Undo Last Placed Domino or Item (Ctrl+Z)">
+            <i data-lucide="undo-2" class="w-4 h-4"></i>
+            <span>Undo</span>
+        </button>
+
+        <!-- 1-Finger Camera Orbit Quick Toggle -->
+        <button id="btn-quick-orbit" class="flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-2xl glass-panel hover:bg-slate-800/90 text-cyan-300 font-semibold text-xs shadow-xl active:scale-95 transition" title="Toggle 1-Finger Camera Orbit Mode">
+            <i data-lucide="orbit" class="w-4 h-4"></i>
+            <span id="text-quick-orbit">1-Finger Orbit</span>
+        </button>
+    </div>
+
+    <!-- Left Sidebar: Collapsible Mode & Object Catalog -->
+    <div id="left-sidebar" class="fixed left-4 top-28 sm:top-20 bottom-20 z-10 flex flex-col gap-3 w-72 max-w-[86vw] pointer-events-none">
+        <!-- Interaction Modes -->
+        <div class="glass-panel p-3.5 rounded-2xl shadow-2xl pointer-events-auto flex flex-col gap-2.5">
+            <div class="flex items-center justify-between">
+                <span class="text-[11px] font-bold uppercase tracking-wider text-sky-300">Interaction Tool</span>
+                <button id="btn-collapse-inner" class="text-[11px] text-slate-400 hover:text-white flex items-center gap-1 transition" title="Collapse Menu">
+                    <span>Hide</span>
+                    <i data-lucide="chevron-left" class="w-3.5 h-3.5"></i>
+                </button>
+            </div>
+
+            <div class="grid grid-cols-2 gap-1.5">
+                <button data-mode="draw" class="tool-btn active flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-medium bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 border border-slate-700/80 transition">
+                    <i data-lucide="pen-tool" class="w-4 h-4 shrink-0"></i>
+                    <span>Draw Line</span>
+                </button>
+                <button data-mode="place" class="tool-btn flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-medium bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 border border-slate-700/80 transition">
+                    <i data-lucide="plus-square" class="w-4 h-4 shrink-0"></i>
+                    <span>Place Item</span>
+                </button>
+                <button data-mode="push" class="tool-btn flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-medium bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 border border-slate-700/80 transition">
+                    <i data-lucide="zap" class="w-4 h-4 shrink-0 text-amber-400"></i>
+                    <span>Push / Flick</span>
+                </button>
+                <button data-mode="move" class="tool-btn flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-medium bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 border border-slate-700/80 transition">
+                    <i data-lucide="move" class="w-4 h-4 shrink-0"></i>
+                    <span>Drag / Move</span>
+                </button>
+                <button data-mode="delete" class="tool-btn flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-medium bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 border border-slate-700/80 transition">
+                    <i data-lucide="eraser" class="w-4 h-4 shrink-0 text-rose-400"></i>
+                    <span>Delete</span>
+                </button>
+                <button data-mode="camera" class="tool-btn flex items-center gap-2 px-3 py-2.5 rounded-xl text-xs font-medium bg-slate-800/80 hover:bg-slate-700/80 text-slate-300 border border-slate-700/80 transition">
+                    <i data-lucide="orbit" class="w-4 h-4 shrink-0 text-cyan-400"></i>
+                    <span>Camera Only</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Object Catalog & Customization -->
+        <div id="catalog-panel" class="glass-panel p-3.5 rounded-2xl shadow-2xl pointer-events-auto flex flex-col gap-3 overflow-y-auto">
+            <div class="flex items-center justify-between">
+                <span class="text-[11px] font-bold uppercase tracking-wider text-sky-300">Object Catalog</span>
+                <span id="rotation-indicator" class="text-[11px] font-mono text-sky-300 bg-sky-950/70 px-2 py-0.5 rounded border border-sky-700/50">Rot: 0° (R)</span>
+            </div>
+
+            <!-- Item Buttons -->
+            <div class="grid grid-cols-2 gap-1.5">
+                <button data-item="domino" class="item-btn active flex flex-col items-start p-2.5 rounded-xl bg-slate-800/70 hover:bg-slate-700/70 border border-slate-700/80 transition text-left">
+                    <div class="flex items-center justify-between w-full mb-1">
+                        <span class="text-xs font-semibold text-white">Domino</span>
+                        <span class="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300">Low-Friction</span>
+                    </div>
+                    <span class="text-[10px] text-slate-400 leading-tight">Smooth-gliding tile</span>
+                </button>
+
+                <button data-item="plank" class="item-btn flex flex-col items-start p-2.5 rounded-xl bg-slate-800/70 hover:bg-slate-700/70 border border-slate-700/80 transition text-left">
+                    <div class="flex items-center justify-between w-full mb-1">
+                        <span class="text-xs font-semibold text-white">Wood Plank</span>
+                        <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">Bridge</span>
+                    </div>
+                    <span class="text-[10px] text-slate-400 leading-tight">Flat Kapla-style board</span>
+                </button>
+
+                <button data-item="cube" class="item-btn flex flex-col items-start p-2.5 rounded-xl bg-slate-800/70 hover:bg-slate-700/70 border border-slate-700/80 transition text-left">
+                    <div class="flex items-center justify-between w-full mb-1">
+                        <span class="text-xs font-semibold text-white">Wood Block</span>
+                        <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">Pillar</span>
+                    </div>
+                    <span class="text-[10px] text-slate-400 leading-tight">Heavy support cube</span>
+                </button>
+
+                <button data-item="ramp" class="item-btn flex flex-col items-start p-2.5 rounded-xl bg-slate-800/70 hover:bg-slate-700/70 border border-slate-700/80 transition text-left">
+                    <div class="flex items-center justify-between w-full mb-1">
+                        <span class="text-xs font-semibold text-white">Stair / Step</span>
+                        <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300">Riser</span>
+                    </div>
+                    <span class="text-[10px] text-slate-400 leading-tight">3-step elevation riser</span>
+                </button>
+
+                <button data-item="chair" class="item-btn flex flex-col items-start p-2.5 rounded-xl bg-slate-800/70 hover:bg-slate-700/70 border border-slate-700/80 transition text-left">
+                    <div class="flex items-center justify-between w-full mb-1">
+                        <span class="text-xs font-semibold text-white">Studio Chair</span>
+                        <span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">Furniture</span>
+                    </div>
+                    <span class="text-[10px] text-slate-400 leading-tight">4 legs, seat & backrest</span>
+                </button>
+
+                <button data-item="table" class="item-btn flex flex-col items-start p-2.5 rounded-xl bg-slate-800/70 hover:bg-slate-700/70 border border-slate-700/80 transition text-left">
+                    <div class="flex items-center justify-between w-full mb-1">
+                        <span class="text-xs font-semibold text-white">Wood Table</span>
+                        <span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300">Surface</span>
+                    </div>
+                    <span class="text-[10px] text-slate-400 leading-tight">Build on top or under!</span>
+                </button>
+            </div>
+
+            <!-- Domino Color Palette -->
+            <div class="pt-2 border-t border-slate-700/80 flex flex-col gap-2">
+                <div class="flex items-center justify-between">
+                    <span class="text-[11px] font-semibold text-slate-300">Domino Color Palette</span>
+                    <label class="flex items-center gap-1.5 text-[11px] text-slate-400 cursor-pointer">
+                        <input type="checkbox" id="chk-rainbow" checked class="rounded bg-slate-800 border-slate-600 text-blue-500 focus:ring-0">
+                        <span>Auto-Rainbow</span>
+                    </label>
+                </div>
+                <div id="color-palette" class="flex items-center justify-between px-1 py-1">
+                    <button data-color="#f8fafc" class="color-swatch active w-6 h-6 rounded-full bg-slate-50 border border-slate-400 transition" title="Classic Ivory"></button>
+                    <button data-color="#ef4444" class="color-swatch w-6 h-6 rounded-full bg-red-500 transition" title="Crimson Red"></button>
+                    <button data-color="#f59e0b" class="color-swatch w-6 h-6 rounded-full bg-amber-500 transition" title="Amber Gold"></button>
+                    <button data-color="#10b981" class="color-swatch w-6 h-6 rounded-full bg-emerald-500 transition" title="Emerald Green"></button>
+                    <button data-color="#3b82f6" class="color-swatch w-6 h-6 rounded-full bg-blue-500 transition" title="Cobalt Blue"></button>
+                    <button data-color="#8b5cf6" class="color-swatch w-6 h-6 rounded-full bg-violet-500 transition" title="Royal Violet"></button>
+                    <button data-color="#ec4899" class="color-swatch w-6 h-6 rounded-full bg-pink-500 transition" title="Magenta Pink"></button>
+                    <button data-color="#1e293b" class="color-swatch w-6 h-6 rounded-full bg-slate-800 border border-slate-500 transition" title="Obsidian Black"></button>
+                </div>
+            </div>
+
+            <!-- Dynamic Parameters -->
+            <div class="pt-2 border-t border-slate-700/80 flex flex-col gap-2.5">
+                <div>
+                    <div class="flex justify-between text-[11px] mb-1">
+                        <span class="text-slate-400">Draw Line Spacing</span>
+                        <span id="val-spacing" class="text-slate-200 font-mono">0.82m</span>
+                    </div>
+                    <input type="range" id="slider-spacing" min="0.55" max="1.25" step="0.03" value="0.82" class="w-full accent-sky-400 h-1.5 bg-slate-700 rounded-lg cursor-pointer">
+                </div>
+
+                <div>
+                    <div class="flex justify-between text-[11px] mb-1">
+                        <span class="text-slate-400">Finger-Tap Push Force</span>
+                        <span id="val-force" class="text-amber-400 font-mono">0.55 N·s</span>
+                    </div>
+                    <input type="range" id="slider-force" min="0.25" max="1.50" step="0.05" value="0.55" class="w-full accent-amber-500 h-1.5 bg-slate-700 rounded-lg cursor-pointer">
+                </div>
+            </div>
+        </div>
+    </div>
+
+        <!-- Bottom Contextual Instructions Banner -->
+    <div class="fixed bottom-4 left-1/2 -translate-x-1/2 z-10 pointer-events-none w-max max-w-[95vw]">
+        <div class="glass-panel px-4 py-2 rounded-full shadow-2xl flex items-center gap-3 text-xs text-slate-200 pointer-events-auto">
+            <div id="status-hint" class="flex items-center gap-2 font-medium truncate max-w-[82vw] sm:max-w-none">
+                <span class="w-2 h-2 rounded-full bg-sky-400 animate-pulse shrink-0"></span>
+                <span><strong>Draw Line:</strong> 1-finger / Left-drag to draw dominoes! Use 2 fingers (or Right-drag) to orbit/zoom.</span>
+            </div>
+            <div class="hidden lg:flex items-center gap-2.5 pl-3 border-l border-slate-700 text-slate-300 text-[11px] shrink-0">
+                <span><kbd class="px-1.5 py-0.5 bg-slate-800 rounded border border-slate-700 text-white">Tab</kbd> Menu</span>
+                <span><kbd class="px-1.5 py-0.5 bg-slate-800 rounded border border-slate-700 text-white">R</kbd> Rotate</span>
+                <span><kbd class="px-1.5 py-0.5 bg-slate-800 rounded border border-slate-700 text-white">Space</kbd> Play</span>
+                <span><kbd class="px-1.5 py-0.5 bg-slate-800 rounded border border-slate-700 text-white">2-Finger / R-Drag</kbd> Orbit</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="fixed top-20 left-1/2 -translate-x-1/2 z-50 pointer-events-none opacity-0 transition-opacity duration-300">
+        <div class="bg-slate-900/95 border border-sky-400/50 text-white px-4 py-2 rounded-xl shadow-xl text-xs font-medium flex items-center gap-2">
+            <i data-lucide="sparkles" class="w-4 h-4 text-sky-400"></i>
+            <span id="toast-text">State Saved</span>
+        </div>
+    </div>
+
+    <script>
+        // Initialize Lucide icons
+        lucide.createIcons();
+
+        // ==========================================
+        // 1. SYNTHESIZED WEB AUDIO COLLISION ENGINE
+        // ==========================================
+        class SoundEngine {
+            constructor() {
+                this.ctx = null;
+                this.enabled = true;
+                this.lastSoundTime = 0;
+                this.recentWindowTimestamps = [];
+            }
+
+            init() {
+                if (!this.ctx) {
+                    const AudioCtx = window.AudioContext || window.webkitAudioContext;
+                    if (AudioCtx) this.ctx = new AudioCtx();
+                }
+                if (this.ctx && this.ctx.state === 'suspended') {
+                    this.ctx.resume();
+                }
+            }
+
+            playClick(velocity, type = 'domino') {
+                if (!this.enabled) return;
+                const now = performance.now();
+
+                // Prune timestamps older than 80ms and enforce global voice limiter (max 4 sounds per 80ms window)
+                while (this.recentWindowTimestamps.length > 0 && now - this.recentWindowTimestamps[0] > 80) {
+                    this.recentWindowTimestamps.shift();
+                }
+                if (this.recentWindowTimestamps.length >= 4 || now - this.lastSoundTime < 16) return;
+                if (velocity < 1.35) return;
+
+                this.init();
+                if (!this.ctx) return;
+
+                this.lastSoundTime = now;
+                this.recentWindowTimestamps.push(now);
+
+                const t = this.ctx.currentTime;
+                const gainVal = Math.min(0.32, Math.pow(Math.max(0, velocity - 1.2) / 7.5, 0.85) * 0.26);
+                if (gainVal <= 0.005) return;
+
+                // Crisp wood/ivory clack using filtered short impulse + dual resonant oscillators
+                const osc1 = this.ctx.createOscillator();
+                const osc2 = this.ctx.createOscillator();
+                const filter = this.ctx.createBiquadFilter();
+                const gain = this.ctx.createGain();
+
+                const pitchJitter = 0.92 + Math.random() * 0.16;
+                if (type === 'domino') {
+                    // High crisp resin/ivory clack
+                    osc1.type = 'triangle';
+                    osc2.type = 'sine';
+                    osc1.frequency.setValueAtTime(980 * pitchJitter, t);
+                    osc1.frequency.exponentialRampToValueAtTime(240 * pitchJitter, t + 0.045);
+
+                    osc2.frequency.setValueAtTime(2150 * pitchJitter, t);
+                    osc2.frequency.exponentialRampToValueAtTime(620 * pitchJitter, t + 0.03);
+
+                    filter.type = 'bandpass';
+                    filter.frequency.setValueAtTime(1600 * pitchJitter, t);
+                    filter.Q.setValueAtTime(2.5, t);
+                } else {
+                    // Deeper wooden thud for blocks/tables/chairs
+                    osc1.type = 'sine';
+                    osc2.type = 'triangle';
+                    osc1.frequency.setValueAtTime(320 * pitchJitter, t);
+                    osc1.frequency.exponentialRampToValueAtTime(75 * pitchJitter, t + 0.08);
+
+                    osc2.frequency.setValueAtTime(640 * pitchJitter, t);
+                    osc2.frequency.exponentialRampToValueAtTime(140 * pitchJitter, t + 0.06);
+
+                    filter.type = 'lowpass';
+                    filter.frequency.setValueAtTime(800, t);
+                }
+
+                gain.gain.setValueAtTime(0.001, t);
+                gain.gain.linearRampToValueAtTime(gainVal, t + 0.003);
+                gain.gain.exponentialRampToValueAtTime(0.0008, t + (type === 'domino' ? 0.055 : 0.09));
+
+                osc1.connect(filter);
+                osc2.connect(filter);
+                filter.connect(gain);
+                gain.connect(this.ctx.destination);
+
+                osc1.start(t);
+                osc2.start(t);
+                const stopTime = t + (type === 'domino' ? 0.06 : 0.095);
+                osc1.stop(stopTime);
+                osc2.stop(stopTime);
+            }
+        }
+
+        const sound = new SoundEngine();
+
+        // ==========================================
+        // 2. PROCEDURAL TEXTURES (SLATE, WALNUT, OBSIDIAN & DOMINO PIPS)
+        // ==========================================
+        function createDarkSlateTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+
+            const imgData = ctx.createImageData(512, 512);
+            const data = imgData.data;
+
+            // Architectural large stone pavers (2x2 grid in 512x512)
+            const tileSize = 256;
+            for (let y = 0; y < 512; y++) {
+                const ty = (y >> 8);
+                for (let x = 0; x < 512; x++) {
+                    const tx = (x >> 8);
+                    const tileId = (tx ^ (ty * 3)) & 3;
+                    const tileTone = (tileId - 1.5) * 3.5;
+
+                    // Layered micro-noise for authentic fine stone grit
+                    let n1 = ((x * 1597 + y * 51749 + (x ^ y) * 23) & 255) / 255;
+                    let n2 = ((x * 389 + y * 1327) & 255) / 255;
+                    let grain = (n1 * 0.65 + n2 * 0.35 - 0.5) * 10;
+
+                    // Subtle directional cleft
+                    let cleft = Math.sin((x + y * 0.25) * 0.05 + tileId) * 2.2;
+
+                    let base = 30 + tileTone + grain + cleft;
+                    let r = Math.max(16, Math.min(56, base - 2));
+                    let g = Math.max(18, Math.min(60, base + 1));
+                    let b = Math.max(22, Math.min(68, base + 6));
+
+                    const idx = (y * 512 + x) * 4;
+                    data[idx] = r;
+                    data[idx + 1] = g;
+                    data[idx + 2] = b;
+                    data[idx + 3] = 255;
+                }
+            }
+            ctx.putImageData(imgData, 0, 0);
+
+            // Architectural recessed joints (dark grout seam)
+            ctx.strokeStyle = 'rgba(10, 14, 20, 0.9)';
+            ctx.lineWidth = 3.5;
+            for (let x = 0; x <= 512; x += tileSize) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, 512);
+                ctx.stroke();
+            }
+            for (let y = 0; y <= 512; y += tileSize) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(512, y);
+                ctx.stroke();
+            }
+
+            // Fine bevel highlight on top/left edge of pavers
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
+            ctx.lineWidth = 1.2;
+            for (let x = 0; x < 512; x += tileSize) {
+                ctx.beginPath();
+                ctx.moveTo(x + 2, 0);
+                ctx.lineTo(x + 2, 512);
+                ctx.stroke();
+            }
+            for (let y = 0; y < 512; y += tileSize) {
+                ctx.beginPath();
+                ctx.moveTo(0, y + 2);
+                ctx.lineTo(512, y + 2);
+                ctx.stroke();
+            }
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.RepeatWrapping;
+            tex.repeat.set(8, 8);
+            tex.anisotropy = 16;
+            return tex;
+        }
+
+        function createDarkWalnutTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 1024;
+            canvas.height = 1024;
+            const ctx = canvas.getContext('2d');
+
+            ctx.fillStyle = '#1c1815';
+            ctx.fillRect(0, 0, 1024, 1024);
+
+            const rows = 8;
+            const cols = 4;
+            const plankH = 1024 / rows;
+            const plankW = 1024 / cols;
+
+            for (let r = 0; r < rows; r++) {
+                const offset = (r % 2) * (plankW / 2);
+                for (let c = -1; c <= cols; c++) {
+                    const x = c * plankW + offset;
+                    const y = r * plankH;
+
+                    // Deep espresso/charcoal smoked oak tone variation
+                    const hue = 26 + (Math.random() * 6 - 3);
+                    const sat = 18 + (Math.random() * 8 - 4);
+                    const light = 16 + (Math.random() * 4 - 2);
+                    ctx.fillStyle = `hsl(${hue}, ${sat}%, ${light}%)`;
+                    ctx.fillRect(x, y, plankW, plankH);
+
+                    // Fine straight wood fibers
+                    ctx.strokeStyle = `hsla(${hue - 2}, ${sat + 8}%, ${light - 5}%, 0.28)`;
+                    ctx.lineWidth = 1.6;
+                    for (let g = 0; g < 24; g++) {
+                        ctx.beginPath();
+                        const gy = y + Math.random() * plankH;
+                        ctx.moveTo(x, gy);
+                        ctx.bezierCurveTo(
+                            x + plankW * 0.33, gy + (Math.random() * 6 - 3),
+                            x + plankW * 0.66, gy + (Math.random() * 6 - 3),
+                            x + plankW, gy
+                        );
+                        ctx.stroke();
+                    }
+
+                    // Seam between planks
+                    ctx.strokeStyle = 'rgba(8, 6, 5, 0.75)';
+                    ctx.lineWidth = 2.5;
+                    ctx.strokeRect(x, y, plankW, plankH);
+
+                    // Micro-bevel highlight
+                    ctx.strokeStyle = 'rgba(255, 235, 215, 0.04)';
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(x + 1, y + 1, plankW - 2, plankH - 2);
+                }
+            }
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.RepeatWrapping;
+            tex.repeat.set(6, 6);
+            tex.anisotropy = 16;
+            return tex;
+        }
+
+        function createDarkObsidianTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+
+            // Ultra-clean matte graphite/obsidian with subtle micro-grit
+            ctx.fillStyle = '#14181f';
+            ctx.fillRect(0, 0, 512, 512);
+
+            // Subtle studio radial ring watermark
+            const cx = 256, cy = 256;
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.035)';
+            ctx.lineWidth = 1.5;
+            for (let rad = 30; rad < 250; rad += 32) {
+                ctx.beginPath();
+                ctx.arc(cx, cy, rad, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.RepeatWrapping;
+            tex.repeat.set(4, 4);
+            tex.anisotropy = 16;
+            return tex;
+        }
+
+        function createSkyDomeTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+
+            // Radiant azure zenith to warm sunlit horizon gradient + cool dark marble bounce for IBL
+            const grad = ctx.createLinearGradient(0, 0, 0, 512);
+            grad.addColorStop(0.0, '#0284c7');   // Deep zenith sky blue
+            grad.addColorStop(0.30, '#38bdf8');  // Bright sky blue
+            grad.addColorStop(0.47, '#e0f2fe');  // Soft cloud mist horizon
+            grad.addColorStop(0.51, '#fef3c7');  // Warm sunlit horizon glow
+            grad.addColorStop(0.58, '#1e293b');  // Cool dark marble/slate platform bounce light
+            grad.addColorStop(0.75, '#7dd3fc');  // Sky reflection below
+            grad.addColorStop(1.0, '#0369a1');   // Deep abyss below
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, 512, 512);
+
+            // Paint a bright solar radiance spot on the equirectangular map for crisp IBL specular highlights
+            const sunGrad = ctx.createRadialGradient(380, 145, 2, 380, 145, 58);
+            sunGrad.addColorStop(0.0, 'rgba(255, 255, 250, 1.0)');
+            sunGrad.addColorStop(0.3, 'rgba(254, 243, 199, 0.75)');
+            sunGrad.addColorStop(1.0, 'rgba(254, 243, 199, 0.0)');
+            ctx.fillStyle = sunGrad;
+            ctx.fillRect(310, 80, 140, 140);
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.mapping = THREE.EquirectangularReflectionMapping;
+            return tex;
+        }
+
+        /**
+         * Soft radial Contact Ambient Occlusion shadow texture for real-time instanced decals
+         */
+        function createContactAOTexture() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 128;
+            canvas.height = 128;
+            const ctx = canvas.getContext('2d');
+
+            const grad = ctx.createRadialGradient(64, 64, 6, 64, 64, 62);
+            grad.addColorStop(0.0, 'rgba(8, 12, 22, 0.72)');
+            grad.addColorStop(0.45, 'rgba(10, 15, 28, 0.44)');
+            grad.addColorStop(0.78, 'rgba(12, 18, 32, 0.14)');
+            grad.addColorStop(1.0, 'rgba(12, 18, 32, 0.0)');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, 128, 128);
+
+            return new THREE.CanvasTexture(canvas);
+        }
+
+        /**
+         * Bakes vertical & corner Cavity Ambient Occlusion into vertex colors of any BoxGeometry
+         * so bottom contact edges and crevices naturally self-occlude.
+         */
+        function applyBakedBoxVertexAO(geo, bottomDarkness = 0.74, topBrightness = 1.03) {
+            const pos = geo.attributes.position;
+            let minY = Infinity, maxY = -Infinity;
+            for (let i = 0; i < pos.count; i++) {
+                const y = pos.getY(i);
+                if (y < minY) minY = y;
+                if (y > maxY) maxY = y;
+            }
+            const spanY = Math.max(0.001, maxY - minY);
+            const colors = new Float32Array(pos.count * 3);
+            for (let i = 0; i < pos.count; i++) {
+                const y = pos.getY(i);
+                const t = (y - minY) / spanY;
+                const shade = bottomDarkness + (topBrightness - bottomDarkness) * Math.pow(t, 0.65);
+                colors[i * 3] = shade;
+                colors[i * 3 + 1] = shade;
+                colors[i * 3 + 2] = shade;
+            }
+            geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+            return geo;
+        }
+
+        function createFineWoodTexture(baseColor = '#c28d53', darkGrain = '#8c5a2b') {
+            const canvas = document.createElement('canvas');
+            canvas.width = 512;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+
+            ctx.fillStyle = baseColor;
+            ctx.fillRect(0, 0, 512, 512);
+
+            ctx.strokeStyle = darkGrain;
+            ctx.globalAlpha = 0.18;
+            for (let i = 0; i < 90; i++) {
+                ctx.lineWidth = 1 + Math.random() * 3;
+                ctx.beginPath();
+                const y = Math.random() * 512;
+                ctx.moveTo(0, y);
+                ctx.bezierCurveTo(170, y + (Math.random() * 16 - 8), 340, y + (Math.random() * 16 - 8), 512, y);
+                ctx.stroke();
+            }
+
+            // Subtle baked edge vignette AO on wood panels
+            ctx.globalAlpha = 1.0;
+            const edgeGrad = ctx.createRadialGradient(256, 256, 150, 256, 256, 360);
+            edgeGrad.addColorStop(0, 'rgba(0,0,0,0)');
+            edgeGrad.addColorStop(1, 'rgba(25,12,4,0.16)');
+            ctx.fillStyle = edgeGrad;
+            ctx.fillRect(0, 0, 512, 512);
+
+            const tex = new THREE.CanvasTexture(canvas);
+            tex.wrapS = THREE.RepeatWrapping;
+            tex.wrapT = THREE.RepeatWrapping;
+            return tex;
+        }
+
+        const dominoMaterialCache = {};
+        function getDominoMaterials(hexColor) {
+            if (dominoMaterialCache[hexColor]) return dominoMaterialCache[hexColor];
+
+            const canvas = document.createElement('canvas');
+            canvas.width = 256;
+            canvas.height = 512;
+            const ctx = canvas.getContext('2d');
+
+            // Base color fill
+            ctx.fillStyle = hexColor;
+            ctx.fillRect(0, 0, 256, 512);
+
+            // Soft baked bevel & bottom-edge cavity AO gradient on domino face
+            const aoGrad = ctx.createLinearGradient(0, 0, 0, 512);
+            aoGrad.addColorStop(0.0, 'rgba(255,255,255,0.08)');
+            aoGrad.addColorStop(0.15, 'rgba(0,0,0,0.0)');
+            aoGrad.addColorStop(0.82, 'rgba(0,0,0,0.0)');
+            aoGrad.addColorStop(1.0, 'rgba(0,0,0,0.18)');
+            ctx.fillStyle = aoGrad;
+            ctx.fillRect(0, 0, 256, 512);
+
+            const isLight = (hexColor === '#f8fafc' || hexColor === '#f59e0b');
+            const pipColor = isLight ? '#0f172a' : '#f8fafc';
+
+            // Subtle rounded border inset with recessed cavity shadow
+            ctx.strokeStyle = isLight ? 'rgba(15,23,42,0.16)' : 'rgba(0,0,0,0.28)';
+            ctx.lineWidth = 8;
+            ctx.strokeRect(14, 14, 228, 484);
+
+            // Center divider bar with recessed groove AO
+            ctx.fillStyle = 'rgba(0,0,0,0.22)';
+            ctx.fillRect(34, 250, 188, 12);
+            ctx.fillStyle = pipColor;
+            ctx.fillRect(36, 252, 184, 8);
+
+            // Draw classic pips (Top: 5, Bottom: 6) with concave cavity AO shading
+            const drawPip = (x, y) => {
+                // Concave rim AO shadow
+                const pGrad = ctx.createRadialGradient(x - 3, y - 3, 2, x, y, 18);
+                pGrad.addColorStop(0, pipColor);
+                pGrad.addColorStop(0.78, pipColor);
+                pGrad.addColorStop(1, 'rgba(0,0,0,0.35)');
+                ctx.fillStyle = pGrad;
+                ctx.beginPath();
+                ctx.arc(x, y, 16.5, 0, Math.PI * 2);
+                ctx.fill();
+            };
+
+            // Top half (5 pips)
+            drawPip(72, 72);
+            drawPip(184, 72);
+            drawPip(128, 128);
+            drawPip(72, 184);
+            drawPip(184, 184);
+
+            // Bottom half (6 pips)
+            drawPip(72, 315);
+            drawPip(184, 315);
+            drawPip(72, 380);
+            drawPip(184, 380);
+            drawPip(72, 445);
+            drawPip(184, 445);
+
+            const faceTex = new THREE.CanvasTexture(canvas);
+            faceTex.anisotropy = 4;
+
+            const sideMat = new THREE.MeshStandardMaterial({
+                color: hexColor,
+                roughness: 0.22,
+                metalness: 0.04,
+                envMapIntensity: 0.9,
+                vertexColors: true
+            });
+
+            const faceMat = new THREE.MeshStandardMaterial({
+                map: faceTex,
+                roughness: 0.20,
+                metalness: 0.04,
+                envMapIntensity: 0.95,
+                vertexColors: true
+            });
+
+            const mats = [sideMat, sideMat, sideMat, sideMat, faceMat, faceMat];
+            dominoMaterialCache[hexColor] = mats;
+            return mats;
+        }
+
+        // ==========================================
+        // 3. THREE.JS SKY, IBL, SSAO + CONTACT AO & CANNON.JS
+        // ==========================================
+        const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent) || (window.innerWidth < 768);
+
+        const container = document.getElementById('canvas-container');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x7dd3fc);
+        scene.fog = new THREE.FogExp2(0xb8e6fe, 0.0028);
+
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.25, 420);
+        camera.position.set(0, 18, 28);
+
+        const renderer = new THREE.WebGLRenderer({
+            antialias: !isMobileDevice,
+            powerPreference: 'high-performance'
+        });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobileDevice ? 1.5 : 2));
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.outputEncoding = THREE.sRGBEncoding;
+        renderer.toneMapping = THREE.ACESFilmicToneMapping;
+        renderer.toneMappingExposure = 1.08;
+        container.appendChild(renderer.domElement);
+
+        // Sky Dome & Procedural HDR-Style PMREM Environment Map (IBL)
+        const skyEquirectTex = createSkyDomeTexture();
+        const pmremGenerator = new THREE.PMREMGenerator(renderer);
+        pmremGenerator.compileEquirectangularShader();
+        const envMapRT = pmremGenerator.fromEquirectangular(skyEquirectTex);
+        scene.environment = envMapRT.texture;
+
+        const skyGeo = new THREE.SphereGeometry(280, 32, 32);
+        const skyMat = new THREE.MeshBasicMaterial({
+            map: skyEquirectTex,
+            side: THREE.BackSide,
+            fog: false,
+            depthWrite: false
+        });
+        const skyDome = new THREE.Mesh(skyGeo, skyMat);
+        scene.add(skyDome);
+
+        // Glowing Sun Disc in the Sky
+        const sunGeo = new THREE.SphereGeometry(9, 24, 24);
+        const sunMat = new THREE.MeshBasicMaterial({ color: 0xfffbeb, fog: false });
+        const sunMesh = new THREE.Mesh(sunGeo, sunMat);
+        sunMesh.position.set(75, 95, -90);
+        scene.add(sunMesh);
+
+        // High-Performance Instanced 3D Volumetric-Style Fluffy Clouds (Far Horizon Background Only)
+        // Clouds are strictly placed in distant orbital bands (dist 140-230m) and revolve in far space
+        // so they NEVER reach or intersect the central platform!
+        const cloudClusters = [];
+        const cloudPuffTransforms = [];
+        const puffGeo = new THREE.SphereGeometry(1, 12, 12);
+        const cloudMat = new THREE.MeshStandardMaterial({
+            color: 0xffffff,
+            roughness: 0.95,
+            metalness: 0.0,
+            emissive: 0xd8eeff,
+            emissiveIntensity: 0.16
+        });
+
+        function registerCloudCluster(angle, dist, y, scale = 1.0, angularSpeed = 0.008) {
+            const puffs = [];
+            const puffCount = 6 + Math.floor(Math.random() * 6);
+            for (let i = 0; i < puffCount; i++) {
+                puffs.push({
+                    lx: (Math.random() - 0.5) * 10.0 * scale,
+                    ly: (Math.random() - 0.3) * 3.2 * scale,
+                    lz: (Math.random() - 0.5) * 6.5 * scale,
+                    sx: (3.2 + Math.random() * 3.6) * scale,
+                    sy: (2.0 + Math.random() * 2.2) * scale,
+                    sz: (2.8 + Math.random() * 3.2) * scale
+                });
+                cloudPuffTransforms.push(1);
+            }
+            cloudClusters.push({
+                angle,
+                dist, // Minimum 140 to 230 - strictly far away from platform
+                y,
+                baseY: y,
+                angularSpeed,
+                bobPhase: Math.random() * Math.PI * 2,
+                bobSpeed: 0.0004 + Math.random() * 0.0005,
+                puffs
+            });
+        }
+
+        // Spawn far-background clouds in majestic outer rings strictly far from platform (dist 145 to 235)
+        // With platform radius ~58, the clouds remain at least 70+ units away at all times!
+        for (let i = 0; i < 34; i++) {
+            const angle = (i / 34) * Math.PI * 2 + Math.random() * 0.15;
+            const dist = 145 + Math.random() * 85;
+            const y = -8 + Math.random() * 36;
+            const scale = 1.8 + Math.random() * 1.8;
+            const angularSpeed = (0.004 + Math.random() * 0.008) * (Math.random() < 0.5 ? 1 : -1);
+            registerCloudCluster(angle, dist, y, scale, angularSpeed);
+        }
+        for (let i = 0; i < 12; i++) {
+            const angle = (i / 12) * Math.PI * 2 + Math.random() * 0.25;
+            const dist = 185 + Math.random() * 45;
+            const y = 30 + Math.random() * 28;
+            const scale = 2.4 + Math.random() * 2.0;
+            const angularSpeed = (0.003 + Math.random() * 0.006) * (Math.random() < 0.5 ? 1 : -1);
+            registerCloudCluster(angle, dist, y, scale, angularSpeed);
+        }
+
+        const cloudInstancedMesh = new THREE.InstancedMesh(puffGeo, cloudMat, cloudPuffTransforms.length);
+        cloudInstancedMesh.castShadow = false;
+        cloudInstancedMesh.receiveShadow = false;
+        cloudInstancedMesh.frustumCulled = false;
+        scene.add(cloudInstancedMesh);
+
+        const _cloudDummy = new THREE.Object3D();
+        function updateInstancedClouds(now, dt) {
+            let idx = 0;
+            for (let i = 0; i < cloudClusters.length; i++) {
+                const c = cloudClusters[i];
+                c.angle += c.angularSpeed * dt;
+                const cx = Math.cos(c.angle) * c.dist;
+                const cz = Math.sin(c.angle) * c.dist;
+                c.y = c.baseY + Math.sin(now * c.bobSpeed + c.bobPhase) * 0.75;
+
+                const puffs = c.puffs;
+                for (let p = 0; p < puffs.length; p++) {
+                    const pf = puffs[p];
+                    _cloudDummy.position.set(cx + pf.lx, c.y + pf.ly, cz + pf.lz);
+                    _cloudDummy.scale.set(pf.sx, pf.sy, pf.sz);
+                    _cloudDummy.updateMatrix();
+                    cloudInstancedMesh.setMatrixAt(idx++, _cloudDummy.matrix);
+                }
+            }
+            cloudInstancedMesh.instanceMatrix.needsUpdate = true;
+        }
+        updateInstancedClouds(0, 0);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.06;
+        controls.maxPolarAngle = Math.PI / 2 + 0.08;
+        controls.minDistance = 4;
+        controls.maxDistance = 140;
+        controls.target.set(0, 2, 0);
+
+        // Configure mouse & touch controls so:
+        // - Right-Click & Middle-Click always orbit/pan on desktop
+        // - 2-Finger Pinch/Drag ALWAYS orbits & zooms on mobile touchscreens
+        // - 1-Finger / Left-Click performs the active tool (or orbits in 'camera' mode)
+        function updateCameraControlsForMode(mode) {
+            const quickOrbitBtn = document.getElementById('btn-quick-orbit');
+            if (mode === 'camera') {
+                controls.mouseButtons = {
+                    LEFT: THREE.MOUSE.ROTATE,
+                    MIDDLE: THREE.MOUSE.DOLLY,
+                    RIGHT: THREE.MOUSE.PAN
+                };
+                controls.touches = {
+                    ONE: THREE.TOUCH.ROTATE,
+                    TWO: THREE.TOUCH.DOLLY_PAN
+                };
+                if (quickOrbitBtn) quickOrbitBtn.classList.add('ring-2', 'ring-cyan-400', 'bg-cyan-950/80');
+            } else {
+                controls.mouseButtons = {
+                    LEFT: -1,
+                    MIDDLE: THREE.MOUSE.PAN,
+                    RIGHT: THREE.MOUSE.ROTATE
+                };
+                controls.touches = {
+                    ONE: -1,
+                    TWO: THREE.TOUCH.DOLLY_ROTATE
+                };
+                if (quickOrbitBtn) quickOrbitBtn.classList.remove('ring-2', 'ring-cyan-400', 'bg-cyan-950/80');
+            }
+        }
+
+        // Realistic Sunlit Studio & Sky Illumination (Key Sun + Sky Zenith Hemi + Dark Marble Deck Bounce)
+        const ambientLight = new THREE.AmbientLight(0xe0f2fe, 0.32);
+        scene.add(ambientLight);
+
+        const hemiLight = new THREE.HemisphereLight(0xf0f9ff, 0x334155, 0.68);
+        hemiLight.position.set(0, 65, 0);
+        scene.add(hemiLight);
+
+        const dirLight = new THREE.DirectionalLight(0xfffbeb, 1.32);
+        dirLight.position.set(24, 42, 22);
+        dirLight.castShadow = true;
+        dirLight.shadow.mapSize.width = isMobileDevice ? 1536 : 2048;
+        dirLight.shadow.mapSize.height = isMobileDevice ? 1536 : 2048;
+        dirLight.shadow.camera.near = 8;
+        dirLight.shadow.camera.far = 110;
+        const d = 36; // Shadow frustum expanded to cover the enlarged platform
+        dirLight.shadow.camera.left = -d;
+        dirLight.shadow.camera.right = d;
+        dirLight.shadow.camera.top = d;
+        dirLight.shadow.camera.bottom = -d;
+        dirLight.shadow.bias = -0.00035;
+        dirLight.shadow.normalBias = 0.015;
+        scene.add(dirLight);
+
+        const bounceLight = new THREE.DirectionalLight(0xbae6fd, 0.38);
+        bounceLight.position.set(-26, 18, -22);
+        scene.add(bounceLight);
+
+        // ==========================================
+        // 3B. REAL-TIME INSTANCED CONTACT AO + SCREEN-SPACE AO (SSAO)
+        // ==========================================
+        // 1. Real-Time Contact AO Instanced Decals:
+        // Renders soft dark ambient occlusion footprints directly beneath every domino, block,
+        // table leg, and chair leg, dynamically scaling/fading as pieces tilt or lift!
+        const MAX_AO_INSTANCES = 1600;
+        const contactAOGeo = new THREE.PlaneGeometry(1, 1);
+        contactAOGeo.rotateX(-Math.PI / 2);
+        const contactAOMat = new THREE.MeshBasicMaterial({
+            map: createContactAOTexture(),
+            transparent: true,
+            opacity: 0.88,
+            depthWrite: false,
+            polygonOffset: true,
+            polygonOffsetFactor: -2,
+            polygonOffsetUnits: -2
+        });
+        const contactAOMesh = new THREE.InstancedMesh(contactAOGeo, contactAOMat, MAX_AO_INSTANCES);
+        contactAOMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        contactAOMesh.frustumCulled = false;
+        contactAOMesh.renderOrder = 1;
+        scene.add(contactAOMesh);
+
+        const _aoDummy = new THREE.Object3D();
+        const _aoLocalVec = new THREE.Vector3();
+        const _aoQuat = new THREE.Quaternion();
+        const _aoUp = new THREE.Vector3();
+
+        function updateContactAODecals() {
+            let idx = 0;
+            for (let i = 0; i < objects.length; i++) {
+                if (idx >= MAX_AO_INSTANCES - 8) break;
+                const obj = objects[i];
+                const pos = obj.mesh.position;
+                const q = obj.mesh.quaternion;
+
+                if (obj.type === 'domino') {
+                    _aoUp.set(0, 1, 0).applyQuaternion(q);
+                    const upright = Math.max(0, _aoUp.y); // 1 when standing, ~0 when flat
+                    const surfaceY = pos.y - (DIMENSIONS.domino.h * 0.5 * upright + DIMENSIONS.domino.d * 0.5 * (1 - upright));
+
+                    _aoDummy.position.set(pos.x, surfaceY + 0.014, pos.z);
+                    const eulerY = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.z * q.z));
+                    _aoDummy.rotation.set(0, eulerY, 0);
+                    // Footprint expands along Z as domino tips flat onto the surface
+                    const sx = DIMENSIONS.domino.w * 1.65;
+                    const sz = THREE.MathUtils.lerp(DIMENSIONS.domino.h * 1.35, DIMENSIONS.domino.d * 2.85, upright);
+                    _aoDummy.scale.set(sx, 1, sz);
+                    _aoDummy.updateMatrix();
+                    contactAOMesh.setMatrixAt(idx++, _aoDummy.matrix);
+
+                } else if (obj.type === 'table') {
+                    const { topW, topD, legW } = DIMENSIONS.table;
+                    const lx = topW / 2 - legW / 2 - 0.35;
+                    const lz = topD / 2 - legW / 2 - 0.35;
+                    const corners = [[-lx, -lz], [lx, -lz], [-lx, lz], [lx, lz]];
+                    for (let c = 0; c < 4; c++) {
+                        _aoLocalVec.set(corners[c][0], 0.015, corners[c][1]).applyQuaternion(q).add(pos);
+                        _aoDummy.position.copy(_aoLocalVec);
+                        _aoDummy.rotation.set(0, 0, 0);
+                        _aoDummy.scale.set(legW * 3.4, 1, legW * 3.4);
+                        _aoDummy.updateMatrix();
+                        contactAOMesh.setMatrixAt(idx++, _aoDummy.matrix);
+                    }
+                    // Soft broad ambient shadow directly under the tabletop
+                    _aoDummy.position.set(pos.x, pos.y + 0.012, pos.z);
+                    const eulerY = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.z * q.z));
+                    _aoDummy.rotation.set(0, eulerY, 0);
+                    _aoDummy.scale.set(topW * 1.05, 1, topD * 1.05);
+                    _aoDummy.updateMatrix();
+                    contactAOMesh.setMatrixAt(idx++, _aoDummy.matrix);
+
+                } else if (obj.type === 'chair') {
+                    const { seatW, seatD, legW } = DIMENSIONS.chair;
+                    const lx = seatW / 2 - legW / 2 - 0.08;
+                    const lz = seatD / 2 - legW / 2 - 0.08;
+                    const corners = [[-lx, -lz], [lx, -lz], [-lx, lz], [lx, lz]];
+                    for (let c = 0; c < 4; c++) {
+                        _aoLocalVec.set(corners[c][0], 0.015, corners[c][1]).applyQuaternion(q).add(pos);
+                        _aoDummy.position.copy(_aoLocalVec);
+                        _aoDummy.rotation.set(0, 0, 0);
+                        _aoDummy.scale.set(legW * 3.4, 1, legW * 3.4);
+                        _aoDummy.updateMatrix();
+                        contactAOMesh.setMatrixAt(idx++, _aoDummy.matrix);
+                    }
+                    // Soft ambient occlusion pool under chair seat
+                    _aoDummy.position.set(pos.x, pos.y + 0.012, pos.z);
+                    _aoDummy.rotation.set(0, 0, 0);
+                    _aoDummy.scale.set(seatW * 1.15, 1, seatD * 1.15);
+                    _aoDummy.updateMatrix();
+                    contactAOMesh.setMatrixAt(idx++, _aoDummy.matrix);
+
+                } else if (obj.type === 'cube' || obj.type === 'plank' || obj.type === 'ramp') {
+                    const dim = DIMENSIONS[obj.type];
+                    const baseH = obj.type === 'ramp' ? pos.y : pos.y - dim.h * 0.5;
+                    _aoDummy.position.set(pos.x, Math.max(0.012, baseH + 0.014), pos.z);
+                    const eulerY = Math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.z * q.z));
+                    _aoDummy.rotation.set(0, eulerY, 0);
+                    _aoDummy.scale.set(dim.w * 1.45, 1, dim.d * 1.35);
+                    _aoDummy.updateMatrix();
+                    contactAOMesh.setMatrixAt(idx++, _aoDummy.matrix);
+                }
+            }
+            contactAOMesh.count = idx;
+            contactAOMesh.instanceMatrix.needsUpdate = true;
+        }
+
+        // 2. High-Performance Single-Pass Screen-Space Ambient Occlusion (SSAO) Post-Processor
+        // Uses hardware DepthTexture + 8-tap spiral depth-buffer horizon sampling to darken
+        // tight crevices between closely spaced dominoes, stairs, and furniture joints!
+        let ssaoRenderTarget = null;
+        let ssaoQuadScene = null;
+        let ssaoQuadCamera = null;
+        let ssaoMaterial = null;
+        let graphicsQuality = 'balanced'; // Default to Clean Direct Rendering with Hardware MSAA (SSAO disabled)
+
+        function initSSAOPipeline() {
+            const gl = renderer.getContext();
+            const supportsDepthTex = renderer.capabilities.isWebGL2 || !!gl.getExtension('WEBGL_depth_texture');
+            if (!supportsDepthTex) {
+                graphicsQuality = 'balanced';
+                return;
+            }
+
+            const dpr = renderer.getPixelRatio();
+            const w = Math.floor(window.innerWidth * dpr);
+            const h = Math.floor(window.innerHeight * dpr);
+
+            const depthTexture = new THREE.DepthTexture(w, h);
+            depthTexture.type = THREE.UnsignedShortType;
+            depthTexture.minFilter = THREE.NearestFilter;
+            depthTexture.magFilter = THREE.NearestFilter;
+
+            ssaoRenderTarget = new THREE.WebGLRenderTarget(w, h, {
+                minFilter: THREE.LinearFilter,
+                magFilter: THREE.LinearFilter,
+                format: THREE.RGBAFormat,
+                depthTexture: depthTexture,
+                depthBuffer: true
+            });
+
+            ssaoMaterial = new THREE.ShaderMaterial({
+                uniforms: {
+                    tDiffuse: { value: ssaoRenderTarget.texture },
+                    tDepth: { value: depthTexture },
+                    cameraNear: { value: camera.near },
+                    cameraFar: { value: camera.far },
+                    resolution: { value: new THREE.Vector2(w, h) },
+                    aoStrength: { value: 0.20 }
+                },
+                vertexShader: `
+                    varying vec2 vUv;
+                    void main() {
+                        vUv = uv;
+                        gl_Position = vec4(position.xy, 0.0, 1.0);
+                    }
+                `,
+                fragmentShader: `
+                    #include <packing>
+                    varying vec2 vUv;
+                    uniform sampler2D tDiffuse;
+                    uniform sampler2D tDepth;
+                    uniform float cameraNear;
+                    uniform float cameraFar;
+                    uniform vec2 resolution;
+                    uniform float aoStrength;
+
+                    float getLinearDepth(const in vec2 coord) {
+                        float fragCoordZ = texture2D(tDepth, coord).x;
+                        float viewZ = perspectiveDepthToViewZ(fragCoordZ, cameraNear, cameraFar);
+                        return viewZToOrthographicDepth(viewZ, cameraNear, cameraFar);
+                    }
+
+                    // Interleaved gradient noise for jitter-free 8-tap spiral SSAO
+                    float ign(vec2 p) {
+                        vec3 magic = vec3(0.06711056, 0.00583715, 52.9829189);
+                        return fract(magic.z * fract(dot(p, magic.xy)));
+                    }
+
+                    void main() {
+                        vec4 baseCol = texture2D(tDiffuse, vUv);
+                        float centerDepth = getLinearDepth(vUv);
+
+                        // Skip sky background
+                        if (centerDepth > 0.96) {
+                            gl_FragColor = baseCol;
+                            return;
+                        }
+
+                        float worldDist = centerDepth * (cameraFar - cameraNear) + cameraNear;
+                        vec2 texel = 1.0 / resolution;
+                        float radius = clamp(16.0 / max(4.0, worldDist), 1.5, 6.5);
+
+                        float noise = ign(gl_FragCoord.xy) * 6.2831853;
+                        float s = sin(noise);
+                        float c = cos(noise);
+                        mat2 rot = mat2(c, -s, s, c);
+
+                        float occ = 0.0;
+                        float bias = 0.00030;
+                        float maxDiff = 0.0095;
+
+                        // 4 Symmetric Paired Horizon Checks (8 taps total)
+                        // Pair 1
+                        vec2 o1 = rot * vec2(0.707, 0.707) * texel * radius;
+                        float d1a = getLinearDepth(vUv + o1);
+                        float d1b = getLinearDepth(vUv - o1);
+                        float valley1 = centerDepth - 0.5 * (d1a + d1b);
+                        if (valley1 > bias && abs(d1a - d1b) < maxDiff) {
+                            occ += smoothstep(bias, 0.0028, valley1);
+                        }
+
+                        // Pair 2
+                        vec2 o2 = rot * vec2(-0.707, 0.707) * texel * radius * 1.45;
+                        float d2a = getLinearDepth(vUv + o2);
+                        float d2b = getLinearDepth(vUv - o2);
+                        float valley2 = centerDepth - 0.5 * (d2a + d2b);
+                        if (valley2 > bias && abs(d2a - d2b) < maxDiff) {
+                            occ += smoothstep(bias, 0.0032, valley2);
+                        }
+
+                        // Pair 3
+                        vec2 o3 = rot * vec2(1.0, 0.0) * texel * radius * 2.0;
+                        float d3a = getLinearDepth(vUv + o3);
+                        float d3b = getLinearDepth(vUv - o3);
+                        float valley3 = centerDepth - 0.5 * (d3a + d3b);
+                        if (valley3 > bias && abs(d3a - d3b) < maxDiff) {
+                            occ += smoothstep(bias, 0.0038, valley3);
+                        }
+
+                        // Pair 4
+                        vec2 o4 = rot * vec2(0.0, 1.0) * texel * radius * 2.6;
+                        float d4a = getLinearDepth(vUv + o4);
+                        float d4b = getLinearDepth(vUv - o4);
+                        float valley4 = centerDepth - 0.5 * (d4a + d4b);
+                        if (valley4 > bias && abs(d4a - d4b) < maxDiff) {
+                            occ += smoothstep(bias, 0.0045, valley4);
+                        }
+
+                        float ao = clamp(1.0 - (occ * 0.14) * aoStrength, 0.70, 1.0);
+                        // Subtle, natural ambient contact tint in crevices
+                        vec3 occludedColor = baseCol.rgb * mix(vec3(0.45, 0.48, 0.55), vec3(1.0), ao);
+                        gl_FragColor = vec4(occludedColor, baseCol.a);
+                    }
+                `,
+                depthWrite: false,
+                depthTest: false
+            });
+
+            ssaoQuadScene = new THREE.Scene();
+            ssaoQuadCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+            const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), ssaoMaterial);
+            ssaoQuadScene.add(quad);
+        }
+
+        initSSAOPipeline();
+        applyGraphicsQuality('balanced');
+
+        function applyGraphicsQuality(quality) {
+            graphicsQuality = quality;
+            const selectEl = document.getElementById('quality-select');
+            if (selectEl) selectEl.value = quality;
+
+            if (quality === 'high') {
+                renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobileDevice ? 1.5 : 2));
+                scene.environment = envMapRT.texture;
+                contactAOMesh.visible = true;
+            } else if (quality === 'balanced') {
+                renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+                scene.environment = envMapRT.texture;
+                contactAOMesh.visible = true;
+            } else {
+                // mobile fast
+                renderer.setPixelRatio(1.0);
+                scene.environment = envMapRT.texture;
+                contactAOMesh.visible = true;
+            }
+
+            const dpr = renderer.getPixelRatio();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            if (ssaoRenderTarget && ssaoMaterial) {
+                const w = Math.floor(window.innerWidth * dpr);
+                const h = Math.floor(window.innerHeight * dpr);
+                ssaoRenderTarget.setSize(w, h);
+                ssaoMaterial.uniforms.resolution.value.set(w, h);
+            }
+        }
+
+        // Physics World
+        const world = new CANNON.World();
+        world.gravity.set(0, -32, 0); // Snappy gravity for brisk, decisive domino toppling
+        world.broadphase = new CANNON.SAPBroadphase(world);
+        world.allowSleep = true;
+        world.solver.iterations = 25;
+
+        // Physics Materials
+        const groundPhysMat = new CANNON.Material('ground');
+        const dominoPhysMat = new CANNON.Material('domino');
+        const woodPhysMat = new CANNON.Material('wood');
+
+        // Tuned Low-Friction Contact Materials:
+        // 1. Domino-to-Domino has near-zero friction (0.005) so falling domino faces glide
+        //    effortlessly down the next standing domino without ever binding or hanging up!
+        // 2. Domino-to-Ground / Wood has solid pivot friction (0.55) so the bottom edge grips
+        //    the floor and tips cleanly instead of kicking out backward.
+        world.addContactMaterial(new CANNON.ContactMaterial(groundPhysMat, dominoPhysMat, {
+            friction: 0.55,
+            restitution: 0.04
+        }));
+        world.addContactMaterial(new CANNON.ContactMaterial(woodPhysMat, dominoPhysMat, {
+            friction: 0.52,
+            restitution: 0.04
+        }));
+        world.addContactMaterial(new CANNON.ContactMaterial(dominoPhysMat, dominoPhysMat, {
+            friction: 0.005,
+            restitution: 0.18
+        }));
+        world.addContactMaterial(new CANNON.ContactMaterial(woodPhysMat, woodPhysMat, {
+            friction: 0.42,
+            restitution: 0.1
+        }));
+        world.addContactMaterial(new CANNON.ContactMaterial(groundPhysMat, woodPhysMat, {
+            friction: 0.55,
+            restitution: 0.08
+        }));
+
+        // Floating Sky Platform (Configurable Dark Premium Surfaces)
+        const platformRadius = 58;
+        const deckGeo = new THREE.CylinderGeometry(platformRadius, platformRadius, 0.7, 96);
+        const deckTopMat = new THREE.MeshStandardMaterial({
+            roughness: 0.35,
+            metalness: 0.05,
+            envMapIntensity: 0.85
+        });
+        const deckRimMat = new THREE.MeshStandardMaterial({
+            color: 0x161a22,
+            roughness: 0.35,
+            metalness: 0.25
+        });
+        const floorMesh = new THREE.Mesh(deckGeo, [deckRimMat, deckTopMat, deckRimMat]);
+        floorMesh.position.y = -0.35;
+        floorMesh.receiveShadow = true;
+        floorMesh.name = 'ground';
+        scene.add(floorMesh);
+
+        // Decorative Beveled Sky Island Under-Pedestal
+        const baseGeo = new THREE.CylinderGeometry(platformRadius * 0.95, platformRadius * 0.55, 6.0, 64);
+        const baseMat = new THREE.MeshStandardMaterial({
+            color: 0x101318,
+            roughness: 0.70,
+            metalness: 0.12
+        });
+        const baseMesh = new THREE.Mesh(baseGeo, baseMat);
+        baseMesh.position.y = -3.7;
+        scene.add(baseMesh);
+
+        // Subtle circular studio grid overlay
+        const gridHelper = new THREE.PolarGridHelper(platformRadius - 1, 24, 16, 64, 0x475569, 0x334155);
+        gridHelper.position.y = 0.01;
+        gridHelper.material.opacity = 0.16;
+        gridHelper.material.transparent = true;
+        scene.add(gridHelper);
+
+        const PLATFORM_MATERIALS = {
+            slate: {
+                name: 'Dark Slate Pavers',
+                createTexture: createDarkSlateTexture,
+                roughness: 0.35,
+                metalness: 0.05,
+                rimColor: 0x181c24,
+                baseColor: 0x101318,
+                gridOpacity: 0.16
+            },
+            walnut: {
+                name: 'Smoked Dark Walnut',
+                createTexture: createDarkWalnutTexture,
+                roughness: 0.32,
+                metalness: 0.04,
+                rimColor: 0x1f1916,
+                baseColor: 0x120f0d,
+                gridOpacity: 0.14
+            },
+            obsidian: {
+                name: 'Satin Obsidian Studio',
+                createTexture: createDarkObsidianTexture,
+                roughness: 0.28,
+                metalness: 0.12,
+                rimColor: 0x1e2430,
+                baseColor: 0x0f1319,
+                gridOpacity: 0.20
+            }
+        };
+
+        const cachedPlatformTextures = {};
+        function applyPlatformMaterial(key) {
+            const matDef = PLATFORM_MATERIALS[key] || PLATFORM_MATERIALS.slate;
+            if (!cachedPlatformTextures[key]) {
+                cachedPlatformTextures[key] = matDef.createTexture();
+            }
+            deckTopMat.map = cachedPlatformTextures[key];
+            deckTopMat.roughness = matDef.roughness;
+            deckTopMat.metalness = matDef.metalness;
+            deckTopMat.needsUpdate = true;
+
+            deckRimMat.color.setHex(matDef.rimColor);
+            deckRimMat.needsUpdate = true;
+
+            baseMat.color.setHex(matDef.baseColor);
+            baseMat.needsUpdate = true;
+
+            if (gridHelper) {
+                gridHelper.material.opacity = matDef.gridOpacity;
+            }
+
+            const matSelect = document.getElementById('material-select');
+            if (matSelect && matSelect.value !== key) {
+                matSelect.value = key;
+            }
+        }
+        applyPlatformMaterial('slate');
+
+        const groundBody = new CANNON.Body({
+            mass: 0,
+            material: groundPhysMat,
+            shape: new CANNON.Plane()
+        });
+        groundBody.quaternion.setFromAxisAngle(new CANNON.Vec3(1, 0, 0), -Math.PI / 2);
+        world.addBody(groundBody);
+
+        // Shared Wood Materials with Baked Vertex Cavity AO Support & IBL Reflections
+        const lightWoodTex = createFineWoodTexture('#deb887', '#a0522d');
+        const darkWoodTex = createFineWoodTexture('#8d5b4c', '#5c3a21');
+        const chairWoodTex = createFineWoodTexture('#475569', '#1e293b');
+
+        const lightWoodMat = new THREE.MeshStandardMaterial({
+            map: lightWoodTex,
+            roughness: 0.36,
+            metalness: 0.05,
+            envMapIntensity: 0.85,
+            vertexColors: true
+        });
+        const darkWoodMat = new THREE.MeshStandardMaterial({
+            map: darkWoodTex,
+            roughness: 0.32,
+            metalness: 0.08,
+            envMapIntensity: 0.9,
+            vertexColors: true
+        });
+        const chairMat = new THREE.MeshStandardMaterial({
+            map: chairWoodTex,
+            roughness: 0.32,
+            metalness: 0.1,
+            envMapIntensity: 0.85,
+            vertexColors: true
+        });
+
+        // ==========================================
+        // 4. OBJECT DIMENSIONS & SHARED GEOMETRY FACTORY
+        // ==========================================
+        // Domino thickness (`d: 0.20`) and height (`h: 1.65`) give a high aspect ratio (8.25:1)
+        // so tiles tip effortlessly past their balance point and carry strong rotational momentum!
+        const DIMENSIONS = {
+            domino: { w: 0.80, h: 1.65, d: 0.20, mass: 0.35 },
+            plank:  { w: 0.8, h: 0.16, d: 3.2, mass: 0.45 },
+            cube:   { w: 1.2, h: 1.2, d: 1.2, mass: 1.4 },
+            ramp:   { w: 1.2, h: 1.2, d: 2.4, mass: 2.0 },
+            chair:  { seatW: 2.2, seatD: 2.2, seatH: 2.1, seatThick: 0.22, backH: 2.3, legW: 0.24, mass: 5.5 },
+            table:  { topW: 8.5, topD: 5.2, topH: 4.0, topThick: 0.34, legW: 0.42, mass: 18.0 }
+        };
+
+        // Shared Cached Geometries with Baked Vertex Cavity AO for zero allocation overhead
+        const SHARED_GEOS = {
+            domino: applyBakedBoxVertexAO(new THREE.BoxGeometry(DIMENSIONS.domino.w, DIMENSIONS.domino.h, DIMENSIONS.domino.d), 0.78, 1.03),
+            plank:  applyBakedBoxVertexAO(new THREE.BoxGeometry(DIMENSIONS.plank.w, DIMENSIONS.plank.h, DIMENSIONS.plank.d), 0.82, 1.02),
+            cube:   applyBakedBoxVertexAO(new THREE.BoxGeometry(DIMENSIONS.cube.w, DIMENSIONS.cube.h, DIMENSIONS.cube.d), 0.75, 1.02)
+        };
+
+        const RAINBOW_COLORS = [
+            '#ef4444', '#f97316', '#f59e0b', '#10b981',
+            '#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899'
+        ];
+        let rainbowIndex = 0;
+
+        // State Arrays
+        const objects = []; // { id, type, mesh, body, color, initialState, soundCount, lastSoundTime }
+        let objectIdCounter = 1;
+
+        function getNextDominoColor() {
+            const autoRainbow = document.getElementById('chk-rainbow').checked;
+            if (autoRainbow) {
+                const c = RAINBOW_COLORS[rainbowIndex % RAINBOW_COLORS.length];
+                rainbowIndex++;
+                return c;
+            }
+            return state.selectedColor;
+        }
+
+        /**
+         * Creates a 3D mesh and compound Cannon.js body for any supported object type
+         * where `pos` is the bottom-center contact point on the surface!
+         */
+        function spawnObject(type, pos, rotY = 0, customColor = null) {
+            const id = objectIdCounter++;
+            let mesh, body;
+            let color = customColor || (type === 'domino' ? getNextDominoColor() : '#ffffff');
+
+            const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), rotY);
+
+            if (type === 'domino') {
+                const { w, h, d, mass } = DIMENSIONS.domino;
+                mesh = new THREE.Mesh(SHARED_GEOS.domino, getDominoMaterials(color));
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+
+                const centerY = pos.y + h / 2;
+                mesh.position.set(pos.x, centerY, pos.z);
+                mesh.quaternion.copy(q);
+
+                body = new CANNON.Body({
+                    mass,
+                    material: dominoPhysMat,
+                    linearDamping: 0.015,
+                    angularDamping: 0.015
+                });
+                body.allowSleep = true;
+                body.sleepSpeedLimit = 0.25;
+                body.sleepTimeLimit = 0.35;
+                body.addShape(new CANNON.Box(new CANNON.Vec3(w / 2, h / 2, d / 2)));
+                body.position.set(pos.x, centerY, pos.z);
+                body.quaternion.set(q.x, q.y, q.z, q.w);
+
+            } else if (type === 'plank') {
+                const { w, h, d, mass } = DIMENSIONS.plank;
+                mesh = new THREE.Mesh(SHARED_GEOS.plank, lightWoodMat);
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+
+                const centerY = pos.y + h / 2;
+                mesh.position.set(pos.x, centerY, pos.z);
+                mesh.quaternion.copy(q);
+
+                body = new CANNON.Body({ mass, material: woodPhysMat });
+                body.allowSleep = true;
+                body.sleepSpeedLimit = 0.25;
+                body.sleepTimeLimit = 0.35;
+                body.addShape(new CANNON.Box(new CANNON.Vec3(w / 2, h / 2, d / 2)));
+                body.position.set(pos.x, centerY, pos.z);
+                body.quaternion.set(q.x, q.y, q.z, q.w);
+
+            } else if (type === 'cube') {
+                const { w, h, d, mass } = DIMENSIONS.cube;
+                mesh = new THREE.Mesh(SHARED_GEOS.cube, lightWoodMat);
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+
+                const centerY = pos.y + h / 2;
+                mesh.position.set(pos.x, centerY, pos.z);
+                mesh.quaternion.copy(q);
+
+                body = new CANNON.Body({ mass, material: woodPhysMat });
+                body.allowSleep = true;
+                body.sleepSpeedLimit = 0.25;
+                body.sleepTimeLimit = 0.35;
+                body.addShape(new CANNON.Box(new CANNON.Vec3(w / 2, h / 2, d / 2)));
+                body.position.set(pos.x, centerY, pos.z);
+                body.quaternion.set(q.x, q.y, q.z, q.w);
+
+            } else if (type === 'ramp') {
+                // 3-step staircase block so dominoes can climb up/down smoothly!
+                const { w, h, d, mass } = DIMENSIONS.ramp;
+                mesh = new THREE.Group();
+                body = new CANNON.Body({ mass, material: woodPhysMat });
+                body.allowSleep = true;
+                body.sleepSpeedLimit = 0.25;
+                body.sleepTimeLimit = 0.35;
+
+                const steps = 3;
+                const stepD = d / steps;
+                const stepH = h / steps;
+
+                for (let i = 0; i < steps; i++) {
+                    const curH = stepH * (i + 1);
+                    const localZ = -d / 2 + stepD * (i + 0.5);
+                    const localY = curH / 2;
+
+                    const sGeo = applyBakedBoxVertexAO(new THREE.BoxGeometry(w, curH, stepD), 0.72, 1.02);
+                    const sMesh = new THREE.Mesh(sGeo, lightWoodMat);
+                    sMesh.position.set(0, localY, localZ);
+                    sMesh.castShadow = true;
+                    sMesh.receiveShadow = true;
+                    mesh.add(sMesh);
+
+                    body.addShape(
+                        new CANNON.Box(new CANNON.Vec3(w / 2, curH / 2, stepD / 2)),
+                        new CANNON.Vec3(0, localY, localZ)
+                    );
+                }
+
+                mesh.position.set(pos.x, pos.y, pos.z);
+                mesh.quaternion.copy(q);
+                body.position.set(pos.x, pos.y, pos.z);
+                body.quaternion.set(q.x, q.y, q.z, q.w);
+
+            } else if (type === 'chair') {
+                const { seatW, seatD, seatH, seatThick, backH, legW, mass } = DIMENSIONS.chair;
+                mesh = new THREE.Group();
+                body = new CANNON.Body({ mass, material: woodPhysMat });
+                body.allowSleep = true;
+                body.sleepSpeedLimit = 0.25;
+                body.sleepTimeLimit = 0.35;
+
+                const legH = seatH - seatThick;
+                const legOffsetX = seatW / 2 - legW / 2 - 0.08;
+                const legOffsetZ = seatD / 2 - legW / 2 - 0.08;
+
+                const addPart = (pw, ph, pd, lx, ly, lz, mat, bottomAO = 0.68, topAO = 0.96) => {
+                    const pGeo = applyBakedBoxVertexAO(new THREE.BoxGeometry(pw, ph, pd), bottomAO, topAO);
+                    const pMesh = new THREE.Mesh(pGeo, mat);
+                    pMesh.position.set(lx, ly, lz);
+                    pMesh.castShadow = true;
+                    pMesh.receiveShadow = true;
+                    mesh.add(pMesh);
+
+                    body.addShape(
+                        new CANNON.Box(new CANNON.Vec3(pw / 2, ph / 2, pd / 2)),
+                        new CANNON.Vec3(lx, ly, lz)
+                    );
+                };
+
+                // 4 Chair Legs (darker at floor & under-seat joint for realistic joint AO)
+                addPart(legW, legH, legW, -legOffsetX, legH / 2, -legOffsetZ, chairMat, 0.62, 0.78);
+                addPart(legW, legH, legW,  legOffsetX, legH / 2, -legOffsetZ, chairMat, 0.62, 0.78);
+                addPart(legW, legH, legW, -legOffsetX, legH / 2,  legOffsetZ, chairMat, 0.62, 0.78);
+                addPart(legW, legH, legW,  legOffsetX, legH / 2,  legOffsetZ, chairMat, 0.62, 0.78);
+
+                // Chair Seat
+                addPart(seatW, seatThick, seatD, 0, seatH - seatThick / 2, 0, lightWoodMat, 0.72, 1.03);
+
+                // Backrest Pillars & Slats
+                const backThick = 0.2;
+                const backZ = -seatD / 2 + backThick / 2;
+                addPart(legW, backH, backThick, -legOffsetX, seatH + backH / 2, backZ, chairMat, 0.72, 0.98);
+                addPart(legW, backH, backThick,  legOffsetX, seatH + backH / 2, backZ, chairMat, 0.72, 0.98);
+                addPart(seatW - 0.1, backH * 0.45, backThick, 0, seatH + backH * 0.72, backZ, lightWoodMat, 0.82, 1.02);
+
+                mesh.position.set(pos.x, pos.y, pos.z);
+                mesh.quaternion.copy(q);
+                body.position.set(pos.x, pos.y, pos.z);
+                body.quaternion.set(q.x, q.y, q.z, q.w);
+
+            } else if (type === 'table') {
+                const { topW, topD, topH, topThick, legW, mass } = DIMENSIONS.table;
+                mesh = new THREE.Group();
+                body = new CANNON.Body({ mass, material: woodPhysMat });
+                body.allowSleep = true;
+                body.sleepSpeedLimit = 0.25;
+                body.sleepTimeLimit = 0.35;
+
+                const legH = topH - topThick;
+                const legOffsetX = topW / 2 - legW / 2 - 0.35;
+                const legOffsetZ = topD / 2 - legW / 2 - 0.35;
+
+                const addPart = (pw, ph, pd, lx, ly, lz, mat, bottomAO = 0.68, topAO = 0.96) => {
+                    const pGeo = applyBakedBoxVertexAO(new THREE.BoxGeometry(pw, ph, pd), bottomAO, topAO);
+                    const pMesh = new THREE.Mesh(pGeo, mat);
+                    pMesh.position.set(lx, ly, lz);
+                    pMesh.castShadow = true;
+                    pMesh.receiveShadow = true;
+                    mesh.add(pMesh);
+
+                    body.addShape(
+                        new CANNON.Box(new CANNON.Vec3(pw / 2, ph / 2, pd / 2)),
+                        new CANNON.Vec3(lx, ly, lz)
+                    );
+                };
+
+                // 4 Table Legs with baked joint occlusion under tabletop
+                addPart(legW, legH, legW, -legOffsetX, legH / 2, -legOffsetZ, darkWoodMat, 0.62, 0.74);
+                addPart(legW, legH, legW,  legOffsetX, legH / 2, -legOffsetZ, darkWoodMat, 0.62, 0.74);
+                addPart(legW, legH, legW, -legOffsetX, legH / 2,  legOffsetZ, darkWoodMat, 0.62, 0.74);
+                addPart(legW, legH, legW,  legOffsetX, legH / 2,  legOffsetZ, darkWoodMat, 0.62, 0.74);
+
+                // Tabletop
+                addPart(topW, topThick, topD, 0, topH - topThick / 2, 0, darkWoodMat, 0.70, 1.03);
+
+                mesh.position.set(pos.x, pos.y, pos.z);
+                mesh.quaternion.copy(q);
+                body.position.set(pos.x, pos.y, pos.z);
+                body.quaternion.set(q.x, q.y, q.z, q.w);
+            }
+
+            // Tag meshes for raycasting
+            mesh.userData.objectId = id;
+            mesh.traverse(child => {
+                if (child.isMesh) child.userData.objectId = id;
+            });
+
+            const objRecord = {
+                id,
+                type,
+                mesh,
+                body,
+                color,
+                soundCount: 0,
+                lastSoundTime: 0,
+                initialState: {
+                    position: body.position.clone(),
+                    quaternion: body.quaternion.clone()
+                }
+            };
+
+            // Collision Audio Listener with anti-chatter filtering for fallen/resting dominoes
+            body.addEventListener('collide', (e) => {
+                const now = performance.now();
+                // Per-body cooldown (95ms minimum between sounds from the same piece)
+                if (now - objRecord.lastSoundTime < 95) return;
+
+                const impactSpeed = Math.abs(e.contact.getImpactVelocityAlongNormal());
+                if (impactSpeed < 1.35) return;
+
+                // Verify genuine 3D relative motion or angular speed so resting micro-contacts are ignored
+                const otherBody = e.body;
+                const dvx = body.velocity.x - (otherBody ? otherBody.velocity.x : 0);
+                const dvy = body.velocity.y - (otherBody ? otherBody.velocity.y : 0);
+                const dvz = body.velocity.z - (otherBody ? otherBody.velocity.z : 0);
+                const relSpeed3D = Math.hypot(dvx, dvy, dvz);
+                const angSpeed = body.angularVelocity.length();
+
+                if (relSpeed3D < 0.85 && angSpeed < 1.1) return;
+
+                if (type === 'domino') {
+                    // Cap total collision sounds per domino per topple to prevent any endless floor rattling
+                    if (objRecord.soundCount >= 2) return;
+
+                    // Check tilt angle relative to world up (cos(55 deg) = 0.5736)
+                    const upY = 1 - 2 * (body.quaternion.x * body.quaternion.x + body.quaternion.z * body.quaternion.z);
+                    const isTiltedPast55 = upY < 0.5736;
+
+                    // Once tilted past 55 degrees (lying down/resting on others), require a strong impact (> 3.2)
+                    // and only allow if it hasn't already played its landing clack
+                    if (isTiltedPast55 && (impactSpeed < 3.2 || objRecord.soundCount >= 2)) {
+                        return;
+                    }
+                }
+
+                objRecord.lastSoundTime = now;
+                objRecord.soundCount++;
+                sound.playClick(impactSpeed, type === 'domino' ? 'domino' : 'wood');
+            });
+
+            scene.add(mesh);
+            world.addBody(body);
+
+            objects.push(objRecord);
+            updateItemCounter();
+            return objRecord;
+        }
+
+        function removeObject(objRecord) {
+            if (!objRecord) return;
+            scene.remove(objRecord.mesh);
+            world.removeBody(objRecord.body);
+            const idx = objects.indexOf(objRecord);
+            if (idx !== -1) objects.splice(idx, 1);
+            updateItemCounter();
+        }
+
+        function clearAllObjects() {
+            while (objects.length > 0) {
+                const obj = objects.pop();
+                scene.remove(obj.mesh);
+                world.removeBody(obj.body);
+            }
+            updateItemCounter();
+        }
+
+        function saveCurrentStateAsInitial() {
+            for (const obj of objects) {
+                obj.initialState.position.copy(obj.body.position);
+                obj.initialState.quaternion.copy(obj.body.quaternion);
+            }
+            showToast('Saved current layout as Reset Checkpoint!');
+        }
+
+        function resetToStanding() {
+            for (const obj of objects) {
+                obj.body.position.copy(obj.initialState.position);
+                obj.body.quaternion.copy(obj.initialState.quaternion);
+                obj.body.velocity.set(0, 0, 0);
+                obj.body.angularVelocity.set(0, 0, 0);
+                obj.soundCount = 0;
+                obj.lastSoundTime = 0;
+                obj.body.wakeUp();
+                obj.mesh.position.copy(obj.body.position);
+                obj.mesh.quaternion.copy(obj.body.quaternion);
+            }
+            showToast('Rewound all pieces to standing state!');
+        }
+
+        function updateItemCounter() {
+            document.getElementById('stat-count').textContent = objects.length;
+        }
+
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            document.getElementById('toast-text').textContent = msg;
+            toast.classList.remove('opacity-0');
+            toast.classList.add('opacity-100');
+            clearTimeout(toast.hideTimer);
+            toast.hideTimer = setTimeout(() => {
+                toast.classList.remove('opacity-100');
+                toast.classList.add('opacity-0');
+            }, 2200);
+        }
+
+        // ==========================================
+        // 5. INTERACTIVE TOOLS, GHOST PREVIEW & RAYCASTING
+        // ==========================================
+        const state = {
+            mode: 'draw',          // 'draw', 'place', 'move', 'push', 'delete', 'camera'
+            item: 'domino',        // 'domino', 'plank', 'cube', 'ramp', 'chair', 'table'
+            selectedColor: '#f8fafc',
+            rotationY: 0,
+            spacing: 0.82,
+            pushForce: 0.55,
+            isSimulating: true,
+            isPointerDown: false,
+            lastDrawPoint: null,
+            draggedObject: null,
+            dragPlaneHeight: 0,
+            dragOffset: new THREE.Vector3()
+        };
+
+        // Visual Push Ring Indicator
+        const pulseGeo = new THREE.RingGeometry(0.2, 0.85, 32);
+        pulseGeo.rotateX(-Math.PI / 2);
+        const pulseMat = new THREE.MeshBasicMaterial({
+            color: 0xf59e0b,
+            side: THREE.DoubleSide,
+            transparent: true,
+            opacity: 0
+        });
+        const pulseMesh = new THREE.Mesh(pulseGeo, pulseMat);
+        scene.add(pulseMesh);
+        let pulseAnim = 0;
+
+        function triggerPushVisual(pos) {
+            pulseMesh.position.set(pos.x, pos.y + 0.05, pos.z);
+            pulseAnim = 1.0;
+        }
+
+        /**
+         * Applies a gentle fingertip tap near the top edge of a domino or object,
+         * just enough to tip it past its center of gravity so gravity naturally topples it!
+         */
+        function toppleObject(objRecord, customDir = null) {
+            if (!objRecord) return;
+            // Ensure simulation is running when user pushes
+            if (!state.isSimulating) {
+                toggleSimulation();
+            }
+
+            // Reset sound counters for any upright dominoes and wake bodies so neighbors react smoothly
+            for (const o of objects) {
+                const upY = 1 - 2 * (o.body.quaternion.x * o.body.quaternion.x + o.body.quaternion.z * o.body.quaternion.z);
+                if (upY > 0.75) {
+                    o.soundCount = 0;
+                }
+                o.body.wakeUp();
+            }
+
+            const pos = objRecord.body.position;
+            let pushDir = new THREE.Vector3(0, 0, 1);
+
+            if (customDir) {
+                pushDir.copy(customDir);
+            } else if (objRecord.type === 'domino') {
+                // Domino local Z axis is the face normal
+                const q = new THREE.Quaternion(
+                    objRecord.body.quaternion.x,
+                    objRecord.body.quaternion.y,
+                    objRecord.body.quaternion.z,
+                    objRecord.body.quaternion.w
+                );
+                const forward = new THREE.Vector3(0, 0, 1).applyQuaternion(q);
+
+                // Check if there is a neighbor domino in front (+forward) or behind (-forward)
+                let bestDot = 0;
+                let minDist = 2.8;
+                for (const other of objects) {
+                    if (other.id === objRecord.id || other.type !== 'domino') continue;
+                    const toOther = new THREE.Vector3(
+                        other.body.position.x - pos.x,
+                        0,
+                        other.body.position.z - pos.z
+                    );
+                    const dist = toOther.length();
+                    if (dist > 0.1 && dist < minDist) {
+                        minDist = dist;
+                        toOther.normalize();
+                        bestDot = forward.dot(toOther);
+                    }
+                }
+                if (bestDot < -0.2) {
+                    forward.negate();
+                }
+                pushDir.copy(forward);
+            }
+
+            pushDir.y = 0;
+            if (pushDir.lengthSq() < 0.0001) pushDir.set(0, 0, 1);
+            pushDir.normalize();
+
+            if (objRecord.type === 'domino') {
+                // Gentle fingertip tap (~0.45 - 0.65 N·s default) near the top edge + subtle rotational tip
+                const tapImpulse = state.pushForce;
+                const impulse = new CANNON.Vec3(pushDir.x * tapImpulse, 0, pushDir.z * tapImpulse);
+                const topY = pos.y + DIMENSIONS.domino.h * 0.42;
+                const worldPoint = new CANNON.Vec3(pos.x, topY, pos.z);
+                objRecord.body.applyImpulse(impulse, worldPoint);
+
+                // Add a smooth angular tip velocity around the horizontal pivot axis (up x pushDir)
+                const tipAxis = new THREE.Vector3(0, 1, 0).cross(pushDir).normalize();
+                const angVel = 3.2 * (tapImpulse / 0.55);
+                objRecord.body.angularVelocity.set(
+                    tipAxis.x * angVel,
+                    objRecord.body.angularVelocity.y,
+                    tipAxis.z * angVel
+                );
+            } else {
+                // Proportional gentle push for blocks/planks/furniture
+                const massScale = Math.min(4.0, Math.max(0.5, objRecord.body.mass * 0.65));
+                const f = state.pushForce * massScale;
+                const impulse = new CANNON.Vec3(pushDir.x * f, 0, pushDir.z * f);
+                const worldPoint = new CANNON.Vec3(pos.x, pos.y + 0.35, pos.z);
+                objRecord.body.applyImpulse(impulse, worldPoint);
+            }
+
+            objRecord.soundCount = 1;
+            objRecord.lastSoundTime = performance.now();
+            triggerPushVisual(pos);
+            sound.playClick(1.85, objRecord.type === 'domino' ? 'domino' : 'wood');
+        }
+
+        /**
+         * Finds the first standing domino in the scene and pushes it to start the chain reaction!
+         */
+        function pushFirstStandingDomino() {
+            const standingDominoes = objects.filter(o => {
+                if (o.type !== 'domino') return false;
+                // Check if upright (local Y axis points mostly up)
+                const up = new THREE.Vector3(0, 1, 0).applyQuaternion(o.mesh.quaternion);
+                return up.y > 0.75;
+            });
+
+            if (standingDominoes.length > 0) {
+                toppleObject(standingDominoes[0]);
+                showToast('Pushed starting domino! Watch the cascade!');
+            } else {
+                setMode('push');
+                showToast('Switched to Push Tool — click any object to topple it!');
+            }
+        }
+
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        // Ghost preview mesh for 'place' and 'draw' modes
+        let ghostMesh = null;
+        const ghostMat = new THREE.MeshStandardMaterial({
+            color: 0x60a5fa,
+            transparent: true,
+            opacity: 0.48,
+            roughness: 0.2
+        });
+
+        function rebuildGhostMesh() {
+            if (ghostMesh) scene.remove(ghostMesh);
+            const type = state.mode === 'draw' ? 'domino' : state.item;
+
+            if (type === 'domino') {
+                const { w, h, d } = DIMENSIONS.domino;
+                ghostMesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), ghostMat);
+                ghostMesh.geometry.translate(0, h / 2, 0);
+            } else if (type === 'plank') {
+                const { w, h, d } = DIMENSIONS.plank;
+                ghostMesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), ghostMat);
+                ghostMesh.geometry.translate(0, h / 2, 0);
+            } else if (type === 'cube') {
+                const { w, h, d } = DIMENSIONS.cube;
+                ghostMesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), ghostMat);
+                ghostMesh.geometry.translate(0, h / 2, 0);
+            } else if (type === 'ramp') {
+                const { w, h, d } = DIMENSIONS.ramp;
+                ghostMesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), ghostMat);
+                ghostMesh.geometry.translate(0, h / 2, 0);
+            } else if (type === 'chair') {
+                const { seatW, seatD, seatH, seatThick, backH } = DIMENSIONS.chair;
+                ghostMesh = new THREE.Group();
+                const s = new THREE.Mesh(new THREE.BoxGeometry(seatW, seatH, seatD), ghostMat);
+                s.position.set(0, seatH / 2, 0);
+                const b = new THREE.Mesh(new THREE.BoxGeometry(seatW, backH, 0.25), ghostMat);
+                b.position.set(0, seatH + backH / 2, -seatD / 2 + 0.12);
+                ghostMesh.add(s, b);
+            } else if (type === 'table') {
+                const { topW, topD, topH, topThick, legW } = DIMENSIONS.table;
+                ghostMesh = new THREE.Group();
+                const t = new THREE.Mesh(new THREE.BoxGeometry(topW, topThick, topD), ghostMat);
+                t.position.set(0, topH - topThick / 2, 0);
+                const l1 = new THREE.Mesh(new THREE.BoxGeometry(legW, topH, legW), ghostMat);
+                l1.position.set(-topW / 2 + 0.5, topH / 2, -topD / 2 + 0.5);
+                const l2 = l1.clone(); l2.position.set(topW / 2 - 0.5, topH / 2, -topD / 2 + 0.5);
+                const l3 = l1.clone(); l3.position.set(-topW / 2 + 0.5, topH / 2, topD / 2 - 0.5);
+                const l4 = l1.clone(); l4.position.set(topW / 2 - 0.5, topH / 2, topD / 2 - 0.5);
+                ghostMesh.add(t, l1, l2, l3, l4);
+            }
+
+            ghostMesh.visible = (state.mode === 'place' || state.mode === 'draw');
+            scene.add(ghostMesh);
+        }
+
+        rebuildGhostMesh();
+
+        /**
+         * Raycasts against the floor AND existing surfaces (tables, chairs, blocks, ramps)
+         * so you can place or draw domino trails ON TOP of tables, bridges, and chairs!
+         */
+        function getSurfaceIntersection(clientX, clientY, includeDominoes = false) {
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+
+            const targets = [floorMesh];
+            for (const obj of objects) {
+                if (!includeDominoes && obj.type === 'domino') continue;
+                if (state.draggedObject && obj.id === state.draggedObject.id) continue;
+                targets.push(obj.mesh);
+            }
+
+            const hits = raycaster.intersectObjects(targets, true);
+            if (hits.length > 0) {
+                return hits[0];
+            }
+            return null;
+        }
+
+        function getObjectIntersection(clientX, clientY) {
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+            const meshes = objects.map(o => o.mesh);
+            const hits = raycaster.intersectObjects(meshes, true);
+            if (hits.length > 0) {
+                const hit = hits[0];
+                const objId = hit.object.userData.objectId;
+                const objRecord = objects.find(o => o.id === objId);
+                if (objRecord) return { hit, objRecord };
+            }
+            return null;
+        }
+
+        // ==========================================
+        // 5B. UNIFIED DESKTOP & MOBILE MULTI-TOUCH GESTURE ENGINE
+        // ==========================================
+        // Tracks active pointers so:
+        // - 1-finger touch executes the active tool (Draw trail, Move with touch Y-offset, Push, Delete, or Place preview)
+        // - 2-finger pinch/drag immediately cancels any in-progress 1-finger tool action and lets OrbitControls zoom/orbit!
+        const activePointers = new Map();
+        let multiTouchGestureActive = false;
+        let lastPendingTouchPlacePoint = null;
+
+        function getTouchOffsetClientY(e) {
+            // When dragging or drawing with a finger on mobile, offset the raycast target slightly above the finger tip
+            // so the user's thumb/finger does not obscure the domino trail or object being positioned!
+            if (e.pointerType === 'touch' && (state.mode === 'draw' || state.mode === 'move' || state.mode === 'place')) {
+                return e.clientY - 28;
+            }
+            return e.clientY;
+        }
+
+        renderer.domElement.addEventListener('pointerdown', (e) => {
+            activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
+            sound.init();
+
+            // If 2 or more fingers are touching, switch cleanly into multi-touch camera orbit/pinch-zoom!
+            if (activePointers.size >= 2) {
+                multiTouchGestureActive = true;
+                state.isPointerDown = false;
+                state.lastDrawPoint = null;
+                if (state.draggedObject) {
+                    state.draggedObject.body.wakeUp();
+                    state.draggedObject = null;
+                }
+                if (ghostMesh) ghostMesh.visible = false;
+                return;
+            }
+
+            multiTouchGestureActive = false;
+
+            // On mouse, only handle left-click (button 0) for tools
+            if (e.pointerType === 'mouse' && e.button !== 0) return;
+            if (state.mode === 'camera') return;
+
+            state.isPointerDown = true;
+            const targetY = getTouchOffsetClientY(e);
+
+            if (state.mode === 'place') {
+                const hit = getSurfaceIntersection(e.clientX, targetY, false);
+                if (hit) {
+                    if (e.pointerType === 'touch') {
+                        // On touch, show & position the ghost preview and let user drag to aim or tap "Place Here"
+                        lastPendingTouchPlacePoint = hit.point.clone();
+                        if (ghostMesh) {
+                            ghostMesh.visible = true;
+                            ghostMesh.position.copy(hit.point);
+                            ghostMesh.rotation.y = state.rotationY;
+                        }
+                        const btnTouchPlace = document.getElementById('btn-touch-place');
+                        if (btnTouchPlace) {
+                            btnTouchPlace.classList.remove('hidden');
+                            btnTouchPlace.classList.add('flex');
+                        }
+                    } else {
+                        spawnObject(state.item, hit.point, state.rotationY);
+                        saveCurrentStateAsInitial();
+                    }
+                }
+
+            } else if (state.mode === 'draw') {
+                const hit = getSurfaceIntersection(e.clientX, targetY, false);
+                if (hit) {
+                    state.lastDrawPoint = hit.point.clone();
+                    if (ghostMesh) {
+                        ghostMesh.visible = true;
+                        ghostMesh.position.copy(hit.point);
+                    }
+                }
+
+            } else if (state.mode === 'push') {
+                const res = getObjectIntersection(e.clientX, e.clientY);
+                if (res) {
+                    const { objRecord } = res;
+                    if (objRecord.type === 'domino') {
+                        toppleObject(objRecord);
+                    } else {
+                        const pushDir = raycaster.ray.direction.clone();
+                        pushDir.y = 0.15;
+                        pushDir.normalize();
+                        toppleObject(objRecord, pushDir);
+                    }
+                }
+
+            } else if (state.mode === 'delete') {
+                const res = getObjectIntersection(e.clientX, e.clientY);
+                if (res) {
+                    removeObject(res.objRecord);
+                }
+
+            } else if (state.mode === 'move') {
+                const res = getObjectIntersection(e.clientX, e.clientY);
+                if (res) {
+                    state.draggedObject = res.objRecord;
+                    state.dragPlaneHeight = res.objRecord.body.position.y;
+                    state.dragOffset.copy(res.objRecord.body.position).sub(res.hit.point);
+                    state.draggedObject.body.sleep();
+                }
+            }
+        });
+
+        renderer.domElement.addEventListener('pointermove', (e) => {
+            if (activePointers.has(e.pointerId)) {
+                activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
+            }
+
+            if (multiTouchGestureActive || activePointers.size >= 2) return;
+
+            const targetY = getTouchOffsetClientY(e);
+
+            if (state.mode === 'place' || state.mode === 'draw') {
+                const hit = getSurfaceIntersection(e.clientX, targetY, false);
+                if (hit && ghostMesh) {
+                    ghostMesh.visible = true;
+                    ghostMesh.position.copy(hit.point);
+                    ghostMesh.rotation.y = state.rotationY;
+                    if (e.pointerType === 'touch' && state.mode === 'place' && state.isPointerDown) {
+                        lastPendingTouchPlacePoint = hit.point.clone();
+                    }
+                } else if (ghostMesh && e.pointerType !== 'touch') {
+                    ghostMesh.visible = false;
+                }
+            }
+
+            if (!state.isPointerDown) return;
+
+            if (state.mode === 'draw' && state.lastDrawPoint) {
+                const hit = getSurfaceIntersection(e.clientX, targetY, false);
+                if (hit) {
+                    const pt = hit.point;
+                    const dx = pt.x - state.lastDrawPoint.x;
+                    const dz = pt.z - state.lastDrawPoint.z;
+                    const dist = Math.hypot(dx, dz);
+
+                    if (dist >= state.spacing) {
+                        const steps = Math.floor(dist / state.spacing);
+                        const dirX = dx / dist;
+                        const dirZ = dz / dist;
+                        // Domino depth is along local Z, so atan2(dirX, dirZ) faces the domino along the path!
+                        const angle = Math.atan2(dirX, dirZ);
+
+                        for (let i = 1; i <= steps; i++) {
+                            const spawnX = state.lastDrawPoint.x + dirX * state.spacing * i;
+                            const spawnZ = state.lastDrawPoint.z + dirZ * state.spacing * i;
+                            const spawnY = THREE.MathUtils.lerp(state.lastDrawPoint.y, pt.y, i / steps);
+                            spawnObject('domino', new THREE.Vector3(spawnX, spawnY, spawnZ), angle);
+                        }
+
+                        state.lastDrawPoint.set(
+                            state.lastDrawPoint.x + dirX * state.spacing * steps,
+                            pt.y,
+                            state.lastDrawPoint.z + dirZ * state.spacing * steps
+                        );
+                        if (ghostMesh) ghostMesh.rotation.y = angle;
+                    }
+                }
+
+            } else if (state.mode === 'move' && state.draggedObject) {
+                const hit = getSurfaceIntersection(e.clientX, targetY, false);
+                if (hit) {
+                    const obj = state.draggedObject;
+                    let halfH = 0;
+                    if (obj.type === 'domino') halfH = DIMENSIONS.domino.h / 2;
+                    else if (obj.type === 'plank') halfH = DIMENSIONS.plank.h / 2;
+                    else if (obj.type === 'cube') halfH = DIMENSIONS.cube.h / 2;
+
+                    const targetX = hit.point.x + state.dragOffset.x;
+                    const targetZ = hit.point.z + state.dragOffset.z;
+                    const targetYPos = hit.point.y + halfH;
+
+                    obj.body.position.set(targetX, targetYPos, targetZ);
+                    obj.body.velocity.set(0, 0, 0);
+                    obj.body.angularVelocity.set(0, 0, 0);
+                    obj.mesh.position.copy(obj.body.position);
+                }
+
+            } else if (state.mode === 'delete') {
+                // Drag-to-erase support
+                const res = getObjectIntersection(e.clientX, e.clientY);
+                if (res) removeObject(res.objRecord);
+            }
+        });
+
+        function handlePointerEnd(e) {
+            activePointers.delete(e.pointerId);
+
+            if (activePointers.size === 0) {
+                if (!multiTouchGestureActive && state.isPointerDown) {
+                    if (state.mode === 'draw' && state.lastDrawPoint) {
+                        saveCurrentStateAsInitial();
+                    }
+                    if (state.mode === 'move' && state.draggedObject) {
+                        state.draggedObject.body.wakeUp();
+                        saveCurrentStateAsInitial();
+                        state.draggedObject = null;
+                    }
+                    // On touch in 'place' mode, tapping & releasing spawns the item at the preview spot!
+                    if (e.pointerType === 'touch' && state.mode === 'place' && lastPendingTouchPlacePoint) {
+                        spawnObject(state.item, lastPendingTouchPlacePoint, state.rotationY);
+                        saveCurrentStateAsInitial();
+                        lastPendingTouchPlacePoint = null;
+                    }
+                }
+                multiTouchGestureActive = false;
+                state.isPointerDown = false;
+                state.lastDrawPoint = null;
+            }
+        }
+
+        window.addEventListener('pointerup', handlePointerEnd);
+        window.addEventListener('pointercancel', handlePointerEnd);
+
+        // Prevent context menu on right-click orbit
+        renderer.domElement.addEventListener('contextmenu', e => e.preventDefault());
+
+        // ==========================================
+        // 6. SCENE PRESETS (TABLES, CHAIRS, CASCADES)
+        // ==========================================
+        function spawnDominoPath(points, spacing = 0.80) {
+            for (let s = 0; s < points.length - 1; s++) {
+                const p0 = points[s];
+                const p1 = points[s + 1];
+                const dx = p1.x - p0.x;
+                const dz = p1.z - p0.z;
+                const dist = Math.hypot(dx, dz);
+                const count = Math.max(1, Math.floor(dist / spacing));
+                const angle = Math.atan2(dx, dz);
+
+                for (let i = 0; i < count; i++) {
+                    const t = i / count;
+                    const x = THREE.MathUtils.lerp(p0.x, p1.x, t);
+                    const y = THREE.MathUtils.lerp(p0.y, p1.y, t);
+                    const z = THREE.MathUtils.lerp(p0.z, p1.z, t);
+                    spawnObject('domino', new THREE.Vector3(x, y, z), angle);
+                }
+            }
+        }
+
+        function loadPreset(presetName) {
+            clearAllObjects();
+            rainbowIndex = 0;
+
+            if (presetName === 'cascade') {
+                // 1. Place Table at X = -3, Z = 0
+                const tableX = -3.0;
+                const tableH = DIMENSIONS.table.topH;
+                spawnObject('table', new THREE.Vector3(tableX, 0, 0), 0);
+
+                // 2. Place Chair right next to the table's right edge (X = +2.55)
+                const chairX = 2.55;
+                const chairH = DIMENSIONS.chair.seatH;
+                spawnObject('chair', new THREE.Vector3(chairX, 0, 0), Math.PI);
+
+                // 3. Dominoes across the tabletop from left to right edge!
+                // Tight 0.78m spacing guarantees effortless, rapid toppling across the table!
+                for (let x = tableX - 3.6; x <= tableX + 3.95; x += 0.78) {
+                    spawnObject('domino', new THREE.Vector3(x, tableH, 0), Math.PI / 2);
+                }
+
+                // 4. Dominoes on the chair seat that get struck by the falling tabletop domino!
+                spawnObject('domino', new THREE.Vector3(chairX - 0.55, chairH, 0), Math.PI / 2);
+                spawnObject('domino', new THREE.Vector3(chairX + 0.25, chairH, 0), Math.PI / 2);
+
+                // 5. Step riser on the floor next to the chair to catch the falling chair domino
+                spawnObject('ramp', new THREE.Vector3(4.65, 0, 0), -Math.PI / 2);
+                spawnObject('domino', new THREE.Vector3(4.25, 1.2, 0), Math.PI / 2);
+                spawnObject('domino', new THREE.Vector3(5.05, 0.8, 0), Math.PI / 2);
+
+                // 6. Sweeping S-curve on the studio floor that loops back UNDERNEATH the table!
+                const curvePts = [];
+                for (let i = 0; i <= 14; i++) {
+                    const t = i / 14;
+                    const angle = t * Math.PI;
+                    const x = 6.0 + Math.sin(angle) * 5.0;
+                    const z = 4.2 - Math.cos(angle) * 4.2;
+                    curvePts.push(new THREE.Vector3(x, 0, z));
+                }
+                curvePts.push(new THREE.Vector3(0.5, 0, 8.4));
+                curvePts.push(new THREE.Vector3(-3.0, 0, 5.5));
+                curvePts.push(new THREE.Vector3(-3.0, 0, 0.0)); // Directly under table center!
+                curvePts.push(new THREE.Vector3(-3.0, 0, -6.5));
+                curvePts.push(new THREE.Vector3(2.5, 0, -7.5));
+
+                spawnDominoPath(curvePts, 0.80);
+
+                camera.position.set(2, 14, 22);
+                controls.target.set(-0.5, 2, 1);
+
+            } else if (presetName === 'spiral') {
+                // Elevated Plank Bridge flanked by two support cubes
+                spawnObject('cube', new THREE.Vector3(-1.1, 0, 0), 0);
+                spawnObject('cube', new THREE.Vector3(1.1, 0, 0), 0);
+                spawnObject('plank', new THREE.Vector3(0, 1.2, 0), Math.PI / 2);
+
+                // Dominoes across the plank bridge
+                for (let x = -1.2; x <= 1.2; x += 0.72) {
+                    spawnObject('domino', new THREE.Vector3(x, 1.2 + DIMENSIONS.plank.h, 0), Math.PI / 2);
+                }
+
+                // Archimedean Spiral radiating outward with crisp 0.78m spacing
+                let theta = 1.4;
+                const b = 0.50;
+                let lastX = b * theta * Math.cos(theta);
+                let lastZ = b * theta * Math.sin(theta);
+
+                for (let i = 0; i < 150; i++) {
+                    const r = b * theta;
+                    const dTheta = 0.78 / Math.sqrt(b * b + r * r);
+                    theta += dTheta;
+                    const x = b * theta * Math.cos(theta);
+                    const z = b * theta * Math.sin(theta);
+                    const angle = Math.atan2(x - lastX, z - lastZ);
+                    spawnObject('domino', new THREE.Vector3(x, 0, z), angle);
+                    lastX = x;
+                    lastZ = z;
+                }
+
+                camera.position.set(0, 24, 24);
+                controls.target.set(0, 1, 0);
+
+            } else if (presetName === 'fortress') {
+                // Twin Parallel Runs leading into a Kapla Plank & Block Tower
+                for (let z = 11.5; z >= -2.5; z -= 0.78) {
+                    spawnObject('domino', new THREE.Vector3(-0.9, 0, z), Math.PI);
+                    spawnObject('domino', new THREE.Vector3( 0.9, 0, z), Math.PI);
+                }
+
+                // Build a 4-tier Kapla-style tower at Z = -4.5
+                const tz = -4.8;
+                for (let level = 0; level < 4; level++) {
+                    const baseY = level * (DIMENSIONS.domino.h + DIMENSIONS.plank.h);
+                    // Support pillars (dominoes)
+                    spawnObject('domino', new THREE.Vector3(-1.1, baseY, tz - 0.8), 0, '#1e293b');
+                    spawnObject('domino', new THREE.Vector3( 1.1, baseY, tz - 0.8), 0, '#1e293b');
+                    spawnObject('domino', new THREE.Vector3(-1.1, baseY, tz + 0.8), 0, '#1e293b');
+                    spawnObject('domino', new THREE.Vector3( 1.1, baseY, tz + 0.8), 0, '#1e293b');
+
+                    // Horizontal planks on top of pillars
+                    const plankY = baseY + DIMENSIONS.domino.h;
+                    spawnObject('plank', new THREE.Vector3(0, plankY, tz - 0.8), Math.PI / 2);
+                    spawnObject('plank', new THREE.Vector3(0, plankY, tz + 0.8), Math.PI / 2);
+
+                    // Dominoes standing on the planks
+                    spawnObject('domino', new THREE.Vector3(-0.45, plankY + DIMENSIONS.plank.h, tz - 0.8), 0);
+                    spawnObject('domino', new THREE.Vector3( 0.45, plankY + DIMENSIONS.plank.h, tz - 0.8), 0);
+                }
+
+                camera.position.set(9, 12, 18);
+                controls.target.set(0, 3, 2);
+
+            } else if (presetName === 'dining') {
+                // Full Dining Set with 1 Table and 2 Chairs
+                const tH = DIMENSIONS.table.topH;
+                const cH = DIMENSIONS.chair.seatH;
+                spawnObject('table', new THREE.Vector3(0, 0, 0), 0);
+                spawnObject('chair', new THREE.Vector3(-5.6, 0, 0), 0);
+                spawnObject('chair', new THREE.Vector3( 5.6, 0, 0), Math.PI);
+
+                // U-Turn Domino Track on top of the dining table
+                const topPts = [
+                    new THREE.Vector3(-3.6, tH, -1.5),
+                    new THREE.Vector3( 2.8, tH, -1.5),
+                    new THREE.Vector3( 3.5, tH,  0.0),
+                    new THREE.Vector3( 2.8, tH,  1.5),
+                    new THREE.Vector3(-3.9, tH,  1.5)
+                ];
+                spawnDominoPath(topPts, 0.78);
+
+                // Left Chair catches the falling domino from the table's return leg
+                spawnObject('domino', new THREE.Vector3(-5.0, cH, 0.8), -Math.PI / 4);
+                spawnObject('domino', new THREE.Vector3(-5.6, cH, 0.2), -Math.PI / 4);
+
+                // Floor perimeter track around the furniture
+                const floorPts = [
+                    new THREE.Vector3(-6.2, 0, 2.2),
+                    new THREE.Vector3(-6.2, 0, 5.5),
+                    new THREE.Vector3( 6.2, 0, 5.5),
+                    new THREE.Vector3( 6.2, 0, -5.5),
+                    new THREE.Vector3(-6.2, 0, -5.5)
+                ];
+                spawnDominoPath(floorPts, 0.80);
+
+                camera.position.set(0, 17, 24);
+                controls.target.set(0, 2, 0);
+            }
+
+            saveCurrentStateAsInitial();
+        }
+
+        // ==========================================
+        // 7. UI CONTROLS, COLLAPSIBLE SIDEBAR & SHORTCUTS
+        // ==========================================
+        const HINTS = {
+            draw:   '<strong>Draw Domino Line:</strong> 1-finger / Left-drag to draw dominoes! Use 2 fingers (or Right-drag) to orbit/zoom.',
+            place:  '<strong>Place Single Item:</strong> Tap or click on floor/tables to place item. Use <strong>Rotate</strong> button or <strong>R</strong>.',
+            move:   '<strong>Drag / Move:</strong> 1-finger / Left-drag any domino, block, chair, or table to reposition it.',
+            push:   '<strong>Push / Flick Mode:</strong> Tap or click any domino or structure to gently tap it and start the cascade!',
+            delete: '<strong>Delete Mode:</strong> Tap or drag across objects to remove them from the sky arena.',
+            camera: '<strong>1-Finger Camera Orbit:</strong> Drag with 1 finger (or Left-drag) to orbit camera, 2-finger pinch to zoom.'
+        };
+
+        // Collapsible Left Sidebar Logic
+        let isSidebarCollapsed = false;
+        const leftSidebar = document.getElementById('left-sidebar');
+        const btnToggleSidebar = document.getElementById('btn-toggle-sidebar');
+        const btnCollapseInner = document.getElementById('btn-collapse-inner');
+        const btnExpandFloating = document.getElementById('btn-expand-floating');
+
+        function toggleSidebar(forceState = null) {
+            isSidebarCollapsed = forceState !== null ? forceState : !isSidebarCollapsed;
+            leftSidebar.classList.toggle('collapsed', isSidebarCollapsed);
+
+            const icon = document.getElementById('icon-sidebar-toggle');
+            if (isSidebarCollapsed) {
+                icon.setAttribute('data-lucide', 'panel-left-open');
+                btnExpandFloating.classList.remove('hidden');
+                btnExpandFloating.classList.add('flex');
+            } else {
+                icon.setAttribute('data-lucide', 'panel-left-close');
+                btnExpandFloating.classList.add('hidden');
+                btnExpandFloating.classList.remove('flex');
+            }
+            lucide.createIcons();
+        }
+
+        btnToggleSidebar.addEventListener('click', () => toggleSidebar());
+        btnCollapseInner.addEventListener('click', () => toggleSidebar(true));
+        btnExpandFloating.addEventListener('click', () => toggleSidebar(false));
+
+        // Auto-collapse sidebar on narrow mobile screens so the 3D sky arena is unobstructed
+        if (window.innerWidth < 640) {
+            toggleSidebar(true);
+        }
+
+        // Dedicated Push Domino Button
+        document.getElementById('btn-push-now').addEventListener('click', () => {
+            sound.init();
+            pushFirstStandingDomino();
+        });
+
+        let previousNonCameraMode = 'draw';
+
+        function setMode(newMode) {
+            if (newMode !== 'camera') previousNonCameraMode = newMode;
+            state.mode = newMode;
+            document.querySelectorAll('.tool-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.mode === newMode);
+            });
+            document.getElementById('status-hint').innerHTML = `
+                <span class="w-2 h-2 rounded-full bg-blue-400 animate-pulse shrink-0"></span>
+                <span>${HINTS[newMode]}</span>
+            `;
+            const btnTouchPlace = document.getElementById('btn-touch-place');
+            if (btnTouchPlace && newMode !== 'place') {
+                btnTouchPlace.classList.add('hidden');
+                btnTouchPlace.classList.remove('flex');
+            }
+            updateCameraControlsForMode(newMode);
+            rebuildGhostMesh();
+        }
+
+        function rotateActiveItem() {
+            state.rotationY = (state.rotationY + Math.PI / 8) % (Math.PI * 2);
+            const deg = Math.round(THREE.MathUtils.radToDeg(state.rotationY));
+            document.getElementById('rotation-indicator').textContent = `Rot: ${deg}° (R)`;
+            if (ghostMesh) ghostMesh.rotation.y = state.rotationY;
+            if (state.draggedObject) {
+                const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), state.rotationY);
+                state.draggedObject.body.quaternion.set(q.x, q.y, q.z, q.w);
+                state.draggedObject.mesh.quaternion.copy(q);
+            }
+        }
+
+        function undoLastObject() {
+            if (objects.length > 0) {
+                const lastObj = objects[objects.length - 1];
+                removeObject(lastObj);
+                showToast('Removed last placed item');
+            } else {
+                showToast('No items left to undo');
+            }
+        }
+
+        // Floating Quick Action Buttons (Mobile & Desktop)
+        document.getElementById('btn-quick-rotate').addEventListener('click', () => {
+            rotateActiveItem();
+        });
+
+        document.getElementById('btn-quick-undo').addEventListener('click', () => {
+            undoLastObject();
+        });
+
+        document.getElementById('btn-quick-orbit').addEventListener('click', () => {
+            if (state.mode === 'camera') {
+                setMode(previousNonCameraMode || 'draw');
+                showToast(`Switched back to ${state.mode.toUpperCase()} tool`);
+            } else {
+                setMode('camera');
+                showToast('1-Finger Camera Orbit enabled');
+            }
+        });
+
+        document.getElementById('btn-touch-place').addEventListener('click', () => {
+            if (ghostMesh && ghostMesh.visible) {
+                spawnObject(state.item, ghostMesh.position, state.rotationY);
+                saveCurrentStateAsInitial();
+                showToast(`Placed ${state.item}`);
+            }
+        });
+
+        document.getElementById('quality-select').addEventListener('change', (e) => {
+            applyGraphicsQuality(e.target.value);
+            showToast(`Graphics Quality: ${e.target.options[e.target.selectedIndex].text}`);
+        });
+
+        const matSelectEl = document.getElementById('material-select');
+        if (matSelectEl) {
+            matSelectEl.addEventListener('change', (e) => {
+                applyPlatformMaterial(e.target.value);
+                showToast(`Platform Floor: ${matSelectEl.options[matSelectEl.selectedIndex].text}`);
+            });
+        }
+
+        document.querySelectorAll('.tool-btn').forEach(btn => {
+            btn.addEventListener('click', () => setMode(btn.dataset.mode));
+        });
+
+        document.querySelectorAll('.item-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                state.item = btn.dataset.item;
+                document.querySelectorAll('.item-btn').forEach(b => b.classList.toggle('active', b === btn));
+                // If user selects a furniture/block item while in 'draw' mode, automatically switch to 'place' mode
+                if (state.item !== 'domino' && state.mode === 'draw') {
+                    setMode('place');
+                }
+                rebuildGhostMesh();
+            });
+        });
+
+        document.querySelectorAll('.color-swatch').forEach(swatch => {
+            swatch.addEventListener('click', () => {
+                state.selectedColor = swatch.dataset.color;
+                document.getElementById('chk-rainbow').checked = false;
+                document.querySelectorAll('.color-swatch').forEach(s => s.classList.toggle('active', s === swatch));
+            });
+        });
+
+        // Sliders
+        const sliderSpacing = document.getElementById('slider-spacing');
+        sliderSpacing.addEventListener('input', (e) => {
+            state.spacing = parseFloat(e.target.value);
+            document.getElementById('val-spacing').textContent = state.spacing.toFixed(2) + 'm';
+        });
+
+        const sliderForce = document.getElementById('slider-force');
+        sliderForce.addEventListener('input', (e) => {
+            state.pushForce = parseFloat(e.target.value);
+            document.getElementById('val-force').textContent = state.pushForce.toFixed(2) + ' N·s';
+        });
+
+        // Top Bar Buttons
+        const btnPlayPause = document.getElementById('btn-play-pause');
+        function toggleSimulation() {
+            state.isSimulating = !state.isSimulating;
+            const textSpan = document.getElementById('text-play-pause');
+            const icon = document.getElementById('icon-play-pause');
+
+            if (state.isSimulating) {
+                btnPlayPause.className = 'flex items-center gap-2 px-3.5 py-2 rounded-xl font-semibold text-xs bg-emerald-600 hover:bg-emerald-500 text-white transition shadow-lg shadow-emerald-600/25';
+                textSpan.textContent = 'Simulating';
+                icon.setAttribute('data-lucide', 'pause');
+                // Wake up bodies
+                objects.forEach(o => o.body.wakeUp());
+            } else {
+                btnPlayPause.className = 'flex items-center gap-2 px-3.5 py-2 rounded-xl font-semibold text-xs bg-amber-600 hover:bg-amber-500 text-white transition shadow-lg shadow-amber-600/25';
+                textSpan.textContent = 'Paused';
+                icon.setAttribute('data-lucide', 'play');
+            }
+            lucide.createIcons();
+        }
+        btnPlayPause.addEventListener('click', toggleSimulation);
+
+        document.getElementById('btn-reset').addEventListener('click', resetToStanding);
+        document.getElementById('btn-checkpoint').addEventListener('click', saveCurrentStateAsInitial);
+        document.getElementById('btn-clear').addEventListener('click', () => {
+            clearAllObjects();
+            showToast('Cleared studio floor');
+        });
+
+        document.getElementById('preset-select').addEventListener('change', (e) => {
+            loadPreset(e.target.value);
+            showToast(`Loaded Preset: ${e.target.options[e.target.selectedIndex].text}`);
+        });
+
+        const btnSound = document.getElementById('btn-sound');
+        btnSound.addEventListener('click', () => {
+            sound.enabled = !sound.enabled;
+            const icon = document.getElementById('icon-sound');
+            if (sound.enabled) {
+                btnSound.classList.replace('text-slate-500', 'text-emerald-400');
+                icon.setAttribute('data-lucide', 'volume-2');
+            } else {
+                btnSound.classList.replace('text-emerald-400', 'text-slate-500');
+                icon.setAttribute('data-lucide', 'volume-x');
+            }
+            lucide.createIcons();
+        });
+
+        // Keyboard Shortcuts
+        window.addEventListener('keydown', (e) => {
+            if (e.code === 'KeyR') {
+                rotateActiveItem();
+            } else if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') {
+                e.preventDefault();
+                undoLastObject();
+            } else if (e.code === 'Space') {
+                e.preventDefault();
+                toggleSimulation();
+            } else if (e.code === 'Tab') {
+                e.preventDefault();
+                toggleSidebar();
+            }
+        });
+
+        // Window Resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            if (ssaoRenderTarget && ssaoMaterial) {
+                const dpr = renderer.getPixelRatio();
+                const w = Math.floor(window.innerWidth * dpr);
+                const h = Math.floor(window.innerHeight * dpr);
+                ssaoRenderTarget.setSize(w, h);
+                ssaoMaterial.uniforms.resolution.value.set(w, h);
+            }
+        });
+
+        // ==========================================
+        // 8. MAIN ANIMATION, AO & PHYSICS LOOP
+        // ==========================================
+        let lastTime = performance.now();
+        let fpsFrames = 0;
+        let fpsLastStamp = performance.now();
+        const fpsEl = document.getElementById('stat-fps');
+
+        function animate(now) {
+            requestAnimationFrame(animate);
+
+            const dt = Math.min((now - lastTime) / 1000, 0.1);
+            lastTime = now;
+
+            // Live FPS Monitor
+            fpsFrames++;
+            if (now - fpsLastStamp >= 500) {
+                const currentFps = Math.min(60, Math.round((fpsFrames * 1000) / (now - fpsLastStamp)));
+                if (fpsEl) fpsEl.textContent = currentFps;
+                fpsFrames = 0;
+                fpsLastStamp = now;
+            }
+
+            // Animate instanced 3D clouds in the sky (single draw call)
+            updateInstancedClouds(now, dt);
+
+            // Animate visual push ring
+            if (pulseAnim > 0) {
+                pulseAnim = Math.max(0, pulseAnim - dt * 2.4);
+                const sc = 1 + (1 - pulseAnim) * 2.5;
+                pulseMesh.scale.set(sc, 1, sc);
+                pulseMat.opacity = pulseAnim * 0.85;
+            }
+
+            if (state.isSimulating) {
+                // Step physics at 60Hz with up to 5 substeps for ultra-smooth low-friction domino cascades
+                world.step(1 / 60, dt, 5);
+
+                for (let i = 0; i < objects.length; i++) {
+                    const obj = objects[i];
+                    if (state.draggedObject && obj.id === state.draggedObject.id) continue;
+                    obj.mesh.position.copy(obj.body.position);
+                    obj.mesh.quaternion.copy(obj.body.quaternion);
+                }
+            }
+
+            // Update Real-Time Instanced Contact Ambient Occlusion Decals
+            updateContactAODecals();
+
+            controls.update();
+
+            // Render with Screen-Space Ambient Occlusion (High) or Direct Hardware MSAA + Contact AO (Balanced / Mobile)
+            if (graphicsQuality === 'high' && ssaoRenderTarget && ssaoMaterial) {
+                renderer.setRenderTarget(ssaoRenderTarget);
+                renderer.render(scene, camera);
+                renderer.setRenderTarget(null);
+                renderer.render(ssaoQuadScene, ssaoQuadCamera);
+            } else {
+                renderer.setRenderTarget(null);
+                renderer.render(scene, camera);
+            }
+        }
+
+        window.onload = function () {
+            applyGraphicsQuality(graphicsQuality);
+            updateCameraControlsForMode(state.mode);
+            loadPreset('cascade');
+            animate(performance.now());
+        };
+    </script>
+</body>
+</html>

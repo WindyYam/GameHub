@@ -33,9 +33,13 @@
             window.showDamageFlash(s.health <= 0 ? 0.8 : 0.45);
         }
 
-        // Ricochet / hit sound
-        if (window.soundFX && typeof window.soundFX.playArmorRicochet === 'function') {
-            window.soundFX.playArmorRicochet(pPos);
+        // Ricochet / soldier hit sound (gentle volume)
+        if (window.soundFX) {
+            if (typeof window.soundFX.playSoldierHit === 'function') {
+                window.soundFX.playSoldierHit(pPos, 0.65);
+            } else if (typeof window.soundFX.playArmorRicochet === 'function') {
+                window.soundFX.playArmorRicochet(pPos, 0.35);
+            }
         }
 
         // Update HUD

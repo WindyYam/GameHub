@@ -2392,12 +2392,73 @@ villageMat.onBeforeCompile = (shader) => {
 };
 
 const rockMat = new THREE.MeshStandardMaterial({
-    color: new THREE.Color(0x6b6861).convertSRGBToLinear(),
-    roughness: 0.92,
-    metalness: 0.04,
+    color: new THREE.Color(0x8a8479).convertSRGBToLinear(),
+    vertexColors: true,
+    roughness: 0.90,
+    metalness: 0.03,
     envMapIntensity: GROUND_ENV_MAP_INTENSITY,
     side: THREE.DoubleSide
 });
+
+// Mossy weathered craggy boulders: fractured stone faces, crevice AO, lichen mottling & patchy moss
+rockMat.onBeforeCompile = (shader) => {
+    shader.vertexShader = 'varying vec3 vRockWN;\nvarying vec3 vRockWP;\n' + shader.vertexShader.replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+        vRockWN = normalize(mat3(modelMatrix) * normal);
+        vRockWP = (modelMatrix * vec4(transformed, 1.0)).xyz;`
+    );
+    shader.fragmentShader = `varying vec3 vRockWN;
+        varying vec3 vRockWP;
+        float rockHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        float rockNoise(vec2 p) {
+            vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);
+            return mix(mix(rockHash(i), rockHash(i + vec2(1.0, 0.0)), f.x), mix(rockHash(i + vec2(0.0, 1.0)), rockHash(i + vec2(1.0, 1.0)), f.x), f.y);
+        }
+        float rockFbm(vec2 p) {
+            return rockNoise(p) * 0.50 + rockNoise(p * 2.13 + vec2(5.2, 1.3)) * 0.26 + rockNoise(p * 4.7 + vec2(1.7, 9.2)) * 0.15 + rockNoise(p * 10.3) * 0.09;
+        }
+    ` + shader.fragmentShader.replace(
+        '#include <normal_fragment_begin>',
+        `#include <normal_fragment_begin>
+        vec2 rUv = vRockWP.xz * 1.8 + vec2(vRockWP.y * 1.4, -vRockWP.y * 1.1);
+        float hC = rockFbm(rUv * 3.8);
+        float hX = rockFbm((rUv + vec2(0.025, 0.0)) * 3.8);
+        float hY = rockFbm((rUv + vec2(0.0, 0.025)) * 3.8);
+        vec3 bumpN = normalize(vec3((hC - hX) * 9.5, (hC - hY) * 9.5, 1.0));
+        normal = normalize(normal + vec3(bumpN.x, bumpN.y * 0.65, bumpN.x * 0.65) * 0.65);
+        `
+    ).replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+        vec2 rp = vRockWP.xz * 1.35 + vRockWP.y * 0.95;
+        float rn = rockFbm(rp * 2.8);
+        float microN = rockNoise(rp * 18.0);
+        float fineN  = rockNoise(rp * 42.0);
+        float crackMask = smoothstep(0.042, 0.0, abs(rockNoise(rp * 1.9 + vec2(rn * 0.45)) - 0.5));
+        vec3 wn = normalize(vRockWN);
+        float up = smoothstep(0.25, 0.78, wn.y);
+
+        // Weathered grey-brown limestone/granite with fine mineral grain & dark crevices
+        vec3 darkStone = vec3(0.18, 0.16, 0.13);
+        vec3 lightStone = vec3(0.48, 0.44, 0.37);
+        vec3 warmStone = mix(darkStone, lightStone, rn * 0.60 + microN * 0.28 + fineN * 0.12);
+        float lichen = smoothstep(0.64, 0.80, rockNoise(rp * 5.5)) * 0.38;
+        warmStone = mix(warmStone, vec3(0.54, 0.55, 0.43), lichen);
+        warmStone *= (1.0 - crackMask * 0.68);
+        vec3 stone = diffuseColor.rgb * warmStone * 1.75;
+
+        // Organic patchy moss & olive lichen clinging to upper crags & pockets (not a solid paint coat)
+        float mossCluster = rockFbm(vRockWP.xz * 1.6 + vec2(3.7, 8.1));
+        float mossTufts = smoothstep(0.38, 0.68, mossCluster * 0.72 + microN * 0.28);
+        float mossAmt = clamp(up * mossTufts + crackMask * up * 0.45, 0.0, 1.0);
+        vec3 deepMoss = vec3(0.048, 0.090, 0.018);
+        vec3 sunlitMoss = vec3(0.155, 0.210, 0.045);
+        vec3 mossCol = mix(deepMoss, sunlitMoss, microN * 0.65 + fineN * 0.35);
+        diffuseColor.rgb = mix(stone, mossCol, mossAmt * 0.78);
+        `
+    );
+};
 
 const desertRockMat = new THREE.MeshStandardMaterial({
     color: new THREE.Color(0xb87644).convertSRGBToLinear(),
@@ -2564,9 +2625,10 @@ function createEgyptLimestonePBR() {
             const blockIdx = Math.floor(blockPos);
             const blockFrac = blockPos - blockIdx;
 
-            // Recessed horizontal and vertical limestone ashlar mortar seams + weathered bevels
-            const hJoint = Math.min(courseFrac, 1.0 - courseFrac);
-            const vJoint = Math.min(blockFrac, 1.0 - blockFrac);
+            // Recessed horizontal and vertical limestone ashlar mortar seams + weathered, broken bevels
+            const edgeRough = (hash2D(x * 2.3, y * 2.3) - 0.5) * 0.035;
+            const hJoint = Math.max(0.0, Math.min(courseFrac, 1.0 - courseFrac) + edgeRough);
+            const vJoint = Math.max(0.0, Math.min(blockFrac, 1.0 - blockFrac) + edgeRough);
             const hBevel = smoothstep(0.0, 0.11, hJoint);
             const vBevel = smoothstep(0.0, 0.08, vJoint);
             const blockBevel = hBevel * vBevel;
@@ -2574,16 +2636,50 @@ function createEgyptLimestonePBR() {
             // Per-block warm Tura/Giza limestone variation & wind-pitted desert patina
             const blockSeed = hash2D(blockIdx * 13.0 + courseIdx * 7.0, courseIdx * 29.0);
             const pitNoise = Math.sin(v * Math.PI * 24.0 + u * 6.0) * 0.04;
-            const h = blockBevel * 0.65 + (blockSeed - 0.5) * 0.12 + pitNoise;
+
+            // --- WIND-SCOURED SCRATCHES & CHISEL GROOVES ---
+            const sAng1 = (u * 42.0 + v * 30.0 + Math.sin(u * 16.0) * 0.4) * Math.PI;
+            const sLine1 = 1.0 - smoothstep(0.0, 0.055, Math.abs(Math.sin(sAng1)));
+            const sMask1 = smoothstep(0.56, 0.88, hash2D(Math.floor((u * 42.0 + v * 30.0) * 0.28), Math.floor(v * 9.0)));
+            const scratch1 = sLine1 * sMask1;
+
+            const sAng2 = (u * 26.0 - v * 46.0 + Math.cos(v * 14.0) * 0.3) * Math.PI;
+            const sLine2 = 1.0 - smoothstep(0.0, 0.05, Math.abs(Math.sin(sAng2)));
+            const sMask2 = smoothstep(0.62, 0.90, hash2D(Math.floor(u * 10.0), Math.floor((u * 26.0 - v * 46.0) * 0.24)));
+            const scratch2 = sLine2 * sMask2;
+
+            const totalScratch = Math.max(scratch1 * 1.0, scratch2 * 0.85);
+
+            // --- BROKEN MEGALITH FRACTURES & SPALLED PITS ---
+            const crackWave = Math.sin(v * 16.0 + Math.sin(u * 12.0) * 1.4);
+            const crackDist = Math.abs(Math.sin((u * 7.0 + v * 5.0 + crackWave * 0.5) * Math.PI));
+            const crackMask = smoothstep(0.55, 0.84, hash2D(Math.floor(u * 5.0), Math.floor(v * 5.0)));
+            const crack = (1.0 - smoothstep(0.0, 0.048, crackDist)) * crackMask;
+
+            // Weathered spall pits (desert wind erosion & shattered corners)
+            const chipSeed = hash2D(Math.floor(u * 14.0), Math.floor(v * 14.0));
+            const chipU = (u * 14.0) % 1.0 - 0.5;
+            const chipV = (v * 14.0) % 1.0 - 0.5;
+            const chipDist = Math.hypot(chipU, chipV);
+            const chip = (chipSeed > 0.80 && chipDist < 0.40) ? (1.0 - smoothstep(0.12, 0.40, chipDist)) : 0.0;
+
+            const h = blockBevel * 0.62 + (blockSeed - 0.5) * 0.12 + pitNoise -
+                      totalScratch * 0.22 - crack * 0.36 - chip * 0.30;
             heights[y * size + x] = h;
 
-            const mortarDark = 0.74 + 0.26 * blockBevel;
-            const blockTone = (0.92 + (blockSeed - 0.5) * 0.12 + pitNoise * 0.25) * mortarDark;
+            const mortarDark = 0.72 + 0.28 * blockBevel;
+            const crackDark = crack * 0.52;
+            const scratchDark = totalScratch * 0.25;
+            const chipDark = chip * 0.38;
+
+            const blockTone = (0.92 + (blockSeed - 0.5) * 0.12 + pitNoise * 0.25 + totalScratch * 0.10) *
+                              mortarDark * (1.0 - crackDark - scratchDark - chipDark);
             const warmShift = (blockSeed - 0.5) * 0.04;
+
             const idx = (y * size + x) * 4;
-            albedoData[idx]     = Math.min(255, Math.max(155, Math.round((blockTone + warmShift) * 255)));
-            albedoData[idx + 1] = Math.min(255, Math.max(140, Math.round((blockTone * 0.96) * 255)));
-            albedoData[idx + 2] = Math.min(255, Math.max(115, Math.round((blockTone * 0.89 - warmShift) * 255)));
+            albedoData[idx]     = Math.min(255, Math.max(120, Math.round((blockTone + warmShift) * 255)));
+            albedoData[idx + 1] = Math.min(255, Math.max(105, Math.round((blockTone * 0.95) * 255)));
+            albedoData[idx + 2] = Math.min(255, Math.max(85, Math.round((blockTone * 0.86 - warmShift) * 255)));
             albedoData[idx + 3] = 255;
         }
     }
@@ -2594,7 +2690,7 @@ function createEgyptLimestonePBR() {
             const right = heights[y * size + (x + 1) % size];
             const down = heights[((y + size - 1) % size) * size + x];
             const up = heights[((y + 1) % size) * size + x];
-            const n = new THREE.Vector3(-(right - left) * 2.6, -(up - down) * 3.2, 1.0).normalize();
+            const n = new THREE.Vector3(-(right - left) * 3.6, -(up - down) * 4.2, 1.0).normalize();
             const idx = (y * size + x) * 4;
             normData[idx]     = Math.round((n.x * 0.5 + 0.5) * 255);
             normData[idx + 1] = Math.round((n.y * 0.5 + 0.5) * 255);
@@ -2713,22 +2809,81 @@ function createGreekMarblePBR() {
 
             const hJoint = Math.min(courseFrac, 1.0 - courseFrac);
             const vJoint = Math.min(blockFrac, 1.0 - blockFrac);
-            const seam = smoothstep(0.0, 0.07, hJoint) * smoothstep(0.0, 0.06, vJoint);
 
-            // Subtle Pentelic marble veining & fine fluted/chiseled relief
+            // Ragged, chipped mortar seams & spalled bevels
+            const seamNoise = (hash2D(x * 2.1, y * 2.1) - 0.5) * 0.024;
+            const seam = smoothstep(0.0, 0.075, Math.max(0.0, hJoint + seamNoise)) *
+                         smoothstep(0.0, 0.065, Math.max(0.0, vJoint + seamNoise));
+
+            // Pentelic marble veining & fine fluted/chiseled relief
             const vein = Math.sin((u * 4.5 + v * 3.2 + Math.sin(u * 12.0) * 0.25) * Math.PI) * 0.5 + 0.5;
             const veinLine = Math.pow(vein, 8.0) * 0.08;
             const blockSeed = hash2D(blockIdx * 17.0 + courseIdx * 13.0, courseIdx * 31.0);
-            const fluteMicro = Math.sin(u * Math.PI * 32.0) * 0.03;
+            const fluteMicro = Math.sin(u * Math.PI * 32.0) * 0.025;
 
-            const h = seam * 0.65 + (blockSeed - 0.5) * 0.06 + fluteMicro - veinLine * 0.3;
+            // --- MULTI-DIRECTIONAL SCRATCHES & CHISEL GOUGES ---
+            // Scratch Set 1: Diagonal scratches & tool abrasions
+            const sAng1 = (u * 46.0 + v * 34.0 + Math.sin(v * 20.0) * 0.35) * Math.PI;
+            const sLine1 = 1.0 - smoothstep(0.0, 0.055, Math.abs(Math.sin(sAng1)));
+            const sMask1 = smoothstep(0.58, 0.88, hash2D(Math.floor((u * 46.0 + v * 34.0) * 0.25), Math.floor(v * 8.0)));
+            const scratch1 = sLine1 * sMask1;
+
+            // Scratch Set 2: Counter-diagonal scrapes & weapon/impact scratches
+            const sAng2 = (u * 32.0 - v * 50.0 + Math.cos(u * 16.0) * 0.3) * Math.PI;
+            const sLine2 = 1.0 - smoothstep(0.0, 0.05, Math.abs(Math.sin(sAng2)));
+            const sMask2 = smoothstep(0.64, 0.92, hash2D(Math.floor(u * 9.0), Math.floor((u * 32.0 - v * 50.0) * 0.22)));
+            const scratch2 = sLine2 * sMask2;
+
+            // Scratch Set 3: Fine horizontal dragged abrasive scratches
+            const sAng3 = (v * 74.0 + Math.sin(u * 28.0) * 0.45) * Math.PI;
+            const sLine3 = 1.0 - smoothstep(0.0, 0.05, Math.abs(Math.sin(sAng3)));
+            const sMask3 = smoothstep(0.70, 0.94, hash2D(Math.floor(v * 16.0), Math.floor(u * 6.0)));
+            const scratch3 = sLine3 * sMask3;
+
+            const totalScratch = Math.max(scratch1 * 1.0, scratch2 * 0.9, scratch3 * 0.65);
+
+            // --- BROKEN MARBLE CRACKS & IMPACT CHIPS ---
+            // Jagged structural fracture cracks splitting across slabs
+            const crackWave = Math.sin(v * 18.0 + Math.cos(u * 14.0) * 1.5);
+            const crackDist = Math.abs(Math.sin((u * 8.0 + v * 6.0 + crackWave * 0.6) * Math.PI));
+            const crackMask = smoothstep(0.54, 0.84, hash2D(Math.floor(u * 6.0), Math.floor(v * 6.0)));
+            const crack = (1.0 - smoothstep(0.0, 0.045, crackDist)) * crackMask;
+
+            // Spalled impact craters / chipped marble flakes
+            const chipSeed = hash2D(Math.floor(u * 16.0), Math.floor(v * 16.0));
+            const chipU = (u * 16.0) % 1.0 - 0.5;
+            const chipV = (v * 16.0) % 1.0 - 0.5;
+            const chipDist = Math.hypot(chipU, chipV);
+            const chip = (chipSeed > 0.81 && chipDist < 0.38) ? (1.0 - smoothstep(0.14, 0.38, chipDist)) : 0.0;
+
+            // Height combining seams, veining, scratches, cracks and chips
+            const h = seam * 0.60 + (blockSeed - 0.5) * 0.06 + fluteMicro - veinLine * 0.25 -
+                      totalScratch * 0.20 - crack * 0.34 - chip * 0.30;
             heights[y * size + x] = h;
 
-            const tone = (0.88 + 0.12 * seam) * (0.95 + (blockSeed - 0.5) * 0.06 - veinLine);
+            // Albedo: Pentelic marble with dark weathered cracks, powdered scratch rims, and oxidized patina
+            const scratchRim = totalScratch * 0.18; // pulverized pale marble edge
+            const scratchGroove = totalScratch * 0.30; // dark shadow in groove
+            const crackDark = crack * 0.50; // grime and shadow in fissure
+            const chipDark = chip * 0.38; // rough exposed interior stone
+
+            const tone = (0.86 + 0.14 * seam) * (0.95 + (blockSeed - 0.5) * 0.06 - veinLine + scratchRim) *
+                         (1.0 - scratchGroove - crackDark - chipDark);
+
+            // Weathered antique amber/ochre oxidation in fractures and scratches
+            const grimeAmt = Math.min(0.65, crack * 0.72 + chip * 0.55 + totalScratch * 0.32 + (1.0 - seam) * 0.35);
+            const rBase = tone;
+            const gBase = tone * 0.98;
+            const bBase = tone * 0.94;
+
+            const r = rBase * (1.0 - grimeAmt * 0.25);
+            const g = gBase * (1.0 - grimeAmt * 0.32);
+            const b = bBase * (1.0 - grimeAmt * 0.45); // ochre/amber shift in cracks
+
             const idx = (y * size + x) * 4;
-            albedoData[idx]     = Math.min(255, Math.max(185, Math.round(tone * 255)));
-            albedoData[idx + 1] = Math.min(255, Math.max(180, Math.round(tone * 0.98 * 255)));
-            albedoData[idx + 2] = Math.min(255, Math.max(170, Math.round(tone * 0.94 * 255)));
+            albedoData[idx]     = Math.min(255, Math.max(135, Math.round(r * 255)));
+            albedoData[idx + 1] = Math.min(255, Math.max(125, Math.round(g * 255)));
+            albedoData[idx + 2] = Math.min(255, Math.max(100, Math.round(b * 255)));
             albedoData[idx + 3] = 255;
         }
     }
@@ -2739,7 +2894,7 @@ function createGreekMarblePBR() {
             const right = heights[y * size + (x + 1) % size];
             const down = heights[((y + size - 1) % size) * size + x];
             const up = heights[((y + 1) % size) * size + x];
-            const n = new THREE.Vector3(-(right - left) * 2.4, -(up - down) * 2.8, 1.0).normalize();
+            const n = new THREE.Vector3(-(right - left) * 3.6, -(up - down) * 4.2, 1.0).normalize();
             const idx = (y * size + x) * 4;
             normData[idx]     = Math.round((n.x * 0.5 + 0.5) * 255);
             normData[idx + 1] = Math.round((n.y * 0.5 + 0.5) * 255);
@@ -3344,36 +3499,53 @@ function smoothDuplicateVertexNormals(geo) {
 function createLimestoneRockGeometry() {
     const parts = [];
     const boulders = [
-        // Main central defensive crag (3.8m tall, 6.2m wide, 5.0m deep)
-        { x: 0,     y: 1.85, z: 0,     sx: 3.2, sy: 1.95, sz: 2.6, rot: 0.2 },
-        // Left flanking shoulder boulder
-        { x: -2.4,  y: 1.45, z: 0.4,   sx: 2.2, sy: 1.55, sz: 2.0, rot: 1.1 },
-        // Right buttress boulder
-        { x: 2.2,   y: 1.35, z: -0.5,  sx: 2.1, sy: 1.45, sz: 1.9, rot: 2.3 },
-        // Top cap stone & craggy parapet
-        { x: 0.4,   y: 2.65, z: -0.3,  sx: 1.9, sy: 1.35, sz: 1.7, rot: 0.7 }
+        // Main central craggy fieldstone boulder (natural rounded-yet-faceted massif)
+        { x: 0,     y: 1.75, z: 0,     sx: 3.15, sy: 1.90, sz: 2.55, rot: 0.25 },
+        // Left flanking shoulder crag
+        { x: -2.2,  y: 1.35, z: 0.35,  sx: 2.15, sy: 1.48, sz: 1.95, rot: 1.15 },
+        // Right buttress outcrop
+        { x: 2.05,  y: 1.25, z: -0.45, sx: 2.05, sy: 1.38, sz: 1.85, rot: 2.35 },
+        // Upper weathered cap crag
+        { x: 0.35,  y: 2.45, z: -0.25, sx: 1.85, sy: 1.28, sz: 1.65, rot: 0.75 }
     ];
 
-    boulders.forEach(b => {
-        const geo = new THREE.DodecahedronGeometry(1.0, 1);
+    boulders.forEach((b, bIdx) => {
+        // Detail 2 icosahedron/dodecahedron gives crisp natural rock facets instead of smooth horizontal rings
+        const geo = new THREE.DodecahedronGeometry(1.0, 2);
         const p = geo.attributes.position;
         for (let i = 0; i < p.count; i++) {
             const vx = p.getX(i), vy = p.getY(i), vz = p.getZ(i);
-            const layerJitter = Math.sin(vy * 4.0) * 0.10 + (hash2D(vx * 3.2, vz * 3.2) - 0.5) * 0.20;
-            const s = 0.92 + layerJitter;
-            p.setXYZ(i, vx * s * b.sx, vy * s * b.sy, vz * s * b.sz);
+            const n1 = hash2D(vx * 2.4 + bIdx * 7.1, vz * 2.4 + vy * 1.9) - 0.5;
+            const n2 = hash2D(vx * 5.8 - vy * 3.1, vz * 5.8 + bIdx * 3.7) - 0.5;
+            // Flatten bottom slightly so boulder sits firmly in the meadow soil
+            const bottomFlat = vy < -0.45 ? 0.78 : 1.0;
+            const s = 0.90 + n1 * 0.24 + n2 * 0.10;
+            p.setXYZ(i, vx * s * b.sx, vy * s * b.sy * bottomFlat, vz * s * b.sz);
         }
+        // Mostly smooth normals with subtle 16% facet definition so boulder looks organically craggy, not low-poly
+        geo.computeVertexNormals();
+        const flatNorms = new Float32Array(geo.attributes.normal.array);
         smoothDuplicateVertexNormals(geo);
+        const smoothNorms = geo.attributes.normal;
+        for (let i = 0; i < smoothNorms.count; i++) {
+            const nx = flatNorms[i * 3] * 0.16 + smoothNorms.getX(i) * 0.84;
+            const ny = flatNorms[i * 3 + 1] * 0.16 + smoothNorms.getY(i) * 0.84;
+            const nz = flatNorms[i * 3 + 2] * 0.16 + smoothNorms.getZ(i) * 0.84;
+            const len = Math.hypot(nx, ny, nz) || 1.0;
+            smoothNorms.setXYZ(i, nx / len, ny / len, nz / len);
+        }
         geo.rotateY(b.rot);
         geo.translate(b.x, b.y, b.z);
 
         const col = new Float32Array(p.count * 3);
         for (let k = 0; k < p.count; k++) {
-            const vy = p.getY(k);
-            const shade = 0.50 + 0.26 * Math.min(1.0, Math.max(0.0, vy / 3.8));
-            col[k * 3 + 0] = 0.64 * shade;
-            col[k * 3 + 1] = 0.62 * shade;
-            col[k * 3 + 2] = 0.58 * shade;
+            const vx = p.getX(k), vy = p.getY(k), vz = p.getZ(k);
+            const heightAO = 0.52 + 0.48 * Math.min(1.0, Math.max(0.0, vy / 3.4));
+            const crevice = 0.85 + 0.30 * (hash2D(vx * 3.5, vz * 3.5) - 0.5);
+            const shade = heightAO * crevice;
+            col[k * 3 + 0] = 0.78 * shade;
+            col[k * 3 + 1] = 0.75 * shade;
+            col[k * 3 + 2] = 0.70 * shade;
         }
         geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
         applyWorldBoxUVs(geo, 0.22, 0.30);
@@ -5919,6 +6091,10 @@ function applyWorldBoxUVs(geo, scaleU = 0.22, scaleV = 0.26) {
 // (Unified 38-Course Stepped Nummulitic Limestone from Base to Apex
 //  + Deep Sub-Terrain Foundation + Megalithic Chevron North Entrance & Pylon Forecourt)
 // ============================================================================
+// 5R. Egyptian Great Pyramid of Giza / Khafre
+// (38-Course Stepped Nummulitic Limestone with Broken Summit, Weathered Courses,
+//  Scattered Fallen Broken Megaliths & Megalithic Chevron North Entrance)
+// ============================================================================
 function createEgyptianGreatPyramidGeometry(baseW = 42.0, hTotal = 26.5, stepTiers = 38) {
     const parts = [];
 
@@ -5930,18 +6106,19 @@ function createEgyptianGreatPyramidGeometry(baseW = 42.0, hTotal = 26.5, stepTie
             const hFrac = Math.max(0.0, Math.min(1.0, Math.max(0.0, vy) / hTotal));
             const heightAO = 0.76 + 0.24 * Math.pow(hFrac, 0.7);
             const strataBand = Math.sin(vy * 3.2 + (vx + vz) * 0.15) * 0.055;
-            const blockVar = (hash2D(Math.floor(vx * 0.8), Math.floor(vy * 1.4 + vz * 0.8)) - 0.5) * 0.075;
-            const shade = heightAO + strataBand + blockVar;
-            col[i * 3 + 0] = Math.min(1.0, Math.max(0.30, baseR * shade));
-            col[i * 3 + 1] = Math.min(1.0, Math.max(0.25, baseG * shade));
-            col[i * 3 + 2] = Math.min(1.0, Math.max(0.20, baseB * shade));
+            const blockVar = (hash2D(Math.floor(vx * 0.8), Math.floor(vy * 1.4 + vz * 0.8)) - 0.5) * 0.095;
+            const scratchShade = (hash2D(Math.floor((vx + vz) * 3.5), Math.floor(vy * 5.0)) > 0.85) ? -0.12 : 0.0;
+            const shade = heightAO + strataBand + blockVar + scratchShade;
+            col[i * 3 + 0] = Math.min(1.0, Math.max(0.28, baseR * shade));
+            col[i * 3 + 1] = Math.min(1.0, Math.max(0.23, baseG * shade));
+            col[i * 3 + 2] = Math.min(1.0, Math.max(0.18, baseB * shade));
         }
         geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
         applyWorldBoxUVs(geo, 0.24, 0.34);
         return geo;
     }
 
-    // 0. Deep Sub-Terrain Limestone Foundation Skirt (prevents floating edges on sloped desert dunes)
+    // 0. Deep Sub-Terrain Limestone Foundation Skirt
     const foundH = 7.5;
     const foundation = new THREE.BoxGeometry(baseW + 3.4, foundH, baseW + 3.4);
     foundation.translate(0, -foundH * 0.5 + 0.04, 0);
@@ -5958,30 +6135,30 @@ function createEgyptianGreatPyramidGeometry(baseW = 42.0, hTotal = 26.5, stepTie
     socle.translate(0, courtH + socleH * 0.5, 0);
     parts.push(colorLimestonePart(socle, 0.90, 0.79, 0.56));
 
-    // 2. 38 Finely Graduated Stepped Giza Limestone Courses from Base to Summit (Authentic 51.8° Slope)
-    // All courses use BoxGeometry with flat axis-aligned normals & identical limestone UV/vertex shading
-    // so the upper pyramid and apex render seamlessly with the body of the pyramid.
+    // 2. 38 Finely Graduated Stepped Giza Limestone Courses from Base to Summit
+    // with broken, chipped, and collapsed block sections
     const stepStartY = courtH + socleH;
     const stepH = (hTotal - stepStartY) / stepTiers;
-    for (let s = 0; s < stepTiers; s++) {
+    for (let s = 0; s < stepTiers - 1; s++) { // Stop 1 tier before apex for historical broken summit
         const frac = s / stepTiers;
         const w = Math.max(1.55, baseW * (1.0 - frac * 0.945));
         const y = stepStartY + s * stepH + stepH * 0.5;
         const tier = new THREE.BoxGeometry(w, stepH + 0.08, w, 2, 1, 2);
-        // Subtle organic corner weathering on stepped courses
+        
+        // Organic corner and edge weathering & chipped block fractures
         const tPos = tier.attributes.position;
-        const maxWear = Math.min(0.20, w * 0.035);
+        const isBrokenTier = (s === 6 || s === 13 || s === 20 || s === 27 || s === 32);
+        const maxWear = isBrokenTier ? Math.min(0.55, w * 0.08) : Math.min(0.24, w * 0.04);
         for (let k = 0; k < tPos.count; k++) {
             const tx = tPos.getX(k), tz = tPos.getZ(k);
-            if (Math.abs(tx) > w * 0.45 && Math.abs(tz) > w * 0.45) {
-                const wear = (hash2D(s * 7.0 + tx, s * 13.0 + tz) - 0.5) * maxWear;
+            if (Math.abs(tx) > w * 0.44 || Math.abs(tz) > w * 0.44) {
+                const wear = (hash2D(s * 7.0 + tx * 2.0, s * 13.0 + tz * 2.0) - 0.5) * maxWear;
                 tPos.setX(k, tx + wear);
                 tPos.setZ(k, tz + wear);
             }
         }
         tier.computeVertexNormals();
         tier.translate(0, y, 0);
-        // Alternate warm golden-buff and sunlit cream limestone strata courses all the way to the top
         const isCreamBand = (s % 5 === 0 || s % 7 === 0);
         parts.push(colorLimestonePart(
             tier,
@@ -5989,23 +6166,47 @@ function createEgyptianGreatPyramidGeometry(baseW = 42.0, hTotal = 26.5, stepTie
             isCreamBand ? 0.84 : 0.78,
             isCreamBand ? 0.61 : 0.54
         ));
+
+        // On broken tiers, add jutting / displaced broken megaliths resting on the step
+        if (isBrokenTier) {
+            const side = (s % 4);
+            const bx = (side === 0) ? (w * 0.42) : (side === 1) ? -(w * 0.42) : 0;
+            const bz = (side === 2) ? (w * 0.42) : (side === 3) ? -(w * 0.42) : 0;
+            const displacedBlk = new THREE.BoxGeometry(1.2, stepH * 0.9, 1.4);
+            displacedBlk.rotateY((s * 1.7) % 1.2);
+            displacedBlk.translate(bx, y + stepH * 0.35, bz);
+            parts.push(colorLimestonePart(displacedBlk, 0.89, 0.77, 0.53));
+        }
     }
 
-    // Stepped summit capstone course at the apex (BoxGeometry with identical limestone shading)
-    const apexBlock = new THREE.BoxGeometry(1.15, stepH * 0.85, 1.15);
-    apexBlock.translate(0, hTotal + stepH * 0.35, 0);
-    parts.push(colorLimestonePart(apexBlock, 0.94, 0.82, 0.58));
+    // 3. Truncated, Jagged Historical Broken Summit of the Great Pyramid (Missing Capstone)
+    const apexPlatformH = stepH * 0.75;
+    const apexPlatform = new THREE.BoxGeometry(2.6, apexPlatformH, 2.6);
+    apexPlatform.translate(0, hTotal - apexPlatformH * 0.4, 0);
+    parts.push(colorLimestonePart(apexPlatform, 0.92, 0.80, 0.56));
 
-    // 3. Iconic Giza North Face Megalithic Chevron Relieving Arch Entrance & Forecourt Pylons (+Z Face)
+    // Broken, uneven capstone blocks scattered on summit terrace
+    const summitBroken = [
+        { x: -0.65, z: -0.55, w: 1.05, h: 0.65, d: 0.95, ry: 0.25 },
+        { x:  0.55, z: -0.45, w: 0.90, h: 0.48, d: 1.00, ry: -0.22 },
+        { x: -0.45, z:  0.60, w: 0.95, h: 0.72, d: 0.85, ry: 0.45 },
+        { x:  0.58, z:  0.55, w: 0.80, h: 0.42, d: 0.75, ry: -0.38 }
+    ];
+    summitBroken.forEach(sb => {
+        const blk = new THREE.BoxGeometry(sb.w, sb.h, sb.d);
+        blk.rotateY(sb.ry);
+        blk.translate(sb.x, hTotal + apexPlatformH * 0.25 + sb.h * 0.5, sb.z);
+        parts.push(colorLimestonePart(blk, 0.90, 0.78, 0.54));
+    });
+
+    // 4. Iconic Giza North Face Megalithic Chevron Relieving Arch Entrance (+Z Face)
     const portalY = 2.6;
     const portalZ = baseW * 0.465;
 
-    // Stepped stone bastion framing the entrance
     const bastion = new THREE.BoxGeometry(6.8, 4.6, 2.2);
     bastion.translate(0, portalY + 0.5, portalZ - 0.3);
     parts.push(colorLimestonePart(bastion, 0.90, 0.78, 0.55));
 
-    // Double-layered angled Megalithic Chevron Gable Blocks above the entrance (signature of Great Pyramid!)
     [-1, 1].forEach(side => {
         const chevron1 = new THREE.BoxGeometry(2.8, 0.95, 1.6);
         chevron1.rotateZ(-side * 0.52);
@@ -6018,7 +6219,6 @@ function createEgyptianGreatPyramidGeometry(baseW = 42.0, hTotal = 26.5, stepTie
         parts.push(colorLimestonePart(chevron2, 0.92, 0.80, 0.57));
     });
 
-    // Entrance jamb piers & recessed dark descending corridor
     [-1.85, 1.85].forEach(px => {
         const jamb = new THREE.BoxGeometry(1.1, 3.2, 1.8);
         jamb.translate(px, portalY - 0.1, portalZ + 0.35);
@@ -6031,7 +6231,6 @@ function createEgyptianGreatPyramidGeometry(baseW = 42.0, hTotal = 26.5, stepTie
     applyWorldBoxUVs(corridor, 0.24, 0.24);
     parts.push(corridor);
 
-    // Ceremonial Stepped Causeway Ramp & Flanking Guardian Pedestals at North Forecourt
     const ramp = new THREE.BoxGeometry(4.6, 1.35, 4.2);
     ramp.translate(0, 0.68, portalZ + 2.2);
     parts.push(colorLimestonePart(ramp, 0.90, 0.78, 0.55));
@@ -6046,28 +6245,48 @@ function createEgyptianGreatPyramidGeometry(baseW = 42.0, hTotal = 26.5, stepTie
         parts.push(colorLimestonePart(pylonPedestal, 0.93, 0.81, 0.57));
     });
 
+    // 5. Fallen Broken Megaliths & Tumbled Limestone Debris around Base & Corners
     const halfBase = baseW * 0.5;
+    const fallenMegaliths = [
+        { x: -halfBase * 0.82, z:  halfBase + 1.2, w: 2.6, h: 1.3, d: 1.8, rx: 0.14, rz: -0.24, ry: 0.45 },
+        { x: -halfBase * 0.38, z:  halfBase + 1.6, w: 2.0, h: 0.95, d: 2.2, rx: -0.16, rz: 0.18, ry: 0.82 },
+        { x:  halfBase * 0.42, z:  halfBase + 1.4, w: 2.7, h: 1.4, d: 1.7, rx: 0.09, rz: 0.26, ry: -0.35 },
+        { x:  halfBase * 0.76, z:  halfBase + 0.9, w: 2.2, h: 1.1, d: 2.1, rx: -0.22, rz: -0.15, ry: 0.60 },
+        { x:  halfBase + 1.3, z: -halfBase * 0.35, w: 2.5, h: 1.25, d: 1.9, rx: 0.19, rz: 0.25, ry: 0.16 },
+        { x:  halfBase + 0.9, z:  halfBase * 0.48, w: 1.9, h: 1.5, d: 2.1, rx: -0.14, rz: -0.22, ry: -0.50 },
+        { x: -(halfBase + 1.2), z: -halfBase * 0.28, w: 2.4, h: 1.1, d: 2.2, rx: 0.24, rz: -0.18, ry: 0.72 },
+        { x: -(halfBase + 1.5), z:  halfBase * 0.38, w: 2.1, h: 1.35, d: 1.8, rx: -0.15, rz: 0.29, ry: -0.58 },
+        { x: -halfBase * 0.55, z: -(halfBase + 1.3), w: 2.3, h: 1.4, d: 1.9, rx: 0.16, rz: 0.20, ry: 0.38 },
+        { x:  halfBase * 0.25, z: -(halfBase + 1.6), w: 2.8, h: 1.15, d: 2.0, rx: -0.19, rz: -0.24, ry: -0.40 },
+        { x:  halfBase * 0.68, z: -(halfBase + 1.1), w: 2.0, h: 1.25, d: 1.7, rx: 0.12, rz: 0.28, ry: 0.90 },
+        { x:  halfBase * 0.94, z:  halfBase * 0.94, w: 2.9, h: 1.65, d: 2.3, rx: 0.26, rz: -0.32, ry: 0.52 },
+        { x: -halfBase * 0.94, z: -halfBase * 0.94, w: 2.5, h: 1.35, d: 2.5, rx: -0.24, rz: 0.30, ry: -0.36 },
+        { x: -halfBase * 0.92, z:  halfBase * 0.92, w: 2.4, h: 1.25, d: 2.2, rx: 0.22, rz: 0.24, ry: 0.78 }
+    ];
+
+    fallenMegaliths.forEach(fm => {
+        const blk = new THREE.BoxGeometry(fm.w, fm.h, fm.d);
+        blk.rotateX(fm.rx);
+        blk.rotateZ(fm.rz);
+        blk.rotateY(fm.ry);
+        blk.translate(fm.x, courtH + fm.h * 0.42, fm.z);
+        parts.push(colorLimestonePart(blk, 0.88, 0.76, 0.52));
+    });
+
     const merged = mergeBufferGeometries(parts);
     merged.userData = {
         useMeshRaycastOnly: true,
         collisionBoxes: [
-            // Full solid pyramid core (blocks tanks & soldiers on all 4 faces)
             { minX: -halfBase, maxX: halfBase, minZ: -halfBase, maxZ: halfBase },
-            // Socle ledge (walkable once stepped onto court)
             { minX: -(halfBase + 0.6), maxX: halfBase + 0.6, minZ: -(halfBase + 0.6), maxZ: halfBase + 0.6, maxY: courtH + socleH },
-            // North entrance bastion & flanking guardian pedestals
             { minX: -4.25, maxX: -2.55, minZ: portalZ + 0.8, maxZ: portalZ + 3.85 },
             { minX:  2.55, maxX:  4.25, minZ: portalZ + 0.8, maxZ: portalZ + 3.85 },
             { minX: -3.45, maxX:  3.45, minZ: portalZ - 1.4, maxZ: portalZ + 1.25 },
-            // North causeway ramp (height-capped so soldiers can walk up onto it)
             { minX: -2.35, maxX: 2.35, minZ: portalZ + 0.1, maxZ: portalZ + 4.3, maxY: 1.35 }
         ],
         walkablePlatforms: [
-            // Outer Tura limestone pavement court
             { minX: -(halfBase + 1.7), maxX: halfBase + 1.7, minZ: -(halfBase + 1.7), maxZ: halfBase + 1.7, y: courtH },
-            // Socle plinth ledge around pyramid base
             { minX: -(halfBase + 0.65), maxX: halfBase + 0.65, minZ: -(halfBase + 0.65), maxZ: halfBase + 0.65, y: courtH + socleH },
-            // North forecourt causeway ramp & lower step
             { minX: -2.45, maxX: 2.45, minZ: portalZ + 3.7, maxZ: portalZ + 6.0, y: 0.65 },
             { minX: -2.35, maxX: 2.35, minZ: portalZ + 0.1, maxZ: portalZ + 4.3, y: 1.35 }
         ]
@@ -6075,8 +6294,6 @@ function createEgyptianGreatPyramidGeometry(baseW = 42.0, hTotal = 26.5, stepTie
     return merged;
 }
 
-// ============================================================================
-// 5S. Egyptian Monolithic Red Granite / Limestone Obelisk
 // ============================================================================
 function createEgyptianObeliskGeometry(baseW = 2.6, height = 17.5) {
     const parts = [];
@@ -6954,6 +7171,10 @@ function createJungleTempleGeometry() {
 // Cornice, Triangular Pediments with Sculpted Relief Figures & Golden Akroteria,
 // Pitched Marble Roof, Walk-In Cella Sanctuary & Athena Statue Pedestal!
 // ============================================================================
+// 5Z-1. Ancient Greece Parthenon / Acropolis Doric Peripteral Temple
+// (Ruined Classical Sanctuary: Broken Columns, Collapsed Flank Architrave,
+//  Fallen Fluted Marble Drums, Collapsed Roof Breach, Scratches & Cella Ruins)
+// ============================================================================
 function createGreekParthenonGeometry(w = 19.5, l = 29.0) {
     const parts = [];
     const maxH = 14.5;
@@ -6965,16 +7186,17 @@ function createGreekParthenonGeometry(w = 19.5, l = 29.0) {
             const vx = pos.getX(i), vy = pos.getY(i), vz = pos.getZ(i);
             const hAO = 0.78 + 0.22 * Math.min(1.0, Math.max(0.0, vy / maxH));
             const warmVein = Math.sin(vx * 0.6 + vy * 1.1 + vz * 0.5) * 0.03;
-            col[i * 3 + 0] = Math.min(1.0, (r + warmVein) * hAO);
-            col[i * 3 + 1] = Math.min(1.0, (g + warmVein * 0.8) * hAO);
-            col[i * 3 + 2] = Math.min(1.0, (b + warmVein * 0.5) * hAO);
+            const chiselMark = (hash2D(Math.floor((vx + vz) * 4.0), Math.floor(vy * 6.0)) > 0.88) ? -0.10 : 0.0;
+            col[i * 3 + 0] = Math.min(1.0, (r + warmVein + chiselMark) * hAO);
+            col[i * 3 + 1] = Math.min(1.0, (g + warmVein * 0.8 + chiselMark) * hAO);
+            col[i * 3 + 2] = Math.min(1.0, (b + warmVein * 0.5 + chiselMark * 0.8) * hAO);
         }
         geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
         applyWorldBoxUVs(geo, uvScale, uvScale * 1.15);
         parts.push(geo);
     }
 
-    // 0. Deep Sub-Terrain Pentelic Marble & Limestone Foundation (prevents floating on sloped Acropolis hills)
+    // 0. Deep Sub-Terrain Pentelic Marble & Limestone Foundation
     const foundH = 5.0;
     const foundation = new THREE.BoxGeometry(w + 2.6, foundH, l + 2.6);
     foundation.translate(0, -foundH * 0.5, 0);
@@ -6997,11 +7219,21 @@ function createGreekParthenonGeometry(w = 19.5, l = 29.0) {
     }
     const stylobateY = 3 * stepH;
 
-    // 2. Fluted Doric Peristyle Columns (6 across front/back X, 8 along sides Z)
+    // 2. Fluted Doric Peristyle Columns with Authentically Broken Columns & Fallen Drums
     const colH = 6.8;
     const colPositions = [];
     const colsX = 6, colsZ = 8;
     const spanX = w - 2.2, spanZ = l - 2.2;
+
+    const brokenColMap = {
+        '0,2': 2.3, // West flank: broken stump
+        '0,3': 4.1, // West flank: mid-height broken column
+        '0,4': 1.6, // West flank: low broken stump
+        '5,3': 3.1, // East flank: broken column
+        '5,5': 2.6, // East flank: broken column
+        '2,0': 3.6  // Back facade: broken column
+    };
+
     for (let ix = 0; ix < colsX; ix++) {
         for (let iz = 0; iz < colsZ; iz++) {
             if (ix > 0 && ix < colsX - 1 && iz > 0 && iz < colsZ - 1) continue;
@@ -7009,45 +7241,110 @@ function createGreekParthenonGeometry(w = 19.5, l = 29.0) {
             const cz = -spanZ * 0.5 + (iz / (colsZ - 1)) * spanZ;
             colPositions.push([cx, cz]);
 
-            // Fluted Doric shaft with slight entasis taper (no base in true Doric order!)
-            const shaft = new THREE.CylinderGeometry(0.46, 0.58, colH, 16, 3);
+            const colKey = `${ix},${iz}`;
+            const brokenH = brokenColMap[colKey];
+            const isBroken = (brokenH !== undefined);
+            const thisColH = isBroken ? brokenH : colH;
+
+            const shaft = new THREE.CylinderGeometry(
+                isBroken ? 0.48 : 0.46,
+                0.58,
+                thisColH,
+                16,
+                isBroken ? 2 : 3
+            );
             const sp = shaft.attributes.position;
             for (let k = 0; k < sp.count; k++) {
                 const vx = sp.getX(k), vy = sp.getY(k), vz = sp.getZ(k);
                 const ang = Math.atan2(vz, vx);
                 const flute = 1.0 - Math.abs(Math.sin(ang * 8.0)) * 0.045;
-                const entasis = 1.0 + Math.sin(((vy + colH * 0.5) / colH) * Math.PI) * 0.03;
+                const entasis = 1.0 + Math.sin(((vy + thisColH * 0.5) / colH) * Math.PI) * 0.03;
                 sp.setX(k, vx * flute * entasis);
                 sp.setZ(k, vz * flute * entasis);
             }
             shaft.computeVertexNormals();
-            shaft.translate(cx, stylobateY + colH * 0.5, cz);
+            shaft.translate(cx, stylobateY + thisColH * 0.5, cz);
             addMarblePart(shaft, 0.96, 0.93, 0.87, 0.32);
 
-            // Doric Echinus (flared cushion capital) + Square Abacus slab
-            const echinus = new THREE.CylinderGeometry(0.68, 0.46, 0.34, 16);
-            echinus.translate(cx, stylobateY + colH + 0.17, cz);
-            addMarblePart(echinus, 0.97, 0.94, 0.88);
+            if (isBroken) {
+                const capBroken = new THREE.CylinderGeometry(0.48, 0.49, 0.28, 12);
+                capBroken.rotateZ((ix + iz) * 0.35);
+                capBroken.translate(cx, stylobateY + thisColH + 0.12, cz);
+                addMarblePart(capBroken, 0.90, 0.87, 0.81);
+            } else {
+                const echinus = new THREE.CylinderGeometry(0.68, 0.46, 0.34, 16);
+                echinus.translate(cx, stylobateY + colH + 0.17, cz);
+                addMarblePart(echinus, 0.97, 0.94, 0.88);
 
-            const abacus = new THREE.BoxGeometry(1.42, 0.28, 1.42);
-            abacus.translate(cx, stylobateY + colH + 0.34 + 0.14, cz);
-            addMarblePart(abacus, 0.95, 0.92, 0.85);
+                const abacus = new THREE.BoxGeometry(1.42, 0.28, 1.42);
+                abacus.translate(cx, stylobateY + colH + 0.34 + 0.14, cz);
+                addMarblePart(abacus, 0.95, 0.92, 0.85);
+            }
         }
     }
 
-    // 3. Classical Doric Entablature (Architrave + Polychrome Triglyph/Metope Frieze + Geison Cornice)
-    const entabY = stylobateY + colH + 0.62;
-    const architrave = new THREE.BoxGeometry(w - 0.6, 0.72, l - 0.6);
-    architrave.translate(0, entabY + 0.36, 0);
-    addMarblePart(architrave, 0.96, 0.93, 0.87);
+    // Fallen Column Drums & Shattered Architrave Megaliths scattered on stylobate and steps
+    const fallenDrums = [
+        { x: -spanX * 0.5 + 0.5, z: -1.2, r: 0.50, len: 1.6, rx: Math.PI * 0.5, ry: 0.22, rz: 0.12, y: stylobateY + 0.50 },
+        { x: -spanX * 0.5 - 1.2, z:  1.5, r: 0.48, len: 1.3, rx: Math.PI * 0.48, ry: -0.35, rz: -0.18, y: stylobateY - 0.15 },
+        { x:  spanX * 0.5 - 0.4, z: -1.8, r: 0.49, len: 1.5, rx: Math.PI * 0.52, ry: 0.40, rz: 0.08, y: stylobateY + 0.49 },
+        { x:  spanX * 0.5 + 1.1, z:  4.5, r: 0.47, len: 1.2, rx: Math.PI * 0.46, ry: -0.15, rz: 0.25, y: stylobateY - 0.12 }
+    ];
+    fallenDrums.forEach(fd => {
+        const drum = new THREE.CylinderGeometry(fd.r, fd.r, fd.len, 16);
+        drum.rotateX(fd.rx);
+        drum.rotateY(fd.ry);
+        drum.rotateZ(fd.rz);
+        drum.translate(fd.x, fd.y, fd.z);
+        addMarblePart(drum, 0.94, 0.91, 0.85, 0.30);
+    });
 
-    // Frieze band with classical Aegean terracotta-red metope backing & blue-tinted triglyphs
+    const fallenBeam = new THREE.BoxGeometry(2.4, 0.68, 0.72);
+    fallenBeam.rotateY(0.42);
+    fallenBeam.rotateZ(0.12);
+    fallenBeam.translate(-spanX * 0.5 + 1.2, stylobateY + 0.35, 0.5);
+    addMarblePart(fallenBeam, 0.93, 0.90, 0.84);
+
+    const fallenAbacus = new THREE.BoxGeometry(1.35, 0.28, 1.35);
+    fallenAbacus.rotateZ(0.32);
+    fallenAbacus.rotateY(0.55);
+    fallenAbacus.translate(-spanX * 0.5 - 0.9, stylobateY + 0.18, -3.2);
+    addMarblePart(fallenAbacus, 0.92, 0.89, 0.83);
+
+    // 3. Classical Doric Entablature with Broken Architrave Breach
+    const entabY = stylobateY + colH + 0.62;
+
+    const archEast = new THREE.BoxGeometry(1.2, 0.72, l - 0.6);
+    archEast.translate((w - 0.6) * 0.5 - 0.6, entabY + 0.36, 0);
+    addMarblePart(archEast, 0.96, 0.93, 0.87);
+
+    const archFront = new THREE.BoxGeometry(w - 0.6, 0.72, 1.2);
+    archFront.translate(0, entabY + 0.36, (l - 0.6) * 0.5 - 0.6);
+    addMarblePart(archFront, 0.96, 0.93, 0.87);
+
+    const archBack = new THREE.BoxGeometry(w - 0.6, 0.72, 1.2);
+    archBack.translate(0, entabY + 0.36, -(l - 0.6) * 0.5 + 0.6);
+    addMarblePart(archBack, 0.96, 0.93, 0.87);
+
+    const westSegL = (l - 12.0) * 0.5;
+    const archWestFront = new THREE.BoxGeometry(1.2, 0.72, westSegL);
+    archWestFront.translate(-(w - 0.6) * 0.5 + 0.6, entabY + 0.36, (l - 0.6) * 0.5 - westSegL * 0.5 - 0.6);
+    addMarblePart(archWestFront, 0.95, 0.92, 0.86);
+
+    const archWestBack = new THREE.BoxGeometry(1.2, 0.72, westSegL);
+    archWestBack.translate(-(w - 0.6) * 0.5 + 0.6, entabY + 0.36, -(l - 0.6) * 0.5 + westSegL * 0.5 + 0.6);
+    addMarblePart(archWestBack, 0.95, 0.92, 0.86);
+
+    const archSnap1 = new THREE.BoxGeometry(1.1, 0.68, 0.95);
+    archSnap1.rotateZ(-0.18);
+    archSnap1.translate(-(w - 0.6) * 0.5 + 0.6, entabY + 0.28, (l - 0.6) * 0.5 - westSegL - 0.4);
+    addMarblePart(archSnap1, 0.92, 0.89, 0.83);
+
     const friezeY = entabY + 0.72;
     const friezeCore = new THREE.BoxGeometry(w - 0.7, 0.78, l - 0.7);
     friezeCore.translate(0, friezeY + 0.39, 0);
-    addMarblePart(friezeCore, 0.84, 0.56, 0.46); // Weathered classical polychrome terracotta metope backing
+    addMarblePart(friezeCore, 0.84, 0.56, 0.46);
 
-    // Projecting Triglyph tablets along all 4 sides
     for (let tx = -6; tx <= 6; tx++) {
         [-1, 1].forEach(zSide => {
             const trig = new THREE.BoxGeometry(0.42, 0.76, 0.16);
@@ -7056,27 +7353,40 @@ function createGreekParthenonGeometry(w = 19.5, l = 29.0) {
         });
     }
     for (let tz = -9; tz <= 9; tz++) {
-        [-1, 1].forEach(xSide => {
-            const trig = new THREE.BoxGeometry(0.16, 0.76, 0.42);
-            trig.translate(xSide * ((w - 0.62) * 0.5), friezeY + 0.39, tz * ((l - 1.6) / 18));
-            addMarblePart(trig, 0.88, 0.90, 0.94);
-        });
+        if (Math.abs(tz) < 4) continue; // collapsed west breach
+        const trig = new THREE.BoxGeometry(0.16, 0.76, 0.42);
+        trig.translate(-((w - 0.62) * 0.5), friezeY + 0.39, tz * ((l - 1.6) / 18));
+        addMarblePart(trig, 0.88, 0.90, 0.94);
+    }
+    for (let tz = -9; tz <= 9; tz++) {
+        const trig = new THREE.BoxGeometry(0.16, 0.76, 0.42);
+        trig.translate(((w - 0.62) * 0.5), friezeY + 0.39, tz * ((l - 1.6) / 18));
+        addMarblePart(trig, 0.88, 0.90, 0.94);
     }
 
-    // Overhanging Geison Cornice
     const corniceY = friezeY + 0.78;
     const cornice = new THREE.BoxGeometry(w + 0.4, 0.38, l + 0.4);
     cornice.translate(0, corniceY + 0.19, 0);
     addMarblePart(cornice, 0.98, 0.95, 0.89);
 
-    // 4. Triangular East/West Pediments, Tympanum Relief Sculptures, Pitched Marble Roof & Golden Akroteria
+    // 4. Triangular Pediments & Pitched Marble Roof with Collapsed Skylight Breach
     const roofBaseY = corniceY + 0.38;
     const roofH = 2.85;
-    const roof = createPitchedRoofGeometry(w + 0.6, l + 0.6, roofH);
-    roof.translate(0, roofBaseY, 0);
-    addMarblePart(roof, 0.93, 0.88, 0.78, 0.22);
 
-    // Recessed Tympanum & Pedimental Sculptures on Front (+Z) and Back (-Z) Gables
+    const roofFront = createPitchedRoofGeometry(w + 0.6, (l + 0.6) * 0.42, roofH);
+    roofFront.translate(0, roofBaseY, (l + 0.6) * 0.29);
+    addMarblePart(roofFront, 0.93, 0.88, 0.78, 0.22);
+
+    const roofBack = createPitchedRoofGeometry(w + 0.6, (l + 0.6) * 0.42, roofH);
+    roofBack.translate(0, roofBaseY, -(l + 0.6) * 0.29);
+    addMarblePart(roofBack, 0.93, 0.88, 0.78, 0.22);
+
+    for (let rz = -2.5; rz <= 2.5; rz += 1.8) {
+        const rafter = new THREE.BoxGeometry(w - 2.8, 0.32, 0.36);
+        rafter.translate(0, roofBaseY + 0.35, rz);
+        addMarblePart(rafter, 0.82, 0.76, 0.68);
+    }
+
     [-1, 1].forEach(zSide => {
         const gz = zSide * (l * 0.5 - 0.05);
         const sculptPositions = [
@@ -7086,33 +7396,44 @@ function createGreekParthenonGeometry(w = 19.5, l = 29.0) {
             { x: -3.5,  h: 0.95, w: 0.60 },
             { x:  3.5,  h: 0.95, w: 0.60 }
         ];
-        sculptPositions.forEach(sp => {
-            const fig = new THREE.CylinderGeometry(sp.w * 0.38, sp.w * 0.48, sp.h, 8);
-            fig.translate(sp.x, roofBaseY + sp.h * 0.5 + 0.05, gz);
+        sculptPositions.forEach((sp, sIdx) => {
+            if (zSide === -1 && sIdx === 1) return;
+            const figH = (zSide === -1 && sIdx === 2) ? sp.h * 0.55 : sp.h;
+            const fig = new THREE.CylinderGeometry(sp.w * 0.38, sp.w * 0.48, figH, 8);
+            fig.translate(sp.x, roofBaseY + figH * 0.5 + 0.05, gz);
             addMarblePart(fig, 0.98, 0.94, 0.86);
         });
 
-        // Apex Golden Palmette Akroterion ornament
-        const akro = new THREE.ConeGeometry(0.55, 1.15, 6);
-        akro.translate(0, roofBaseY + roofH + 0.45, zSide * (l * 0.5 + 0.15));
-        addMarblePart(akro, 0.96, 0.82, 0.42);
+        if (zSide === 1) {
+            const akro = new THREE.ConeGeometry(0.55, 1.15, 6);
+            akro.translate(0, roofBaseY + roofH + 0.45, zSide * (l * 0.5 + 0.15));
+            addMarblePart(akro, 0.96, 0.82, 0.42);
+        } else {
+            const akroStump = new THREE.CylinderGeometry(0.35, 0.45, 0.45, 6);
+            akroStump.translate(0, roofBaseY + roofH + 0.20, zSide * (l * 0.5 + 0.15));
+            addMarblePart(akroStump, 0.90, 0.78, 0.40);
+        }
     });
 
-    // 5. Walk-In Interior Naos / Cella Walls & Athena Parthenos Pedestal (Open Portals on +Z and -Z)
+    // 5. Walk-In Interior Cella Sanctuary Walls with Stepped Ruin Profile & Athena Statue
     const cellaW = w - 6.8;
     const cellaL = l - 9.2;
     const cellaH = colH + 0.5;
     const wallT = 0.65;
     const doorHalfW = 2.1;
 
-    // Left & Right Cella side walls
-    [-1, 1].forEach(xSide => {
-        const sideWall = new THREE.BoxGeometry(wallT, cellaH, cellaL);
-        sideWall.translate(xSide * (cellaW * 0.5 - wallT * 0.5), stylobateY + cellaH * 0.5, 0);
-        addMarblePart(sideWall, 0.93, 0.90, 0.84);
-    });
+    const sideWallEast = new THREE.BoxGeometry(wallT, cellaH, cellaL);
+    sideWallEast.translate(cellaW * 0.5 - wallT * 0.5, stylobateY + cellaH * 0.5, 0);
+    addMarblePart(sideWallEast, 0.93, 0.90, 0.84);
 
-    // Front & Back Cella walls with wide open central temple doorway
+    const westLower = new THREE.BoxGeometry(wallT, cellaH * 0.62, cellaL);
+    westLower.translate(-(cellaW * 0.5 - wallT * 0.5), stylobateY + cellaH * 0.31, 0);
+    addMarblePart(westLower, 0.93, 0.90, 0.84);
+
+    const westUpperSeg = new THREE.BoxGeometry(wallT, cellaH * 0.38, cellaL * 0.45);
+    westUpperSeg.translate(-(cellaW * 0.5 - wallT * 0.5), stylobateY + cellaH * 0.62 + cellaH * 0.19, cellaL * 0.25);
+    addMarblePart(westUpperSeg, 0.92, 0.89, 0.83);
+
     const jambW = (cellaW - doorHalfW * 2.0) * 0.5;
     [-1, 1].forEach(zSide => {
         const wz = zSide * (cellaL * 0.5 - wallT * 0.5);
@@ -7127,7 +7448,6 @@ function createGreekParthenonGeometry(w = 19.5, l = 29.0) {
         addMarblePart(lintel, 0.95, 0.92, 0.86);
     });
 
-    // Central Sanctuary Pedestal & Golden-Ivory Athena Statue Silhouette inside Naos
     const ped = new THREE.BoxGeometry(2.4, 1.35, 2.4);
     ped.translate(0, stylobateY + 0.675, 0);
     addMarblePart(ped, 0.88, 0.85, 0.79);
@@ -7141,15 +7461,12 @@ function createGreekParthenonGeometry(w = 19.5, l = 29.0) {
         useMeshRaycastOnly: true,
         collisionCircles: colPositions.map(([cx, cz]) => ({ x: cx, z: cz, r: 0.62 })),
         collisionBoxes: [
-            // Left & Right Cella walls
             { minX: -cellaW * 0.5, maxX: -cellaW * 0.5 + wallT, minZ: -cellaL * 0.5, maxZ: cellaL * 0.5 },
             { minX:  cellaW * 0.5 - wallT, maxX: cellaW * 0.5,  minZ: -cellaL * 0.5, maxZ: cellaL * 0.5 },
-            // Front (+Z) & Back (-Z) Cella door jambs
             { minX: -cellaW * 0.5, maxX: -doorHalfW, minZ:  cellaL * 0.5 - wallT, maxZ:  cellaL * 0.5 },
             { minX:  doorHalfW,    maxX:  cellaW * 0.5, minZ:  cellaL * 0.5 - wallT, maxZ:  cellaL * 0.5 },
             { minX: -cellaW * 0.5, maxX: -doorHalfW, minZ: -cellaL * 0.5, maxZ: -cellaL * 0.5 + wallT },
             { minX:  doorHalfW,    maxX:  cellaW * 0.5, minZ: -cellaL * 0.5, maxZ: -cellaL * 0.5 + wallT },
-            // Center statue pedestal
             { minX: -1.25, maxX: 1.25, minZ: -1.25, maxZ: 1.25 }
         ],
         walkablePlatforms: walkablePlatforms
@@ -7159,6 +7476,7 @@ function createGreekParthenonGeometry(w = 19.5, l = 29.0) {
 
 // ============================================================================
 // 5Z-2. Ancient Greece Sanctuary of Athena Pronaia Tholos (Delphi Circular Marble Rotunda)
+// (Ruined Circular Colonnade: Broken Column Stumps, Fallen Fluted Drums & Altar)
 // ============================================================================
 function createGreekTholosGeometry(radius = 8.2) {
     const parts = [];
@@ -7188,11 +7506,18 @@ function createGreekTholosGeometry(radius = 8.2) {
     }
     const baseY = 3 * stepH;
 
-    // 12 Outer Peristyle Fluted Doric Columns in a Circle
+    // 12 Outer Peristyle Columns with Ruined Delphi Broken Columns
     const numCols = 12;
     const colRingR = radius - 0.85;
     const colH = 5.8;
     const colCircles = [];
+
+    const brokenCols = {
+        2: 1.5,
+        4: 2.7,
+        5: 3.6,
+        8: 2.0
+    };
 
     for (let i = 0; i < numCols; i++) {
         const ang = (i / numCols) * Math.PI * 2.0;
@@ -7200,21 +7525,45 @@ function createGreekTholosGeometry(radius = 8.2) {
         const cz = Math.sin(ang) * colRingR;
         colCircles.push({ x: cx, z: cz, r: 0.55 });
 
-        const shaft = new THREE.CylinderGeometry(0.38, 0.48, colH, 12, 2);
-        shaft.translate(cx, baseY + colH * 0.5, cz);
+        const isBroken = (brokenCols[i] !== undefined);
+        const thisColH = isBroken ? brokenCols[i] : colH;
+
+        const shaft = new THREE.CylinderGeometry(isBroken ? 0.40 : 0.38, 0.48, thisColH, 12, 2);
+        shaft.translate(cx, baseY + thisColH * 0.5, cz);
         addTholosPart(shaft, 0.96, 0.93, 0.87);
 
-        const cap = new THREE.CylinderGeometry(0.58, 0.38, 0.32, 12);
-        cap.translate(cx, baseY + colH + 0.16, cz);
-        addTholosPart(cap, 0.97, 0.94, 0.88);
+        if (isBroken) {
+            const brokenCap = new THREE.CylinderGeometry(0.40, 0.42, 0.22, 10);
+            brokenCap.rotateZ((i * 0.4) % 0.3);
+            brokenCap.translate(cx, baseY + thisColH + 0.10, cz);
+            addTholosPart(brokenCap, 0.90, 0.86, 0.80);
+        } else {
+            const cap = new THREE.CylinderGeometry(0.58, 0.38, 0.32, 12);
+            cap.translate(cx, baseY + colH + 0.16, cz);
+            addTholosPart(cap, 0.97, 0.94, 0.88);
 
-        const abacus = new THREE.BoxGeometry(1.18, 0.24, 1.18);
-        abacus.rotateY(-ang);
-        abacus.translate(cx, baseY + colH + 0.32 + 0.12, cz);
-        addTholosPart(abacus, 0.95, 0.92, 0.86);
+            const abacus = new THREE.BoxGeometry(1.18, 0.24, 1.18);
+            abacus.rotateY(-ang);
+            abacus.translate(cx, baseY + colH + 0.32 + 0.12, cz);
+            addTholosPart(abacus, 0.95, 0.92, 0.86);
+        }
     }
 
-    // Circular Marble Entablature Ring & Conical Terracotta/Marble Tholos Roof
+    // Fallen Fluted Column Drums on Stylobate
+    const fallenTholosDrums = [
+        { ang: 0.9, dist: colRingR - 0.3, r: 0.42, len: 1.3, tilt: 0.15 },
+        { ang: 2.4, dist: colRingR + 0.2, r: 0.40, len: 1.1, tilt: -0.22 },
+        { ang: 4.2, dist: colRingR - 0.5, r: 0.44, len: 1.4, tilt: 0.18 }
+    ];
+    fallenTholosDrums.forEach(fd => {
+        const drum = new THREE.CylinderGeometry(fd.r, fd.r, fd.len, 14);
+        drum.rotateX(Math.PI * 0.5);
+        drum.rotateZ(fd.tilt);
+        drum.translate(Math.cos(fd.ang) * fd.dist, baseY + 0.42, Math.sin(fd.ang) * fd.dist);
+        addTholosPart(drum, 0.93, 0.90, 0.84);
+    });
+
+    // Circular Marble Entablature Ring & Conical Roof
     const ringY = baseY + colH + 0.56;
     const entabRing = new THREE.CylinderGeometry(radius - 0.2, radius - 0.2, 1.15, 24, 1, true);
     entabRing.translate(0, ringY + 0.575, 0);
@@ -7232,7 +7581,6 @@ function createGreekTholosGeometry(radius = 8.2) {
     finial.translate(0, ringY + 1.32 + 2.85 + 0.45, 0);
     addTholosPart(finial, 0.98, 0.84, 0.42);
 
-    // Central Sacred Brazier / Altar Pedestal (open colonnade around it so players can walk through)
     const altar = new THREE.CylinderGeometry(0.95, 1.15, 1.25, 12);
     altar.translate(0, baseY + 0.625, 0);
     addTholosPart(altar, 0.90, 0.86, 0.78);
@@ -7249,6 +7597,7 @@ function createGreekTholosGeometry(radius = 8.2) {
 
 // ============================================================================
 // 5Z-3. Ancient Greece Classical Agora Stoa Colonnade Portico
+// (Ruined Stoa: Broken Columns, Tumbled Drums, Eroded Masonry Walls & Tile Roof)
 // ============================================================================
 function createGreekStoaGeometry(w = 18.0, l = 8.4) {
     const parts = [];
@@ -7273,22 +7622,47 @@ function createGreekStoaGeometry(w = 18.0, l = 8.4) {
     base.translate(0, baseH * 0.5, 0);
     addStoaPart(base, 0.90, 0.87, 0.80);
 
-    // Front row of 6 Doric columns (+Z)
+    // Front row of 6 Doric columns (+Z) with broken columns
     const colH = 5.0;
     const colCircles = [];
+    const brokenStoaCols = { 1: 2.2, 4: 3.3 };
+
     for (let i = 0; i < 6; i++) {
         const cx = -w * 0.42 + (i / 5) * (w * 0.84);
         const cz = l * 0.36;
         colCircles.push({ x: cx, z: cz, r: 0.48 });
 
-        const col = new THREE.CylinderGeometry(0.34, 0.42, colH, 12);
-        col.translate(cx, baseH + colH * 0.5, cz);
+        const isBroken = (brokenStoaCols[i] !== undefined);
+        const thisColH = isBroken ? brokenStoaCols[i] : colH;
+
+        const col = new THREE.CylinderGeometry(isBroken ? 0.36 : 0.34, 0.42, thisColH, 12);
+        col.translate(cx, baseH + thisColH * 0.5, cz);
         addStoaPart(col, 0.96, 0.93, 0.87);
 
-        const cap = new THREE.BoxGeometry(0.96, 0.28, 0.96);
-        cap.translate(cx, baseH + colH + 0.14, cz);
-        addStoaPart(cap, 0.95, 0.92, 0.86);
+        if (isBroken) {
+            const cap = new THREE.CylinderGeometry(0.36, 0.38, 0.20, 10);
+            cap.rotateZ(0.25);
+            cap.translate(cx, baseH + thisColH + 0.08, cz);
+            addStoaPart(cap, 0.91, 0.88, 0.82);
+        } else {
+            const cap = new THREE.BoxGeometry(0.96, 0.28, 0.96);
+            cap.translate(cx, baseH + colH + 0.14, cz);
+            addStoaPart(cap, 0.95, 0.92, 0.86);
+        }
     }
+
+    // Fallen Column Drums lying on the Stoa porch
+    const fallenStoaDrum = new THREE.CylinderGeometry(0.36, 0.36, 1.4, 12);
+    fallenStoaDrum.rotateX(Math.PI * 0.5);
+    fallenStoaDrum.rotateY(0.35);
+    fallenStoaDrum.translate(-w * 0.22, baseH + 0.36, l * 0.28);
+    addStoaPart(fallenStoaDrum, 0.93, 0.90, 0.84);
+
+    const fallenStoaDrum2 = new THREE.CylinderGeometry(0.35, 0.35, 1.1, 12);
+    fallenStoaDrum2.rotateX(Math.PI * 0.5);
+    fallenStoaDrum2.rotateY(-0.28);
+    fallenStoaDrum2.translate(w * 0.28, baseH + 0.35, l * 0.30);
+    addStoaPart(fallenStoaDrum2, 0.93, 0.90, 0.84);
 
     // Rear masonry wall (-Z) with central open portal
     const wallT = 0.60;
@@ -7299,6 +7673,10 @@ function createGreekStoaGeometry(w = 18.0, l = 8.4) {
         wallSeg.translate(side * (doorHalf + segW * 0.5), baseH + (colH + 0.28) * 0.5, -l * 0.42);
         addStoaPart(wallSeg, 0.92, 0.89, 0.82);
     });
+
+    const lintel = new THREE.BoxGeometry(doorHalf * 2.0 + 0.4, 0.85, wallT);
+    lintel.translate(0, baseH + colH - 0.14, -l * 0.42);
+    addStoaPart(lintel, 0.94, 0.91, 0.85);
 
     // Entablature & Pitched Terracotta Tile Roof
     const entab = new THREE.BoxGeometry(w + 0.2, 0.85, l - 0.2);
@@ -9978,7 +10356,7 @@ function initEnvironment(scene) {
     if (!sharedEgyptLimestonePBR) sharedEgyptLimestonePBR = createEgyptLimestonePBR();
     egyptSandstoneMat.map = sharedEgyptLimestonePBR.albedo;
     egyptSandstoneMat.normalMap = sharedEgyptLimestonePBR.normal;
-    egyptSandstoneMat.normalScale = new THREE.Vector2(0.55, 0.55);
+    egyptSandstoneMat.normalScale = new THREE.Vector2(0.92, 0.92);
     egyptSandstoneMat.needsUpdate = true;
 
     if (!sharedJungleTemplePBR) sharedJungleTemplePBR = createJungleTemplePBR();
@@ -9990,7 +10368,7 @@ function initEnvironment(scene) {
     if (!sharedGreekMarblePBR) sharedGreekMarblePBR = createGreekMarblePBR();
     greekMarbleMat.map = sharedGreekMarblePBR.albedo;
     greekMarbleMat.normalMap = sharedGreekMarblePBR.normal;
-    greekMarbleMat.normalScale = new THREE.Vector2(0.42, 0.42);
+    greekMarbleMat.normalScale = new THREE.Vector2(0.92, 0.92);
     greekMarbleMat.needsUpdate = true;
 
     if (!sharedRomanTravertinePBR) sharedRomanTravertinePBR = createRomanTravertinePBR();

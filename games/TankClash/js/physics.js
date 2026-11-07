@@ -1856,6 +1856,9 @@ function updateProjectiles(dt) {
                     soldier.takeDamage(tr.damage !== undefined ? tr.damage : (closestActor.isPlayer ? 25 : 35));
                     if (soldier.isDead && typeof tr.onSoldierKilled === 'function') tr.onSoldierKilled(soldier);
                 }
+                if (!closestActor.isPlayer && window.soundFX && typeof window.soundFX.playSoldierHit === 'function') {
+                    window.soundFX.playSoldierHit(impactPos, 0.55);
+                }
                 if (typeof window.spawnParticle === 'function') {
                     window.spawnParticle(impactPos, tr.vel.clone().multiplyScalar(-0.06), 0x991b1b, 0.15, 0.25, 0.45, false, 'smoke');
                 }
