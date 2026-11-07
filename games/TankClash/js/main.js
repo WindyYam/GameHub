@@ -568,11 +568,12 @@ function updateSimulation(dt) {
     const speedRatio = (window.playerMode === 'soldier' || (window.tankState && window.tankState.hasTank === false)) ? 0 : Math.min(1, Math.abs(tankState.speed) / maxSpeed + Math.abs(tankState.turnRate) * 0.3);
     soundFX.updateEngine(speedRatio, (window.playerMode !== 'soldier' && (!window.tankState || window.tankState.hasTank !== false)) && (forwardInput !== 0 || turnInput !== 0));
 
-    // --- 1b. TANK VS BUILDING COLLISION (Stop tank at solid house walls) ---
-    const worldBldgs = window.worldBuildings || [];
-    for (let bi = 0; bi < worldBldgs.length; bi++) {
-        const b = worldBldgs[bi];
-        const push = obstaclePushOut(b, tankState.x, tankState.z, 1.8);
+    // --- 1b. TANK VS OBSTACLE COLLISION (Stop tank at solid house walls, rocks, monuments) ---
+    const worldObsList = window.worldObstacles || window.worldBuildings || [];
+    for (let bi = 0; bi < worldObsList.length; bi++) {
+        const obs = worldObsList[bi];
+        if (!obs || typeof obs.x !== 'number' || typeof obs.z !== 'number') continue;
+        const push = obstaclePushOut(obs, tankState.x, tankState.z, 1.8);
         if (push) {
             tankState.x += push.x;
             tankState.z += push.z;
@@ -2219,9 +2220,13 @@ function hideLoadingScreen() {
 }
 window.hideLoadingScreen = hideLoadingScreen;
 
-window.onload = function () {
+let _simulationStarted = false;
+function initSimulation() {
+    if (_simulationStarted) return;
+    _simulationStarted = true;
+
     if (typeof window.prewarmAllSceneShaders === 'function') {
-        window.prewarmAllSceneShaders();
+        prewarmAllSceneShaders();
     }
     if (typeof window.spawnBattlefieldInfantry === 'function') {
         window.spawnBattlefieldInfantry();
@@ -2247,8 +2252,15 @@ window.onload = function () {
     } else {
         setTimeout(hideLoadingScreen, 200);
     }
+}
+window.initSimulation = initSimulation;
+
+window.onload = function () {
+    initSimulation();
 };
 
-if (document.readyState === 'complete') {
-    setTimeout(hideLoadingScreen, 500);
+if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    initSimulation();
+} else {
+    document.addEventListener('DOMContentLoaded', initSimulation);
 }

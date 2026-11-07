@@ -1102,7 +1102,7 @@
         soldier.isMountedBicycle = false;
         soldier.currentBicycle = null;
         soldier.healTimer = 0;
-        if (bike.model.lensMat) {
+        if (bike.model && bike.model.lensMat && bike.model.lensMat.color && typeof bike.model.lensMat.color.setHex === 'function') {
             bike.model.lensMat.color.setHex(0x334155);
         }
 

@@ -121,8 +121,8 @@
         for (let i = 0; i < obstacles.length; i++) {
             const obs = obstacles[i];
             if (obs.x < minX || obs.x > maxX || obs.z < minZ || obs.z > maxZ) continue;
-            if (typeof obstacleSegmentEntry === 'function' && obs.box) {
-                // Measured footprint: blocked if the sight line crosses the box between its ends.
+            if (typeof obstacleSegmentEntry === 'function' && (obs.box || obs.collisionCircles || obs.collisionBoxes)) {
+                // Measured footprint: blocked if the sight line crosses the tight primitive between its ends.
                 const entry = obstacleSegmentEntry(obs, x0, z0, x1, z1, 0);
                 if (entry >= 0.05 && entry <= 0.95) return false; // Obstructed by tactical cover!
                 continue;
@@ -776,6 +776,14 @@
                     if (canMove && window.worldObstacles) {
                         for (let ob = 0; ob < window.worldObstacles.length; ob++) {
                             const obs = window.worldObstacles[ob];
+                            if (!obs) continue;
+                            if (typeof obstaclePushOut === 'function') {
+                                const curPush = obstaclePushOut(obs, e.x, e.z, 2.4);
+                                if (curPush) {
+                                    e.x += curPush.x;
+                                    e.z += curPush.z;
+                                }
+                            }
                             const blocked = (typeof obstaclePushOut === 'function')
                                 ? obstaclePushOut(obs, nextX, nextZ, 2.5) !== null
                                 : Math.hypot(nextX - obs.x, nextZ - obs.z) < (obs.radius || 3.0) + 2.5;
@@ -950,6 +958,28 @@
                         e.tacticTimer = 2.0;
                     } else {
                         e.y = nextY;
+                    }
+                }
+                if (canMove && window.worldObstacles) {
+                    for (let ob = 0; ob < window.worldObstacles.length; ob++) {
+                        const obs = window.worldObstacles[ob];
+                        if (!obs) continue;
+                        if (typeof obstaclePushOut === 'function') {
+                            const curPush = obstaclePushOut(obs, e.x, e.z, 2.4);
+                            if (curPush) {
+                                e.x += curPush.x;
+                                e.z += curPush.z;
+                            }
+                        }
+                        const blocked = (typeof obstaclePushOut === 'function')
+                            ? obstaclePushOut(obs, nextX, nextZ, 2.5) !== null
+                            : Math.hypot(nextX - obs.x, nextZ - obs.z) < (obs.radius || 3.0) + 2.5;
+                        if (blocked) {
+                            canMove = false;
+                            e.combatTactic = 'STAND_AND_FIRE';
+                            e.tacticTimer = 1.8;
+                            break;
+                        }
                     }
                 }
                 if (canMove && window.activeEnemyTanks) {

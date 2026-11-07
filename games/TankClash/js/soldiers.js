@@ -2114,48 +2114,62 @@
                 this.handleWander(dt);
             }
 
-            // 3. Movement integration
+            // 3. Movement integration & obstacle collision resolution
             if (Math.abs(this.speed) > 0.05) {
                 this.x += Math.sin(this.heading) * this.speed * dt;
                 this.z += Math.cos(this.heading) * this.speed * dt;
+            }
 
-                // Obstacle collision resolution (buildings, rocks, walls, trees)
-                const obstacles = window.worldObstacles || [];
-                for (let ob = 0; ob < obstacles.length; ob++) {
-                    const obs = obstacles[ob];
-                    if (!obs || typeof obs.x !== 'number' || typeof obs.z !== 'number') continue;
-                    if (typeof obstaclePushOut === 'function') {
-                        const push = obstaclePushOut(obs, this.x, this.z, 0.45);
-                        if (push) { this.x += push.x; this.z += push.z; }
-                        continue;
-                    }
-                    const minR = (obs.radius || 3.5) + 0.45;
-                    const dx = this.x - obs.x;
-                    if (Math.abs(dx) > minR) continue;
-                    const dz = this.z - obs.z;
-                    if (Math.abs(dz) > minR) continue;
-                    const d = Math.hypot(dx, dz);
-                    if (d < minR && d > 0.001) {
-                        this.x += (dx / d) * (minR - d);
-                        this.z += (dz / d) * (minR - d);
-                    }
+            // Always resolve obstacle collisions (even when idle, so newly streamed-in monuments/ruins push soldiers out)
+            const obstacles = window.worldObstacles || [];
+            for (let ob = 0; ob < obstacles.length; ob++) {
+                const obs = obstacles[ob];
+                if (!obs || typeof obs.x !== 'number' || typeof obs.z !== 'number') continue;
+                const obsY = (typeof obs.y === 'number') ? obs.y : 0;
+                const obsH = (typeof obs.height === 'number') ? obs.height : 6.5;
+                if (this.y < obsY - 8.0 || this.y > obsY + obsH + 2.0) continue;
+                const meshBaseY = (obs.mesh && obs.mesh.position && typeof obs.mesh.position.y === 'number')
+                    ? obs.mesh.position.y
+                    : (obsY - 0.15);
+                const entityRelY = (typeof this.y === 'number') ? (this.y - meshBaseY) : 0;
+                if (typeof obstaclePushOut === 'function') {
+                    const push = obstaclePushOut(obs, this.x, this.z, 0.45, entityRelY);
+                    if (push) { this.x += push.x; this.z += push.z; }
+                    continue;
                 }
-                const trees = window.swayTrees || [];
-                for (let tr = 0; tr < trees.length; tr++) {
-                    const tree = trees[tr];
-                    if (!tree || tree.isFallen || typeof tree.x !== 'number' || typeof tree.z !== 'number') continue;
-                    const dx = this.x - tree.x;
-                    if (Math.abs(dx) > 2.0) continue;
-                    const dz = this.z - tree.z;
-                    if (Math.abs(dz) > 2.0) continue;
-                    const minTrunkR = Math.max(0.40, Math.min(1.0, (tree.radius || 1.2) * 0.45 * (tree.scale || 1.0))) + 0.40;
-                    const td = Math.hypot(dx, dz);
-                    if (td < minTrunkR && td > 0.001) {
-                        this.x += (dx / td) * (minTrunkR - td);
-                        this.z += (dz / td) * (minTrunkR - td);
-                    }
+                const minR = (obs.radius || 3.5) + 0.45;
+                const dx = this.x - obs.x;
+                if (Math.abs(dx) > minR) continue;
+                const dz = this.z - obs.z;
+                if (Math.abs(dz) > minR) continue;
+                const d = Math.hypot(dx, dz);
+                if (d < minR && d > 0.001) {
+                    this.x += (dx / d) * (minR - d);
+                    this.z += (dz / d) * (minR - d);
                 }
+            }
 
+            // Sway trees collision resolution (always resolved, matching playerSoldier)
+            const trees = window.swayTrees || [];
+            for (let tr = 0; tr < trees.length; tr++) {
+                const tree = trees[tr];
+                if (!tree || tree.isFallen || typeof tree.x !== 'number' || typeof tree.z !== 'number') continue;
+                const minTrunkR = Math.max(0.40, Math.min(1.0, (tree.radius || 1.2) * 0.45 * (tree.scale || 1.0))) + 0.40;
+                const dx = this.x - tree.x;
+                if (Math.abs(dx) > minTrunkR) continue;
+                const dz = this.z - tree.z;
+                if (Math.abs(dz) > minTrunkR) continue;
+                const treeY = (typeof tree.y === 'number') ? tree.y : 0;
+                const treeH = ((typeof tree.trunkHeight === 'number') ? tree.trunkHeight : 5.0) * (tree.scale || 1.0) + 3.0;
+                if (this.y < treeY - 4.0 || this.y > treeY + treeH) continue;
+                const td = Math.hypot(dx, dz);
+                if (td < minTrunkR && td > 0.001) {
+                    this.x += (dx / td) * (minTrunkR - td);
+                    this.z += (dz / td) * (minTrunkR - td);
+                }
+            }
+
+            if (Math.abs(this.speed) > 0.05) {
                 // Tank Wrecks
                 const enemyTanks = window.activeEnemyTanks || [];
                 for (let ti = 0; ti < enemyTanks.length; ti++) {
@@ -2172,18 +2186,20 @@
                         this.z += (dz / dW) * (minWreckR - dW);
                     }
                 }
+            }
 
-                if (typeof window.getTerrainHeight === 'function') {
-                    const gh = window.getTerrainHeight(this.x, this.z);
-                    // Avoid walking underwater into deep sea
-                    if (gh < -2.2) {
-                        this.heading += Math.PI * 0.75;
-                        this.wanderTarget.x = this.homeX;
-                        this.wanderTarget.z = this.homeZ;
-                    } else {
-                        const floorH = (typeof window.getBuildingFloorHeight === 'function') ? window.getBuildingFloorHeight(this.x, this.z, gh) : gh;
-                        this.y = THREE.MathUtils.lerp(this.y, floorH, dt * 10);
-                    }
+            if (typeof window.getTerrainHeight === 'function') {
+                const gh = window.getTerrainHeight(this.x, this.z);
+                // Avoid walking underwater into deep sea
+                if (gh < -2.2 && Math.abs(this.speed) > 0.05) {
+                    this.heading += Math.PI * 0.75;
+                    this.wanderTarget.x = this.homeX;
+                    this.wanderTarget.z = this.homeZ;
+                } else {
+                    const floorH = (typeof window.getBuildingFloorHeight === 'function')
+                        ? window.getBuildingFloorHeight(this.x, this.z, gh, this.y)
+                        : gh;
+                    this.y = THREE.MathUtils.lerp(this.y, floorH, dt * 10);
                 }
             }
 
@@ -2821,8 +2837,17 @@
             const th = assignedTank.heading || 0;
             const cosH = Math.cos(th);
             const sinH = Math.sin(th);
-            const sx = assignedTank.x + (off.dx * cosH - off.dz * sinH);
-            const sz = assignedTank.z + (off.dx * sinH + off.dz * cosH);
+            let sx = assignedTank.x + (off.dx * cosH - off.dz * sinH);
+            let sz = assignedTank.z + (off.dx * sinH + off.dz * cosH);
+            const obstacles = window.worldObstacles || [];
+            for (let ob = 0; ob < obstacles.length; ob++) {
+                const obs = obstacles[ob];
+                if (!obs || typeof obs.x !== 'number' || typeof obs.z !== 'number') continue;
+                if (typeof obstaclePushOut === 'function') {
+                    const push = obstaclePushOut(obs, sx, sz, 0.55);
+                    if (push) { sx += push.x; sz += push.z; }
+                }
+            }
             const sId = `${assignedTank.id || 'grp'}:escort:${i + 1}`;
 
             const soldier = new SoldierAI(sId, faction, sx, sz, {

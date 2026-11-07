@@ -272,8 +272,9 @@ function prewarmParticlePools() {
     const smokeGeometry = window.createVolumetricSmokeGeometry
         ? window.createVolumetricSmokeGeometry()
         : sphereParticleGeo;
-    for (let i = 0; i < 64; i++) {
-        const mat = (window.createHaltonSmokeMaterial || window.createMaldiveSmokeMaterial)(0x94a3b8);
+    const baseSmokeMat = (window.createHaltonSmokeMaterial || window.createMaldiveSmokeMaterial)(0x94a3b8);
+    for (let i = 0; i < 32; i++) {
+        const mat = i === 0 ? baseSmokeMat : baseSmokeMat.clone();
         const mesh = new THREE.Mesh(smokeGeometry, mat);
         mesh.renderOrder = 20;
         if (window.excludeFromSSAO) window.excludeFromSSAO(mesh);
@@ -300,12 +301,13 @@ function prewarmParticlePools() {
     const dustGeometry = window.createVolumetricDustGeometry
         ? window.createVolumetricDustGeometry()
         : sphereParticleGeo;
-    for (let i = 0; i < 64; i++) {
-        const mat = window.createVolumetricDustMaterial
-            ? window.createVolumetricDustMaterial(0x5c4d3c)
-            : ((window.createHaltonSmokeMaterial || window.createMaldiveSmokeMaterial)
-                ? (window.createHaltonSmokeMaterial || window.createMaldiveSmokeMaterial)(0x5c4d3c)
-                : createParticleObject('dirt', false, 0x5c4d3c).mat);
+    const baseDustMat = window.createVolumetricDustMaterial
+        ? window.createVolumetricDustMaterial(0x5c4d3c)
+        : ((window.createHaltonSmokeMaterial || window.createMaldiveSmokeMaterial)
+            ? (window.createHaltonSmokeMaterial || window.createMaldiveSmokeMaterial)(0x5c4d3c)
+            : createParticleObject('dirt', false, 0x5c4d3c).mat);
+    for (let i = 0; i < 32; i++) {
+        const mat = i === 0 ? baseDustMat : baseDustMat.clone();
         const mesh = new THREE.Mesh(dustGeometry, mat);
         mesh.renderOrder = 15;
         if (window.excludeFromSSAO) window.excludeFromSSAO(mesh);
@@ -1371,9 +1373,9 @@ function updateProjectiles(dt) {
                     }
                     hitRegistered = true;
                 }
-                // For rocks with a 3D mesh: if the ray missed the physical rock mesh,
-                // do NOT fall back to the oversized 5m bounding cylinder!
-                if (obs.isRock || obs.type === 'rock') {
+                // For rocks or tapered/open landmarks with a 3D mesh: if the ray missed the physical 3D mesh,
+                // do NOT fall back to the 2D ground bounding box/cylinder!
+                if (obs.isRock || obs.type === 'rock' || obs.useMeshRaycastOnly) {
                     continue;
                 }
             }
@@ -1648,8 +1650,8 @@ function updateProjectiles(dt) {
                         break;
                     }
                 }
-                // For rocks with 3D mesh: if the ray missed the mesh, do not fall back to 5m cylinder!
-                if (obs.isRock || obs.type === 'rock') {
+                // For rocks or tapered/open landmarks with 3D mesh: if the ray missed the mesh, do not fall back to 2D ground box/cylinder!
+                if (obs.isRock || obs.type === 'rock' || obs.useMeshRaycastOnly) {
                     if (distance !== null && distance <= blockingDistance) {
                         blockingDistance = distance;
                         blockingType = 'cover';

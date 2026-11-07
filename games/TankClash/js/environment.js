@@ -98,15 +98,138 @@ const ZONE_CONFIGS = {
         dayHorizonTint: 0x88b8e2,
         groundDayTint: 0x626b38,
         trackDustColor: 0x635038
+    },
+    winter: {
+        id: 'winter',
+        typeIndex: 4,
+        name: 'Ardennes Winter',
+        shortName: 'Winter',
+        icon: '❄️',
+        banner: '❄️ ZONE: ARDENNES WINTER & FROZEN STEPPE',
+        fogColor: 0xd0e0ec,
+        fogDensity: 0.00092,
+        dayHorizonTint: 0x9bc2e8,
+        groundDayTint: 0xd8e4f0,
+        trackDustColor: 0xd0dce6
+    },
+    bocage: {
+        id: 'bocage',
+        typeIndex: 5,
+        name: 'Normandy Bocage',
+        shortName: 'Bocage',
+        icon: '🌾',
+        banner: '🌾 ZONE: NORMANDY BOCAGE & SUNKEN LANES',
+        fogColor: 0xc4d4c2,
+        fogDensity: 0.00088,
+        dayHorizonTint: 0x86b4dc,
+        groundDayTint: 0x486e2e,
+        trackDustColor: 0x4c3a26
+    },
+    monument: {
+        id: 'monument',
+        typeIndex: 6,
+        name: 'Monument Valley',
+        shortName: 'Monument',
+        icon: '🏜️',
+        banner: '🏜️ ZONE: ARIZONA MONUMENT VALLEY & RED SANDSTONE BUTTES',
+        fogColor: 0xdfb498,
+        fogDensity: 0.00080,
+        dayHorizonTint: 0xd48962,
+        groundDayTint: 0xb44426,
+        trackDustColor: 0xc85a32
+    },
+    canyon: {
+        id: 'canyon',
+        typeIndex: 7,
+        name: 'Grand Canyon',
+        shortName: 'Canyon',
+        icon: '🏞️',
+        banner: '🏞️ ZONE: GRAND CANYON GORGE & TERRACED CHASMS',
+        fogColor: 0xd6c2b0,
+        fogDensity: 0.00078,
+        dayHorizonTint: 0xc68e6e,
+        groundDayTint: 0x8c5438,
+        trackDustColor: 0xa46e50
+    },
+    egypt: {
+        id: 'egypt',
+        typeIndex: 8,
+        name: 'Ancient Egypt',
+        shortName: 'Egypt',
+        icon: '🏛️',
+        banner: '🏛️ ZONE: ANCIENT EGYPT & THE GREAT PYRAMIDS',
+        fogColor: 0xe8d8be,
+        fogDensity: 0.00075,
+        dayHorizonTint: 0xf0c888,
+        groundDayTint: 0xd4aa66,
+        trackDustColor: 0xe0be80
+    },
+    jungle: {
+        id: 'jungle',
+        typeIndex: 9,
+        name: 'Tropical Jungle',
+        shortName: 'Jungle',
+        icon: '🌴',
+        banner: '🌴 ZONE: PACIFIC TROPICAL JUNGLE & RAINFOREST',
+        fogColor: 0xa8c4aa,
+        fogDensity: 0.00115,
+        dayHorizonTint: 0x6fa882,
+        groundDayTint: 0x244e28,
+        trackDustColor: 0x3e3220
+    },
+    greece: {
+        id: 'greece',
+        typeIndex: 10,
+        name: 'Ancient Greece',
+        shortName: 'Greece',
+        icon: '🏛️',
+        banner: '🏛️ ZONE: ANCIENT GREECE & ACROPOLIS PARTHENON',
+        fogColor: 0xc8dff0,
+        fogDensity: 0.00075,
+        dayHorizonTint: 0x7ec0ee,
+        groundDayTint: 0x869262,
+        trackDustColor: 0xc8be9e
+    },
+    rome: {
+        id: 'rome',
+        typeIndex: 11,
+        name: 'Ancient Rome',
+        shortName: 'Rome',
+        icon: '🦅',
+        banner: '🦅 ZONE: IMPERIAL ROME, COLOSSEUM & PANTHEON',
+        fogColor: 0xdccab8,
+        fogDensity: 0.00078,
+        dayHorizonTint: 0xd8a878,
+        groundDayTint: 0x68763e,
+        trackDustColor: 0xb89672
     }
 };
+Object.defineProperty(ZONE_CONFIGS, 'roma', {
+    value: ZONE_CONFIGS.rome,
+    enumerable: false,
+    configurable: true
+});
 
-const ALL_ZONES = ['meadow', 'desert', 'mountain', 'hills'];
+const ALL_ZONES = ['meadow', 'desert', 'mountain', 'hills', 'winter', 'bocage', 'monument', 'canyon', 'egypt', 'jungle', 'greece', 'rome'];
 var initialRandomZoneIndex = Math.floor(Math.random() * ALL_ZONES.length);
 var currentZone = ALL_ZONES[initialRandomZoneIndex];
 var currentZoneIndex = initialRandomZoneIndex;
 var currentZoneConfig = ZONE_CONFIGS[currentZone];
 var spawnZoneIndex = initialRandomZoneIndex;
+
+try {
+    const urlParams = (typeof window !== 'undefined' && window.location) ? new URLSearchParams(window.location.search) : null;
+    const rawZone = urlParams ? urlParams.get('zone') : null;
+    const requestedZone = (rawZone === 'roma') ? 'rome' : rawZone;
+    if (requestedZone && ZONE_CONFIGS[requestedZone]) {
+        initialRandomZoneIndex = ZONE_CONFIGS[requestedZone].typeIndex;
+        currentZone = ZONE_CONFIGS[requestedZone].id;
+        currentZoneIndex = initialRandomZoneIndex;
+        currentZoneConfig = ZONE_CONFIGS[currentZone];
+        spawnZoneIndex = initialRandomZoneIndex;
+    }
+} catch (e) {}
+
 window.ZONE_CONFIGS = ZONE_CONFIGS;
 window.ALL_ZONES = ALL_ZONES;
 window.currentZone = currentZone;
@@ -178,9 +301,11 @@ function setWorldSeed(seed, targetSpawnZone) {
 
     if (targetSpawnZone !== undefined && targetSpawnZone !== null) {
         if (typeof targetSpawnZone === 'string') {
-            spawnZoneIndex = (ZONE_CONFIGS[targetSpawnZone] ? ZONE_CONFIGS[targetSpawnZone].typeIndex : 0);
+            const normZone = (targetSpawnZone === 'roma') ? 'rome' : targetSpawnZone;
+            spawnZoneIndex = (ZONE_CONFIGS[normZone] ? ZONE_CONFIGS[normZone].typeIndex : 0);
         } else {
-            spawnZoneIndex = Math.max(0, Math.min(3, Math.floor(targetSpawnZone)));
+            const maxIdx = (typeof ALL_ZONES !== 'undefined' && ALL_ZONES.length) ? ALL_ZONES.length - 1 : 11;
+            spawnZoneIndex = Math.max(0, Math.min(maxIdx, Math.floor(targetSpawnZone)));
         }
     } else {
         spawnZoneIndex = 0;
@@ -269,13 +394,14 @@ function getZoneWeights(x, z) {
     const iz = Math.floor(gz);
     const tx = smoothstep(0.4, 0.6, gx - ix);
     const tz = smoothstep(0.4, 0.6, gz - iz);
-    const weights = [0, 0, 0, 0];
+    const numZones = (typeof ALL_ZONES !== 'undefined' && ALL_ZONES.length) ? ALL_ZONES.length : 12;
+    const weights = new Array(numZones).fill(0);
     const sz = (typeof spawnZoneIndex !== 'undefined') ? spawnZoneIndex : 0;
     const add = (cx, cz, weight) => {
         if (weight === 0) return;
         const zone = (cx === 0 && cz === 0)
             ? sz
-            : Math.min(3, Math.floor(hash2D(cx + seedOffset.x, cz + seedOffset.z) * 4));
+            : Math.min(numZones - 1, Math.floor(hash2D(cx + seedOffset.x, cz + seedOffset.z) * numZones));
         weights[zone] += weight;
     };
     add(ix, iz, (1 - tx) * (1 - tz));
@@ -347,15 +473,9 @@ const SHARED_TERRAIN_GLSL = `
         return permute_gpu(permute_gpu(ip.x) + ip.y) * (1.0 / 288.0);
     }
 
-    vec4 zoneCell_gpu(vec2 cell) {
-        float zone = float(uSpawnZone);
-        if (cell.x != 0.0 || cell.y != 0.0) {
-            zone = min(3.0, floor(hash2D_gpu(cell + uSeedOffset) * 4.0));
-        }
-        if (zone < 0.5) return vec4(1.0, 0.0, 0.0, 0.0);
-        if (zone < 1.5) return vec4(0.0, 1.0, 0.0, 0.0);
-        if (zone < 2.5) return vec4(0.0, 0.0, 1.0, 0.0);
-        return vec4(0.0, 0.0, 0.0, 1.0);
+    float getZoneCellId_gpu(vec2 cell) {
+        if (cell.x == 0.0 && cell.y == 0.0) return float(uSpawnZone);
+        return min(11.0, floor(hash2D_gpu(cell + uSeedOffset) * 12.0));
     }
 
     vec2 getZoneGrid_gpu(vec2 pos) {
@@ -364,14 +484,75 @@ const SHARED_TERRAIN_GLSL = `
         return (pos + warp) / 1600.0;
     }
 
-    vec4 getZoneWeights_gpu(vec2 pos) {
+    void getZoneWeights12_gpu(vec2 pos, out float w[12]) {
+        for (int i = 0; i < 12; i++) w[i] = 0.0;
         vec2 grid = getZoneGrid_gpu(pos);
         vec2 cell = floor(grid);
         vec2 t = smoothstep(vec2(0.4), vec2(0.6), fract(grid));
-        return zoneCell_gpu(cell) * (1.0 - t.x) * (1.0 - t.y)
-             + zoneCell_gpu(cell + vec2(1.0, 0.0)) * t.x * (1.0 - t.y)
-             + zoneCell_gpu(cell + vec2(0.0, 1.0)) * (1.0 - t.x) * t.y
-             + zoneCell_gpu(cell + vec2(1.0, 1.0)) * t.x * t.y;
+
+        int z00 = int(getZoneCellId_gpu(cell) + 0.5);
+        int z10 = int(getZoneCellId_gpu(cell + vec2(1.0, 0.0)) + 0.5);
+        int z01 = int(getZoneCellId_gpu(cell + vec2(0.0, 1.0)) + 0.5);
+        int z11 = int(getZoneCellId_gpu(cell + vec2(1.0, 1.0)) + 0.5);
+
+        w[z00] += (1.0 - t.x) * (1.0 - t.y);
+        w[z10] += t.x * (1.0 - t.y);
+        w[z01] += (1.0 - t.x) * t.y;
+        w[z11] += t.x * t.y;
+    }
+
+    void getZoneWeights10_gpu(vec2 pos, out float w[10]) {
+        float w12[12];
+        getZoneWeights12_gpu(pos, w12);
+        for (int i = 0; i < 10; i++) w[i] = w12[i];
+    }
+
+    void getZoneWeights6_gpu(vec2 pos, out float w[6]) {
+        float w12[12];
+        getZoneWeights12_gpu(pos, w12);
+        for (int i = 0; i < 6; i++) w[i] = w12[i];
+    }
+
+    int getZoneIndex12_gpu(float w[12]) {
+        int best = 0;
+        float maxW = w[0];
+        for (int i = 1; i < 12; i++) {
+            if (w[i] > maxW) {
+                maxW = w[i];
+                best = i;
+            }
+        }
+        return best;
+    }
+
+    int getZoneIndex10_gpu(float w[10]) {
+        int best = 0;
+        float maxW = w[0];
+        for (int i = 1; i < 10; i++) {
+            if (w[i] > maxW) {
+                maxW = w[i];
+                best = i;
+            }
+        }
+        return best;
+    }
+
+    int getZoneIndex6_gpu(float w[6]) {
+        int best = 0;
+        float maxW = w[0];
+        for (int i = 1; i < 6; i++) {
+            if (w[i] > maxW) {
+                maxW = w[i];
+                best = i;
+            }
+        }
+        return best;
+    }
+
+    vec4 getZoneWeights_gpu(vec2 pos) {
+        float w[6];
+        getZoneWeights6_gpu(pos, w);
+        return vec4(w[0], w[1], w[2], w[3]);
     }
 
     int getZoneIndex_gpu(vec4 weights) {
@@ -567,6 +748,248 @@ const SHARED_TERRAIN_GLSL = `
             finalH = h;
         }
 
+        // ZONE 4: ARDENNES WINTER & FROZEN STEPPE
+        else if (zoneType == 4) {
+            float snowRoll = fbm4_gpu(s * 0.0052) * 7.5;
+            float driftWarp = fbm3_gpu(s * 0.008) * 2.5;
+            float snowDrifts = (sin((s.x + s.y) * 0.018 + driftWarp) + 0.35 * cos(s.x * 0.032 - driftWarp)) * 4.8;
+            float microCrust = valueNoise2D_gpu(s * 0.08) * 0.22;
+            float h = 7.0 + snowRoll + snowDrifts + microCrust;
+
+            float snowOuter = smoothstep(45.0, 95.0, dSpawn) * smoothstep(8.0, 24.0, roadDist) * bayOpen;
+            float driftBerm = smoothstep(1.5, 5.0, snowRoll + snowDrifts) * 3.0 * snowOuter;
+            h += driftBerm;
+
+            float dIce = length(vec2(x, z) - zoneCenter - vec2(-48.0, -72.0));
+            float iceDip = (1.0 - smoothstep(14.0, 44.0, dIce)) * 10.5;
+            h -= iceDip;
+
+            h += coastalDescent;
+
+            float spawnClear = smoothstep(4.0, 18.0, dSpawn);
+            h = mix(7.5, h, spawnClear);
+
+            if (roadF > 0.01) {
+                float roadGrade = 6.8 + snowRoll * 0.55;
+                h = mix(h, roadGrade, roadF * 0.60);
+                float rut = exp(-pow(roadDist - 1.35, 2.0) / 0.35) * 0.34;
+                h -= (roadF * 0.32 + rut * roadF);
+            }
+            finalH = h;
+        }
+
+        // ZONE 5: NORMANDY BOCAGE & SUNKEN LANES
+        else if (zoneType == 5) {
+            float bocageFields = fbm4_gpu(s * 0.0048) * 5.8;
+            float pastureUndul = fbm3_gpu(s * 0.015) * 2.2;
+            float microTurf = valueNoise2D_gpu(s * 0.085) * 0.25;
+            float h = 7.2 + bocageFields + pastureUndul + microTurf;
+
+            float fieldGridX = sin(s.x * 0.024);
+            float fieldGridZ = sin(s.y * 0.024);
+            float dikePattern = max(smoothstep(0.78, 0.98, abs(fieldGridX)), smoothstep(0.78, 0.98, abs(fieldGridZ)));
+            float bocageOuter = smoothstep(35.0, 85.0, dSpawn) * smoothstep(7.0, 22.0, roadDist) * bayOpen;
+            h += dikePattern * 2.2 * bocageOuter;
+
+            float dFarmPond = length(vec2(x, z) - zoneCenter - vec2(72.0, 48.0));
+            float pondDip = (1.0 - smoothstep(12.0, 40.0, dFarmPond)) * 10.2;
+            h -= pondDip;
+
+            h += coastalDescent;
+
+            float spawnClear = smoothstep(4.0, 18.0, dSpawn);
+            h = mix(7.2, h, spawnClear);
+
+            if (roadF > 0.01) {
+                float sunkenGrade = 6.2 + bocageFields * 0.65;
+                h = mix(h, sunkenGrade, roadF * 0.65);
+                float rut = exp(-pow(roadDist - 1.35, 2.0) / 0.35) * 0.40;
+                h -= (roadF * 0.52 + rut * roadF);
+            }
+            finalH = h;
+        }
+
+        // ZONE 6: MONUMENT VALLEY & RED BUTTES FORTRESS
+        else if (zoneType == 6) {
+            float desertPlain = fbm4_gpu(s * 0.0035) * 3.8;
+            float redRipples = valueNoise2D_gpu(s * 0.085) * 0.24;
+            float h = 6.4 + desertPlain + redRipples;
+
+            // Gigantic fortress-like red sandstone buttes & flat-topped mesas
+            float butteNoise = fbm3_gpu(s * 0.0042 + vec2(43.0, 79.0));
+            float outerButteMask = smoothstep(45.0, 95.0, dSpawn) * smoothstep(12.0, 36.0, roadDist) * bayOpen;
+            float talusApron = smoothstep(0.22, 0.35, butteNoise) * 6.2;
+            float fortressCliff = smoothstep(0.35, 0.42, butteNoise) * 16.5;
+            float needleSpire = pow(max(0.0, 1.0 - abs(valueNoise2D_gpu(s * 0.010 + vec2(17.0, 89.0)))), 3.5) * 18.0;
+            h += (talusApron + fortressCliff + needleSpire * smoothstep(0.32, 0.45, butteNoise)) * outerButteMask;
+
+            float dWash = length(vec2(x, z) - zoneCenter - vec2(68.0, -52.0));
+            float washDip = (1.0 - smoothstep(14.0, 48.0, dWash)) * 8.5;
+            h -= washDip;
+
+            h += coastalDescent;
+
+            float spawnClear = smoothstep(4.0, 18.0, dSpawn);
+            h = mix(6.5, h, spawnClear);
+
+            if (roadF > 0.01) {
+                float passGrade = 6.2 + desertPlain * 0.45;
+                h = mix(h, passGrade, roadF * 0.65);
+                float rut = exp(-pow(roadDist - 1.35, 2.0) / 0.35) * 0.28;
+                h -= (roadF * 0.25 + rut * roadF);
+            }
+            finalH = h;
+        }
+
+        // ZONE 7: GRAND CANYON GORGE & TERRACED CHASMS
+        else if (zoneType == 7) {
+            float plateauBase = 18.5 + fbm4_gpu(s * 0.0032) * 4.2 + valueNoise2D_gpu(s * 0.08) * 0.25;
+
+            // Deep dendritic winding canyon chasm
+            float canyonBranch1 = sin(s.x * 0.0062 + fbm3_gpu(s * 0.008) * 1.8);
+            float canyonBranch2 = cos(s.y * 0.0055 - fbm3_gpu(s * 0.007) * 1.5);
+            float canyonPath = abs(canyonBranch1 * 0.65 + canyonBranch2 * 0.35);
+            float chasmCut = (1.0 - smoothstep(0.06, 0.38, canyonPath)) * 16.0;
+
+            float rawH = plateauBase - chasmCut;
+            // Stepped geological terraces every ~3.8m
+            float stepFrac = fract(rawH / 3.8);
+            float steppedH = floor(rawH / 3.8) * 3.8 + smoothstep(0.25, 0.75, stepFrac) * 3.8;
+            float h = mix(rawH, steppedH, 0.65);
+
+            float dGorgeWash = length(vec2(x, z) - zoneCenter - vec2(-62.0, -68.0));
+            float gorgeDip = (1.0 - smoothstep(14.0, 46.0, dGorgeWash)) * 7.5;
+            h -= gorgeDip;
+
+            h += coastalDescent;
+
+            float spawnClear = smoothstep(4.0, 22.0, dSpawn);
+            h = mix(7.2, h, spawnClear);
+
+            if (roadF > 0.01) {
+                float canyonRoadTarget = 7.0 + fbm3_gpu(s * 0.006) * 2.5;
+                h = mix(h, canyonRoadTarget, roadF * 0.75);
+                float rut = exp(-pow(roadDist - 1.35, 2.0) / 0.35) * 0.32;
+                h -= (roadF * 0.30 + rut * roadF);
+            }
+            finalH = h;
+        }
+
+        // ZONE 8: ANCIENT EGYPT & THE GREAT PYRAMIDS
+        else if (zoneType == 8) {
+            float barchanPhase = (s.x * 0.75 + s.y * 0.66) * 0.016 + fbm3_gpu(s * 0.006) * 2.4;
+            float barchanWave = (sin(barchanPhase) + 0.35 * sin(barchanPhase * 2.0 - 0.7)) * 4.6;
+            float ergRoll = fbm4_gpu(s * 0.0035) * 6.5;
+            float rippleMicro = valueNoise2D_gpu(s * 0.09) * 0.18;
+            float h = 6.2 + ergRoll + barchanWave + rippleMicro;
+
+            // Flat Giza limestone plateau overlooking the Nile
+            float dNile = length(vec2(x, z) - zoneCenter - vec2(-65.0, 72.0));
+            float nileValley = (1.0 - smoothstep(16.0, 52.0, dNile)) * 10.2;
+            h -= nileValley;
+
+            h += coastalDescent;
+
+            float spawnClear = smoothstep(4.0, 18.0, dSpawn);
+            h = mix(6.8, h, spawnClear);
+
+            if (roadF > 0.01) {
+                float caravanGrade = 6.0 + ergRoll * 0.45;
+                h = mix(h, caravanGrade, roadF * 0.65);
+                float rut = exp(-pow(roadDist - 1.35, 2.0) / 0.35) * 0.25;
+                h -= (roadF * 0.22 + rut * roadF);
+            }
+            finalH = h;
+        }
+
+        // ZONE 9: PACIFIC TROPICAL JUNGLE & RAINFOREST
+        else if (zoneType == 9) {
+            float karstBasin = fbm4_gpu(s * 0.0045) * 6.5;
+            float mogoteNoise = fbm3_gpu(s * 0.008 + vec2(23.0, 67.0)) * 0.5 + 0.5;
+            float conicalMogote = pow(max(0.0, mogoteNoise), 2.2) * 15.0;
+            float microFernHummock = valueNoise2D_gpu(s * 0.08) * 0.32;
+            float h = 6.8 + karstBasin + microFernHummock;
+
+            float jungleOuter = smoothstep(40.0, 90.0, dSpawn) * smoothstep(9.0, 26.0, roadDist) * bayOpen;
+            h += conicalMogote * jungleOuter;
+
+            float dJungleRiver = length(vec2(x, z) - zoneCenter - vec2(52.0, -78.0));
+            float riverDip = (1.0 - smoothstep(14.0, 46.0, dJungleRiver)) * 10.8;
+            h -= riverDip;
+
+            h += coastalDescent;
+
+            float spawnClear = smoothstep(4.0, 18.0, dSpawn);
+            h = mix(7.0, h, spawnClear);
+
+            if (roadF > 0.01) {
+                float jungleRoadGrade = 6.2 + karstBasin * 0.55;
+                h = mix(h, jungleRoadGrade, roadF * 0.65);
+                float rut = exp(-pow(roadDist - 1.35, 2.0) / 0.35) * 0.45;
+                h -= (roadF * 0.48 + rut * roadF);
+            }
+            finalH = h;
+        }
+
+        // ZONE 10: ANCIENT GREECE, ACROPOLIS PLATEAU & AEGEAN HILLS
+        else if (zoneType == 10) {
+            float aegeanHills = fbm4_gpu(s * 0.0046) * 5.8;
+            float oliveSlopes = fbm3_gpu(s * 0.015) * 2.1;
+            float microKarst = valueNoise2D_gpu(s * 0.085) * 0.25;
+            float h = 7.0 + aegeanHills + oliveSlopes + microKarst;
+
+            // Terraced limestone Acropolis plateaus & Aegean coastal ridges
+            float acropolisOuter = smoothstep(42.0, 92.0, dSpawn) * smoothstep(10.0, 28.0, roadDist) * bayOpen;
+            float terraceStep = smoothstep(1.2, 4.2, aegeanHills) * 3.8 * acropolisOuter;
+            h += terraceStep;
+
+            float dAegeanCove = length(vec2(x, z) - zoneCenter - vec2(58.0, 76.0));
+            float coveDip = (1.0 - smoothstep(14.0, 48.0, dAegeanCove)) * 10.2;
+            h -= coveDip;
+
+            h += coastalDescent;
+
+            float spawnClear = smoothstep(4.0, 18.0, dSpawn);
+            h = mix(7.2, h, spawnClear);
+
+            if (roadF > 0.01) {
+                float sacredWayGrade = 6.8 + aegeanHills * 0.50;
+                h = mix(h, sacredWayGrade, roadF * 0.65);
+                float rut = exp(-pow(roadDist - 1.35, 2.0) / 0.35) * 0.26;
+                h -= (roadF * 0.24 + rut * roadF);
+            }
+            finalH = h;
+        }
+
+        // ZONE 11: IMPERIAL ROME, SEVEN HILLS & TIBER VALLEY
+        else if (zoneType == 11) {
+            float sevenHills = fbm4_gpu(s * 0.0044) * 5.2;
+            float campagnaRoll = fbm3_gpu(s * 0.014) * 1.9;
+            float microTufa = valueNoise2D_gpu(s * 0.08) * 0.22;
+            float h = 6.8 + sevenHills + campagnaRoll + microTufa;
+
+            float romanOuter = smoothstep(44.0, 94.0, dSpawn) * smoothstep(10.0, 28.0, roadDist) * bayOpen;
+            float palatineBluff = smoothstep(1.0, 3.8, sevenHills) * 3.2 * romanOuter;
+            h += palatineBluff;
+
+            float dTiberBend = length(vec2(x, z) - zoneCenter - vec2(-58.0, 74.0));
+            float tiberDip = (1.0 - smoothstep(14.0, 48.0, dTiberBend)) * 9.8;
+            h -= tiberDip;
+
+            h += coastalDescent;
+
+            float spawnClear = smoothstep(4.0, 18.0, dSpawn);
+            h = mix(7.0, h, spawnClear);
+
+            if (roadF > 0.01) {
+                float viaAppiaGrade = 6.6 + sevenHills * 0.48;
+                h = mix(h, viaAppiaGrade, roadF * 0.68);
+                float rut = exp(-pow(roadDist - 1.35, 2.0) / 0.35) * 0.24;
+                h -= (roadF * 0.22 + rut * roadF);
+            }
+            finalH = h;
+        }
+
         // ZONE 0 (DEFAULT): COASTAL MEADOW COUNTRYSIDE
         else {
             float rollingHills = fbm4_gpu(s * 0.0042) * 4.5;
@@ -614,12 +1037,12 @@ const SHARED_TERRAIN_GLSL = `
         float coastalDescent = (-coastalSlope + headland) * coastalExtent;
         float bayOpen = (1.0 - smoothstep(90.0, 260.0, coastalDist) * (1.0 - smoothstep(220.0, 450.0, abs(x))));
 
-        vec4 weights = getZoneWeights_gpu(vec2(x, z));
+        float w[12];
+        getZoneWeights12_gpu(vec2(x, z), w);
         float h = 0.0;
-        if (weights.x > 0.0) h += weights.x * getZoneTerrainHeight_gpu(x, z, 0, dSpawn, roadDist, roadF, zoneCenter, coastalDescent, bayOpen);
-        if (weights.y > 0.0) h += weights.y * getZoneTerrainHeight_gpu(x, z, 1, dSpawn, roadDist, roadF, zoneCenter, coastalDescent, bayOpen);
-        if (weights.z > 0.0) h += weights.z * getZoneTerrainHeight_gpu(x, z, 2, dSpawn, roadDist, roadF, zoneCenter, coastalDescent, bayOpen);
-        if (weights.w > 0.0) h += weights.w * getZoneTerrainHeight_gpu(x, z, 3, dSpawn, roadDist, roadF, zoneCenter, coastalDescent, bayOpen);
+        for (int i = 0; i < 12; i++) {
+            if (w[i] > 0.0) h += w[i] * getZoneTerrainHeight_gpu(x, z, i, dSpawn, roadDist, roadF, zoneCenter, coastalDescent, bayOpen);
+        }
         return h;
     }
 
@@ -799,6 +1222,243 @@ function getZoneTerrainHeight(x, z, currentZoneIndex) {
         return h;
     }
 
+    // ZONE 4: ARDENNES WINTER & FROZEN STEPPE
+    if (currentZoneIndex === 4) {
+        const snowRoll = fbm4(sx * 0.0052, sz * 0.0052) * 7.5;
+        const driftWarp = fbm3(sx * 0.008, sz * 0.008) * 2.5;
+        const snowDrifts = (Math.sin((sx + sz) * 0.018 + driftWarp) + 0.35 * Math.cos(sx * 0.032 - driftWarp)) * 4.8;
+        const microCrust = valueNoise2D(sx * 0.08, sz * 0.08) * 0.22;
+        let h = 7.0 + snowRoll + snowDrifts + microCrust;
+
+        const snowOuter = smoothstep(45.0, 95.0, dSpawn) * smoothstep(8.0, 24.0, roadDist) * bayOpen;
+        const driftBerm = smoothstep(1.5, 5.0, snowRoll + snowDrifts) * 3.0 * snowOuter;
+        h += driftBerm;
+
+        const dIce = Math.hypot(x - zoneX + 48.0, z - zoneZ + 72.0);
+        const iceDip = (1.0 - smoothstep(14.0, 44.0, dIce)) * 10.5;
+        h -= iceDip;
+
+        h += coastalDescent;
+
+        const spawnClear = smoothstep(4.0, 18.0, dSpawn);
+        h = mix(7.5, h, spawnClear);
+
+        if (roadF > 0.01) {
+            const roadGrade = 6.8 + snowRoll * 0.55;
+            h = mix(h, roadGrade, roadF * 0.60);
+            const rut = Math.exp(-Math.pow(roadDist - 1.35, 2.0) / 0.35) * 0.34;
+            h -= (roadF * 0.32 + rut * roadF);
+        }
+        return h;
+    }
+
+    // ZONE 5: NORMANDY BOCAGE & SUNKEN LANES
+    if (currentZoneIndex === 5) {
+        const bocageFields = fbm4(sx * 0.0048, sz * 0.0048) * 5.8;
+        const pastureUndul = fbm3(sx * 0.015, sz * 0.015) * 2.2;
+        const microTurf = valueNoise2D(sx * 0.085, sz * 0.085) * 0.25;
+        let h = 7.2 + bocageFields + pastureUndul + microTurf;
+
+        const fieldGridX = Math.sin(sx * 0.024);
+        const fieldGridZ = Math.sin(sz * 0.024);
+        const dikePattern = Math.max(smoothstep(0.78, 0.98, Math.abs(fieldGridX)), smoothstep(0.78, 0.98, Math.abs(fieldGridZ)));
+        const bocageOuter = smoothstep(35.0, 85.0, dSpawn) * smoothstep(7.0, 22.0, roadDist) * bayOpen;
+        h += dikePattern * 2.2 * bocageOuter;
+
+        const dFarmPond = Math.hypot(x - zoneX - 72.0, z - zoneZ - 48.0);
+        const pondDip = (1.0 - smoothstep(12.0, 40.0, dFarmPond)) * 10.2;
+        h -= pondDip;
+
+        h += coastalDescent;
+
+        const spawnClear = smoothstep(4.0, 18.0, dSpawn);
+        h = mix(7.2, h, spawnClear);
+
+        if (roadF > 0.01) {
+            const sunkenGrade = 6.2 + bocageFields * 0.65;
+            h = mix(h, sunkenGrade, roadF * 0.65);
+            const rut = Math.exp(-Math.pow(roadDist - 1.35, 2.0) / 0.35) * 0.40;
+            h -= (roadF * 0.52 + rut * roadF);
+        }
+        return h;
+    }
+
+    // ZONE 6: MONUMENT VALLEY & RED BUTTES FORTRESS
+    if (currentZoneIndex === 6) {
+        const desertPlain = fbm4(sx * 0.0035, sz * 0.0035) * 3.8;
+        const redRipples = valueNoise2D(sx * 0.085, sz * 0.085) * 0.24;
+        let h = 6.4 + desertPlain + redRipples;
+
+        const butteNoise = fbm3(sx * 0.0042 + 43.0, sz * 0.0042 + 79.0);
+        const outerButteMask = smoothstep(45.0, 95.0, dSpawn) * smoothstep(12.0, 36.0, roadDist) * bayOpen;
+        const talusApron = smoothstep(0.22, 0.35, butteNoise) * 6.2;
+        const fortressCliff = smoothstep(0.35, 0.42, butteNoise) * 16.5;
+        const needleSpire = Math.pow(Math.max(0.0, 1.0 - Math.abs(valueNoise2D(sx * 0.010 + 17.0, sz * 0.010 + 89.0))), 3.5) * 18.0;
+        h += (talusApron + fortressCliff + needleSpire * smoothstep(0.32, 0.45, butteNoise)) * outerButteMask;
+
+        const dWash = Math.hypot(x - zoneX - 68.0, z - zoneZ + 52.0);
+        const washDip = (1.0 - smoothstep(14.0, 48.0, dWash)) * 8.5;
+        h -= washDip;
+
+        h += coastalDescent;
+
+        const spawnClear = smoothstep(4.0, 18.0, dSpawn);
+        h = mix(6.5, h, spawnClear);
+
+        if (roadF > 0.01) {
+            const passGrade = 6.2 + desertPlain * 0.45;
+            h = mix(h, passGrade, roadF * 0.65);
+            const rut = Math.exp(-Math.pow(roadDist - 1.35, 2.0) / 0.35) * 0.28;
+            h -= (roadF * 0.25 + rut * roadF);
+        }
+        return h;
+    }
+
+    // ZONE 7: GRAND CANYON GORGE & TERRACED CHASMS
+    if (currentZoneIndex === 7) {
+        const plateauBase = 18.5 + fbm4(sx * 0.0032, sz * 0.0032) * 4.2 + valueNoise2D(sx * 0.08, sz * 0.08) * 0.25;
+
+        const canyonBranch1 = Math.sin(sx * 0.0062 + fbm3(sx * 0.008, sz * 0.008) * 1.8);
+        const canyonBranch2 = Math.cos(sz * 0.0055 - fbm3(sx * 0.007, sz * 0.007) * 1.5);
+        const canyonPath = Math.abs(canyonBranch1 * 0.65 + canyonBranch2 * 0.35);
+        const chasmCut = (1.0 - smoothstep(0.06, 0.38, canyonPath)) * 16.0;
+
+        const rawH = plateauBase - chasmCut;
+        const stepFrac = ((rawH / 3.8) % 1 + 1) % 1;
+        const steppedH = Math.floor(rawH / 3.8) * 3.8 + smoothstep(0.25, 0.75, stepFrac) * 3.8;
+        let h = mix(rawH, steppedH, 0.65);
+
+        const dGorgeWash = Math.hypot(x - zoneX + 62.0, z - zoneZ + 68.0);
+        const gorgeDip = (1.0 - smoothstep(14.0, 46.0, dGorgeWash)) * 7.5;
+        h -= gorgeDip;
+
+        h += coastalDescent;
+
+        const spawnClear = smoothstep(4.0, 22.0, dSpawn);
+        h = mix(7.2, h, spawnClear);
+
+        if (roadF > 0.01) {
+            const canyonRoadTarget = 7.0 + fbm3(sx * 0.006, sz * 0.006) * 2.5;
+            h = mix(h, canyonRoadTarget, roadF * 0.75);
+            const rut = Math.exp(-Math.pow(roadDist - 1.35, 2.0) / 0.35) * 0.32;
+            h -= (roadF * 0.30 + rut * roadF);
+        }
+        return h;
+    }
+
+    // ZONE 8: ANCIENT EGYPT & THE GREAT PYRAMIDS
+    if (currentZoneIndex === 8) {
+        const barchanPhase = (sx * 0.75 + sz * 0.66) * 0.016 + fbm3(sx * 0.006, sz * 0.006) * 2.4;
+        const barchanWave = (Math.sin(barchanPhase) + 0.35 * Math.sin(barchanPhase * 2.0 - 0.7)) * 4.6;
+        const ergRoll = fbm4(sx * 0.0035, sz * 0.0035) * 6.5;
+        const rippleMicro = valueNoise2D(sx * 0.09, sz * 0.09) * 0.18;
+        let h = 6.2 + ergRoll + barchanWave + rippleMicro;
+
+        const dNile = Math.hypot(x - zoneX + 65.0, z - zoneZ - 72.0);
+        const nileValley = (1.0 - smoothstep(16.0, 52.0, dNile)) * 10.2;
+        h -= nileValley;
+
+        h += coastalDescent;
+
+        const spawnClear = smoothstep(4.0, 18.0, dSpawn);
+        h = mix(6.8, h, spawnClear);
+
+        if (roadF > 0.01) {
+            const caravanGrade = 6.0 + ergRoll * 0.45;
+            h = mix(h, caravanGrade, roadF * 0.65);
+            const rut = Math.exp(-Math.pow(roadDist - 1.35, 2.0) / 0.35) * 0.25;
+            h -= (roadF * 0.22 + rut * roadF);
+        }
+        return h;
+    }
+
+    // ZONE 9: PACIFIC TROPICAL JUNGLE & RAINFOREST
+    if (currentZoneIndex === 9) {
+        const karstBasin = fbm4(sx * 0.0045, sz * 0.0045) * 6.5;
+        const mogoteNoise = fbm3(sx * 0.008 + 23.0, sz * 0.008 + 67.0) * 0.5 + 0.5;
+        const conicalMogote = Math.pow(Math.max(0.0, mogoteNoise), 2.2) * 15.0;
+        const microFernHummock = valueNoise2D(sx * 0.08, sz * 0.08) * 0.32;
+        let h = 6.8 + karstBasin + microFernHummock;
+
+        const jungleOuter = smoothstep(40.0, 90.0, dSpawn) * smoothstep(9.0, 26.0, roadDist) * bayOpen;
+        h += conicalMogote * jungleOuter;
+
+        const dJungleRiver = Math.hypot(x - zoneX - 52.0, z - zoneZ + 78.0);
+        const riverDip = (1.0 - smoothstep(14.0, 46.0, dJungleRiver)) * 10.8;
+        h -= riverDip;
+
+        h += coastalDescent;
+
+        const spawnClear = smoothstep(4.0, 18.0, dSpawn);
+        h = mix(7.0, h, spawnClear);
+
+        if (roadF > 0.01) {
+            const jungleRoadGrade = 6.2 + karstBasin * 0.55;
+            h = mix(h, jungleRoadGrade, roadF * 0.65);
+            const rut = Math.exp(-Math.pow(roadDist - 1.35, 2.0) / 0.35) * 0.45;
+            h -= (roadF * 0.48 + rut * roadF);
+        }
+        return h;
+    }
+
+    // ZONE 10: ANCIENT GREECE, ACROPOLIS PLATEAU & AEGEAN HILLS
+    if (currentZoneIndex === 10) {
+        const aegeanHills = fbm4(sx * 0.0046, sz * 0.0046) * 5.8;
+        const oliveSlopes = fbm3(sx * 0.015, sz * 0.015) * 2.1;
+        const microKarst = valueNoise2D(sx * 0.085, sz * 0.085) * 0.25;
+        let h = 7.0 + aegeanHills + oliveSlopes + microKarst;
+
+        const acropolisOuter = smoothstep(42.0, 92.0, dSpawn) * smoothstep(10.0, 28.0, roadDist) * bayOpen;
+        const terraceStep = smoothstep(1.2, 4.2, aegeanHills) * 3.8 * acropolisOuter;
+        h += terraceStep;
+
+        const dAegeanCove = Math.hypot(x - zoneX - 58.0, z - zoneZ - 76.0);
+        const coveDip = (1.0 - smoothstep(14.0, 48.0, dAegeanCove)) * 10.2;
+        h -= coveDip;
+
+        h += coastalDescent;
+
+        const spawnClear = smoothstep(4.0, 18.0, dSpawn);
+        h = mix(7.2, h, spawnClear);
+
+        if (roadF > 0.01) {
+            const sacredWayGrade = 6.8 + aegeanHills * 0.50;
+            h = mix(h, sacredWayGrade, roadF * 0.65);
+            const rut = Math.exp(-Math.pow(roadDist - 1.35, 2.0) / 0.35) * 0.26;
+            h -= (roadF * 0.24 + rut * roadF);
+        }
+        return h;
+    }
+
+    // ZONE 11: IMPERIAL ROME, SEVEN HILLS & TIBER VALLEY
+    if (currentZoneIndex === 11) {
+        const sevenHills = fbm4(sx * 0.0044, sz * 0.0044) * 5.2;
+        const campagnaRoll = fbm3(sx * 0.014, sz * 0.014) * 1.9;
+        const microTufa = valueNoise2D(sx * 0.08, sz * 0.08) * 0.22;
+        let h = 6.8 + sevenHills + campagnaRoll + microTufa;
+
+        const romanOuter = smoothstep(44.0, 94.0, dSpawn) * smoothstep(10.0, 28.0, roadDist) * bayOpen;
+        const palatineBluff = smoothstep(1.0, 3.8, sevenHills) * 3.2 * romanOuter;
+        h += palatineBluff;
+
+        const dTiberBend = Math.hypot(x - zoneX + 58.0, z - zoneZ - 74.0);
+        const tiberDip = (1.0 - smoothstep(14.0, 48.0, dTiberBend)) * 9.8;
+        h -= tiberDip;
+
+        h += coastalDescent;
+
+        const spawnClear = smoothstep(4.0, 18.0, dSpawn);
+        h = mix(7.0, h, spawnClear);
+
+        if (roadF > 0.01) {
+            const viaAppiaGrade = 6.6 + sevenHills * 0.48;
+            h = mix(h, viaAppiaGrade, roadF * 0.68);
+            const rut = Math.exp(-Math.pow(roadDist - 1.35, 2.0) / 0.35) * 0.24;
+            h -= (roadF * 0.22 + rut * roadF);
+        }
+        return h;
+    }
+
     // ZONE 0 (DEFAULT): COASTAL MEADOW COUNTRYSIDE
     const rollingHills = fbm4(sx * 0.0042, sz * 0.0042) * 4.5;
     const mediumUndulation = fbm3(sx * 0.016, sz * 0.016) * 1.8;
@@ -867,8 +1527,17 @@ const terrainUniforms = {
     uBuildingCount: { value: 0 },
     uSunDir: { value: new THREE.Vector3(0.45, 0.72, -0.52).normalize() },
     uSunColor: { value: new THREE.Color(0xfff5e0) },
-    uSkyColor: { value: new THREE.Color(0x82b6e5) }
+    uSkyColor: { value: new THREE.Color(0x82b6e5) },
+    uTerrainNormalAtlas: { value: null }
 };
+
+let terrainNormalAtlas = null;
+function getTerrainNormalAtlas() {
+    if (!terrainNormalAtlas && typeof createTerrainNormalAtlas === 'function') {
+        terrainNormalAtlas = createTerrainNormalAtlas();
+    }
+    return terrainNormalAtlas;
+}
 
 // Non-metal ground & vegetation: reduced static steel IBL fill for stronger sun/shade contrast
 const GROUND_ENV_MAP_INTENSITY = 0.4;
@@ -896,9 +1565,11 @@ terrainMat.onBeforeCompile = (shader) => {
     shader.uniforms.uSunDir = terrainUniforms.uSunDir;
     shader.uniforms.uSunColor = terrainUniforms.uSunColor;
     shader.uniforms.uSkyColor = terrainUniforms.uSkyColor;
+    shader.uniforms.uTerrainNormalAtlas = terrainUniforms.uTerrainNormalAtlas;
 
     shader.vertexShader = `
         varying vec3 vTerrainWorldPos;
+        varying vec3 vTerrainWorldNormal;
         varying float vTerrainSlope;
     ` + shader.vertexShader;
 
@@ -907,6 +1578,7 @@ terrainMat.onBeforeCompile = (shader) => {
         `
         #include <begin_vertex>
         vTerrainWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
+        vTerrainWorldNormal = normalize(normal);
         vTerrainSlope = 1.0 - normal.y;
         `
     );
@@ -920,10 +1592,104 @@ terrainMat.onBeforeCompile = (shader) => {
         uniform vec3 uSunDir;
         uniform vec3 uSunColor;
         uniform vec3 uSkyColor;
+        uniform sampler2D uTerrainNormalAtlas;
         varying vec3 vTerrainWorldPos;
+        varying vec3 vTerrainWorldNormal;
         varying float vTerrainSlope;
         ${SHARED_TERRAIN_GLSL}
     ` + shader.fragmentShader;
+
+    shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <normal_fragment_begin>',
+        `
+        #include <normal_fragment_begin>
+        float distToCamNorm = length(vTerrainWorldPos.xz - uCameraPos.xz);
+        float distFadeNorm = 1.0 - smoothstep(12.0, 36.0, distToCamNorm);
+        distFadeNorm = clamp(distFadeNorm, 0.0, 1.0);
+        distFadeNorm = distFadeNorm * distFadeNorm;
+
+        if (distFadeNorm > 0.002) {
+            // Anti-tiling rotation matrix (~36.87 degrees) to decorrelate macro from micro UVs
+            mat2 rotNorm = mat2(0.80, 0.60, -0.60, 0.80);
+
+            // Q0: Ground / Soil / Loam Turf [UV 0.0..0.5, 0.0..0.5]
+            // Micro layer (period ~7.1m) + Macro rotated layer (period ~16.4m, offset) eliminates grid repetition
+            vec2 uvGroundNorm1 = fract(vTerrainWorldPos.xz * 0.14) * 0.495 + vec2(0.002, 0.002);
+            vec2 uvGroundNorm2 = fract((rotNorm * vTerrainWorldPos.xz) * 0.061 + vec2(0.31, 0.77)) * 0.495 + vec2(0.002, 0.002);
+            vec3 nGround1 = texture2D(uTerrainNormalAtlas, uvGroundNorm1).xyz * 2.0 - 1.0;
+            vec3 nGround2 = texture2D(uTerrainNormalAtlas, uvGroundNorm2).xyz * 2.0 - 1.0;
+            vec3 nGroundSample = normalize(nGround1 + vec3(nGround2.xy * 0.55, 0.0));
+
+            // Q1: Road with directional vehicle tire/track tread & gravel [UV 0.5..1.0, 0.0..0.5]
+            float roadDistForNorm = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
+            vec2 uvRoadNorm = fract(vec2(roadDistForNorm * 0.30, (vTerrainWorldPos.x + vTerrainWorldPos.z) * 0.18)) * 0.495 + vec2(0.502, 0.002);
+            vec3 nRoadSample = texture2D(uTerrainNormalAtlas, uvRoadNorm).xyz * 2.0 - 1.0;
+
+            // Q2: Sand with wind ripple dunes [UV 0.0..0.5, 0.5..1.0]
+            vec2 uvSandNorm1 = fract(vTerrainWorldPos.xz * 0.16) * 0.495 + vec2(0.002, 0.502);
+            vec2 uvSandNorm2 = fract((rotNorm * vTerrainWorldPos.xz) * 0.068 + vec2(0.48, 0.22)) * 0.495 + vec2(0.002, 0.502);
+            vec3 nSand1 = texture2D(uTerrainNormalAtlas, uvSandNorm1).xyz * 2.0 - 1.0;
+            vec3 nSand2 = texture2D(uTerrainNormalAtlas, uvSandNorm2).xyz * 2.0 - 1.0;
+            vec3 nSandSample = normalize(nSand1 + vec3(nSand2.xy * 0.50, 0.0));
+
+            // Q3: Rock / Cliff Strata [UV 0.5..1.0, 0.5..1.0]
+            vec2 uvRockNorm = fract(vec2((vTerrainWorldPos.x + vTerrainWorldPos.z) * 0.16, vTerrainWorldPos.y * 0.28)) * 0.495 + vec2(0.502, 0.502);
+            vec3 nRockSample = texture2D(uTerrainNormalAtlas, uvRockNorm).xyz * 2.0 - 1.0;
+
+            float roadFactorNorm = getRoadFactor_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
+            float rockFactorNorm = smoothstep(0.14, 0.32, vTerrainSlope);
+            float beachFactorNorm = 1.0 - smoothstep(-2.55, -1.35, vTerrainWorldPos.y);
+
+            float wZoneNorm[12];
+            getZoneWeights12_gpu(vTerrainWorldPos.xz, wZoneNorm);
+
+            float sandBlendFactor = clamp(wZoneNorm[1] * 0.95 + wZoneNorm[8] * 0.95 + beachFactorNorm * 0.92, 0.0, 1.0);
+            float snowLineElev = smoothstep(14.5, 19.5, vTerrainWorldPos.y - vTerrainSlope * 10.0);
+            float snowBlendFactor = clamp(wZoneNorm[4] * 0.95 + wZoneNorm[2] * snowLineElev * 0.90, 0.0, 1.0);
+            float rockCliffWeight = clamp(wZoneNorm[6] * 0.85 + wZoneNorm[7] * 0.92 + wZoneNorm[10] * 0.65 + wZoneNorm[11] * 0.55, 0.0, 1.0);
+            rockFactorNorm = clamp(rockFactorNorm + rockCliffWeight * smoothstep(0.12, 0.28, vTerrainSlope) * 0.75, 0.0, 1.0);
+
+            // Calibrated normal strength: soft, natural ground relief (reduced from 0.65 to 0.26)
+            vec2 deltaSurfN = nGroundSample.xy * 0.26;
+            deltaSurfN = mix(deltaSurfN, nSandSample.xy * 0.35, sandBlendFactor);
+            deltaSurfN = mix(deltaSurfN, nRockSample.xy * 0.42, rockFactorNorm);
+            deltaSurfN = mix(deltaSurfN, nRoadSample.xy * 0.40, smoothstep(0.04, 0.38, roadFactorNorm));
+
+            if (roadFactorNorm > 0.05) {
+                float rutOffset = roadDistForNorm - 1.35;
+                float rutSlope = (rutOffset / 0.28) * exp(-pow(rutOffset, 2.0) / 0.28) * roadFactorNorm * 0.38;
+                deltaSurfN += vec2(rutSlope * 0.35);
+            }
+
+            if (sandBlendFactor > 0.05) {
+                float ripplePhase = (vTerrainWorldPos.x * 0.82 + vTerrainWorldPos.z * 0.57) * 3.4;
+                vec2 rippleGrad = vec2(0.82, 0.57) * cos(ripplePhase) * 0.18 * sandBlendFactor;
+                deltaSurfN += rippleGrad;
+            }
+
+            if (snowBlendFactor > 0.05) {
+                float sastrugiPhase = (vTerrainWorldPos.x * 0.65 - vTerrainWorldPos.z * 0.75) * 2.6;
+                vec2 sastrugiGrad = vec2(0.65, -0.75) * cos(sastrugiPhase) * 0.16 * snowBlendFactor;
+                deltaSurfN += sastrugiGrad;
+            }
+
+            deltaSurfN *= distFadeNorm;
+
+            vec3 q0 = dFdx(-vViewPosition);
+            vec3 q1 = dFdy(-vViewPosition);
+            vec2 st0 = dFdx(vTerrainWorldPos.xz);
+            vec2 st1 = dFdy(vTerrainWorldPos.xz);
+            vec3 N = normal;
+            vec3 q1perp = cross(q1, N);
+            vec3 q0perp = cross(N, q0);
+            vec3 T = q1perp * st0.x + q0perp * st1.x;
+            vec3 B = q1perp * st0.y + q0perp * st1.y;
+            float det = max(dot(T, T), dot(B, B));
+            float invDet = (det == 0.0) ? 0.0 : inversesqrt(det);
+            normal = normalize(T * (deltaSurfN.x * invDet) + B * (deltaSurfN.y * invDet) + N);
+        }
+        `
+    );
 
     shader.fragmentShader = shader.fragmentShader.replace(
         '#include <color_fragment>',
@@ -949,9 +1715,10 @@ terrainMat.onBeforeCompile = (shader) => {
 
         vec3 baseZoneColor = diffuseColor.rgb;
         vec3 blendedZoneColor = vec3(0.0);
-        vec4 zoneWeights = getZoneWeights_gpu(vTerrainWorldPos.xz);
-        for (int localZone = 0; localZone < 4; localZone++) {
-            float zoneWeight = localZone == 0 ? zoneWeights.x : (localZone == 1 ? zoneWeights.y : (localZone == 2 ? zoneWeights.z : zoneWeights.w));
+        float zoneWeights12[12];
+        getZoneWeights12_gpu(vTerrainWorldPos.xz, zoneWeights12);
+        for (int localZone = 0; localZone < 12; localZone++) {
+            float zoneWeight = zoneWeights12[localZone];
             if (zoneWeight <= 0.0) continue;
             diffuseColor.rgb = baseZoneColor;
             if (localZone == 1) {
@@ -1059,6 +1826,207 @@ terrainMat.onBeforeCompile = (shader) => {
                     vec3 wetRut = vec3(0.045, 0.032, 0.020);
                     diffuseColor.rgb = mix(diffuseColor.rgb, mix(dryRoad, wetRut, rutMask * 0.88), smoothstep(0.02, 0.48, roadMask));
                 }
+            } else if (localZone == 4) {
+                // ZONE 4: ARDENNES WINTER & FROZEN STEPPE
+                vec3 pureSnow = mix(vec3(0.72, 0.78, 0.88), vec3(0.92, 0.95, 0.98), microNoise * 0.45 + 0.55);
+                vec3 driftShadow = vec3(0.58, 0.66, 0.76);
+                vec3 snowTint = mix(driftShadow, pureSnow, macroPatch * 0.45 + windWave * 0.15 + 0.40);
+                diffuseColor.rgb = mix(diffuseColor.rgb, snowTint, grassSurfaceMask * 0.95);
+
+                if (vTerrainSlope > 0.16) {
+                    vec3 frozenEarth = mix(vec3(0.14, 0.13, 0.12), vec3(0.24, 0.22, 0.20), gravelNoise);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, frozenEarth, smoothstep(0.16, 0.35, vTerrainSlope));
+                }
+
+                if (vTerrainSlope > 0.28) {
+                    vec3 frostedSlate = mix(vec3(0.18, 0.20, 0.24), vec3(0.55, 0.62, 0.70), microNoise * 0.5);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, frostedSlate, smoothstep(0.28, 0.46, vTerrainSlope));
+                }
+
+                if (roadMask > 0.02) {
+                    float distFromCenter = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
+                    float rutMask = exp(-pow(distFromCenter - 1.35, 2.0) / 0.28);
+                    vec3 packedSnowRoad = mix(vec3(0.55, 0.62, 0.70), vec3(0.42, 0.48, 0.54), gravelNoise * 0.5);
+                    vec3 icySlush = vec3(0.12, 0.14, 0.16);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, mix(packedSnowRoad, icySlush, rutMask * 0.88), smoothstep(0.02, 0.48, roadMask));
+                }
+
+                float iceHole = 1.0 - smoothstep(-2.55, -1.35, vTerrainWorldPos.y);
+                if (iceHole > 0.001) {
+                    vec3 lakeIce = mix(vec3(0.38, 0.52, 0.62), vec3(0.68, 0.82, 0.90), microNoise);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, lakeIce, iceHole);
+                }
+            } else if (localZone == 5) {
+                // ZONE 5: NORMANDY BOCAGE & SUNKEN LANES
+                vec3 bocageGreen = mix(vec3(0.022, 0.075, 0.016), vec3(0.038, 0.092, 0.020), macroPatch * 0.55);
+                vec3 farBladeTint = bocageGreen * (0.92 + (microNoise * 0.5 + macroPatch * 0.5) * 0.18);
+                farBladeTint *= (0.96 + windWave * 0.08);
+                diffuseColor.rgb = mix(diffuseColor.rgb, farBladeTint, grassSurfaceMask);
+
+                if (vTerrainSlope > 0.16) {
+                    vec3 clayLoam = mix(vec3(0.15, 0.11, 0.07), vec3(0.09, 0.07, 0.04), gravelNoise * 0.65);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, clayLoam, smoothstep(0.16, 0.34, vTerrainSlope));
+                }
+
+                if (roadMask > 0.02) {
+                    float distFromCenter = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
+                    float rutMask = exp(-pow(distFromCenter - 1.35, 2.0) / 0.28);
+                    float centerCrown = exp(-pow(distFromCenter, 2.0) / 0.65);
+                    vec3 heavyMud = mix(vec3(0.12, 0.085, 0.050), vec3(0.075, 0.052, 0.032), gravelNoise * 0.6);
+                    heavyMud = mix(heavyMud, bocageGreen, centerCrown * 0.38);
+                    vec3 wetMudRut = vec3(0.035, 0.024, 0.014);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, mix(heavyMud, wetMudRut, rutMask * 0.90), smoothstep(0.02, 0.48, roadMask));
+                }
+            } else if (localZone == 6) {
+                // ZONE 6: MONUMENT VALLEY & RED BUTTES FORTRESS
+                vec3 redPlainA = vec3(0.42, 0.17, 0.09);
+                vec3 redPlainB = vec3(0.32, 0.12, 0.06);
+                vec3 sandTint = mix(redPlainB, redPlainA, macroPatch * 0.6 + microNoise * 0.4);
+                diffuseColor.rgb = mix(diffuseColor.rgb, sandTint, grassSurfaceMask * 0.92);
+
+                // Deep Navajo Sandstone Strata on sheer fortress cliffs
+                if (vTerrainSlope > 0.14) {
+                    float strata = sin(vTerrainWorldPos.y * 1.8 + microNoise * 1.5) * 0.5 + 0.5;
+                    vec3 vermilionRock = vec3(0.48, 0.16, 0.08);
+                    vec3 burntUmber    = vec3(0.26, 0.08, 0.04);
+                    vec3 capLedge      = vec3(0.45, 0.28, 0.16);
+                    vec3 cliffColor    = mix(burntUmber, vermilionRock, strata * 0.75 + gravelNoise * 0.25);
+                    cliffColor = mix(cliffColor, capLedge, smoothstep(0.78, 0.96, strata) * 0.65);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, cliffColor, smoothstep(0.14, 0.34, vTerrainSlope));
+                }
+
+                if (roadMask > 0.02) {
+                    float distFromCenter = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
+                    float rutMask = exp(-pow(distFromCenter - 1.35, 2.0) / 0.28);
+                    vec3 redGravel = mix(vec3(0.35, 0.15, 0.08), vec3(0.24, 0.10, 0.05), gravelNoise * 0.55);
+                    vec3 deepRut = vec3(0.15, 0.06, 0.03);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, mix(redGravel, deepRut, rutMask * 0.85), smoothstep(0.02, 0.48, roadMask));
+                }
+            } else if (localZone == 7) {
+                // ZONE 7: GRAND CANYON GORGE & TERRACED CHASMS
+                vec3 rimPlatA = vec3(0.34, 0.24, 0.16);
+                vec3 rimPlatB = vec3(0.26, 0.18, 0.12);
+                vec3 plateauTint = mix(rimPlatB, rimPlatA, macroPatch * 0.55 + microNoise * 0.45);
+                diffuseColor.rgb = mix(diffuseColor.rgb, plateauTint, grassSurfaceMask * 0.90);
+
+                // Multi-layered Canyon Strata (Kaibab limestone, Toroweap, Coconino, Hermit red shale, Redwall)
+                if (vTerrainSlope > 0.12) {
+                    float strataY = vTerrainWorldPos.y * 1.4 + gravelNoise * 0.8;
+                    float band1 = sin(strataY) * 0.5 + 0.5;
+                    float band2 = cos(strataY * 2.2 + microNoise * 1.2) * 0.5 + 0.5;
+                    vec3 kaibabBuff  = vec3(0.42, 0.36, 0.28);
+                    vec3 redwallRust = vec3(0.44, 0.15, 0.09);
+                    vec3 hermitShale = vec3(0.28, 0.10, 0.06);
+                    vec3 canyonRock  = mix(hermitShale, redwallRust, band1);
+                    canyonRock = mix(canyonRock, kaibabBuff, smoothstep(0.72, 0.92, band2) * 0.70);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, canyonRock, smoothstep(0.12, 0.32, vTerrainSlope));
+                }
+
+                if (roadMask > 0.02) {
+                    float distFromCenter = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
+                    float rutMask = exp(-pow(distFromCenter - 1.35, 2.0) / 0.28);
+                    vec3 canyonRoad = mix(vec3(0.28, 0.22, 0.16), vec3(0.18, 0.14, 0.10), gravelNoise * 0.6);
+                    vec3 wetTrack = vec3(0.10, 0.08, 0.06);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, mix(canyonRoad, wetTrack, rutMask * 0.88), smoothstep(0.02, 0.48, roadMask));
+                }
+            } else if (localZone == 8) {
+                // ZONE 8: ANCIENT EGYPT & THE GREAT PYRAMIDS
+                float duneRipple = sin(vTerrainWorldPos.x * 3.6 + vTerrainWorldPos.z * 2.4 + microNoise * 2.0) * 0.5 + 0.5;
+                vec3 sunlitGold  = vec3(0.48, 0.38, 0.22);
+                vec3 deepSand    = vec3(0.36, 0.28, 0.16);
+                vec3 limestoneDust = vec3(0.46, 0.42, 0.34);
+                vec3 duneTint = mix(deepSand, sunlitGold, macroPatch * 0.55 + duneRipple * 0.35 + microNoise * 0.10);
+                duneTint = mix(duneTint, limestoneDust, smoothstep(0.70, 0.90, macroPatch) * 0.45);
+                diffuseColor.rgb = mix(diffuseColor.rgb, duneTint, grassSurfaceMask * 0.90);
+
+                if (vTerrainSlope > 0.16) {
+                    vec3 weatheredLimestone = mix(vec3(0.38, 0.32, 0.22), vec3(0.48, 0.42, 0.32), gravelNoise * 0.7);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, weatheredLimestone, smoothstep(0.16, 0.36, vTerrainSlope));
+                }
+
+                if (roadMask > 0.02) {
+                    float distFromCenter = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
+                    float rutMask = exp(-pow(distFromCenter - 1.35, 2.0) / 0.28);
+                    vec3 caravanGravel = mix(vec3(0.32, 0.26, 0.18), vec3(0.24, 0.18, 0.12), gravelNoise * 0.6);
+                    vec3 dustyTrack = vec3(0.16, 0.12, 0.08);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, mix(caravanGravel, dustyTrack, rutMask * 0.82), smoothstep(0.02, 0.48, roadMask));
+                }
+
+                // Nile Valley fringe
+                float nileFringe = 1.0 - smoothstep(-2.55, -0.45, vTerrainWorldPos.y);
+                if (nileFringe > 0.001) {
+                    vec3 nileReeds = mix(vec3(0.06, 0.14, 0.03), vec3(0.08, 0.06, 0.04), microNoise * 0.5);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, nileReeds, nileFringe * (1.0 - roadMask * 0.7));
+                }
+            } else if (localZone == 9) {
+                // ZONE 9: PACIFIC TROPICAL JUNGLE & RAINFOREST
+                vec3 rainforestLoam = mix(vec3(0.018, 0.038, 0.012), vec3(0.042, 0.028, 0.015), macroPatch * 0.5);
+                vec3 emeraldMoss    = vec3(0.025, 0.095, 0.018);
+                vec3 jungleUndergrowth = mix(rainforestLoam, emeraldMoss, microNoise * 0.65 + macroPatch * 0.35);
+                jungleUndergrowth *= (0.95 + windWave * 0.08);
+                diffuseColor.rgb = mix(diffuseColor.rgb, jungleUndergrowth, grassSurfaceMask * 0.95);
+
+                // Mossy Karst Limestone Cliffs
+                if (vTerrainSlope > 0.15) {
+                    vec3 karstRock = mix(vec3(0.08, 0.11, 0.07), vec3(0.14, 0.16, 0.12), gravelNoise * 0.65);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, karstRock, smoothstep(0.15, 0.35, vTerrainSlope));
+                }
+
+                // Sunken Jungle Red Laterite Mud Road
+                if (roadMask > 0.02) {
+                    float distFromCenter = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
+                    float rutMask = exp(-pow(distFromCenter - 1.35, 2.0) / 0.28);
+                    vec3 redLaterite = mix(vec3(0.16, 0.08, 0.04), vec3(0.10, 0.05, 0.025), gravelNoise * 0.6);
+                    vec3 deepMudRut  = vec3(0.035, 0.018, 0.010);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, mix(redLaterite, deepMudRut, rutMask * 0.92), smoothstep(0.02, 0.48, roadMask));
+                }
+            } else if (localZone == 10) {
+                // ZONE 10: ANCIENT GREECE, ACROPOLIS PLATEAU & AEGEAN HILLS
+                vec3 oliveGarrigue = mix(vec3(0.12, 0.16, 0.07), vec3(0.28, 0.25, 0.16), macroPatch * 0.55 + microNoise * 0.25);
+                vec3 limestoneDust = vec3(0.42, 0.39, 0.32);
+                vec3 aegeanGround  = mix(oliveGarrigue, limestoneDust, smoothstep(0.62, 0.90, macroPatch) * 0.48);
+                aegeanGround *= (0.96 + windWave * 0.06);
+                diffuseColor.rgb = mix(diffuseColor.rgb, aegeanGround, grassSurfaceMask * 0.90);
+
+                // Sun-bleached Pentelic Marble & Attica Limestone Cliffs
+                if (vTerrainSlope > 0.14) {
+                    vec3 marbleCliff = mix(vec3(0.42, 0.40, 0.35), vec3(0.58, 0.55, 0.48), gravelNoise * 0.65 + microNoise * 0.35);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, marbleCliff, smoothstep(0.14, 0.32, vTerrainSlope));
+                }
+
+                // Classical Greek Panathenaic Sacred Way (pale limestone flagstones & gravel)
+                if (roadMask > 0.02) {
+                    float distFromCenter = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
+                    float rutMask = exp(-pow(distFromCenter - 1.35, 2.0) / 0.28);
+                    vec3 sacredStone = mix(vec3(0.38, 0.35, 0.29), vec3(0.28, 0.25, 0.20), gravelNoise * 0.55);
+                    vec3 chariotRut  = vec3(0.20, 0.18, 0.14);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, mix(sacredStone, chariotRut, rutMask * 0.75), smoothstep(0.02, 0.48, roadMask));
+                }
+            } else if (localZone == 11) {
+                // ZONE 11: IMPERIAL ROME, SEVEN HILLS & CAMPAGNA ROMANA
+                vec3 romanPasture  = mix(vec3(0.055, 0.115, 0.028), vec3(0.18, 0.15, 0.07), macroPatch * 0.52 + microNoise * 0.22);
+                vec3 terracottaSoil = vec3(0.26, 0.17, 0.10);
+                vec3 romanGround   = mix(romanPasture, terracottaSoil, smoothstep(0.65, 0.92, macroPatch) * 0.42);
+                romanGround *= (0.96 + windWave * 0.06);
+                diffuseColor.rgb = mix(diffuseColor.rgb, romanGround, grassSurfaceMask * 0.90);
+
+                // Warm Roman Travertine & Volcanic Tufa Bluffs on the Seven Hills
+                if (vTerrainSlope > 0.15) {
+                    vec3 travertineBluff = mix(vec3(0.32, 0.25, 0.18), vec3(0.46, 0.38, 0.28), gravelNoise * 0.6 + microNoise * 0.4);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, travertineBluff, smoothstep(0.15, 0.34, vTerrainSlope));
+                }
+
+                // Roman Via Appia Basalt Polygonal Cobblestone Road (Via Consularis)
+                if (roadMask > 0.02) {
+                    float distFromCenter = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
+                    float rutMask = exp(-pow(distFromCenter - 1.35, 2.0) / 0.28);
+                    vec3 viaBasalt = mix(vec3(0.18, 0.17, 0.16), vec3(0.12, 0.11, 0.10), gravelNoise * 0.65);
+                    vec3 travertineCurb = vec3(0.34, 0.29, 0.22);
+                    float curbMask = smoothstep(2.4, 3.6, distFromCenter) * (1.0 - smoothstep(3.6, 4.4, distFromCenter));
+                    vec3 romanRoad = mix(viaBasalt, vec3(0.08, 0.07, 0.06), rutMask * 0.72);
+                    romanRoad = mix(romanRoad, travertineCurb, curbMask * 0.65);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, romanRoad, smoothstep(0.02, 0.48, roadMask));
+                }
             } else {
                 // ZONE 0 (DEFAULT): COASTAL MEADOW COUNTRYSIDE
                 vec3 rootGround = vec3(0.028, 0.070, 0.014);
@@ -1114,15 +2082,21 @@ terrainMat.onBeforeCompile = (shader) => {
         `
         #include <roughnessmap_fragment>
         float rRoad = getRoadFactor_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
-        vec4 roughnessZones = getZoneWeights_gpu(vTerrainWorldPos.xz);
+        float rZones[6];
+        getZoneWeights6_gpu(vTerrainWorldPos.xz, rZones);
         if (rRoad > 0.05) {
             float distFromCenter = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
             float rut = exp(-pow(distFromCenter - 1.35, 2.0) / 0.35);
-            roughnessFactor = mix(roughnessFactor, mix(0.42, 0.78, roughnessZones.y), rut * rRoad);
+            float wetRutR = mix(0.42, 0.22, rZones[4]);
+            wetRutR = mix(wetRutR, 0.32, rZones[5]);
+            roughnessFactor = mix(roughnessFactor, mix(wetRutR, 0.78, rZones[1]), rut * rRoad);
         }
-        if (roughnessZones.z > 0.0 && vTerrainWorldPos.y > 15.0) {
+        if (rZones[2] > 0.0 && vTerrainWorldPos.y > 15.0) {
             float snowR = smoothstep(15.0, 20.0, vTerrainWorldPos.y - vTerrainSlope * 10.0);
-            roughnessFactor = mix(roughnessFactor, 0.36, snowR * 0.8 * roughnessZones.z);
+            roughnessFactor = mix(roughnessFactor, 0.36, snowR * 0.8 * rZones[2]);
+        }
+        if (rZones[4] > 0.0) {
+            roughnessFactor = mix(roughnessFactor, 0.52, rZones[4] * 0.75);
         }
         if (vTerrainWorldPos.y < -1.8) {
             float wetBeach = 1.0 - smoothstep(-2.6, -1.8, vTerrainWorldPos.y);
@@ -1171,6 +2145,10 @@ treeMaterial.onBeforeCompile = (shader) => {
     shader.uniforms.uSunDir = terrainUniforms.uSunDir;
     shader.uniforms.uSunColor = terrainUniforms.uSunColor;
     shader.uniforms.uFoliageMap = { value: getBotanicalAtlas() };
+    shader.uniforms.uSeedOffset = terrainUniforms.uSeedOffset;
+    shader.uniforms.uRoadBaseX = terrainUniforms.uRoadBaseX;
+    shader.uniforms.uZoneType = terrainUniforms.uZoneType;
+    shader.uniforms.uSpawnZone = terrainUniforms.uSpawnZone;
 
     shader.vertexShader = `
         uniform float uTime;
@@ -1236,6 +2214,7 @@ treeMaterial.onBeforeCompile = (shader) => {
         varying float vCanopyOuter;
         varying float vTreeWindWave;
         varying vec2 vFoliageUv;
+        ${SHARED_TERRAIN_GLSL}
     ` + shader.fragmentShader;
 
     // Prevent DoubleSide backface normal inversion on volumetric foliage cards while preserving 3D view-space lighting!
@@ -1256,6 +2235,11 @@ treeMaterial.onBeforeCompile = (shader) => {
         vec4 texelColor = texture2D(uFoliageMap, vFoliageUv);
         vec3 linearTexel = pow(max(texelColor.rgb, vec3(0.001)), vec3(2.2));
         bool isFoliage = (vFoliageUv.y > 0.5 || vFoliageUv.x < 0.5);
+
+        float wTreeZone[6];
+        getZoneWeights6_gpu(vTreeWorldPos.xz, wTreeZone);
+        float winterTreeFactor = clamp(wTreeZone[4] + wTreeZone[2] * smoothstep(11.0, 18.0, vTreeWorldPos.y), 0.0, 1.0);
+
         if (isFoliage) {
             if (texelColor.a < 0.36) discard;
             vec3 viewDir = normalize(cameraPosition - vTreeWorldPos);
@@ -1269,9 +2253,29 @@ treeMaterial.onBeforeCompile = (shader) => {
             vec3 sss = uSunColor * (backLight * 0.34 + sunDot * 0.18) * linearTexel * outerTip;
             vec3 halfVec = normalize(sunDir + viewDir);
             float specSheen = pow(max(dot(worldNorm, halfVec), 0.0), 14.0) * sunDot * vCanopyOuter;
-            diffuseColor.rgb = (linearTexel * diffuseColor.rgb + sss + uSunColor * specSheen * 0.08) * (0.90 + vTreeWindWave * 0.20 * vCanopyOuter);
+            vec3 treeBaseColor = (linearTexel * diffuseColor.rgb + sss + uSunColor * specSheen * 0.08) * (0.90 + vTreeWindWave * 0.20 * vCanopyOuter);
+
+            // Winter snow accumulation on conifer boughs, tiers & foliage canopy
+            if (winterTreeFactor > 0.01) {
+                float snowAngle = smoothstep(0.08, 0.58, worldNorm.y * 0.82 + vCanopyOuter * 0.35);
+                float needleSnow = clamp(snowAngle * 1.25, 0.0, 1.0) * winterTreeFactor;
+
+                vec3 snowSun = mix(vec3(0.80, 0.86, 0.95), vec3(0.96, 0.98, 1.0), sunDot * 0.5 + 0.5);
+                float needleSparkle = pow(max(dot(worldNorm, halfVec), 0.0), 24.0) * 0.28;
+                vec3 snowFoliageCol = snowSun * (0.92 + needleSparkle);
+
+                treeBaseColor = mix(treeBaseColor, snowFoliageCol, needleSnow * 0.92);
+            }
+
+            diffuseColor.rgb = treeBaseColor;
         } else {
-            diffuseColor.rgb = linearTexel * diffuseColor.rgb;
+            vec3 trunkBase = linearTexel * diffuseColor.rgb;
+            if (winterTreeFactor > 0.01) {
+                vec3 worldNorm = normalize(vTreeWorldNormal);
+                float trunkSnow = smoothstep(0.35, 0.85, worldNorm.y) * winterTreeFactor * 0.72;
+                trunkBase = mix(trunkBase, vec3(0.88, 0.92, 0.97), trunkSnow);
+            }
+            diffuseColor.rgb = trunkBase;
         }
         `
     );
@@ -1288,13 +2292,104 @@ function getVillageAtlas() {
     return villageAtlas;
 }
 
+const vInitAtlas = getVillageAtlas();
 const villageMat = new THREE.MeshStandardMaterial({
     vertexColors: true,
     roughness: 0.85,
     metalness: 0.04,
     envMapIntensity: GROUND_ENV_MAP_INTENSITY,
-    side: THREE.DoubleSide
+    side: THREE.DoubleSide,
+    map: vInitAtlas ? vInitAtlas.albedo : null,
+    normalMap: vInitAtlas ? vInitAtlas.normal : null,
+    normalScale: new THREE.Vector2(1.35, 1.35),
+    roughnessMap: vInitAtlas ? vInitAtlas.roughness : null
 });
+
+villageMat.onBeforeCompile = (shader) => {
+    shader.uniforms.uSeedOffset = terrainUniforms.uSeedOffset;
+    shader.uniforms.uRoadBaseX = terrainUniforms.uRoadBaseX;
+    shader.uniforms.uZoneType = terrainUniforms.uZoneType;
+    shader.uniforms.uSpawnZone = terrainUniforms.uSpawnZone;
+    shader.uniforms.uSunDir = terrainUniforms.uSunDir;
+    shader.uniforms.uSunColor = terrainUniforms.uSunColor;
+
+    shader.vertexShader = `
+        varying vec3 vBldgWorldPos;
+        varying vec3 vBldgWorldNormal;
+        varying vec3 vBldgModelPos;
+        varying vec2 vBldgUv;
+    ` + shader.vertexShader;
+
+    shader.vertexShader = shader.vertexShader.replace(
+        '#include <begin_vertex>',
+        `
+        #include <begin_vertex>
+        vBldgModelPos = position;
+        vBldgUv = uv;
+        vBldgWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;
+        vBldgWorldNormal = normalize((modelMatrix * vec4(normal, 0.0)).xyz);
+        `
+    );
+
+    shader.fragmentShader = `
+        uniform vec3 uSunDir;
+        uniform vec3 uSunColor;
+        varying vec3 vBldgWorldPos;
+        varying vec3 vBldgWorldNormal;
+        varying vec3 vBldgModelPos;
+        varying vec2 vBldgUv;
+        ${SHARED_TERRAIN_GLSL}
+    ` + shader.fragmentShader;
+
+    shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <normal_fragment_maps>',
+        `
+        #include <normal_fragment_maps>
+        #ifdef USE_NORMALMAP
+        float wBldgZoneNorm[6];
+        getZoneWeights6_gpu(vBldgWorldPos.xz, wBldgZoneNorm);
+        float winterBldgFactorNorm = clamp(wBldgZoneNorm[4] + wBldgZoneNorm[2] * smoothstep(11.0, 18.0, vBldgWorldPos.y), 0.0, 1.0);
+        bool isRoofSurfNorm = (vBldgWorldNormal.y > 0.22) && (vBldgModelPos.y > 1.2 || (vBldgUv.x > 0.50 && vBldgUv.y > 0.50));
+        if (isRoofSurfNorm && winterBldgFactorNorm > 0.05) {
+            float roofSmooth = smoothstep(0.22, 0.50, vBldgWorldNormal.y) * winterBldgFactorNorm;
+            normal = normalize(mix(normal, normalize(vNormal), roofSmooth * 0.82));
+        }
+        #endif
+        `
+    );
+
+    shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <color_fragment>',
+        `
+        #include <color_fragment>
+        float wBldgZone[6];
+        getZoneWeights6_gpu(vBldgWorldPos.xz, wBldgZone);
+        float winterBldgFactor = clamp(wBldgZone[4] + wBldgZone[2] * smoothstep(11.0, 18.0, vBldgWorldPos.y), 0.0, 1.0);
+
+        bool isRoofSurface = (vBldgWorldNormal.y > 0.22) && (vBldgModelPos.y > 1.2 || (vBldgUv.x > 0.50 && vBldgUv.y > 0.50));
+
+        if (winterBldgFactor > 0.02) {
+            vec3 sunD = normalize(uSunDir);
+            float sunLit = max(dot(vBldgWorldNormal, sunD), 0.0);
+
+            if (isRoofSurface) {
+                float roofSlope = smoothstep(0.20, 0.48, vBldgWorldNormal.y);
+                float roofSnow = roofSlope * winterBldgFactor;
+
+                vec3 roofSnowColor = mix(vec3(0.80, 0.86, 0.94), vec3(0.96, 0.98, 1.0), sunLit * 0.45 + 0.55);
+                float drift = sin(vBldgWorldPos.x * 2.8 + vBldgWorldPos.z * 1.9) * cos(vBldgWorldPos.z * 2.4) * 0.04;
+                roofSnowColor += drift;
+
+                diffuseColor.rgb = mix(diffuseColor.rgb, roofSnowColor, roofSnow * 0.96);
+            } else if (vBldgWorldNormal.y > 0.70 && vBldgModelPos.y > 0.75) {
+                float ledgeSnow = smoothstep(0.70, 0.90, vBldgWorldNormal.y) * winterBldgFactor * 0.75;
+                vec3 ledgeSnowColor = vec3(0.92, 0.95, 0.98);
+                diffuseColor.rgb = mix(diffuseColor.rgb, ledgeSnowColor, ledgeSnow);
+            }
+        }
+        `
+    );
+};
 
 const rockMat = new THREE.MeshStandardMaterial({
     color: new THREE.Color(0x6b6861).convertSRGBToLinear(),
@@ -1322,7 +2417,406 @@ const mountainRockMat = new THREE.MeshStandardMaterial({
     side: THREE.DoubleSide
 });
 
+const monumentRockMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(0xffffff),
+    vertexColors: true,
+    roughness: 0.88,
+    metalness: 0.02,
+    envMapIntensity: GROUND_ENV_MAP_INTENSITY,
+    side: THREE.DoubleSide
+});
+
+const canyonRockMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(0xffffff),
+    vertexColors: true,
+    roughness: 0.90,
+    metalness: 0.02,
+    envMapIntensity: GROUND_ENV_MAP_INTENSITY,
+    side: THREE.DoubleSide
+});
+
+const egyptSandstoneMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(0xffffff),
+    vertexColors: true,
+    roughness: 0.82,
+    metalness: 0.03,
+    envMapIntensity: GROUND_ENV_MAP_INTENSITY,
+    side: THREE.DoubleSide
+});
+
+const jungleTempleMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(0xffffff),
+    vertexColors: true,
+    roughness: 0.88,
+    metalness: 0.02,
+    envMapIntensity: GROUND_ENV_MAP_INTENSITY,
+    side: THREE.DoubleSide
+});
+
+const greekMarbleMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(0xffffff),
+    vertexColors: true,
+    roughness: 0.72,
+    metalness: 0.04,
+    envMapIntensity: GROUND_ENV_MAP_INTENSITY,
+    side: THREE.DoubleSide
+});
+
+const romanTravertineMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(0xffffff),
+    vertexColors: true,
+    roughness: 0.80,
+    metalness: 0.03,
+    envMapIntensity: GROUND_ENV_MAP_INTENSITY,
+    side: THREE.DoubleSide
+});
+
 let sharedRockNormalMap = null;
+let sharedMonumentSandstonePBR = null;
+let sharedEgyptLimestonePBR = null;
+let sharedJungleTemplePBR = null;
+let sharedGreekMarblePBR = null;
+let sharedRomanTravertinePBR = null;
+
+function finalizePBRDataTexture(rgbaData, size) {
+    const tex = new THREE.DataTexture(rgbaData, size, size, THREE.RGBAFormat);
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.generateMipmaps = true;
+    tex.minFilter = THREE.LinearMipmapLinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.anisotropy = 4;
+    tex.needsUpdate = true;
+    return tex;
+}
+
+function createMonumentSandstonePBR() {
+    const size = 256;
+    const albedoData = new Uint8Array(size * size * 4);
+    const normData = new Uint8Array(size * size * 4);
+    const heights = new Float32Array(size * size);
+
+    for (let y = 0; y < size; y++) {
+        const v = y / size;
+        // Multi-scale horizontal Navajo / De Chelly sandstone sedimentary bedding planes
+        const bed1 = Math.sin(v * Math.PI * 14.0);
+        const bed2 = Math.sin(v * Math.PI * 32.0 + 1.2) * 0.50;
+        const bed3 = Math.cos(v * Math.PI * 64.0 - 0.7) * 0.25;
+        const strataWave = (bed1 + bed2 + bed3) / 1.75;
+
+        for (let x = 0; x < size; x++) {
+            const u = x / size;
+            const crossBed = Math.sin((v * 18.0 + Math.sin(u * Math.PI * 4.0) * 0.45) * Math.PI) * 0.20;
+            const grain = (hash2D(x * 0.35, y * 0.35) - 0.5) * 0.08;
+            // Vertical desert-varnish mineral streaks on cliff faces
+            const varnish = Math.max(0.0, Math.sin(u * Math.PI * 14.0 + Math.sin(v * Math.PI * 4.0) * 1.5)) * 0.08;
+            const h = strataWave * 0.42 + crossBed + grain;
+            heights[y * size + x] = h;
+
+            const idx = (y * size + x) * 4;
+            const bandLight = 0.90 + strataWave * 0.11 + crossBed * 0.12 + grain * 0.14 - varnish;
+            albedoData[idx]     = Math.min(255, Math.max(160, Math.round((0.97 * bandLight + (strataWave > 0.2 ? 0.03 : 0.0)) * 255)));
+            albedoData[idx + 1] = Math.min(255, Math.max(130, Math.round((0.90 * bandLight + (strataWave > 0.35 ? 0.05 : -0.02)) * 255)));
+            albedoData[idx + 2] = Math.min(255, Math.max(110, Math.round((0.84 * bandLight + (strataWave > 0.35 ? 0.06 : -0.04)) * 255)));
+            albedoData[idx + 3] = 255;
+        }
+    }
+
+    for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+            const left = heights[y * size + (x + size - 1) % size];
+            const right = heights[y * size + (x + 1) % size];
+            const down = heights[((y + size - 1) % size) * size + x];
+            const up = heights[((y + 1) % size) * size + x];
+            const n = new THREE.Vector3(-(right - left) * 2.2, -(up - down) * 3.8, 1.0).normalize();
+            const idx = (y * size + x) * 4;
+            normData[idx]     = Math.round((n.x * 0.5 + 0.5) * 255);
+            normData[idx + 1] = Math.round((n.y * 0.5 + 0.5) * 255);
+            normData[idx + 2] = Math.round((n.z * 0.5 + 0.5) * 255);
+            normData[idx + 3] = 255;
+        }
+    }
+
+    return {
+        albedo: finalizePBRDataTexture(albedoData, size),
+        normal: finalizePBRDataTexture(normData, size)
+    };
+}
+
+function createEgyptLimestonePBR() {
+    const size = 256;
+    const albedoData = new Uint8Array(size * size * 4);
+    const normData = new Uint8Array(size * size * 4);
+    const heights = new Float32Array(size * size);
+    const courses = 10;
+    const blocksPerRow = 5;
+
+    for (let y = 0; y < size; y++) {
+        const v = y / size;
+        const coursePos = v * courses;
+        const courseIdx = Math.floor(coursePos);
+        const courseFrac = coursePos - courseIdx;
+
+        for (let x = 0; x < size; x++) {
+            const u = x / size;
+            const rowStagger = (courseIdx % 2) * 0.5 + ((courseIdx * 37) % 5) * 0.08;
+            const blockPos = u * blocksPerRow + rowStagger;
+            const blockIdx = Math.floor(blockPos);
+            const blockFrac = blockPos - blockIdx;
+
+            // Recessed horizontal and vertical limestone ashlar mortar seams + weathered bevels
+            const hJoint = Math.min(courseFrac, 1.0 - courseFrac);
+            const vJoint = Math.min(blockFrac, 1.0 - blockFrac);
+            const hBevel = smoothstep(0.0, 0.11, hJoint);
+            const vBevel = smoothstep(0.0, 0.08, vJoint);
+            const blockBevel = hBevel * vBevel;
+
+            // Per-block warm Tura/Giza limestone variation & wind-pitted desert patina
+            const blockSeed = hash2D(blockIdx * 13.0 + courseIdx * 7.0, courseIdx * 29.0);
+            const pitNoise = Math.sin(v * Math.PI * 24.0 + u * 6.0) * 0.04;
+            const h = blockBevel * 0.65 + (blockSeed - 0.5) * 0.12 + pitNoise;
+            heights[y * size + x] = h;
+
+            const mortarDark = 0.74 + 0.26 * blockBevel;
+            const blockTone = (0.92 + (blockSeed - 0.5) * 0.12 + pitNoise * 0.25) * mortarDark;
+            const warmShift = (blockSeed - 0.5) * 0.04;
+            const idx = (y * size + x) * 4;
+            albedoData[idx]     = Math.min(255, Math.max(155, Math.round((blockTone + warmShift) * 255)));
+            albedoData[idx + 1] = Math.min(255, Math.max(140, Math.round((blockTone * 0.96) * 255)));
+            albedoData[idx + 2] = Math.min(255, Math.max(115, Math.round((blockTone * 0.89 - warmShift) * 255)));
+            albedoData[idx + 3] = 255;
+        }
+    }
+
+    for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+            const left = heights[y * size + (x + size - 1) % size];
+            const right = heights[y * size + (x + 1) % size];
+            const down = heights[((y + size - 1) % size) * size + x];
+            const up = heights[((y + 1) % size) * size + x];
+            const n = new THREE.Vector3(-(right - left) * 2.6, -(up - down) * 3.2, 1.0).normalize();
+            const idx = (y * size + x) * 4;
+            normData[idx]     = Math.round((n.x * 0.5 + 0.5) * 255);
+            normData[idx + 1] = Math.round((n.y * 0.5 + 0.5) * 255);
+            normData[idx + 2] = Math.round((n.z * 0.5 + 0.5) * 255);
+            normData[idx + 3] = 255;
+        }
+    }
+
+    return {
+        albedo: finalizePBRDataTexture(albedoData, size),
+        normal: finalizePBRDataTexture(normData, size)
+    };
+}
+
+function createJungleTemplePBR() {
+    const size = 256;
+    const albedoData = new Uint8Array(size * size * 4);
+    const normData = new Uint8Array(size * size * 4);
+    const heights = new Float32Array(size * size);
+    const courses = 8;
+    const blocksPerRow = 4;
+
+    for (let y = 0; y < size; y++) {
+        const v = y / size;
+        const coursePos = v * courses;
+        const courseIdx = Math.floor(coursePos);
+        const courseFrac = coursePos - courseIdx;
+        const isFriezeRow = (courseIdx % 4 === 2);
+
+        for (let x = 0; x < size; x++) {
+            const u = x / size;
+            const stagger = (courseIdx % 2) * 0.5;
+            const blockPos = u * blocksPerRow + stagger;
+            const blockIdx = Math.floor(blockPos);
+            const blockFrac = blockPos - blockIdx;
+
+            const hJoint = Math.min(courseFrac, 1.0 - courseFrac);
+            const vJoint = Math.min(blockFrac, 1.0 - blockFrac);
+            const seam = smoothstep(0.0, 0.12, hJoint) * smoothstep(0.0, 0.09, vJoint);
+
+            // Carved Mesoamerican / Khmer geometric step-fret relief pattern on frieze rows
+            let relief = 0.0;
+            if (isFriezeRow && courseFrac > 0.20 && courseFrac < 0.80) {
+                const fretX = Math.floor(u * 16.0) % 4;
+                const fretY = courseFrac > 0.5 ? 1 : 0;
+                relief = ((fretX + fretY) % 2 === 0) ? 0.16 : -0.10;
+            }
+
+            const blockSeed = hash2D(blockIdx * 19.0 + courseIdx * 11.0, courseIdx * 23.0);
+            const mossWave = Math.sin(u * Math.PI * 6.0 + courseIdx * 1.7) * Math.cos(v * Math.PI * 8.0) * 0.5 + 0.5;
+            const mossMask = Math.max(0.0, (1.0 - seam) * 0.60 + (mossWave > 0.58 ? (mossWave - 0.58) * 1.3 : 0.0));
+
+            const h = seam * 0.65 + relief + (blockSeed - 0.5) * 0.10;
+            heights[y * size + x] = h;
+
+            const stoneVal = (0.52 + 0.32 * seam) * (0.86 + (blockSeed - 0.5) * 0.14 + relief * 0.22);
+            const rStone = stoneVal * 0.88;
+            const gStone = stoneVal * 0.86;
+            const bStone = stoneVal * 0.78;
+
+            // Blend lush jade-emerald moss into recessed mortar joints and mossy stone patches
+            const mAmt = Math.min(0.72, mossMask);
+            const r = rStone * (1.0 - mAmt) + 0.22 * mAmt;
+            const g = gStone * (1.0 - mAmt) + 0.44 * mAmt;
+            const b = bStone * (1.0 - mAmt) + 0.18 * mAmt;
+
+            const idx = (y * size + x) * 4;
+            albedoData[idx]     = Math.min(255, Math.max(55, Math.round(r * 255)));
+            albedoData[idx + 1] = Math.min(255, Math.max(60, Math.round(g * 255)));
+            albedoData[idx + 2] = Math.min(255, Math.max(48, Math.round(b * 255)));
+            albedoData[idx + 3] = 255;
+        }
+    }
+
+    for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+            const left = heights[y * size + (x + size - 1) % size];
+            const right = heights[y * size + (x + 1) % size];
+            const down = heights[((y + size - 1) % size) * size + x];
+            const up = heights[((y + 1) % size) * size + x];
+            const n = new THREE.Vector3(-(right - left) * 2.8, -(up - down) * 3.2, 1.0).normalize();
+            const idx = (y * size + x) * 4;
+            normData[idx]     = Math.round((n.x * 0.5 + 0.5) * 255);
+            normData[idx + 1] = Math.round((n.y * 0.5 + 0.5) * 255);
+            normData[idx + 2] = Math.round((n.z * 0.5 + 0.5) * 255);
+            normData[idx + 3] = 255;
+        }
+    }
+
+    return {
+        albedo: finalizePBRDataTexture(albedoData, size),
+        normal: finalizePBRDataTexture(normData, size)
+    };
+}
+
+function createGreekMarblePBR() {
+    const size = 256;
+    const albedoData = new Uint8Array(size * size * 4);
+    const normData = new Uint8Array(size * size * 4);
+    const heights = new Float32Array(size * size);
+    const courses = 8;
+    const blocksPerRow = 4;
+
+    for (let y = 0; y < size; y++) {
+        const v = y / size;
+        const coursePos = v * courses;
+        const courseIdx = Math.floor(coursePos);
+        const courseFrac = coursePos - courseIdx;
+
+        for (let x = 0; x < size; x++) {
+            const u = x / size;
+            const stagger = (courseIdx % 2) * 0.5;
+            const blockPos = u * blocksPerRow + stagger;
+            const blockIdx = Math.floor(blockPos);
+            const blockFrac = blockPos - blockIdx;
+
+            const hJoint = Math.min(courseFrac, 1.0 - courseFrac);
+            const vJoint = Math.min(blockFrac, 1.0 - blockFrac);
+            const seam = smoothstep(0.0, 0.07, hJoint) * smoothstep(0.0, 0.06, vJoint);
+
+            // Subtle Pentelic marble veining & fine fluted/chiseled relief
+            const vein = Math.sin((u * 4.5 + v * 3.2 + Math.sin(u * 12.0) * 0.25) * Math.PI) * 0.5 + 0.5;
+            const veinLine = Math.pow(vein, 8.0) * 0.08;
+            const blockSeed = hash2D(blockIdx * 17.0 + courseIdx * 13.0, courseIdx * 31.0);
+            const fluteMicro = Math.sin(u * Math.PI * 32.0) * 0.03;
+
+            const h = seam * 0.65 + (blockSeed - 0.5) * 0.06 + fluteMicro - veinLine * 0.3;
+            heights[y * size + x] = h;
+
+            const tone = (0.88 + 0.12 * seam) * (0.95 + (blockSeed - 0.5) * 0.06 - veinLine);
+            const idx = (y * size + x) * 4;
+            albedoData[idx]     = Math.min(255, Math.max(185, Math.round(tone * 255)));
+            albedoData[idx + 1] = Math.min(255, Math.max(180, Math.round(tone * 0.98 * 255)));
+            albedoData[idx + 2] = Math.min(255, Math.max(170, Math.round(tone * 0.94 * 255)));
+            albedoData[idx + 3] = 255;
+        }
+    }
+
+    for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+            const left = heights[y * size + (x + size - 1) % size];
+            const right = heights[y * size + (x + 1) % size];
+            const down = heights[((y + size - 1) % size) * size + x];
+            const up = heights[((y + 1) % size) * size + x];
+            const n = new THREE.Vector3(-(right - left) * 2.4, -(up - down) * 2.8, 1.0).normalize();
+            const idx = (y * size + x) * 4;
+            normData[idx]     = Math.round((n.x * 0.5 + 0.5) * 255);
+            normData[idx + 1] = Math.round((n.y * 0.5 + 0.5) * 255);
+            normData[idx + 2] = Math.round((n.z * 0.5 + 0.5) * 255);
+            normData[idx + 3] = 255;
+        }
+    }
+
+    return {
+        albedo: finalizePBRDataTexture(albedoData, size),
+        normal: finalizePBRDataTexture(normData, size)
+    };
+}
+
+function createRomanTravertinePBR() {
+    const size = 256;
+    const albedoData = new Uint8Array(size * size * 4);
+    const normData = new Uint8Array(size * size * 4);
+    const heights = new Float32Array(size * size);
+    const courses = 9;
+    const blocksPerRow = 4;
+
+    for (let y = 0; y < size; y++) {
+        const v = y / size;
+        const coursePos = v * courses;
+        const courseIdx = Math.floor(coursePos);
+        const courseFrac = coursePos - courseIdx;
+
+        for (let x = 0; x < size; x++) {
+            const u = x / size;
+            const stagger = (courseIdx % 2) * 0.5;
+            const blockPos = u * blocksPerRow + stagger;
+            const blockIdx = Math.floor(blockPos);
+            const blockFrac = blockPos - blockIdx;
+
+            const hJoint = Math.min(courseFrac, 1.0 - courseFrac);
+            const vJoint = Math.min(blockFrac, 1.0 - blockFrac);
+            const seam = smoothstep(0.0, 0.10, hJoint) * smoothstep(0.0, 0.08, vJoint);
+
+            // Characteristic horizontal porous cavities (vugs) of Roman Tivoli travertine
+            const poreNoise = Math.sin(u * Math.PI * 22.0 + courseIdx * 2.1) * Math.cos(v * Math.PI * 44.0);
+            const porePit = poreNoise > 0.72 ? -(poreNoise - 0.72) * 0.45 : 0.0;
+            const blockSeed = hash2D(blockIdx * 23.0 + courseIdx * 9.0, courseIdx * 19.0);
+
+            const h = seam * 0.68 + porePit + (blockSeed - 0.5) * 0.10;
+            heights[y * size + x] = h;
+
+            const tone = (0.78 + 0.22 * seam) * (0.93 + (blockSeed - 0.5) * 0.10 + porePit * 0.35);
+            const idx = (y * size + x) * 4;
+            albedoData[idx]     = Math.min(255, Math.max(160, Math.round(tone * 255)));
+            albedoData[idx + 1] = Math.min(255, Math.max(145, Math.round(tone * 0.94 * 255)));
+            albedoData[idx + 2] = Math.min(255, Math.max(125, Math.round(tone * 0.85 * 255)));
+            albedoData[idx + 3] = 255;
+        }
+    }
+
+    for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+            const left = heights[y * size + (x + size - 1) % size];
+            const right = heights[y * size + (x + 1) % size];
+            const down = heights[((y + size - 1) % size) * size + x];
+            const up = heights[((y + 1) % size) * size + x];
+            const n = new THREE.Vector3(-(right - left) * 2.8, -(up - down) * 3.4, 1.0).normalize();
+            const idx = (y * size + x) * 4;
+            normData[idx]     = Math.round((n.x * 0.5 + 0.5) * 255);
+            normData[idx + 1] = Math.round((n.y * 0.5 + 0.5) * 255);
+            normData[idx + 2] = Math.round((n.z * 0.5 + 0.5) * 255);
+            normData[idx + 3] = 255;
+        }
+    }
+
+    return {
+        albedo: finalizePBRDataTexture(albedoData, size),
+        normal: finalizePBRDataTexture(normData, size)
+    };
+}
+
 function createRockNormalMap() {
     const size = 128;
     const heights = new Float32Array(size * size);
@@ -1784,8 +3278,8 @@ function createDetailedDeciduousGeometry() {
     return mergeBufferGeometries(parts);
 }
 
-// 5D. Detailed Flowering Meadow Bush / Hawthorn Shrub (Botanical Atlas Q2)
-function createDetailedBushGeometry() {
+// 5D. Detailed Broadleaf Undergrowth Bush / Shrub (Botanical Atlas Q1 or Q2)
+function createDetailedBushGeometry(useFlowerQuad = false) {
     const parts = [];
     const bushCenter = new THREE.Vector3(0, 0.35, 0);
     const lobes = [
@@ -1802,11 +3296,15 @@ function createDetailedBushGeometry() {
         { rx:  0.24, ry: 2.10, rz:  0.14 },
         { rx:  0.88, ry: 0.78, rz:  0.00 }
     ];
+    const u0 = useFlowerQuad ? 0.02 : 0.52;
+    const u1 = useFlowerQuad ? 0.48 : 0.98;
+    const v0 = useFlowerQuad ? 0.02 : 0.52;
+    const v1 = useFlowerQuad ? 0.48 : 0.98;
     lobes.forEach(([bx, by, bz, br, shade], lIdx) => {
         bushOrientations.forEach(ori => {
             const w = br * 1.35;
             const h = br * 1.25;
-            const card = createCurvedFoliageCard(w, h, 0.22, 0.02, 0.48, 0.02, 0.48);
+            const card = createCurvedFoliageCard(w, h, 0.22, u0, u1, v0, v1);
             card.translate(0, -h * 0.48, 0);
             card.rotateZ(ori.rz);
             card.rotateX(ori.rx);
@@ -1878,10 +3376,26 @@ function createLimestoneRockGeometry() {
             col[k * 3 + 2] = 0.58 * shade;
         }
         geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+        applyWorldBoxUVs(geo, 0.22, 0.30);
         parts.push(geo);
     });
 
-    return mergeBufferGeometries(parts);
+    const merged = mergeBufferGeometries(parts);
+    merged.userData = {
+        isRock: true,
+        useMeshRaycastOnly: true,
+        collisionCircles: [
+            { x:  0.0,  z:  0.0,  r: 2.50 },
+            { x: -1.3,  z:  0.2,  r: 2.20 },
+            { x:  1.2,  z: -0.2,  r: 2.10 },
+            { x: -2.6,  z:  0.4,  r: 1.95 },
+            { x:  2.3,  z: -0.5,  r: 1.90 },
+            { x:  0.4,  z: -0.4,  r: 1.80 },
+            { x:  0.0,  z:  1.2,  r: 1.50 },
+            { x:  0.0,  z: -1.2,  r: 1.50 }
+        ]
+    };
+    return merged;
 }
 
 // ============================================================================
@@ -2184,16 +3698,16 @@ function createEuropeanCottageGeometry() {
     return merged;
 }
 
-// 5G. Smoldering Ruined House (Mapped to Village Atlas Q2 Masonry & Q3 Charred Timber with Soot AO)
+// 5G. Smoldering Ruined House (Walk-In & Standable Multi-Level Ruin with Stepped Masonry Ledges)
 function createRuinedHouseGeometry() {
     const parts = [];
-    const w = 5.0, h = 3.0, l = 6.4;
+    const w = 5.4, h = 3.0, l = 6.6;
 
     function tintRuinPart(geo, r, g, b) {
         const c = new Float32Array(geo.attributes.position.count * 3);
         for (let i = 0; i < geo.attributes.position.count; i++) {
             const vy = geo.attributes.position.getY(i);
-            const soot = 0.42 + 0.38 * Math.min(1.0, Math.max(0.0, (2.2 - vy) / 2.2));
+            const soot = 0.42 + 0.38 * Math.min(1.0, Math.max(0.0, (2.4 - Math.max(0, vy)) / 2.4));
             c[i * 3 + 0] = r * soot;
             c[i * 3 + 1] = g * soot;
             c[i * 3 + 2] = b * soot;
@@ -2202,31 +3716,91 @@ function createRuinedHouseGeometry() {
         return geo;
     }
 
-    const baseShell = new THREE.BoxGeometry(w, h * 0.62, l);
-    setGeometryUVBox(baseShell, 0.02, 0.48, 0.02, 0.48);
-    baseShell.translate(0, h * 0.31, 0);
-    parts.push(tintRuinPart(baseShell, 0.72, 0.68, 0.64));
+    // 1. Sub-terrain foundation skirt & walkable stone/rubble floor slab (top at y = 0.32m)
+    const foundH = 3.6;
+    const foundation = new THREE.BoxGeometry(w + 0.4, foundH, l + 0.4);
+    setGeometryUVBox(foundation, 0.02, 0.48, 0.02, 0.48);
+    foundation.translate(0, -foundH * 0.5 + 0.04, 0);
+    parts.push(tintRuinPart(foundation, 0.55, 0.52, 0.48));
 
-    const gableWall = new THREE.BoxGeometry(w * 0.88, h * 1.15, 0.48);
+    const floorH = 0.32;
+    const floorSlab = new THREE.BoxGeometry(w, floorH, l);
+    setGeometryUVBox(floorSlab, 0.02, 0.48, 0.02, 0.48);
+    floorSlab.translate(0, floorH * 0.5, 0);
+    parts.push(tintRuinPart(floorSlab, 0.68, 0.64, 0.60));
+
+    // 2. Standing broken perimeter walls (leaving wide walk-in breaches on front-left +Z and right +X)
+    // Back gable wall (-Z)
+    const gableWall = new THREE.BoxGeometry(w, h * 1.15, 0.56);
     setGeometryUVBox(gableWall, 0.02, 0.48, 0.02, 0.48);
-    gableWall.translate(0, h * 0.58, -l * 0.45);
+    gableWall.translate(0, h * 0.575, -l * 0.5 + 0.28);
     parts.push(tintRuinPart(gableWall, 0.65, 0.60, 0.56));
 
-    const chimney = new THREE.BoxGeometry(0.85, 4.4, 0.85);
+    // Tall brick chimney (-X, -Z corner)
+    const chimney = new THREE.BoxGeometry(0.95, 4.4, 0.95);
     setGeometryUVBox(chimney, 0.02, 0.48, 0.02, 0.48);
-    chimney.translate(-w * 0.25, 2.2, -l * 0.35);
+    chimney.translate(-w * 0.28, 2.2, -l * 0.34);
     parts.push(tintRuinPart(chimney, 0.58, 0.54, 0.50));
 
-    // Charred dark fallen timber rafters
-    for (let r = -2; r <= 2; r++) {
-        const rafter = new THREE.BoxGeometry(0.18, 3.1, 0.18);
+    // Left standing wall segment (-X)
+    const leftWall = new THREE.BoxGeometry(0.56, 2.15, l * 0.72);
+    setGeometryUVBox(leftWall, 0.02, 0.48, 0.02, 0.48);
+    leftWall.translate(-w * 0.5 + 0.28, 1.075, -l * 0.14);
+    parts.push(tintRuinPart(leftWall, 0.70, 0.66, 0.62));
+
+    // Front-right standing wall corner (+Z, +X)
+    const frontRightWall = new THREE.BoxGeometry(w * 0.38, 1.95, 0.56);
+    setGeometryUVBox(frontRightWall, 0.02, 0.48, 0.02, 0.48);
+    frontRightWall.translate(w * 0.31, 0.975, l * 0.5 - 0.28);
+    parts.push(tintRuinPart(frontRightWall, 0.72, 0.68, 0.64));
+
+    // 3. Stepped climbable masonry ruin ledges (so soldiers can walk/jump up and stand on the ruin!)
+    const step1 = new THREE.BoxGeometry(2.1, 0.76, 2.2);
+    setGeometryUVBox(step1, 0.02, 0.48, 0.02, 0.48);
+    step1.translate(w * 0.26, 0.38, 0.9);
+    parts.push(tintRuinPart(step1, 0.72, 0.68, 0.64));
+
+    const step2 = new THREE.BoxGeometry(2.1, 1.24, 2.2);
+    setGeometryUVBox(step2, 0.02, 0.48, 0.02, 0.48);
+    step2.translate(w * 0.26, 0.62, -1.1);
+    parts.push(tintRuinPart(step2, 0.70, 0.66, 0.62));
+
+    const step3 = new THREE.BoxGeometry(1.8, 1.68, 1.8);
+    setGeometryUVBox(step3, 0.02, 0.48, 0.02, 0.48);
+    step3.translate(-0.4, 0.84, -1.6);
+    parts.push(tintRuinPart(step3, 0.66, 0.62, 0.58));
+
+    // Charred dark fallen timber rafters above the high back corner
+    for (let r = -1; r <= 1; r++) {
+        const rafter = new THREE.BoxGeometry(0.18, 2.8, 0.18);
         setGeometryUVBox(rafter, 0.52, 0.98, 0.02, 0.48);
         rafter.rotateZ(0.72 + (r * 0.04));
-        rafter.translate(-1.0, h * 0.78, r * 1.15);
+        rafter.translate(-1.1, h * 0.86, -1.5 + r * 0.85);
         parts.push(tintRuinPart(rafter, 0.25, 0.20, 0.16));
     }
 
-    return mergeBufferGeometries(parts);
+    const merged = mergeBufferGeometries(parts);
+    merged.userData = {
+        useMeshRaycastOnly: true,
+        collisionBoxes: [
+            // Full-height standing walls & chimney
+            { minX: -w * 0.5, maxX: w * 0.5, minZ: -l * 0.5, maxZ: -l * 0.5 + 0.58 },
+            { minX: -w * 0.28 - 0.5, maxX: -w * 0.28 + 0.5, minZ: -l * 0.34 - 0.5, maxZ: -l * 0.34 + 0.5 },
+            { minX: -w * 0.5, maxX: -w * 0.5 + 0.58, minZ: -l * 0.5, maxZ: l * 0.22 },
+            { minX: w * 0.12, maxX: w * 0.5, minZ: l * 0.5 - 0.58, maxZ: l * 0.5 },
+            // Stepped climbable ruin ledges (height-capped so soldiers can climb & stand on top!)
+            { minX: w * 0.26 - 1.05, maxX: w * 0.26 + 1.05, minZ: -0.2, maxZ: 2.0, maxY: 0.76 },
+            { minX: w * 0.26 - 1.05, maxX: w * 0.26 + 1.05, minZ: -2.2, maxZ: 0.0, maxY: 1.24 },
+            { minX: -1.3, maxX: 0.5, minZ: -2.5, maxZ: -0.7, maxY: 1.68 }
+        ],
+        walkablePlatforms: [
+            { minX: -w * 0.5 - 0.15, maxX: w * 0.5 + 0.15, minZ: -l * 0.5 - 0.15, maxZ: l * 0.5 + 0.15, y: floorH },
+            { minX: w * 0.26 - 1.05, maxX: w * 0.26 + 1.05, minZ: -0.2, maxZ: 2.0, y: 0.76 },
+            { minX: w * 0.26 - 1.05, maxX: w * 0.26 + 1.05, minZ: -2.2, maxZ: 0.0, y: 1.24 },
+            { minX: -1.3, maxX: 0.5, minZ: -2.5, maxZ: -0.7, y: 1.68 }
+        ]
+    };
+    return merged;
 }
 
 // 5H. European Farm Barn with Walk-In Open Double Doors
@@ -2621,7 +4195,7 @@ function createDesertCactusGeometry(variant = 0) {
 }
 
 // 5L. Desert Stratified Sandstone Rock & Eroded Hoodoo Outcrop
-function createSandstoneRockGeometry() {
+function createSandstoneRockGeometry(isRedMonument = false) {
     const parts = [];
     const slabs = [
         { x: 0,     y: 1.95, z: 0,     sx: 3.5, sy: 2.10, sz: 2.8, rot: 0.15 },
@@ -2647,17 +4221,39 @@ function createSandstoneRockGeometry() {
         const col = new Float32Array(p.count * 3);
         for (let k = 0; k < p.count; k++) {
             const vy = p.getY(k);
-            const band = 0.85 + 0.15 * Math.sin(vy * 5.2);
-            const shade = (0.58 + 0.32 * Math.min(1.0, Math.max(0.0, vy / 4.2))) * band;
-            col[k * 3 + 0] = 0.92 * shade;
-            col[k * 3 + 1] = 0.68 * shade;
-            col[k * 3 + 2] = 0.46 * shade;
+            const band = 0.88 + 0.12 * Math.sin(vy * 5.2);
+            const shade = (0.64 + 0.32 * Math.min(1.0, Math.max(0.0, vy / 4.2))) * band;
+            if (isRedMonument) {
+                col[k * 3 + 0] = 0.88 * shade;
+                col[k * 3 + 1] = 0.39 * shade;
+                col[k * 3 + 2] = 0.24 * shade;
+            } else {
+                col[k * 3 + 0] = 0.92 * shade;
+                col[k * 3 + 1] = 0.68 * shade;
+                col[k * 3 + 2] = 0.46 * shade;
+            }
         }
         geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+        applyWorldBoxUVs(geo, 0.22, 0.30);
         parts.push(geo);
     });
 
-    return mergeBufferGeometries(parts);
+    const merged = mergeBufferGeometries(parts);
+    merged.userData = {
+        isRock: true,
+        useMeshRaycastOnly: true,
+        collisionCircles: [
+            { x:  0.0,  z:  0.0,  r: 2.50 },
+            { x: -1.3,  z:  0.2,  r: 2.20 },
+            { x:  1.2,  z: -0.2,  r: 2.10 },
+            { x: -2.6,  z:  0.4,  r: 1.95 },
+            { x:  2.3,  z: -0.5,  r: 1.90 },
+            { x:  0.4,  z: -0.4,  r: 1.80 },
+            { x:  0.0,  z:  1.2,  r: 1.50 },
+            { x:  0.0,  z: -1.2,  r: 1.50 }
+        ]
+    };
+    return merged;
 }
 
 // 5M. North African Desert Adobe / Mud-Brick Kasbah House (Flat Roof, Parapet, Corner Watchtower & Open Walk-In Door)
@@ -2753,16 +4349,16 @@ function createDesertKasbahGeometry() {
     return merged;
 }
 
-// 5N. Desert Ruined Sandstone / Mud-Brick Compound
+// 5N. Desert Ruined Sandstone / Mud-Brick Compound (Walk-In & Standable Multi-Level Ruin)
 function createDesertRuinGeometry() {
     const parts = [];
-    const w = 5.2, h = 3.1, l = 6.2;
+    const w = 5.6, h = 3.1, l = 6.6;
 
     function tintSandRuin(geo, r, g, b) {
         const c = new Float32Array(geo.attributes.position.count * 3);
         for (let i = 0; i < geo.attributes.position.count; i++) {
             const vy = geo.attributes.position.getY(i);
-            const shade = 0.55 + 0.38 * Math.min(1.0, Math.max(0.0, vy / 3.5));
+            const shade = 0.55 + 0.38 * Math.min(1.0, Math.max(0.0, Math.max(0, vy) / 3.5));
             c[i * 3 + 0] = r * shade;
             c[i * 3 + 1] = g * shade;
             c[i * 3 + 2] = b * shade;
@@ -2771,22 +4367,78 @@ function createDesertRuinGeometry() {
         return geo;
     }
 
-    const baseShell = new THREE.BoxGeometry(w, h * 0.65, l);
-    setGeometryUVBox(baseShell, 0.02, 0.48, 0.02, 0.48);
-    baseShell.translate(0, h * 0.32, 0);
-    parts.push(tintSandRuin(baseShell, 0.92, 0.72, 0.48));
+    // 1. Sub-terrain foundation skirt & walkable sandstone floor slab (top at y = 0.35m)
+    const foundH = 3.8;
+    const foundation = new THREE.BoxGeometry(w + 0.4, foundH, l + 0.4);
+    setGeometryUVBox(foundation, 0.02, 0.48, 0.02, 0.48);
+    foundation.translate(0, -foundH * 0.5 + 0.04, 0);
+    parts.push(tintSandRuin(foundation, 0.78, 0.60, 0.38));
 
+    const floorH = 0.35;
+    const floorSlab = new THREE.BoxGeometry(w, floorH, l);
+    setGeometryUVBox(floorSlab, 0.02, 0.48, 0.02, 0.48);
+    floorSlab.translate(0, floorH * 0.5, 0);
+    parts.push(tintSandRuin(floorSlab, 0.90, 0.71, 0.47));
+
+    // 2. Standing broken watchtower (-X, -Z corner) & breached adobe/sandstone walls
     const brokenTower = new THREE.BoxGeometry(2.3, h * 1.25, 2.3);
     setGeometryUVBox(brokenTower, 0.02, 0.48, 0.02, 0.48);
-    brokenTower.translate(-w * 0.26, h * 0.62, -l * 0.26);
+    brokenTower.translate(-w * 0.28, h * 0.625, -l * 0.28);
     parts.push(tintSandRuin(brokenTower, 0.88, 0.68, 0.45));
 
-    const archWall = new THREE.BoxGeometry(w * 0.85, h * 0.95, 0.48);
+    const leftWall = new THREE.BoxGeometry(0.58, 2.2, l * 0.68);
+    setGeometryUVBox(leftWall, 0.02, 0.48, 0.02, 0.48);
+    leftWall.translate(-w * 0.5 + 0.29, 1.1, -l * 0.16);
+    parts.push(tintSandRuin(leftWall, 0.90, 0.70, 0.46));
+
+    const backWall = new THREE.BoxGeometry(w * 0.74, 2.3, 0.58);
+    setGeometryUVBox(backWall, 0.02, 0.48, 0.02, 0.48);
+    backWall.translate(-w * 0.13, 1.15, -l * 0.5 + 0.29);
+    parts.push(tintSandRuin(backWall, 0.87, 0.67, 0.44));
+
+    const archWall = new THREE.BoxGeometry(w * 0.48, h * 0.92, 0.58);
     setGeometryUVBox(archWall, 0.02, 0.48, 0.02, 0.48);
-    archWall.translate(0.2, h * 0.48, l * 0.44);
+    archWall.translate(w * 0.26, h * 0.46, l * 0.5 - 0.29);
     parts.push(tintSandRuin(archWall, 0.85, 0.65, 0.42));
 
-    return mergeBufferGeometries(parts);
+    // 3. Stepped climbable sandstone ruin blocks (so soldiers can climb & stand on the ruin!)
+    const step1 = new THREE.BoxGeometry(2.2, 0.80, 2.2);
+    setGeometryUVBox(step1, 0.02, 0.48, 0.02, 0.48);
+    step1.translate(w * 0.26, 0.40, 0.6);
+    parts.push(tintSandRuin(step1, 0.92, 0.72, 0.48));
+
+    const step2 = new THREE.BoxGeometry(2.2, 1.28, 2.2);
+    setGeometryUVBox(step2, 0.02, 0.48, 0.02, 0.48);
+    step2.translate(w * 0.26, 0.64, -1.4);
+    parts.push(tintSandRuin(step2, 0.90, 0.70, 0.46));
+
+    const step3 = new THREE.BoxGeometry(1.9, 1.75, 1.9);
+    setGeometryUVBox(step3, 0.02, 0.48, 0.02, 0.48);
+    step3.translate(0.3, 0.875, -1.8);
+    parts.push(tintSandRuin(step3, 0.88, 0.68, 0.45));
+
+    const merged = mergeBufferGeometries(parts);
+    merged.userData = {
+        useMeshRaycastOnly: true,
+        collisionBoxes: [
+            // Full-height watchtower & standing wall segments
+            { minX: -w * 0.28 - 1.15, maxX: -w * 0.28 + 1.15, minZ: -l * 0.28 - 1.15, maxZ: -l * 0.28 + 1.15 },
+            { minX: -w * 0.5, maxX: -w * 0.5 + 0.60, minZ: -l * 0.5, maxZ: l * 0.18 },
+            { minX: -w * 0.5, maxX: w * 0.24, minZ: -l * 0.5, maxZ: -l * 0.5 + 0.60 },
+            { minX: w * 0.02, maxX: w * 0.5, minZ: l * 0.5 - 0.60, maxZ: l * 0.5 },
+            // Stepped climbable ruin blocks (height-capped so soldiers can climb & stand on top!)
+            { minX: w * 0.26 - 1.1, maxX: w * 0.26 + 1.1, minZ: -0.5, maxZ: 1.7, maxY: 0.80 },
+            { minX: w * 0.26 - 1.1, maxX: w * 0.26 + 1.1, minZ: -2.5, maxZ: -0.3, maxY: 1.28 },
+            { minX: -0.65, maxX: 1.25, minZ: -2.75, maxZ: -0.85, maxY: 1.75 }
+        ],
+        walkablePlatforms: [
+            { minX: -w * 0.5 - 0.15, maxX: w * 0.5 + 0.15, minZ: -l * 0.5 - 0.15, maxZ: l * 0.5 + 0.15, y: floorH },
+            { minX: w * 0.26 - 1.1, maxX: w * 0.26 + 1.1, minZ: -0.5, maxZ: 1.7, y: 0.80 },
+            { minX: w * 0.26 - 1.1, maxX: w * 0.26 + 1.1, minZ: -2.5, maxZ: -0.3, y: 1.28 },
+            { minX: -0.65, maxX: 1.25, minZ: -2.75, maxZ: -0.85, y: 1.75 }
+        ]
+    };
+    return merged;
 }
 
 // 5O. Alpine Jagged Granite Peak Crag & Snow-Dusted Boulder
@@ -2824,10 +4476,26 @@ function createMountainPeakCragGeometry() {
             col[k * 3 + 2] = THREE.MathUtils.lerp(0.66 * shade, 1.00, snowFrost);
         }
         geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+        applyWorldBoxUVs(geo, 0.22, 0.30);
         parts.push(geo);
     });
 
-    return mergeBufferGeometries(parts);
+    const merged = mergeBufferGeometries(parts);
+    merged.userData = {
+        isRock: true,
+        useMeshRaycastOnly: true,
+        collisionCircles: [
+            { x:  0.0,  z:  0.0,  r: 2.50 },
+            { x: -1.3,  z:  0.2,  r: 2.20 },
+            { x:  1.2,  z: -0.2,  r: 2.10 },
+            { x: -2.6,  z:  0.4,  r: 1.95 },
+            { x:  2.3,  z: -0.5,  r: 1.90 },
+            { x:  0.4,  z: -0.4,  r: 1.80 },
+            { x:  0.0,  z:  1.2,  r: 1.50 },
+            { x:  0.0,  z: -1.2,  r: 1.50 }
+        ]
+    };
+    return merged;
 }
 
 // 5P. Alpine Stone & Concrete Mountain Pass Bunker / Chalet Outpost
@@ -3385,7 +5053,7 @@ function createPricklyPearGeometry() {
 }
 
 function createWildflowerBushGeometry() {
-    const geo = createDetailedBushGeometry();
+    const geo = createDetailedBushGeometry(true);
     const pos = geo.attributes.position;
     const col = geo.attributes.color;
     for (let i = 0; i < pos.count; i++) {
@@ -3399,15 +5067,26 @@ function createWildflowerBushGeometry() {
 
 function createFernClusterGeometry() {
     const parts = [];
-    const center = new THREE.Vector3(0, 0.4, 0);
-    for (let f = 0; f < 8; f++) {
-        const ang = (f / 8) * Math.PI * 2;
-        const frond = createCurvedFoliageCard(0.75, 1.45, 0.45, 0.52, 0.98, 0.52, 0.98);
-        frond.rotateX(Math.PI * 0.36);
+    const center = new THREE.Vector3(0, 0.55, 0);
+    // Outer sweeping tropical fern / palm-fern fronds
+    for (let f = 0; f < 10; f++) {
+        const ang = (f / 10) * Math.PI * 2;
+        const frond = createCurvedFoliageCard(1.05, 1.85, 0.58, 0.52, 0.98, 0.52, 0.98);
+        frond.rotateX(Math.PI * 0.38);
         frond.rotateY(ang);
-        frond.translate(0, 0.15, 0);
-        applyCanopyVolumeShading(frond, center, 0.38, 0.68, 0.24, 0.35);
+        frond.translate(0, 0.14, 0);
+        applyCanopyVolumeShading(frond, center, 0.34, 0.72, 0.24, 0.36);
         parts.push(frond);
+    }
+    // Inner upright young tropical elephant-ear / fern crown fronds
+    for (let f = 0; f < 6; f++) {
+        const ang = (f / 6) * Math.PI * 2 + 0.32;
+        const inner = createCurvedFoliageCard(0.88, 1.42, 0.36, 0.52, 0.98, 0.52, 0.98);
+        inner.rotateX(Math.PI * 0.22);
+        inner.rotateY(ang);
+        inner.translate(0, 0.22, 0);
+        applyCanopyVolumeShading(inner, center, 0.46, 0.84, 0.30, 0.44);
+        parts.push(inner);
     }
     return mergeBufferGeometries(parts);
 }
@@ -3421,15 +5100,43 @@ function createFernClusterGeometry() {
 // ---------------------------------------------------------------------------
 function getGeometryFootprint(geo) {
     if (!geo.__footprint) {
-        geo.computeBoundingBox();
-        const bb = geo.boundingBox;
-        const pos = geo.attributes.position;
-        let maxR = 0;
-        for (let i = 0; i < pos.count; i++) {
-            const r = Math.hypot(pos.getX(i), pos.getZ(i));
-            if (r > maxR) maxR = r;
+        if (typeof geo.computeBoundingBox === 'function') geo.computeBoundingBox();
+        const bb = geo.boundingBox || { min: { x: -3, y: 0, z: -3 }, max: { x: 3, y: 3, z: 3 } };
+        const pos = (geo.attributes && geo.attributes.position) ? geo.attributes.position : null;
+        if (!pos) {
+            const maxR = Math.max(
+                Math.hypot(bb.min.x, bb.min.z), Math.hypot(bb.max.x, bb.min.z),
+                Math.hypot(bb.min.x, bb.max.z), Math.hypot(bb.max.x, bb.max.z)
+            );
+            geo.__footprint = { minX: bb.min.x, maxX: bb.max.x, minZ: bb.min.z, maxZ: bb.max.z, maxR: maxR };
+            return geo.__footprint;
         }
-        geo.__footprint = { minX: bb.min.x, maxX: bb.max.x, minZ: bb.min.z, maxZ: bb.max.z, maxR: maxR };
+        const hRange = bb.max.y - bb.min.y;
+        const yCutoff = hRange > 1.0 ? Math.min(bb.min.y + 3.2, bb.min.y + hRange * 0.45) : Infinity;
+        let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity, maxR = 0;
+        let count = 0;
+        for (let i = 0; i < pos.count; i++) {
+            const vy = pos.getY(i);
+            if (vy <= yCutoff) {
+                const vx = pos.getX(i), vz = pos.getZ(i);
+                if (vx < minX) minX = vx;
+                if (vx > maxX) maxX = vx;
+                if (vz < minZ) minZ = vz;
+                if (vz > maxZ) maxZ = vz;
+                const r = Math.hypot(vx, vz);
+                if (r > maxR) maxR = r;
+                count++;
+            }
+        }
+        if (count < 4) {
+            minX = bb.min.x; maxX = bb.max.x; minZ = bb.min.z; maxZ = bb.max.z;
+            maxR = 0;
+            for (let i = 0; i < pos.count; i++) {
+                const r = Math.hypot(pos.getX(i), pos.getZ(i));
+                if (r > maxR) maxR = r;
+            }
+        }
+        geo.__footprint = { minX: minX, maxX: maxX, minZ: minZ, maxZ: maxZ, maxR: maxR };
     }
     return geo.__footprint;
 }
@@ -3449,14 +5156,89 @@ function makeObstacleShape(geo, scale, rot) {
 }
 
 // Attach an oriented box (buildings, walls). Sets obs.box and obs.radius,
-// plus walk-in `wallBoxes` if the geometry defines `userData.enterableSpec`.
+// plus walk-in `wallBoxes` if the geometry defines `userData.enterableSpec`,
+// or tight multi-primitive `collisionCircles` / `collisionBoxes` for rocks & monuments.
 function attachObstacleBox(obj, geo, scale, rot) {
     const sc = scale || 1.0;
-    const rt = rot || 0.0;
+    const rt = (rot !== undefined) ? rot : (obj.rot || (obj.mesh && obj.mesh.rotation ? obj.mesh.rotation.y : 0.0));
     obj.box = makeObstacleShape(geo, sc, rt);
     obj.radius = obj.box.radius;
     obj.scale = sc;
     obj.rot = rt;
+    obj.c = obj.box.c;
+    obj.s = obj.box.s;
+
+    if (geo && geo.userData) {
+        if (geo.userData.isRock) obj.isRock = true;
+        if (geo.userData.useMeshRaycastOnly) obj.useMeshRaycastOnly = true;
+        if (geo.userData.collisionCircles && !obj.isWall) {
+            obj.collisionCircles = geo.userData.collisionCircles.map(c => ({
+                x: c.x * sc,
+                z: c.z * sc,
+                r: c.r * sc
+            }));
+        }
+        if (geo.userData.collisionBoxes && !obj.isWall) {
+            obj.collisionBoxes = geo.userData.collisionBoxes.map(b => ({
+                minX: b.minX * sc,
+                maxX: b.maxX * sc,
+                minZ: b.minZ * sc,
+                maxZ: b.maxZ * sc,
+                maxY: (b.maxY !== undefined) ? b.maxY * sc : undefined
+            }));
+        }
+        if (geo.userData.walkablePlatforms && !obj.isWall) {
+            obj.walkablePlatforms = geo.userData.walkablePlatforms.map(p => ({
+                minX: (p.minX !== undefined) ? p.minX * sc : undefined,
+                maxX: (p.maxX !== undefined) ? p.maxX * sc : undefined,
+                minZ: (p.minZ !== undefined) ? p.minZ * sc : undefined,
+                maxZ: (p.maxZ !== undefined) ? p.maxZ * sc : undefined,
+                x: (p.x !== undefined) ? p.x * sc : 0,
+                z: (p.z !== undefined) ? p.z * sc : 0,
+                r: (p.r !== undefined) ? p.r * sc : undefined,
+                y: (p.y !== undefined) ? p.y * sc : 0,
+                y0: (p.y0 !== undefined) ? p.y0 * sc : undefined,
+                y1: (p.y1 !== undefined) ? p.y1 * sc : undefined,
+                rampAxis: p.rampAxis
+            }));
+        }
+        if (obj.collisionCircles || obj.collisionBoxes || obj.walkablePlatforms) {
+            let tightR = 0;
+            if (obj.collisionCircles) {
+                for (let i = 0; i < obj.collisionCircles.length; i++) {
+                    const c = obj.collisionCircles[i];
+                    const d = Math.hypot(c.x, c.z) + c.r;
+                    if (d > tightR) tightR = d;
+                }
+            }
+            if (obj.collisionBoxes) {
+                for (let i = 0; i < obj.collisionBoxes.length; i++) {
+                    const b = obj.collisionBoxes[i];
+                    const d = Math.max(
+                        Math.hypot(b.minX, b.minZ), Math.hypot(b.maxX, b.minZ),
+                        Math.hypot(b.minX, b.maxZ), Math.hypot(b.maxX, b.maxZ)
+                    );
+                    if (d > tightR) tightR = d;
+                }
+            }
+            if (obj.walkablePlatforms) {
+                for (let i = 0; i < obj.walkablePlatforms.length; i++) {
+                    const p = obj.walkablePlatforms[i];
+                    const d = (p.r !== undefined)
+                        ? (Math.hypot(p.x || 0, p.z || 0) + p.r)
+                        : Math.max(
+                            Math.hypot(p.minX || 0, p.minZ || 0), Math.hypot(p.maxX || 0, p.minZ || 0),
+                            Math.hypot(p.minX || 0, p.maxZ || 0), Math.hypot(p.maxX || 0, p.maxZ || 0)
+                        );
+                    if (d > tightR) tightR = d;
+                }
+            }
+            if (tightR > 0) {
+                obj.radius = tightR;
+                obj.box.radius = tightR;
+            }
+        }
+    }
 
     if (geo && geo.userData && geo.userData.enterableSpec && !obj.isRuin && !obj.isWall) {
         const spec = geo.userData.enterableSpec;
@@ -3529,9 +5311,77 @@ function attachObstacleBox(obj, geo, scale, rot) {
     return obj;
 }
 
-// Attach a measured circle (rocks). Sets obs.radius from the furthest vertex.
-function attachObstacleCircle(obj, geo, scale) {
-    obj.radius = getGeometryFootprint(geo).maxR * scale;
+// Attach a measured circle or multi-circle cluster (rocks).
+function attachObstacleCircle(obj, geo, scale, rot) {
+    const sc = scale || 1.0;
+    const rt = (rot !== undefined) ? rot : (obj.rot || (obj.mesh && obj.mesh.rotation ? obj.mesh.rotation.y : 0.0));
+    obj.box = makeObstacleShape(geo, sc, rt);
+    obj.scale = sc;
+    obj.rot = rt;
+    obj.c = obj.box.c;
+    obj.s = obj.box.s;
+
+    if (geo && geo.userData) {
+        if (geo.userData.isRock) obj.isRock = true;
+        if (geo.userData.useMeshRaycastOnly) obj.useMeshRaycastOnly = true;
+        if (geo.userData.collisionCircles) {
+            obj.collisionCircles = geo.userData.collisionCircles.map(c => ({
+                x: c.x * sc,
+                z: c.z * sc,
+                r: c.r * sc
+            }));
+        }
+        if (geo.userData.collisionBoxes) {
+            obj.collisionBoxes = geo.userData.collisionBoxes.map(b => ({
+                minX: b.minX * sc,
+                maxX: b.maxX * sc,
+                minZ: b.minZ * sc,
+                maxZ: b.maxZ * sc,
+                maxY: (b.maxY !== undefined) ? b.maxY * sc : undefined
+            }));
+        }
+        if (geo.userData.walkablePlatforms) {
+            obj.walkablePlatforms = geo.userData.walkablePlatforms.map(p => ({
+                minX: (p.minX !== undefined) ? p.minX * sc : undefined,
+                maxX: (p.maxX !== undefined) ? p.maxX * sc : undefined,
+                minZ: (p.minZ !== undefined) ? p.minZ * sc : undefined,
+                maxZ: (p.maxZ !== undefined) ? p.maxZ * sc : undefined,
+                x: (p.x !== undefined) ? p.x * sc : 0,
+                z: (p.z !== undefined) ? p.z * sc : 0,
+                r: (p.r !== undefined) ? p.r * sc : undefined,
+                y: (p.y !== undefined) ? p.y * sc : 0,
+                y0: (p.y0 !== undefined) ? p.y0 * sc : undefined,
+                y1: (p.y1 !== undefined) ? p.y1 * sc : undefined,
+                rampAxis: p.rampAxis
+            }));
+        }
+    }
+
+    if ((obj.collisionCircles && obj.collisionCircles.length > 0) || (obj.collisionBoxes && obj.collisionBoxes.length > 0)) {
+        let maxR = 0;
+        if (obj.collisionCircles) {
+            for (let i = 0; i < obj.collisionCircles.length; i++) {
+                const c = obj.collisionCircles[i];
+                const d = Math.hypot(c.x, c.z) + c.r;
+                if (d > maxR) maxR = d;
+            }
+        }
+        if (obj.collisionBoxes) {
+            for (let i = 0; i < obj.collisionBoxes.length; i++) {
+                const b = obj.collisionBoxes[i];
+                const d = Math.max(
+                    Math.hypot(b.minX, b.minZ), Math.hypot(b.maxX, b.minZ),
+                    Math.hypot(b.minX, b.maxZ), Math.hypot(b.maxX, b.maxZ)
+                );
+                if (d > maxR) maxR = d;
+            }
+        }
+        obj.radius = maxR;
+        if (obj.box) obj.box.radius = maxR;
+    } else {
+        obj.radius = getGeometryFootprint(geo).maxR * sc;
+        if (obj.box) obj.box.radius = obj.radius;
+    }
     if (obj.mesh) {
         obj.mesh.userData = obj.mesh.userData || {};
         obj.mesh.userData.obstacle = obj;
@@ -3558,8 +5408,10 @@ function isPointInObstacleWindow(obs, pt) {
 // World XZ offset -> obstacle local (un-rotated) coordinates.
 function obstacleLocalCoords(obs, x, z) {
     const b = obs.box;
+    const c = b ? b.c : (typeof obs.c === 'number' ? obs.c : Math.cos(obs.rot || 0));
+    const s = b ? b.s : (typeof obs.s === 'number' ? obs.s : Math.sin(obs.rot || 0));
     const dx = x - obs.x, dz = z - obs.z;
-    return { x: dx * b.c - dz * b.s, z: dx * b.s + dz * b.c };
+    return { x: dx * c - dz * s, z: dx * s + dz * c };
 }
 
 function pushOutOfLocalAABB(lx, lz, box, p) {
@@ -3572,6 +5424,16 @@ function pushOutOfLocalAABB(lx, lz, box, p) {
     if (m === dR) return { dx: maxX - lx, dz: 0 };
     if (m === dB) return { dx: 0, dz: minZ - lz };
     return { dx: 0, dz: maxZ - lz };
+}
+
+function pushOutOfLocalCircle(lx, lz, circle, p) {
+    const dx = lx - circle.x, dz = lz - circle.z;
+    const d = Math.hypot(dx, dz);
+    const R = circle.r + p;
+    if (d >= R) return null;
+    if (d < 1e-6) return { dx: R, dz: 0 };
+    const k = (R - d) / d;
+    return { dx: dx * k, dz: dz * k };
 }
 
 function segmentEntryLocalAABB(ax, az, bx, bz, box, p) {
@@ -3600,12 +5462,70 @@ function segmentEntryLocalAABB(ax, az, bx, bz, box, p) {
     return t0;
 }
 
+function segmentEntryLocalCircle(ax, az, bx, bz, circle, p) {
+    const R = circle.r + p;
+    const fx = ax - circle.x, fz = az - circle.z;
+    const c = fx * fx + fz * fz - R * R;
+    if (c <= 0) return 0;
+    const dx = bx - ax, dz = bz - az;
+    const a = dx * dx + dz * dz;
+    if (a < 1e-9) return -1;
+    const bq = 2 * (fx * dx + fz * dz);
+    const disc = bq * bq - 4 * a * c;
+    if (disc < 0) return -1;
+    const t = (-bq - Math.sqrt(disc)) / (2 * a);
+    return (t >= 0 && t <= 1) ? t : -1;
+}
+
 // Returns the world XZ displacement that moves (x, z) out of the obstacle
 // expanded by `pad`, or null if the point is already clear.
-// For enterable buildings with soldier-sized pad (<= 0.65), tests individual walls & furniture
-// so the player can walk inside through the open front doorway!
-function obstaclePushOut(obs, x, z, pad) {
+// Supports tight multi-circle / multi-box clusters (rocks, buttes, colonnades, arches, temples, ruins)
+// as well as enterable houses with open doorways and height-capped climbable ruin/pyramid ledges.
+function obstaclePushOut(obs, x, z, pad, entityRelY) {
     const p = pad || 0;
+    if ((obs.collisionCircles && obs.collisionCircles.length > 0) || (obs.collisionBoxes && obs.collisionBoxes.length > 0)) {
+        const b = obs.box;
+        const c = b ? b.c : (typeof obs.c === 'number' ? obs.c : Math.cos(obs.rot || 0));
+        const s = b ? b.s : (typeof obs.s === 'number' ? obs.s : Math.sin(obs.rot || 0));
+        const l = obstacleLocalCoords(obs, x, z);
+        let curX = l.x, curZ = l.z;
+        let moved = false;
+        for (let iter = 0; iter < 3; iter++) {
+            let iterMoved = false;
+            if (obs.collisionCircles) {
+                for (let i = 0; i < obs.collisionCircles.length; i++) {
+                    const push = pushOutOfLocalCircle(curX, curZ, obs.collisionCircles[i], p);
+                    if (push) {
+                        curX += push.dx;
+                        curZ += push.dz;
+                        iterMoved = true;
+                        moved = true;
+                    }
+                }
+            }
+            if (obs.collisionBoxes) {
+                for (let i = 0; i < obs.collisionBoxes.length; i++) {
+                    const cb = obs.collisionBoxes[i];
+                    // If this box is a low ruin ledge or stepped pyramid terrace with maxY, and the soldier's
+                    // feet are already high enough to step/stand on top of it, do not push the soldier off!
+                    if (cb.maxY !== undefined && typeof entityRelY === 'number' && entityRelY >= cb.maxY - 0.65) {
+                        continue;
+                    }
+                    const push = pushOutOfLocalAABB(curX, curZ, cb, p);
+                    if (push) {
+                        curX += push.dx;
+                        curZ += push.dz;
+                        iterMoved = true;
+                        moved = true;
+                    }
+                }
+            }
+            if (!iterMoved) break;
+        }
+        if (!moved) return null;
+        const px = curX - l.x, pz = curZ - l.z;
+        return { x: px * c + pz * s, z: -px * s + pz * c };
+    }
     if (!obs.box) {
         const dx = x - obs.x, dz = z - obs.z;
         const d = Math.hypot(dx, dz);
@@ -3663,6 +5583,24 @@ function obstaclePushOut(obs, x, z, pad) {
 // `pad`, or -1 if it never does. Starting inside returns 0.
 function obstacleSegmentEntry(obs, ax, az, bx, bz, pad) {
     const p = pad || 0;
+    if ((obs.collisionCircles && obs.collisionCircles.length > 0) || (obs.collisionBoxes && obs.collisionBoxes.length > 0)) {
+        const A = obstacleLocalCoords(obs, ax, az);
+        const B = obstacleLocalCoords(obs, bx, bz);
+        let bestT = -1;
+        if (obs.collisionCircles) {
+            for (let i = 0; i < obs.collisionCircles.length; i++) {
+                const t = segmentEntryLocalCircle(A.x, A.z, B.x, B.z, obs.collisionCircles[i], p);
+                if (t >= 0 && (bestT < 0 || t < bestT)) bestT = t;
+            }
+        }
+        if (obs.collisionBoxes) {
+            for (let i = 0; i < obs.collisionBoxes.length; i++) {
+                const t = segmentEntryLocalAABB(A.x, A.z, B.x, B.z, obs.collisionBoxes[i], p);
+                if (t >= 0 && (bestT < 0 || t < bestT)) bestT = t;
+            }
+        }
+        return bestT;
+    }
     if (!obs.box) {
         const R = obs.radius + p;
         const fx = ax - obs.x, fz = az - obs.z;
@@ -3699,26 +5637,76 @@ function obstacleSegmentEntry(obs, ax, az, bx, bz, pad) {
     return segmentEntryLocalAABB(A.x, A.z, B.x, B.z, b, p);
 }
 
-// Returns the floor elevation if (x, z) is inside an enterable building's room, or terrainY otherwise.
-function getBuildingFloorHeight(x, z, terrainY) {
-    const baseH = (typeof terrainY === 'number') ? terrainY : ((typeof getTerrainHeight === 'function') ? getTerrainHeight(x, z) : 0);
+// Returns the floor elevation if (x, z) is inside an enterable building's room,
+// or on top of a ruin / temple / colonnade / stepped pyramid platform, or terrainY otherwise.
+function getBuildingFloorHeight(x, z, terrainY, currentEntityY) {
+    let bestH = (typeof terrainY === 'number') ? terrainY : ((typeof getTerrainHeight === 'function') ? getTerrainHeight(x, z) : 0);
     const obstacles = window.worldObstacles || worldObstacles || [];
     for (let i = 0; i < obstacles.length; i++) {
         const obs = obstacles[i];
-        if (!obs || !obs.enterable || !obs.box) continue;
+        if (!obs || (!obs.enterable && (!obs.walkablePlatforms || obs.walkablePlatforms.length === 0))) continue;
         const dx = x - obs.x, dz = z - obs.z;
-        if (dx * dx + dz * dz > obs.radius * obs.radius) continue;
+        const maxR = (obs.radius || 8.0) + 1.5;
+        if (dx * dx + dz * dz > maxR * maxR) continue;
         const l = obstacleLocalCoords(obs, x, z);
-        const spec = obs.enterableSpec;
-        const sc = obs.scale || 1.0;
-        const hw = (spec ? spec.w * 0.5 : 2.5) * sc;
-        const hl = (spec ? spec.l * 0.5 : 3.2) * sc;
-        if (Math.abs(l.x) <= hw + 0.1 && Math.abs(l.z) <= hl + 0.35) {
-            const bldgFloorY = obs.y - 0.12 + (obs.floorHeight || 0.16);
-            return Math.max(baseH, bldgFloorY);
+
+        if (obs.enterable && obs.box) {
+            const spec = obs.enterableSpec;
+            const sc = obs.scale || 1.0;
+            const hw = (spec ? spec.w * 0.5 : 2.5) * sc;
+            const hl = (spec ? spec.l * 0.5 : 3.2) * sc;
+            if (Math.abs(l.x) <= hw + 0.1 && Math.abs(l.z) <= hl + 0.35) {
+                const bldgFloorY = obs.y - 0.12 + (obs.floorHeight || 0.16);
+                if (bldgFloorY > bestH) bestH = bldgFloorY;
+            }
+        }
+
+        if (obs.walkablePlatforms && obs.walkablePlatforms.length > 0) {
+            const meshBaseY = (obs.mesh && obs.mesh.position && typeof obs.mesh.position.y === 'number')
+                ? obs.mesh.position.y
+                : ((typeof obs.y === 'number' ? obs.y : 0) - 0.15);
+            for (let pIdx = 0; pIdx < obs.walkablePlatforms.length; pIdx++) {
+                const plat = obs.walkablePlatforms[pIdx];
+                let inside = false;
+                if (plat.r !== undefined) {
+                    const pdx = l.x - (plat.x || 0);
+                    const pdz = l.z - (plat.z || 0);
+                    if (pdx * pdx + pdz * pdz <= (plat.r + 0.22) * (plat.r + 0.22)) {
+                        inside = true;
+                    }
+                } else if (plat.minX !== undefined) {
+                    if (l.x >= plat.minX - 0.18 && l.x <= plat.maxX + 0.18 &&
+                        l.z >= plat.minZ - 0.18 && l.z <= plat.maxZ + 0.18) {
+                        inside = true;
+                    }
+                }
+                if (!inside) continue;
+
+                let platLocalY = plat.y || 0;
+                if (plat.rampAxis === 'z' && plat.y0 !== undefined && plat.y1 !== undefined) {
+                    const spanZ = Math.max(0.01, plat.maxZ - plat.minZ);
+                    const t = THREE.MathUtils.clamp((l.z - plat.minZ) / spanZ, 0.0, 1.0);
+                    platLocalY = plat.y0 + t * (plat.y1 - plat.y0);
+                } else if (plat.rampAxis === 'x' && plat.y0 !== undefined && plat.y1 !== undefined) {
+                    const spanX = Math.max(0.01, plat.maxX - plat.minX);
+                    const t = THREE.MathUtils.clamp((l.x - plat.minX) / spanX, 0.0, 1.0);
+                    platLocalY = plat.y0 + t * (plat.y1 - plat.y0);
+                }
+
+                const platWorldY = meshBaseY + platLocalY;
+                // Walk-on platforms/steps (platLocalY <= 1.35m) or ramps are always reachable;
+                // higher ruin/pyramid ledges require the entity's feet to be within step/jump reach (0.75m).
+                const isReachable = (typeof currentEntityY !== 'number') ||
+                    (platLocalY <= 1.35) ||
+                    (plat.rampAxis !== undefined && currentEntityY >= platWorldY - 1.45) ||
+                    (currentEntityY >= platWorldY - 0.75);
+                if (isReachable && platWorldY > bestH) {
+                    bestH = platWorldY;
+                }
+            }
         }
     }
-    return baseH;
+    return bestH;
 }
 
 // ---------------------------------------------------------------------------
@@ -3898,6 +5886,1831 @@ window.isPointInObstacleWindow = isPointInObstacleWindow;
 window.INTERIOR_LOAD_DIST = INTERIOR_LOAD_DIST;
 window.INTERIOR_UNLOAD_DIST = INTERIOR_UNLOAD_DIST;
 
+
+// Helper: World-scaled triplanar/box UV projection so stone blocks & sandstone strata tile crisply without stretching
+function applyWorldBoxUVs(geo, scaleU = 0.22, scaleV = 0.26) {
+    if (!geo.attributes.normal) geo.computeVertexNormals();
+    const pos = geo.attributes.position;
+    const norm = geo.attributes.normal;
+    const uvArr = new Float32Array(pos.count * 2);
+    for (let i = 0; i < pos.count; i++) {
+        const vx = pos.getX(i), vy = pos.getY(i), vz = pos.getZ(i);
+        const nx = Math.abs(norm.getX(i)), ny = Math.abs(norm.getY(i)), nz = Math.abs(norm.getZ(i));
+        let u, v;
+        if (ny > 0.72 && ny >= nx && ny >= nz) {
+            u = vx * scaleU;
+            v = vz * scaleU;
+        } else if (nx >= nz) {
+            u = vz * scaleU;
+            v = vy * scaleV;
+        } else {
+            u = vx * scaleU;
+            v = vy * scaleV;
+        }
+        uvArr[i * 2] = u;
+        uvArr[i * 2 + 1] = v;
+    }
+    geo.setAttribute('uv', new THREE.BufferAttribute(uvArr, 2));
+    return geo;
+}
+
+// ============================================================================
+// 5R. Egyptian Great Pyramid of Giza / Khafre
+// (Unified 38-Course Stepped Nummulitic Limestone from Base to Apex
+//  + Deep Sub-Terrain Foundation + Megalithic Chevron North Entrance & Pylon Forecourt)
+// ============================================================================
+function createEgyptianGreatPyramidGeometry(baseW = 42.0, hTotal = 26.5, stepTiers = 38) {
+    const parts = [];
+
+    function colorLimestonePart(geo, baseR, baseG, baseB) {
+        const pos = geo.attributes.position;
+        const col = new Float32Array(pos.count * 3);
+        for (let i = 0; i < pos.count; i++) {
+            const vx = pos.getX(i), vy = pos.getY(i), vz = pos.getZ(i);
+            const hFrac = Math.max(0.0, Math.min(1.0, Math.max(0.0, vy) / hTotal));
+            const heightAO = 0.76 + 0.24 * Math.pow(hFrac, 0.7);
+            const strataBand = Math.sin(vy * 3.2 + (vx + vz) * 0.15) * 0.055;
+            const blockVar = (hash2D(Math.floor(vx * 0.8), Math.floor(vy * 1.4 + vz * 0.8)) - 0.5) * 0.075;
+            const shade = heightAO + strataBand + blockVar;
+            col[i * 3 + 0] = Math.min(1.0, Math.max(0.30, baseR * shade));
+            col[i * 3 + 1] = Math.min(1.0, Math.max(0.25, baseG * shade));
+            col[i * 3 + 2] = Math.min(1.0, Math.max(0.20, baseB * shade));
+        }
+        geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+        applyWorldBoxUVs(geo, 0.24, 0.34);
+        return geo;
+    }
+
+    // 0. Deep Sub-Terrain Limestone Foundation Skirt (prevents floating edges on sloped desert dunes)
+    const foundH = 7.5;
+    const foundation = new THREE.BoxGeometry(baseW + 3.4, foundH, baseW + 3.4);
+    foundation.translate(0, -foundH * 0.5 + 0.04, 0);
+    parts.push(colorLimestonePart(foundation, 0.82, 0.70, 0.48));
+
+    // 1. Sacred Tura Limestone Foundation Pavement Court & Corner Socket Plinth
+    const courtH = 0.55;
+    const court = new THREE.BoxGeometry(baseW + 3.4, courtH, baseW + 3.4);
+    court.translate(0, courtH * 0.5, 0);
+    parts.push(colorLimestonePart(court, 0.88, 0.76, 0.54));
+
+    const socleH = 0.65;
+    const socle = new THREE.BoxGeometry(baseW + 1.2, socleH, baseW + 1.2);
+    socle.translate(0, courtH + socleH * 0.5, 0);
+    parts.push(colorLimestonePart(socle, 0.90, 0.79, 0.56));
+
+    // 2. 38 Finely Graduated Stepped Giza Limestone Courses from Base to Summit (Authentic 51.8° Slope)
+    // All courses use BoxGeometry with flat axis-aligned normals & identical limestone UV/vertex shading
+    // so the upper pyramid and apex render seamlessly with the body of the pyramid.
+    const stepStartY = courtH + socleH;
+    const stepH = (hTotal - stepStartY) / stepTiers;
+    for (let s = 0; s < stepTiers; s++) {
+        const frac = s / stepTiers;
+        const w = Math.max(1.55, baseW * (1.0 - frac * 0.945));
+        const y = stepStartY + s * stepH + stepH * 0.5;
+        const tier = new THREE.BoxGeometry(w, stepH + 0.08, w, 2, 1, 2);
+        // Subtle organic corner weathering on stepped courses
+        const tPos = tier.attributes.position;
+        const maxWear = Math.min(0.20, w * 0.035);
+        for (let k = 0; k < tPos.count; k++) {
+            const tx = tPos.getX(k), tz = tPos.getZ(k);
+            if (Math.abs(tx) > w * 0.45 && Math.abs(tz) > w * 0.45) {
+                const wear = (hash2D(s * 7.0 + tx, s * 13.0 + tz) - 0.5) * maxWear;
+                tPos.setX(k, tx + wear);
+                tPos.setZ(k, tz + wear);
+            }
+        }
+        tier.computeVertexNormals();
+        tier.translate(0, y, 0);
+        // Alternate warm golden-buff and sunlit cream limestone strata courses all the way to the top
+        const isCreamBand = (s % 5 === 0 || s % 7 === 0);
+        parts.push(colorLimestonePart(
+            tier,
+            isCreamBand ? 0.95 : 0.91,
+            isCreamBand ? 0.84 : 0.78,
+            isCreamBand ? 0.61 : 0.54
+        ));
+    }
+
+    // Stepped summit capstone course at the apex (BoxGeometry with identical limestone shading)
+    const apexBlock = new THREE.BoxGeometry(1.15, stepH * 0.85, 1.15);
+    apexBlock.translate(0, hTotal + stepH * 0.35, 0);
+    parts.push(colorLimestonePart(apexBlock, 0.94, 0.82, 0.58));
+
+    // 3. Iconic Giza North Face Megalithic Chevron Relieving Arch Entrance & Forecourt Pylons (+Z Face)
+    const portalY = 2.6;
+    const portalZ = baseW * 0.465;
+
+    // Stepped stone bastion framing the entrance
+    const bastion = new THREE.BoxGeometry(6.8, 4.6, 2.2);
+    bastion.translate(0, portalY + 0.5, portalZ - 0.3);
+    parts.push(colorLimestonePart(bastion, 0.90, 0.78, 0.55));
+
+    // Double-layered angled Megalithic Chevron Gable Blocks above the entrance (signature of Great Pyramid!)
+    [-1, 1].forEach(side => {
+        const chevron1 = new THREE.BoxGeometry(2.8, 0.95, 1.6);
+        chevron1.rotateZ(-side * 0.52);
+        chevron1.translate(side * 1.15, portalY + 2.55, portalZ + 0.45);
+        parts.push(colorLimestonePart(chevron1, 0.95, 0.84, 0.60));
+
+        const chevron2 = new THREE.BoxGeometry(3.1, 0.85, 1.5);
+        chevron2.rotateZ(-side * 0.52);
+        chevron2.translate(side * 1.25, portalY + 3.35, portalZ + 0.30);
+        parts.push(colorLimestonePart(chevron2, 0.92, 0.80, 0.57));
+    });
+
+    // Entrance jamb piers & recessed dark descending corridor
+    [-1.85, 1.85].forEach(px => {
+        const jamb = new THREE.BoxGeometry(1.1, 3.2, 1.8);
+        jamb.translate(px, portalY - 0.1, portalZ + 0.35);
+        parts.push(colorLimestonePart(jamb, 0.88, 0.76, 0.52));
+    });
+
+    const corridor = new THREE.BoxGeometry(2.6, 2.6, 3.6);
+    corridor.translate(0, portalY - 0.2, portalZ - 0.8);
+    tintBuildingPart(corridor, 0.12, 0.09, 0.06, hTotal);
+    applyWorldBoxUVs(corridor, 0.24, 0.24);
+    parts.push(corridor);
+
+    // Ceremonial Stepped Causeway Ramp & Flanking Guardian Pedestals at North Forecourt
+    const ramp = new THREE.BoxGeometry(4.6, 1.35, 4.2);
+    ramp.translate(0, 0.68, portalZ + 2.2);
+    parts.push(colorLimestonePart(ramp, 0.90, 0.78, 0.55));
+
+    const rampStep = new THREE.BoxGeometry(4.8, 0.65, 2.2);
+    rampStep.translate(0, 0.325, portalZ + 4.8);
+    parts.push(colorLimestonePart(rampStep, 0.88, 0.76, 0.54));
+
+    [-3.4, 3.4].forEach(px => {
+        const pylonPedestal = new THREE.BoxGeometry(1.6, 2.2, 2.8);
+        pylonPedestal.translate(px, 1.1, portalZ + 2.4);
+        parts.push(colorLimestonePart(pylonPedestal, 0.93, 0.81, 0.57));
+    });
+
+    const halfBase = baseW * 0.5;
+    const merged = mergeBufferGeometries(parts);
+    merged.userData = {
+        useMeshRaycastOnly: true,
+        collisionBoxes: [
+            // Full solid pyramid core (blocks tanks & soldiers on all 4 faces)
+            { minX: -halfBase, maxX: halfBase, minZ: -halfBase, maxZ: halfBase },
+            // Socle ledge (walkable once stepped onto court)
+            { minX: -(halfBase + 0.6), maxX: halfBase + 0.6, minZ: -(halfBase + 0.6), maxZ: halfBase + 0.6, maxY: courtH + socleH },
+            // North entrance bastion & flanking guardian pedestals
+            { minX: -4.25, maxX: -2.55, minZ: portalZ + 0.8, maxZ: portalZ + 3.85 },
+            { minX:  2.55, maxX:  4.25, minZ: portalZ + 0.8, maxZ: portalZ + 3.85 },
+            { minX: -3.45, maxX:  3.45, minZ: portalZ - 1.4, maxZ: portalZ + 1.25 },
+            // North causeway ramp (height-capped so soldiers can walk up onto it)
+            { minX: -2.35, maxX: 2.35, minZ: portalZ + 0.1, maxZ: portalZ + 4.3, maxY: 1.35 }
+        ],
+        walkablePlatforms: [
+            // Outer Tura limestone pavement court
+            { minX: -(halfBase + 1.7), maxX: halfBase + 1.7, minZ: -(halfBase + 1.7), maxZ: halfBase + 1.7, y: courtH },
+            // Socle plinth ledge around pyramid base
+            { minX: -(halfBase + 0.65), maxX: halfBase + 0.65, minZ: -(halfBase + 0.65), maxZ: halfBase + 0.65, y: courtH + socleH },
+            // North forecourt causeway ramp & lower step
+            { minX: -2.45, maxX: 2.45, minZ: portalZ + 3.7, maxZ: portalZ + 6.0, y: 0.65 },
+            { minX: -2.35, maxX: 2.35, minZ: portalZ + 0.1, maxZ: portalZ + 4.3, y: 1.35 }
+        ]
+    };
+    return merged;
+}
+
+// ============================================================================
+// 5S. Egyptian Monolithic Red Granite / Limestone Obelisk
+// ============================================================================
+function createEgyptianObeliskGeometry(baseW = 2.6, height = 17.5) {
+    const parts = [];
+
+    const addObeliskPart = (geo, r, g, b) => {
+        tintBuildingPart(geo, r, g, b, height);
+        applyWorldBoxUVs(geo, 0.28, 0.32);
+        parts.push(geo);
+    };
+
+    const foundH = 4.2;
+    const found = new THREE.BoxGeometry(baseW * 1.70, foundH, baseW * 1.70);
+    found.translate(0, -foundH * 0.5 + 0.04, 0);
+    addObeliskPart(found, 0.80, 0.68, 0.48);
+
+    const plinth1 = new THREE.BoxGeometry(baseW * 1.65, 1.15, baseW * 1.65);
+    plinth1.translate(0, 0.575, 0);
+    addObeliskPart(plinth1, 0.88, 0.76, 0.54);
+
+    // Egyptian cavetto cornice pedestal
+    const plinth2 = new THREE.BoxGeometry(baseW * 1.30, 0.90, baseW * 1.30);
+    plinth2.translate(0, 1.15 + 0.45, 0);
+    addObeliskPart(plinth2, 0.92, 0.80, 0.58);
+
+    const shaftH = height - 4.4;
+    const shaft = new THREE.CylinderGeometry(baseW * 0.48, baseW * 0.78, shaftH, 4, 4);
+    shaft.rotateY(Math.PI * 0.25);
+    shaft.translate(0, 2.05 + shaftH * 0.5, 0);
+    addObeliskPart(shaft, 0.94, 0.78, 0.56);
+
+    const apexH = 2.35;
+    const apex = new THREE.ConeGeometry(baseW * 0.48, apexH, 4);
+    apex.rotateY(Math.PI * 0.25);
+    apex.translate(0, 2.05 + shaftH + apexH * 0.5, 0);
+    addObeliskPart(apex, 1.0, 0.86, 0.42);
+
+    const merged = mergeBufferGeometries(parts);
+    merged.userData = {
+        useMeshRaycastOnly: true,
+        collisionBoxes: [
+            { minX: -baseW * 0.65, maxX: baseW * 0.65, minZ: -baseW * 0.65, maxZ: baseW * 0.65 },
+            { minX: -baseW * 0.825, maxX: baseW * 0.825, minZ: -baseW * 0.825, maxZ: baseW * 0.825, maxY: 1.15 }
+        ],
+        walkablePlatforms: [
+            { minX: -baseW * 0.825, maxX: baseW * 0.825, minZ: -baseW * 0.825, maxZ: baseW * 0.825, y: 1.15 }
+        ]
+    };
+    return merged;
+}
+
+// ============================================================================
+// 5T. Egyptian Sandstone Colonnade / Hypostyle Hall & Pylon Ruin
+// ============================================================================
+function createEgyptianColonnadeGeometry(w = 13.0, l = 17.0) {
+    const parts = [];
+    const addColPart = (geo, r, g, b) => {
+        tintBuildingPart(geo, r, g, b, 9.0);
+        applyWorldBoxUVs(geo, 0.26, 0.30);
+        parts.push(geo);
+    };
+
+    // Sub-terrain sandstone foundation skirt (prevents floating on sloped desert dunes)
+    const foundH = 5.0;
+    const found = new THREE.BoxGeometry(w + 0.3, foundH, l + 0.3);
+    found.translate(0, -foundH * 0.5 + 0.04, 0);
+    addColPart(found, 0.80, 0.68, 0.48);
+
+    const platH = 0.70;
+    const plat = new THREE.BoxGeometry(w, platH, l);
+    plat.translate(0, platH * 0.5, 0);
+    addColPart(plat, 0.88, 0.76, 0.54);
+
+    // Front (+Z) and Back (-Z) stepped sandstone entrance stairs leading onto the stylobate platform
+    [-1, 1].forEach(zSide => {
+        const stairStep = new THREE.BoxGeometry(w * 0.58, platH * 0.52, 1.35);
+        stairStep.translate(0, platH * 0.26, zSide * (l * 0.5 + 0.55));
+        addColPart(stairStep, 0.86, 0.74, 0.52);
+    });
+
+    const colPositions = [
+        [-3.8, -5.6], [3.8, -5.6],
+        [-3.8,  0.0], [3.8,  0.0],
+        [-3.8,  5.6], [3.8,  5.6]
+    ];
+    colPositions.forEach(([cx, cz]) => {
+        const colH = 6.0;
+        // Papyrus-bundle column base disc
+        const colBase = new THREE.CylinderGeometry(0.98, 1.08, 0.45, 12);
+        colBase.translate(cx, platH + 0.225, cz);
+        addColPart(colBase, 0.86, 0.74, 0.52);
+
+        const colShaft = new THREE.CylinderGeometry(0.74, 0.88, colH, 12, 3);
+        colShaft.translate(cx, platH + 0.45 + colH * 0.5, cz);
+        addColPart(colShaft, 0.94, 0.82, 0.58);
+
+        // Flared Egyptian Lotus/Papyrus Bell Capital + Abacus block
+        const cap = new THREE.CylinderGeometry(1.32, 0.74, 1.05, 12);
+        cap.translate(cx, platH + 0.45 + colH + 0.525, cz);
+        addColPart(cap, 0.96, 0.85, 0.62);
+
+        const abacus = new THREE.BoxGeometry(1.65, 0.38, 1.65);
+        abacus.translate(cx, platH + 0.45 + colH + 1.05 + 0.19, cz);
+        addColPart(abacus, 0.92, 0.80, 0.56);
+    });
+
+    // Stepped ruined sandstone blocks on the colonnade perimeter (climbable & standable ruin ledges!)
+    const ruinBlock1 = new THREE.BoxGeometry(2.1, 0.68, 2.6);
+    ruinBlock1.translate(w * 0.38, platH + 0.34, -2.6);
+    addColPart(ruinBlock1, 0.90, 0.78, 0.55);
+
+    const ruinBlock2 = new THREE.BoxGeometry(2.0, 1.15, 2.4);
+    ruinBlock2.translate(-w * 0.38, platH + 0.575, 2.6);
+    addColPart(ruinBlock2, 0.88, 0.76, 0.53);
+
+    // Longitudinal & transverse stone architrave lintels
+    const beamY = platH + 0.45 + 6.0 + 1.05 + 0.38 + 0.45;
+    [-3.8, 3.8].forEach(cx => {
+        const longBeam = new THREE.BoxGeometry(1.45, 0.90, l * 0.82);
+        longBeam.translate(cx, beamY, 0);
+        addColPart(longBeam, 0.92, 0.80, 0.56);
+    });
+    [-5.6, 0.0, 5.6].forEach(cz => {
+        const crossBeam = new THREE.BoxGeometry(w * 0.78, 0.88, 1.45);
+        crossBeam.translate(0, beamY, cz);
+        addColPart(crossBeam, 0.94, 0.82, 0.58);
+    });
+
+    const merged = mergeBufferGeometries(parts);
+    merged.userData = {
+        useMeshRaycastOnly: true,
+        collisionCircles: colPositions.map(([cx, cz]) => ({ x: cx, z: cz, r: 1.08 })),
+        collisionBoxes: [
+            // Climbable ruined sandstone blocks on the platform
+            { minX: w * 0.38 - 1.05, maxX: w * 0.38 + 1.05, minZ: -3.9, maxZ: -1.3, maxY: platH + 0.68 },
+            { minX: -w * 0.38 - 1.0, maxX: -w * 0.38 + 1.0, minZ: 1.4, maxZ: 3.8, maxY: platH + 1.15 }
+        ],
+        walkablePlatforms: [
+            // Front & back entrance steps
+            { minX: -w * 0.32, maxX: w * 0.32, minZ: -l * 0.5 - 1.25, maxZ: l * 0.5 + 1.25, y: platH * 0.52 },
+            // Full sandstone stylobate platform floor
+            { minX: -w * 0.5 - 0.15, maxX: w * 0.5 + 0.15, minZ: -l * 0.5 - 0.15, maxZ: l * 0.5 + 0.15, y: platH },
+            // Stepped ruin blocks on the platform
+            { minX: w * 0.38 - 1.05, maxX: w * 0.38 + 1.05, minZ: -3.9, maxZ: -1.3, y: platH + 0.68 },
+            { minX: -w * 0.38 - 1.0, maxX: -w * 0.38 + 1.0, minZ: 1.4, maxZ: 3.8, y: platH + 1.15 }
+        ]
+    };
+    return merged;
+}
+
+// ============================================================================
+// 5U. Arizona Monument Valley Natural Red Sandstone Butte (West/East Mitten & Merrick Butte)
+// Natural Eroded Geological Formation: Sweeping Conical Fluted Talus Apron
+// + Stratified De Chelly Red Sandstone Cliff Massif + Iconic Detached "Mitten Thumb" Spire!
+// ============================================================================
+function createMonumentButteGeometry(baseW = 34.0, l = 36.0, h = 21.5) {
+    const parts = [];
+
+    function colorMonumentStrata(geo, maxH) {
+        smoothDuplicateVertexNormals(geo);
+        const pos = geo.attributes.position;
+        const col = new Float32Array(pos.count * 3);
+        for (let i = 0; i < pos.count; i++) {
+            const vx = pos.getX(i), vy = pos.getY(i), vz = pos.getZ(i);
+            const hFrac = Math.max(0.0, Math.min(1.0, vy / maxH));
+            // Multi-layered Arizona Colorado Plateau geological strata (Organ Rock shale -> De Chelly sandstone -> Shinarump caprock)
+            const s1 = Math.sin(vy * 1.85 + (vx + vz) * 0.06);
+            const s2 = Math.cos(vy * 4.4 - vx * 0.10) * 0.5;
+            const varnish = Math.sin(Math.atan2(vz, vx) * 9.0) * 0.06;
+            const ao = 0.68 + 0.32 * Math.pow(hFrac, 0.65);
+
+            let r, g, b;
+            if (vy < 5.8) {
+                // Organ Rock Member: rich deep rust-terracotta sloping talus scree
+                r = 0.74 + s1 * 0.06;
+                g = 0.27 + s1 * 0.04;
+                b = 0.14 + s1 * 0.02;
+            } else if (vy > maxH - 2.4) {
+                // Shinarump Conglomerate Caprock: sun-bleached warm buff-ochre & orange rim
+                r = 0.94 + s2 * 0.05;
+                g = 0.54 + s2 * 0.05;
+                b = 0.30 + s2 * 0.04;
+            } else {
+                // De Chelly Sandstone Cliff Face: glowing Arizona red-orange with pale cross-bedding bands
+                const buffBand = Math.max(0.0, s1 + s2 * 0.6);
+                r = 0.86 + buffBand * 0.12 + varnish;
+                g = 0.33 + buffBand * 0.16 + varnish * 0.5;
+                b = 0.16 + buffBand * 0.10;
+            }
+            col[i * 3 + 0] = Math.min(1.0, Math.max(0.2, r * ao));
+            col[i * 3 + 1] = Math.min(1.0, Math.max(0.1, g * ao));
+            col[i * 3 + 2] = Math.min(1.0, Math.max(0.06, b * ao));
+        }
+        geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+        applyWorldBoxUVs(geo, 0.16, 0.22);
+        return geo;
+    }
+
+    // 1. Wide Conical Fluted Talus Apron Skirt (Natural ~36° scree slope, NOT a vertical box!)
+    const talusH = 6.8;
+    const talus = new THREE.CylinderGeometry(baseW * 0.30, baseW * 0.54, talusH, 20, 6);
+    const tPos = talus.attributes.position;
+    for (let i = 0; i < tPos.count; i++) {
+        const vx = tPos.getX(i), vy = tPos.getY(i), vz = tPos.getZ(i);
+        const ny = (vy + talusH * 0.5) / talusH; // 0 at bottom, 1 at top
+        const ang = Math.atan2(vz, vx);
+        // Natural concave scree profile + radial erosion gullies/flutes
+        const concave = 1.0 - Math.sin(ny * Math.PI) * 0.12;
+        const flute = 1.0 + (Math.sin(ang * 5.0 + 0.4) * 0.11 + Math.cos(ang * 9.0) * 0.07) * (1.0 - ny * 0.35);
+        const strataStep = Math.sin(ny * 12.0) * 0.22;
+        tPos.setX(i, vx * concave * flute * 1.06 + Math.cos(ang) * strataStep);
+        tPos.setZ(i, vz * concave * flute * (l / baseW) * 0.94 + Math.sin(ang) * strataStep);
+    }
+    talus.translate(0, talusH * 0.5, 0);
+    parts.push(colorMonumentStrata(talus, h));
+
+    // 2. Main Sculpted De Chelly Sandstone Butte Massif (Irregular eroded cliff face with horizontal strata ledges)
+    const cliffH = h - talusH + 1.2;
+    const cliff = new THREE.CylinderGeometry(baseW * 0.24, baseW * 0.29, cliffH, 18, 9);
+    const cPos = cliff.attributes.position;
+    for (let i = 0; i < cPos.count; i++) {
+        const vx = cPos.getX(i), vy = cPos.getY(i), vz = cPos.getZ(i);
+        const ny = (vy + cliffH * 0.5) / cliffH;
+        const ang = Math.atan2(vz, vx);
+        // Sculpted vertical sandstone flutes, clefts, and horizontal sedimentary shelves
+        const verticalFlutes = 1.0 + Math.sin(ang * 4.0 + 0.6) * 0.14 + Math.cos(ang * 7.0 - 0.5) * 0.09;
+        const horizStrata = 1.0 + Math.sin(ny * Math.PI * 7.0) * 0.065 + (ny > 0.86 ? 0.06 : 0.0);
+        // Flatten top plateau caprock slightly while keeping craggy rim undulations
+        let yOut = vy;
+        if (ny > 0.95) {
+            yOut = cliffH * 0.47 + (hash2D(vx * 0.4, vz * 0.4) - 0.5) * 0.45;
+        }
+        cPos.setXYZ(
+            i,
+            vx * verticalFlutes * horizStrata * 0.92 - baseW * 0.05,
+            yOut,
+            vz * verticalFlutes * horizStrata * 0.76
+        );
+    }
+    cliff.translate(0, talusH + cliffH * 0.5 - 0.8, 0);
+    parts.push(colorMonumentStrata(cliff, h));
+
+    // 3. Secondary Stepped Mesa Shoulder Buttress (gives natural asymmetric Colorado Plateau massif silhouette)
+    const shoulderH = cliffH * 0.76;
+    const shoulder = new THREE.CylinderGeometry(baseW * 0.15, baseW * 0.19, shoulderH, 14, 6);
+    const sPos = shoulder.attributes.position;
+    for (let i = 0; i < sPos.count; i++) {
+        const vx = sPos.getX(i), vy = sPos.getY(i), vz = sPos.getZ(i);
+        const ang = Math.atan2(vz, vx);
+        const rug = 1.0 + Math.sin(ang * 5.0) * 0.12 + Math.sin(vy * 2.4) * 0.07;
+        sPos.setXYZ(i, vx * rug * 0.95, vy, vz * rug * 0.85);
+    }
+    shoulder.translate(-baseW * 0.18, talusH + shoulderH * 0.5 - 0.9, -l * 0.08);
+    parts.push(colorMonumentStrata(shoulder, h));
+
+    // 4. Iconic Detached "Mitten Thumb" Spire rising beside the main Butte from the Talus Skirt!
+    const thumbH = cliffH * 0.88;
+    const thumb = new THREE.CylinderGeometry(baseW * 0.055, baseW * 0.105, thumbH, 12, 7);
+    const thPos = thumb.attributes.position;
+    for (let i = 0; i < thPos.count; i++) {
+        const vx = thPos.getX(i), vy = thPos.getY(i), vz = thPos.getZ(i);
+        const ny = (vy + thumbH * 0.5) / thumbH;
+        const necking = 1.0 + Math.sin(ny * Math.PI * 5.0) * 0.12 - Math.sin(ny * Math.PI) * 0.08;
+        thPos.setXYZ(i, vx * necking, vy, vz * necking);
+    }
+    thumb.translate(baseW * 0.25, talusH + thumbH * 0.5 - 1.1, l * 0.06);
+    parts.push(colorMonumentStrata(thumb, h));
+
+    // 5. Basal Eroded Sandstone Scree Boulders & Talus Spurs around the foot
+    const basalBoulders = [
+        { x:  baseW * 0.36, y: 1.6, z:  l * 0.18, sx: 3.8, sy: 2.2, sz: 3.2, rot: 0.4 },
+        { x: -baseW * 0.35, y: 1.8, z: -l * 0.15, sx: 4.2, sy: 2.4, sz: 3.4, rot: 1.5 },
+        { x:  baseW * 0.12, y: 1.5, z: -l * 0.36, sx: 3.6, sy: 2.0, sz: 3.0, rot: 2.2 },
+        { x: -baseW * 0.16, y: 1.7, z:  l * 0.34, sx: 4.0, sy: 2.1, sz: 3.1, rot: 0.9 }
+    ];
+    basalBoulders.forEach(b => {
+        const bGeo = new THREE.DodecahedronGeometry(1.0, 1);
+        const bp = bGeo.attributes.position;
+        for (let i = 0; i < bp.count; i++) {
+            const vx = bp.getX(i), vy = bp.getY(i), vz = bp.getZ(i);
+            const flat = vy > 0.5 ? 0.5 + (vy - 0.5) * 0.35 : vy;
+            const st = 0.92 + Math.sin(vy * 6.0) * 0.12;
+            bp.setXYZ(i, vx * st * b.sx, flat * b.sy, vz * st * b.sz);
+        }
+        bGeo.rotateY(b.rot);
+        bGeo.translate(b.x, b.y, b.z);
+        parts.push(colorMonumentStrata(bGeo, h));
+    });
+
+    const merged = mergeBufferGeometries(parts);
+    merged.userData = {
+        isRock: true,
+        useMeshRaycastOnly: true,
+        collisionBoxes: [
+            // Solid mesa cliff core
+            { minX: -baseW * 0.44, maxX: baseW * 0.44, minZ: -l * 0.44, maxZ: l * 0.44 }
+        ],
+        collisionCircles: [
+            { x:  0.0,           z:  0.0,           r: baseW * 0.46 },
+            { x: -baseW * 0.20,  z: -l * 0.20,      r: baseW * 0.28 },
+            { x:  baseW * 0.20,  z:  l * 0.20,      r: baseW * 0.28 },
+            { x: -baseW * 0.20,  z:  l * 0.20,      r: baseW * 0.28 },
+            { x:  baseW * 0.20,  z: -l * 0.20,      r: baseW * 0.28 }
+        ]
+    };
+    return merged;
+}
+
+// ============================================================================
+// 5V. Arizona Monument Valley "Three Sisters / Totem Pole" Red Rock Hoodoo Spire Cluster
+// ============================================================================
+function createMonumentSpireGeometry(baseW = 8.4, h = 24.5) {
+    const parts = [];
+
+    function colorSpireStrata(geo) {
+        smoothDuplicateVertexNormals(geo);
+        const pos = geo.attributes.position;
+        const col = new Float32Array(pos.count * 3);
+        for (let i = 0; i < pos.count; i++) {
+            const vx = pos.getX(i), vy = pos.getY(i), vz = pos.getZ(i);
+            const hFrac = Math.max(0.0, Math.min(1.0, vy / h));
+            const band = Math.sin(vy * 2.4 + (vx + vz) * 0.18);
+            const ao = 0.68 + 0.32 * Math.pow(hFrac, 0.65);
+            const r = (vy < 5.0 ? 0.74 : 0.88 + band * 0.10) * ao;
+            const g = (vy < 5.0 ? 0.26 : 0.34 + band * 0.12) * ao;
+            const b = (vy < 5.0 ? 0.13 : 0.17 + band * 0.08) * ao;
+            col[i * 3 + 0] = Math.min(1.0, r);
+            col[i * 3 + 1] = Math.min(1.0, g);
+            col[i * 3 + 2] = Math.min(1.0, b);
+        }
+        geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+        applyWorldBoxUVs(geo, 0.18, 0.24);
+        return geo;
+    }
+
+    // 1. Wide Conical Fluted Talus Scree Pedestal (Natural sloping rock mound, NOT a box!)
+    const baseH = 5.6;
+    const baseCone = new THREE.CylinderGeometry(baseW * 0.42, baseW * 0.92, baseH, 16, 5);
+    const bPos = baseCone.attributes.position;
+    for (let i = 0; i < bPos.count; i++) {
+        const vx = bPos.getX(i), vy = bPos.getY(i), vz = bPos.getZ(i);
+        const ny = (vy + baseH * 0.5) / baseH;
+        const ang = Math.atan2(vz, vx);
+        const gully = 1.0 + (Math.sin(ang * 5.0) * 0.14 + Math.cos(ang * 8.0) * 0.08) * (1.0 - ny * 0.3);
+        bPos.setXYZ(i, vx * gully, vy, vz * gully);
+    }
+    baseCone.translate(0, baseH * 0.5, 0);
+    parts.push(colorSpireStrata(baseCone));
+
+    // 2. Trio of Wind-Eroded Red Sandstone Hoodoo Needles ("Three Sisters / Totem Pole")
+    const spires = [
+        { x:  0.0,           z:  0.0,           rTop: baseW * 0.14, rBot: baseW * 0.28, sh: h - 4.8 },
+        { x:  baseW * 0.28,  z:  baseW * 0.08,  rTop: baseW * 0.11, rBot: baseW * 0.21, sh: (h - 4.8) * 0.74 },
+        { x: -baseW * 0.26,  z: -baseW * 0.10,  rTop: baseW * 0.10, rBot: baseW * 0.19, sh: (h - 4.8) * 0.58 }
+    ];
+    spires.forEach((sp, idx) => {
+        const colGeo = new THREE.CylinderGeometry(sp.rTop, sp.rBot, sp.sh, 12, 8);
+        const cp = colGeo.attributes.position;
+        for (let i = 0; i < cp.count; i++) {
+            const vx = cp.getX(i), vy = cp.getY(i), vz = cp.getZ(i);
+            const ny = (vy + sp.sh * 0.5) / sp.sh;
+            const ang = Math.atan2(vz, vx);
+            // Horizontal wind-scoured hoodoo necking rings + vertical rock ribs
+            const hoodooRing = 1.0 + Math.sin(ny * Math.PI * 6.0 + idx) * 0.14 + Math.sin(ang * 4.0 + idx) * 0.10;
+            cp.setXYZ(i, vx * hoodooRing, vy, vz * hoodooRing);
+        }
+        colGeo.translate(sp.x, baseH - 0.8 + sp.sh * 0.5, sp.z);
+        parts.push(colorSpireStrata(colGeo));
+
+        // Eroded flat-topped hoodoo caprock stone
+        const capRock = new THREE.DodecahedronGeometry(sp.rTop * 1.28, 1);
+        capRock.scale(1.0, 0.55, 0.92);
+        capRock.translate(sp.x, baseH - 0.8 + sp.sh, sp.z);
+        parts.push(colorSpireStrata(capRock));
+    });
+
+    const merged = mergeBufferGeometries(parts);
+    merged.userData = {
+        isRock: true,
+        useMeshRaycastOnly: true,
+        collisionCircles: [
+            { x:  0.0,           z:  0.0,           r: baseW * 0.72 },
+            { x:  baseW * 0.28,  z:  baseW * 0.08,  r: baseW * 0.28 },
+            { x: -baseW * 0.26,  z: -baseW * 0.10,  r: baseW * 0.26 }
+        ]
+    };
+    return merged;
+}
+
+// ============================================================================
+// 5W. Grand Canyon Terraced Cliff Promontory & Temple Butte
+// ============================================================================
+function createCanyonCliffGeometry(w = 28.0, l = 32.0, h = 18.5) {
+    const parts = [];
+    const benches = 5;
+    const bH = h / benches;
+    for (let b = 0; b < benches; b++) {
+        const frac = b / benches;
+        const bw = w * (1.0 - frac * 0.44);
+        const bl = l * (1.0 - frac * 0.44);
+        const cyl = new THREE.CylinderGeometry(bw * 0.46, bw * 0.54, bH + 0.15, 16, 3);
+        const p = cyl.attributes.position;
+        for (let i = 0; i < p.count; i++) {
+            const vx = p.getX(i), vy = p.getY(i), vz = p.getZ(i);
+            const ang = Math.atan2(vz, vx);
+            const crag = 1.0 + Math.sin(ang * 5.0 + b) * 0.12 + Math.cos(ang * 9.0) * 0.07;
+            p.setXYZ(i, vx * crag, vy, vz * crag * (bl / bw));
+        }
+        cyl.translate(0, b * bH + bH * 0.5, 0);
+        smoothDuplicateVertexNormals(cyl);
+
+        const strataTint = (b === 0) ? [0.70, 0.28, 0.16]
+                         : (b === 1) ? [0.58, 0.22, 0.13]
+                         : (b === 2) ? [0.78, 0.42, 0.24]
+                         : (b === 3) ? [0.84, 0.64, 0.44]
+                         : [0.90, 0.80, 0.62];
+        tintBuildingPart(cyl, strataTint[0], strataTint[1], strataTint[2], h);
+        applyWorldBoxUVs(cyl, 0.18, 0.24);
+        parts.push(cyl);
+    }
+    const merged = mergeBufferGeometries(parts);
+    merged.userData = {
+        isRock: true,
+        useMeshRaycastOnly: true,
+        collisionCircles: [
+            { x: 0, z:  0.0,       r: w * 0.48 },
+            { x: 0, z:  l * 0.20,  r: w * 0.45 },
+            { x: 0, z: -l * 0.20,  r: w * 0.45 },
+            { x: 0, z:  l * 0.36,  r: w * 0.42 },
+            { x: 0, z: -l * 0.36,  r: w * 0.42 }
+        ]
+    };
+    return merged;
+}
+
+function createCanyonTowerGeometry(baseW = 9.2, h = 17.0) {
+    const parts = [];
+    const bH = h / 4;
+    for (let b = 0; b < 4; b++) {
+        const bw = baseW * (1.0 - b * 0.18);
+        const cyl = new THREE.CylinderGeometry(bw * 0.44, bw * 0.54, bH + 0.12, 14, 3);
+        const p = cyl.attributes.position;
+        for (let i = 0; i < p.count; i++) {
+            const vx = p.getX(i), vy = p.getY(i), vz = p.getZ(i);
+            const ang = Math.atan2(vz, vx);
+            const crag = 1.0 + Math.sin(ang * 4.0 + b) * 0.13;
+            p.setXYZ(i, vx * crag, vy, vz * crag);
+        }
+        cyl.translate(0, b * bH + bH * 0.5, 0);
+        smoothDuplicateVertexNormals(cyl);
+        const strata = (b === 0) ? [0.68, 0.26, 0.15] : (b === 1) ? [0.56, 0.20, 0.12] : (b === 2) ? [0.80, 0.52, 0.34] : [0.88, 0.74, 0.54];
+        tintBuildingPart(cyl, strata[0], strata[1], strata[2], h);
+        applyWorldBoxUVs(cyl, 0.18, 0.24);
+        parts.push(cyl);
+    }
+    const merged = mergeBufferGeometries(parts);
+    merged.userData = {
+        isRock: true,
+        useMeshRaycastOnly: true,
+        collisionCircles: [
+            { x: 0, z: 0, r: baseW * 0.48 }
+        ]
+    };
+    return merged;
+}
+
+// ============================================================================
+// 5X. Tropical Jungle Giant Emergent Rainforest Canopy Tree (Kapok / Strangler Banyan)
+// Features: Organic Flaring Buttress Root Fins, Gnarled Mossy Trunk, 8 Spreading Primary
+// Boughs, 22 Multi-Tiered 3D Volumetric Broadleaf Canopy Domes (Mid-Story + Emergent Crown),
+// Epiphyte Fern Rosettes, and Foliated Hanging Liana Curtains!
+// ============================================================================
+function createJungleCanopyTreeGeometry() {
+    const parts = [];
+    const trunkH = 13.5;
+
+    function colorJungleBark(geo, maxY = 14.0) {
+        const pos = geo.attributes.position;
+        const col = new Float32Array(pos.count * 3);
+        for (let i = 0; i < pos.count; i++) {
+            const vy = pos.getY(i);
+            const ny = Math.max(0.0, Math.min(1.0, vy / maxY));
+            const ao = 0.52 + 0.48 * Math.min(1.0, vy / 3.5);
+            // Warm pale-grey/tan Kapok bark with lush emerald moss at base and bough forks
+            const moss = Math.max(0.0, 1.0 - vy / 3.2) * 0.55;
+            const r = (0.54 * (1.0 - moss) + 0.24 * moss) * ao;
+            const g = (0.46 * (1.0 - moss) + 0.48 * moss) * ao;
+            const b = (0.36 * (1.0 - moss) + 0.20 * moss) * ao;
+            col[i * 3 + 0] = r;
+            col[i * 3 + 1] = g;
+            col[i * 3 + 2] = b;
+        }
+        geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+        return geo;
+    }
+
+    // 1. Sinuous Mossy Emergent Trunk (Q3 Bark UVs)
+    const trunk = new THREE.CylinderGeometry(0.55, 1.18, trunkH, 10, 6);
+    setGeometryUVBox(trunk, 0.52, 0.98, 0.02, 0.48);
+    const tPos = trunk.attributes.position;
+    for (let i = 0; i < tPos.count; i++) {
+        const vy = tPos.getY(i);
+        const ny = (vy + trunkH * 0.5) / trunkH;
+        const flare = ny < 0.28 ? 1.0 + Math.pow(1.0 - ny / 0.28, 2.0) * 0.55 : 1.0;
+        tPos.setX(i, tPos.getX(i) * flare + Math.sin(ny * 2.8) * 0.28);
+        tPos.setZ(i, tPos.getZ(i) * flare + Math.cos(ny * 2.2) * 0.22 - 0.22);
+    }
+    trunk.computeVertexNormals();
+    trunk.translate(0, trunkH * 0.5, 0);
+    parts.push(colorJungleBark(trunk, trunkH));
+
+    // 2. 6 Organic Flaring Buttress Root Fins (Tapered angled root ridges, NEVER black boxes!)
+    for (let r = 0; r < 6; r++) {
+        const ang = (r / 6) * Math.PI * 2.0 + 0.25;
+        const p1 = new THREE.Vector3(Math.cos(ang) * 0.55, 3.8, Math.sin(ang) * 0.55);
+        const p2 = new THREE.Vector3(Math.cos(ang) * 2.35, 0.0, Math.sin(ang) * 2.35);
+        const dir = p2.clone().sub(p1);
+        const len = dir.length();
+        const rootFin = new THREE.CylinderGeometry(0.42, 0.16, len, 6, 2);
+        rootFin.scale(0.45, 1.0, 1.35);
+        setGeometryUVBox(rootFin, 0.52, 0.98, 0.02, 0.48);
+        rootFin.translate(0, len * 0.5, 0);
+        const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+        rootFin.applyMatrix4(new THREE.Matrix4().makeRotationFromQuaternion(q));
+        rootFin.translate(p1.x, p1.y, p1.z);
+        parts.push(colorJungleBark(rootFin, 5.0));
+    }
+
+    // 3. 8 Spreading Primary & Sub-Canopy Boughs
+    const boughs = [
+        { from: [0, 11.2, 0], to: [ 4.2, 14.5,  1.2], r1: 0.42, r2: 0.18 },
+        { from: [0, 11.5, 0], to: [-4.0, 14.2,  1.4], r1: 0.40, r2: 0.18 },
+        { from: [0, 11.0, 0], to: [ 1.3, 14.0,  4.1], r1: 0.38, r2: 0.17 },
+        { from: [0, 11.4, 0], to: [-1.2, 14.4, -4.0], r1: 0.38, r2: 0.17 },
+        { from: [0, 11.8, 0], to: [ 3.2, 15.2, -3.0], r1: 0.34, r2: 0.15 },
+        { from: [0, 11.6, 0], to: [-3.1, 15.0, -2.9], r1: 0.34, r2: 0.15 },
+        // Lower mid-story branches so trunk isn't bare
+        { from: [0,  7.4, 0], to: [ 2.8,  9.2, -1.2], r1: 0.28, r2: 0.12 },
+        { from: [0,  8.0, 0], to: [-2.6,  9.6,  1.5], r1: 0.26, r2: 0.12 }
+    ];
+    boughs.forEach(b => {
+        const p1 = new THREE.Vector3(...b.from);
+        const p2 = new THREE.Vector3(...b.to);
+        const dir = p2.clone().sub(p1);
+        const len = dir.length();
+        const cyl = new THREE.CylinderGeometry(b.r2, b.r1, len, 6, 2);
+        setGeometryUVBox(cyl, 0.52, 0.98, 0.02, 0.48);
+        cyl.translate(0, len * 0.5, 0);
+        const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+        cyl.applyMatrix4(new THREE.Matrix4().makeRotationFromQuaternion(q));
+        cyl.translate(p1.x, p1.y, p1.z);
+        parts.push(colorJungleBark(cyl, 15.0));
+    });
+
+    // 4. 20 Volumetric 3D Broadleaf Canopy Domes (Mid-story understory + Wide Main Crown + Sunlit Apex)
+    const crownCenter = new THREE.Vector3(0, 12.8, 0);
+    const canopyClusters = [
+        // Lower/mid-story sub-canopy foliage clouds (y = 8.2m..10.5m)
+        [ 2.6,  8.8, -1.1, 2.4, 0.72, 0],
+        [-2.5,  9.2,  1.4, 2.4, 0.74, 1],
+        [ 0.8,  9.6,  2.2, 2.3, 0.75, 0],
+        [-0.9,  9.0, -2.1, 2.3, 0.72, 1],
+        // Core shadow volume domes
+        [ 0.0, 12.6,  0.0, 3.2, 0.65, 0],
+        [ 0.0, 14.4,  0.0, 3.4, 0.78, 1],
+        // Wide spreading main rainforest canopy (radius ~6m, diameter ~13m)
+        [ 4.2, 14.2,  1.2, 3.0, 0.86, 0],
+        [-4.0, 14.0,  1.4, 3.0, 0.85, 1],
+        [ 1.3, 13.8,  4.1, 2.9, 0.86, 0],
+        [-1.2, 14.1, -4.0, 2.9, 0.84, 1],
+        [ 3.2, 14.8, -3.0, 2.8, 0.90, 0],
+        [-3.1, 14.6, -2.9, 2.8, 0.88, 1],
+        [ 3.0, 14.5,  3.1, 2.8, 0.88, 1],
+        [-3.0, 14.3,  3.0, 2.8, 0.86, 0],
+        // Upper-mid fullness domes
+        [ 2.1, 15.8,  1.6, 2.9, 0.94, 0],
+        [-2.1, 15.6, -1.5, 2.9, 0.92, 1],
+        [-1.8, 15.9,  1.9, 2.8, 0.94, 0],
+        [ 1.9, 15.7, -1.8, 2.8, 0.92, 1],
+        // Sunlit emergent upper crown domes
+        [ 0.5, 17.0,  0.4, 3.0, 1.02, 0],
+        [-0.6, 16.8, -0.5, 2.8, 0.98, 1]
+    ];
+
+    const cardOrientations = [
+        { rx:  0.22, ry: 0.00, rz:  0.14 },
+        { rx: -0.25, ry: 1.05, rz: -0.16 },
+        { rx:  0.28, ry: 2.10, rz:  0.18 },
+        { rx:  0.92, ry: 0.52, rz:  0.00 },
+        { rx:  0.86, ry: 2.09, rz:  0.20 }
+    ];
+
+    canopyClusters.forEach(([cx, cy, cz, rad, brightness, tintType], cIdx) => {
+        cardOrientations.forEach((ori) => {
+            const w = rad * 1.48;
+            const h = rad * 1.38;
+            const card = createCurvedFoliageCard(w, h, 0.30, 0.52, 0.98, 0.52, 0.98);
+            card.translate(0, -h * 0.48, 0);
+            card.rotateZ(ori.rz);
+            card.rotateX(ori.rx);
+            card.rotateY(ori.ry + cIdx * 0.48);
+            card.translate(cx, cy, cz);
+
+            // Mix deep emerald rainforest foliage and sunlit tropical lime-jade foliage
+            const tr = (tintType === 0 ? 0.50 : 0.62) * brightness;
+            const tg = (tintType === 0 ? 0.84 : 0.88) * brightness;
+            const tb = (tintType === 0 ? 0.32 : 0.36) * brightness;
+            applyCanopyVolumeShading(card, crownCenter, tr, tg, tb, 0.38 * brightness);
+            parts.push(card);
+        });
+    });
+
+    // 5. Epiphyte Tropical Fern Rosette perched on lower trunk fork + Foliated Hanging Liana Curtains
+    for (let f = 0; f < 6; f++) {
+        const fAng = (f / 6) * Math.PI * 2.0 + 0.3;
+        const epiphyte = createCurvedFoliageCard(1.35, 2.1, 0.48, 0.52, 0.98, 0.52, 0.98);
+        epiphyte.rotateX(Math.PI * 0.36);
+        epiphyte.rotateY(fAng);
+        epiphyte.translate(0, 7.6, 0);
+        applyCanopyVolumeShading(epiphyte, new THREE.Vector3(0, 7.8, 0), 0.54, 0.86, 0.32, 0.45);
+        parts.push(epiphyte);
+    }
+
+    // Hanging foliated liana curtains (alpha-cutout leaf drapes, NOT rigid solid sticks)
+    for (let v = 0; v < 10; v++) {
+        const vAng = (v / 10) * Math.PI * 2.0 + 0.38;
+        const vRad = 2.6 + (v % 3) * 1.15;
+        const drapeH = 4.2 + (v % 2) * 1.4;
+        const topY = 13.8 + (v % 2) * 0.6;
+        const vineCard = createCurvedFoliageCard(1.35, drapeH, 0.28, 0.52, 0.98, 0.52, 0.98);
+        vineCard.translate(0, -drapeH * 0.75, 0);
+        vineCard.rotateX(0.10);
+        vineCard.rotateY(vAng + 0.4);
+        vineCard.translate(Math.cos(vAng) * vRad, topY, Math.sin(vAng) * vRad);
+        applyCanopyVolumeShading(vineCard, crownCenter, 0.46, 0.78, 0.30, 0.42);
+        parts.push(vineCard);
+    }
+
+    return mergeBufferGeometries(parts);
+}
+
+// ============================================================================
+// 5Y. Tropical Jungle Ancient Stepped Pyramid Temple (Chichen Itza / Tikal / Angkor Style)
+// Features: 8 Talud-Tablero Stepped Terraces with Overhanging Cornices, 4-Sided Balustraded
+// Ceremonial Stairways with Serpent-Head Base Blocks, Carved Upper Sanctuary, Perforated
+// Maya Roof Comb (Crestería), and Overgrown Rainforest Vines & Moss!
+// ============================================================================
+function createJungleTempleGeometry() {
+    const parts = [];
+    const maxTempleH = 14.5;
+
+    function addTempleStonePart(geo, baseR = 0.80, baseG = 0.78, baseB = 0.70, mossBoost = 0.0) {
+        const pos = geo.attributes.position;
+        const norm = geo.attributes.normal;
+        const col = new Float32Array(pos.count * 3);
+        for (let i = 0; i < pos.count; i++) {
+            const vx = pos.getX(i), vy = pos.getY(i), vz = pos.getZ(i);
+            const ny = norm ? norm.getY(i) : 0.0;
+            const hFrac = Math.max(0.0, Math.min(1.0, vy / maxTempleH));
+            const heightAO = 0.72 + 0.28 * Math.pow(hFrac, 0.65);
+            const blockVar = (hash2D(Math.floor(vx * 0.9), Math.floor(vy * 1.5 + vz * 0.9)) - 0.5) * 0.12;
+            // Upward-facing terrace ledges & lower steps accumulate lush tropical jade moss
+            const ledgeMoss = Math.min(0.68, Math.max(0.0, (ny > 0.5 ? 0.32 : 0.0) + (1.0 - hFrac) * 0.22 + mossBoost));
+            const r = (baseR * (1.0 - ledgeMoss) + 0.34 * ledgeMoss) * (heightAO + blockVar);
+            const g = (baseG * (1.0 - ledgeMoss) + 0.58 * ledgeMoss) * (heightAO + blockVar);
+            const b = (baseB * (1.0 - ledgeMoss) + 0.26 * ledgeMoss) * (heightAO + blockVar);
+            col[i * 3 + 0] = Math.min(1.0, Math.max(0.25, r));
+            col[i * 3 + 1] = Math.min(1.0, Math.max(0.28, g));
+            col[i * 3 + 2] = Math.min(1.0, Math.max(0.22, b));
+        }
+        geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+        applyWorldBoxUVs(geo, 0.26, 0.32);
+        parts.push(geo);
+    }
+
+    // 0. Deep Sub-Terrain Stone Foundation Skirt (prevents floating on sloped jungle hillsides)
+    const numTiers = 7;
+    const baseW = 20.5;
+    const tierH = 1.18;
+    const foundH = 5.5;
+    const foundation = new THREE.BoxGeometry(baseW + 0.6, foundH, baseW + 0.6);
+    foundation.translate(0, -foundH * 0.5, 0);
+    addTempleStonePart(foundation, 0.72, 0.70, 0.62, 0.18);
+
+    // 1. 7 Stepped Talud-Tablero Pyramid Terraces (Sloped base + Projecting Framed Cornice Panel)
+    let curY = 0.0;
+    const collisionBoxes = [];
+    const walkablePlatforms = [];
+    const stairW = 3.8;
+    const stairHalf = stairW * 0.5;
+
+    for (let t = 0; t < numTiers; t++) {
+        const frac = t / numTiers;
+        const w = baseW * (1.0 - frac * 0.58);
+        const halfW = (w + 0.18) * 0.5;
+        const tierTopY = (t + 1) * tierH;
+
+        // Lower sloped Talud core
+        const taludH = tierH * 0.48;
+        const talud = new THREE.BoxGeometry(w - 0.25, taludH + 0.04, w - 0.25);
+        talud.translate(0, curY + taludH * 0.5, 0);
+        addTempleStonePart(talud, 0.78, 0.76, 0.68, 0.08);
+
+        // Upper projecting Tablero cornice frame with recessed panel
+        const tabH = tierH * 0.52;
+        const tablero = new THREE.BoxGeometry(w + 0.18, tabH + 0.02, w + 0.18);
+        tablero.translate(0, curY + taludH + tabH * 0.5, 0);
+        addTempleStonePart(tablero, 0.86, 0.83, 0.74, (t % 2 === 0 ? 0.05 : 0.14));
+
+        // 4 quadrant collision boxes per tier (leaves the 4 axial stair channels open for climbing!)
+        [-1, 1].forEach(sx => {
+            [-1, 1].forEach(sz => {
+                collisionBoxes.push({
+                    minX: sx < 0 ? -halfW : stairHalf,
+                    maxX: sx < 0 ? -stairHalf : halfW,
+                    minZ: sz < 0 ? -halfW : stairHalf,
+                    maxZ: sz < 0 ? -stairHalf : halfW,
+                    maxY: tierTopY
+                });
+            });
+        });
+
+        // Walkable terrace deck for this tier
+        walkablePlatforms.push({
+            minX: -halfW, maxX: halfW,
+            minZ: -halfW, maxZ: halfW,
+            y: tierTopY
+        });
+
+        curY += tierH;
+    }
+
+    // 2. 4-Sided Monumental Balustraded Ceremonial Stairways (+Z, -Z, +X, -X)
+    const stairSteps = 18;
+    const stairTopR = (baseW * (1.0 - ((numTiers - 1) / numTiers) * 0.58)) * 0.5;
+    const stairBotR = baseW * 0.5 + 1.85;
+
+    for (let side = 0; side < 4; side++) {
+        const rotY = side * Math.PI * 0.5;
+
+        // Individual carved stone steps rising up the pyramid face
+        for (let s = 0; s < stairSteps; s++) {
+            const sFrac = s / stairSteps;
+            const sh = curY / stairSteps;
+            const sy = s * sh + sh * 0.5;
+            const sz = stairBotR - sFrac * (stairBotR - stairTopR);
+            const stepDepth = ((stairBotR - stairTopR) / stairSteps) + 0.35;
+            const step = new THREE.BoxGeometry(stairW, sh + 0.04, stepDepth);
+            step.translate(0, sy, sz);
+            step.rotateY(rotY);
+            addTempleStonePart(step, 0.82, 0.80, 0.72, 0.06);
+        }
+
+        // Flanking Sloped Stone Balustrades (Alfardas) & Carved Serpent-Head Base Blocks
+        const dZ = stairBotR - stairTopR;
+        const dY = curY;
+        const balLen = Math.hypot(dZ, dY);
+        const balAngle = Math.atan2(dZ, dY);
+
+        [-1, 1].forEach(bSide => {
+            const bx = bSide * (stairW * 0.5 + 0.38);
+            const balustrade = new THREE.BoxGeometry(0.68, balLen, 0.92);
+            balustrade.rotateX(-balAngle);
+            balustrade.translate(bx, dY * 0.5, (stairBotR + stairTopR) * 0.5 + 0.15);
+            balustrade.rotateY(rotY);
+            addTempleStonePart(balustrade, 0.88, 0.85, 0.76, 0.04);
+
+            // Carved Serpent-Head / Jaguar Altar Block at the foot of each balustrade
+            const serpentBlock = new THREE.BoxGeometry(0.95, 1.15, 1.45);
+            serpentBlock.translate(bx, 0.575, stairBotR + 0.65);
+            serpentBlock.rotateY(rotY);
+            addTempleStonePart(serpentBlock, 0.90, 0.86, 0.76, 0.12);
+        });
+    }
+
+    // 3. Upper Temple Sanctuary with Carved Pillars & Corbeled Entablature Frieze
+    const shrineW = 7.4, shrineH = 3.2, shrineL = 7.4;
+    const shrineCore = new THREE.BoxGeometry(shrineW, shrineH, shrineL);
+    shrineCore.translate(0, curY + shrineH * 0.5, 0);
+    addTempleStonePart(shrineCore, 0.84, 0.81, 0.73, 0.08);
+
+    // Overhanging 2-tier corbeled Maya frieze cornice above the sanctuary
+    const frieze1 = new THREE.BoxGeometry(shrineW + 0.65, 0.55, shrineL + 0.65);
+    frieze1.translate(0, curY + shrineH + 0.275, 0);
+    addTempleStonePart(frieze1, 0.90, 0.87, 0.78, 0.05);
+
+    const frieze2 = new THREE.BoxGeometry(shrineW + 0.95, 0.48, shrineL + 0.95);
+    frieze2.translate(0, curY + shrineH + 0.55 + 0.24, 0);
+    addTempleStonePart(frieze2, 0.88, 0.85, 0.76, 0.18);
+
+    // Recessed sanctuary portals & carved stone doorway columns on all 4 faces
+    for (let side = 0; side < 4; side++) {
+        const rotY = side * Math.PI * 0.5;
+        const doorRecess = new THREE.BoxGeometry(2.4, 2.35, 0.65);
+        doorRecess.translate(0, curY + 1.18, shrineL * 0.5 - 0.15);
+        doorRecess.rotateY(rotY);
+        tintBuildingPart(doorRecess, 0.14, 0.15, 0.12, maxTempleH);
+        applyWorldBoxUVs(doorRecess, 0.26, 0.26);
+        parts.push(doorRecess);
+
+        [-0.85, 0.85].forEach(px => {
+            const col = new THREE.BoxGeometry(0.42, 2.35, 0.55);
+            col.translate(px, curY + 1.18, shrineL * 0.5 + 0.08);
+            col.rotateY(rotY);
+            addTempleStonePart(col, 0.90, 0.86, 0.76, 0.05);
+        });
+    }
+
+    // 4. Towering Perforated Maya Roof Comb (Crestería) at the Temple Summit
+    const combBaseY = curY + shrineH + 1.03;
+    const comb1 = new THREE.BoxGeometry(5.6, 1.35, 1.35);
+    comb1.translate(0, combBaseY + 0.675, 0);
+    addTempleStonePart(comb1, 0.88, 0.85, 0.76, 0.15);
+
+    for (let p = -2; p <= 2; p++) {
+        const pillar = new THREE.BoxGeometry(0.68, 1.45, 1.10);
+        pillar.translate(p * 1.10, combBaseY + 1.35 + 0.725, 0);
+        addTempleStonePart(pillar, 0.90, 0.87, 0.78, 0.12);
+    }
+
+    const combCap = new THREE.BoxGeometry(4.8, 0.65, 1.25);
+    combCap.translate(0, combBaseY + 2.80 + 0.325, 0);
+    addTempleStonePart(combCap, 0.92, 0.88, 0.78, 0.22);
+
+    // Balustrade & Serpent-Head Altar Block collisions on all 4 ceremonial stairways
+    const balMinR = stairTopR;
+    const balMaxR = stairBotR + 1.40;
+    const balInner = stairW * 0.5;
+    const balOuter = stairW * 0.5 + 0.85;
+    [-1, 1].forEach(bSide => {
+        const minC = bSide < 0 ? -balOuter : balInner;
+        const maxC = bSide < 0 ? -balInner : balOuter;
+        // +Z and -Z stair balustrades
+        collisionBoxes.push({ minX: minC, maxX: maxC, minZ: balMinR, maxZ: balMaxR, maxY: curY + 0.8 });
+        collisionBoxes.push({ minX: minC, maxX: maxC, minZ: -balMaxR, maxZ: -balMinR, maxY: curY + 0.8 });
+        // +X and -X stair balustrades
+        collisionBoxes.push({ minX: balMinR, maxX: balMaxR, minZ: minC, maxZ: maxC, maxY: curY + 0.8 });
+        collisionBoxes.push({ minX: -balMaxR, maxX: -balMinR, minZ: minC, maxZ: maxC, maxY: curY + 0.8 });
+    });
+
+    // Upper sanctuary 4 corner wall piers (leaves 2.4m portals open on all 4 faces!)
+    const shHalf = shrineW * 0.5;
+    const doorHalf = 1.15;
+    [-1, 1].forEach(sx => {
+        [-1, 1].forEach(sz => {
+            collisionBoxes.push({
+                minX: sx < 0 ? -shHalf : doorHalf,
+                maxX: sx < 0 ? -doorHalf : shHalf,
+                minZ: sz < 0 ? -shHalf : doorHalf,
+                maxZ: sz < 0 ? -doorHalf : shHalf
+            });
+        });
+    });
+
+    // 4 Sloped Ceremonial Stairway Ramps so soldiers & players can climb from ground (y=0) to top terrace (y=curY)
+    walkablePlatforms.push(
+        { minX: -stairHalf, maxX: stairHalf, minZ: stairTopR, maxZ: stairBotR + 0.65, rampAxis: 'z', y0: curY, y1: 0.0 },
+        { minX: -stairHalf, maxX: stairHalf, minZ: -(stairBotR + 0.65), maxZ: -stairTopR, rampAxis: 'z', y0: 0.0, y1: curY },
+        { minX: stairTopR, maxX: stairBotR + 0.65, minZ: -stairHalf, maxZ: stairHalf, rampAxis: 'x', y0: curY, y1: 0.0 },
+        { minX: -(stairBotR + 0.65), maxX: -stairTopR, minZ: -stairHalf, maxZ: stairHalf, rampAxis: 'x', y0: 0.0, y1: curY }
+    );
+
+    const merged = mergeBufferGeometries(parts);
+    merged.userData = {
+        useMeshRaycastOnly: true,
+        collisionBoxes: collisionBoxes,
+        walkablePlatforms: walkablePlatforms
+    };
+    return merged;
+}
+
+// ============================================================================
+// 5Z-1. Ancient Greece Parthenon / Acropolis Doric Peripteral Temple
+// Features: 3-Step Pentelic Marble Crepidoma & Stylobate, 6x8 Fluted Doric Peristyle
+// Columns with Echinus & Abacus Capitals, Architrave + Triglyph/Metope Frieze + Geison
+// Cornice, Triangular Pediments with Sculpted Relief Figures & Golden Akroteria,
+// Pitched Marble Roof, Walk-In Cella Sanctuary & Athena Statue Pedestal!
+// ============================================================================
+function createGreekParthenonGeometry(w = 19.5, l = 29.0) {
+    const parts = [];
+    const maxH = 14.5;
+
+    function addMarblePart(geo, r = 0.95, g = 0.92, b = 0.86, uvScale = 0.26) {
+        const pos = geo.attributes.position;
+        const col = new Float32Array(pos.count * 3);
+        for (let i = 0; i < pos.count; i++) {
+            const vx = pos.getX(i), vy = pos.getY(i), vz = pos.getZ(i);
+            const hAO = 0.78 + 0.22 * Math.min(1.0, Math.max(0.0, vy / maxH));
+            const warmVein = Math.sin(vx * 0.6 + vy * 1.1 + vz * 0.5) * 0.03;
+            col[i * 3 + 0] = Math.min(1.0, (r + warmVein) * hAO);
+            col[i * 3 + 1] = Math.min(1.0, (g + warmVein * 0.8) * hAO);
+            col[i * 3 + 2] = Math.min(1.0, (b + warmVein * 0.5) * hAO);
+        }
+        geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+        applyWorldBoxUVs(geo, uvScale, uvScale * 1.15);
+        parts.push(geo);
+    }
+
+    // 0. Deep Sub-Terrain Pentelic Marble & Limestone Foundation (prevents floating on sloped Acropolis hills)
+    const foundH = 5.0;
+    const foundation = new THREE.BoxGeometry(w + 2.6, foundH, l + 2.6);
+    foundation.translate(0, -foundH * 0.5, 0);
+    addMarblePart(foundation, 0.88, 0.85, 0.78);
+
+    // 1. 3-Step Pentelic Marble Crepidoma & Stylobate Platform
+    const stepH = 0.42;
+    const walkablePlatforms = [];
+    for (let s = 0; s < 3; s++) {
+        const sw = w + (2 - s) * 1.25;
+        const sl = l + (2 - s) * 1.25;
+        const step = new THREE.BoxGeometry(sw, stepH + 0.02, sl);
+        step.translate(0, s * stepH + stepH * 0.5, 0);
+        addMarblePart(step, 0.92 + s * 0.02, 0.89 + s * 0.02, 0.82 + s * 0.02);
+        walkablePlatforms.push({
+            minX: -sw * 0.5, maxX: sw * 0.5,
+            minZ: -sl * 0.5, maxZ: sl * 0.5,
+            y: (s + 1) * stepH
+        });
+    }
+    const stylobateY = 3 * stepH;
+
+    // 2. Fluted Doric Peristyle Columns (6 across front/back X, 8 along sides Z)
+    const colH = 6.8;
+    const colPositions = [];
+    const colsX = 6, colsZ = 8;
+    const spanX = w - 2.2, spanZ = l - 2.2;
+    for (let ix = 0; ix < colsX; ix++) {
+        for (let iz = 0; iz < colsZ; iz++) {
+            if (ix > 0 && ix < colsX - 1 && iz > 0 && iz < colsZ - 1) continue;
+            const cx = -spanX * 0.5 + (ix / (colsX - 1)) * spanX;
+            const cz = -spanZ * 0.5 + (iz / (colsZ - 1)) * spanZ;
+            colPositions.push([cx, cz]);
+
+            // Fluted Doric shaft with slight entasis taper (no base in true Doric order!)
+            const shaft = new THREE.CylinderGeometry(0.46, 0.58, colH, 16, 3);
+            const sp = shaft.attributes.position;
+            for (let k = 0; k < sp.count; k++) {
+                const vx = sp.getX(k), vy = sp.getY(k), vz = sp.getZ(k);
+                const ang = Math.atan2(vz, vx);
+                const flute = 1.0 - Math.abs(Math.sin(ang * 8.0)) * 0.045;
+                const entasis = 1.0 + Math.sin(((vy + colH * 0.5) / colH) * Math.PI) * 0.03;
+                sp.setX(k, vx * flute * entasis);
+                sp.setZ(k, vz * flute * entasis);
+            }
+            shaft.computeVertexNormals();
+            shaft.translate(cx, stylobateY + colH * 0.5, cz);
+            addMarblePart(shaft, 0.96, 0.93, 0.87, 0.32);
+
+            // Doric Echinus (flared cushion capital) + Square Abacus slab
+            const echinus = new THREE.CylinderGeometry(0.68, 0.46, 0.34, 16);
+            echinus.translate(cx, stylobateY + colH + 0.17, cz);
+            addMarblePart(echinus, 0.97, 0.94, 0.88);
+
+            const abacus = new THREE.BoxGeometry(1.42, 0.28, 1.42);
+            abacus.translate(cx, stylobateY + colH + 0.34 + 0.14, cz);
+            addMarblePart(abacus, 0.95, 0.92, 0.85);
+        }
+    }
+
+    // 3. Classical Doric Entablature (Architrave + Polychrome Triglyph/Metope Frieze + Geison Cornice)
+    const entabY = stylobateY + colH + 0.62;
+    const architrave = new THREE.BoxGeometry(w - 0.6, 0.72, l - 0.6);
+    architrave.translate(0, entabY + 0.36, 0);
+    addMarblePart(architrave, 0.96, 0.93, 0.87);
+
+    // Frieze band with classical Aegean terracotta-red metope backing & blue-tinted triglyphs
+    const friezeY = entabY + 0.72;
+    const friezeCore = new THREE.BoxGeometry(w - 0.7, 0.78, l - 0.7);
+    friezeCore.translate(0, friezeY + 0.39, 0);
+    addMarblePart(friezeCore, 0.84, 0.56, 0.46); // Weathered classical polychrome terracotta metope backing
+
+    // Projecting Triglyph tablets along all 4 sides
+    for (let tx = -6; tx <= 6; tx++) {
+        [-1, 1].forEach(zSide => {
+            const trig = new THREE.BoxGeometry(0.42, 0.76, 0.16);
+            trig.translate(tx * ((w - 1.6) / 12), friezeY + 0.39, zSide * ((l - 0.62) * 0.5));
+            addMarblePart(trig, 0.88, 0.90, 0.94);
+        });
+    }
+    for (let tz = -9; tz <= 9; tz++) {
+        [-1, 1].forEach(xSide => {
+            const trig = new THREE.BoxGeometry(0.16, 0.76, 0.42);
+            trig.translate(xSide * ((w - 0.62) * 0.5), friezeY + 0.39, tz * ((l - 1.6) / 18));
+            addMarblePart(trig, 0.88, 0.90, 0.94);
+        });
+    }
+
+    // Overhanging Geison Cornice
+    const corniceY = friezeY + 0.78;
+    const cornice = new THREE.BoxGeometry(w + 0.4, 0.38, l + 0.4);
+    cornice.translate(0, corniceY + 0.19, 0);
+    addMarblePart(cornice, 0.98, 0.95, 0.89);
+
+    // 4. Triangular East/West Pediments, Tympanum Relief Sculptures, Pitched Marble Roof & Golden Akroteria
+    const roofBaseY = corniceY + 0.38;
+    const roofH = 2.85;
+    const roof = createPitchedRoofGeometry(w + 0.6, l + 0.6, roofH);
+    roof.translate(0, roofBaseY, 0);
+    addMarblePart(roof, 0.93, 0.88, 0.78, 0.22);
+
+    // Recessed Tympanum & Pedimental Sculptures on Front (+Z) and Back (-Z) Gables
+    [-1, 1].forEach(zSide => {
+        const gz = zSide * (l * 0.5 - 0.05);
+        const sculptPositions = [
+            { x:  0.0,  h: 1.65, w: 0.75 },
+            { x: -1.8,  h: 1.35, w: 0.65 },
+            { x:  1.8,  h: 1.35, w: 0.65 },
+            { x: -3.5,  h: 0.95, w: 0.60 },
+            { x:  3.5,  h: 0.95, w: 0.60 }
+        ];
+        sculptPositions.forEach(sp => {
+            const fig = new THREE.CylinderGeometry(sp.w * 0.38, sp.w * 0.48, sp.h, 8);
+            fig.translate(sp.x, roofBaseY + sp.h * 0.5 + 0.05, gz);
+            addMarblePart(fig, 0.98, 0.94, 0.86);
+        });
+
+        // Apex Golden Palmette Akroterion ornament
+        const akro = new THREE.ConeGeometry(0.55, 1.15, 6);
+        akro.translate(0, roofBaseY + roofH + 0.45, zSide * (l * 0.5 + 0.15));
+        addMarblePart(akro, 0.96, 0.82, 0.42);
+    });
+
+    // 5. Walk-In Interior Naos / Cella Walls & Athena Parthenos Pedestal (Open Portals on +Z and -Z)
+    const cellaW = w - 6.8;
+    const cellaL = l - 9.2;
+    const cellaH = colH + 0.5;
+    const wallT = 0.65;
+    const doorHalfW = 2.1;
+
+    // Left & Right Cella side walls
+    [-1, 1].forEach(xSide => {
+        const sideWall = new THREE.BoxGeometry(wallT, cellaH, cellaL);
+        sideWall.translate(xSide * (cellaW * 0.5 - wallT * 0.5), stylobateY + cellaH * 0.5, 0);
+        addMarblePart(sideWall, 0.93, 0.90, 0.84);
+    });
+
+    // Front & Back Cella walls with wide open central temple doorway
+    const jambW = (cellaW - doorHalfW * 2.0) * 0.5;
+    [-1, 1].forEach(zSide => {
+        const wz = zSide * (cellaL * 0.5 - wallT * 0.5);
+        [-1, 1].forEach(xSide => {
+            const wx = xSide * (doorHalfW + jambW * 0.5);
+            const jambWall = new THREE.BoxGeometry(jambW, cellaH, wallT);
+            jambWall.translate(wx, stylobateY + cellaH * 0.5, wz);
+            addMarblePart(jambWall, 0.93, 0.90, 0.84);
+        });
+        const lintel = new THREE.BoxGeometry(doorHalfW * 2.0 + 0.4, 1.45, wallT);
+        lintel.translate(0, stylobateY + cellaH - 0.725, wz);
+        addMarblePart(lintel, 0.95, 0.92, 0.86);
+    });
+
+    // Central Sanctuary Pedestal & Golden-Ivory Athena Statue Silhouette inside Naos
+    const ped = new THREE.BoxGeometry(2.4, 1.35, 2.4);
+    ped.translate(0, stylobateY + 0.675, 0);
+    addMarblePart(ped, 0.88, 0.85, 0.79);
+
+    const statue = new THREE.CylinderGeometry(0.52, 0.68, 3.8, 10);
+    statue.translate(0, stylobateY + 1.35 + 1.9, 0);
+    addMarblePart(statue, 0.98, 0.86, 0.48);
+
+    const merged = mergeBufferGeometries(parts);
+    merged.userData = {
+        useMeshRaycastOnly: true,
+        collisionCircles: colPositions.map(([cx, cz]) => ({ x: cx, z: cz, r: 0.62 })),
+        collisionBoxes: [
+            // Left & Right Cella walls
+            { minX: -cellaW * 0.5, maxX: -cellaW * 0.5 + wallT, minZ: -cellaL * 0.5, maxZ: cellaL * 0.5 },
+            { minX:  cellaW * 0.5 - wallT, maxX: cellaW * 0.5,  minZ: -cellaL * 0.5, maxZ: cellaL * 0.5 },
+            // Front (+Z) & Back (-Z) Cella door jambs
+            { minX: -cellaW * 0.5, maxX: -doorHalfW, minZ:  cellaL * 0.5 - wallT, maxZ:  cellaL * 0.5 },
+            { minX:  doorHalfW,    maxX:  cellaW * 0.5, minZ:  cellaL * 0.5 - wallT, maxZ:  cellaL * 0.5 },
+            { minX: -cellaW * 0.5, maxX: -doorHalfW, minZ: -cellaL * 0.5, maxZ: -cellaL * 0.5 + wallT },
+            { minX:  doorHalfW,    maxX:  cellaW * 0.5, minZ: -cellaL * 0.5, maxZ: -cellaL * 0.5 + wallT },
+            // Center statue pedestal
+            { minX: -1.25, maxX: 1.25, minZ: -1.25, maxZ: 1.25 }
+        ],
+        walkablePlatforms: walkablePlatforms
+    };
+    return merged;
+}
+
+// ============================================================================
+// 5Z-2. Ancient Greece Sanctuary of Athena Pronaia Tholos (Delphi Circular Marble Rotunda)
+// ============================================================================
+function createGreekTholosGeometry(radius = 8.2) {
+    const parts = [];
+    const maxH = 11.8;
+
+    const addTholosPart = (geo, r = 0.95, g = 0.92, b = 0.86) => {
+        tintBuildingPart(geo, r, g, b, maxH);
+        applyWorldBoxUVs(geo, 0.26, 0.30);
+        parts.push(geo);
+    };
+
+    // Sub-Terrain Circular Marble Foundation
+    const foundH = 4.5;
+    const found = new THREE.CylinderGeometry(radius + 1.35, radius + 1.55, foundH, 24);
+    found.translate(0, -foundH * 0.5, 0);
+    addTholosPart(found, 0.88, 0.85, 0.78);
+
+    // 3-Step Circular Marble Crepidoma
+    const stepH = 0.36;
+    const walkablePlatforms = [];
+    for (let s = 0; s < 3; s++) {
+        const sr = radius + (2 - s) * 0.65;
+        const disc = new THREE.CylinderGeometry(sr, sr + 0.08, stepH + 0.02, 24);
+        disc.translate(0, s * stepH + stepH * 0.5, 0);
+        addTholosPart(disc, 0.92 + s * 0.02, 0.89 + s * 0.02, 0.83 + s * 0.02);
+        walkablePlatforms.push({ x: 0, z: 0, r: sr + 0.05, y: (s + 1) * stepH });
+    }
+    const baseY = 3 * stepH;
+
+    // 12 Outer Peristyle Fluted Doric Columns in a Circle
+    const numCols = 12;
+    const colRingR = radius - 0.85;
+    const colH = 5.8;
+    const colCircles = [];
+
+    for (let i = 0; i < numCols; i++) {
+        const ang = (i / numCols) * Math.PI * 2.0;
+        const cx = Math.cos(ang) * colRingR;
+        const cz = Math.sin(ang) * colRingR;
+        colCircles.push({ x: cx, z: cz, r: 0.55 });
+
+        const shaft = new THREE.CylinderGeometry(0.38, 0.48, colH, 12, 2);
+        shaft.translate(cx, baseY + colH * 0.5, cz);
+        addTholosPart(shaft, 0.96, 0.93, 0.87);
+
+        const cap = new THREE.CylinderGeometry(0.58, 0.38, 0.32, 12);
+        cap.translate(cx, baseY + colH + 0.16, cz);
+        addTholosPart(cap, 0.97, 0.94, 0.88);
+
+        const abacus = new THREE.BoxGeometry(1.18, 0.24, 1.18);
+        abacus.rotateY(-ang);
+        abacus.translate(cx, baseY + colH + 0.32 + 0.12, cz);
+        addTholosPart(abacus, 0.95, 0.92, 0.86);
+    }
+
+    // Circular Marble Entablature Ring & Conical Terracotta/Marble Tholos Roof
+    const ringY = baseY + colH + 0.56;
+    const entabRing = new THREE.CylinderGeometry(radius - 0.2, radius - 0.2, 1.15, 24, 1, true);
+    entabRing.translate(0, ringY + 0.575, 0);
+    addTholosPart(entabRing, 0.95, 0.91, 0.84);
+
+    const entabCap = new THREE.CylinderGeometry(radius + 0.15, radius + 0.15, 0.34, 24);
+    entabCap.translate(0, ringY + 1.15, 0);
+    addTholosPart(entabCap, 0.97, 0.94, 0.88);
+
+    const coneRoof = new THREE.ConeGeometry(radius + 0.35, 2.85, 24);
+    coneRoof.translate(0, ringY + 1.32 + 1.425, 0);
+    addTholosPart(coneRoof, 0.88, 0.72, 0.56);
+
+    const finial = new THREE.ConeGeometry(0.48, 1.1, 8);
+    finial.translate(0, ringY + 1.32 + 2.85 + 0.45, 0);
+    addTholosPart(finial, 0.98, 0.84, 0.42);
+
+    // Central Sacred Brazier / Altar Pedestal (open colonnade around it so players can walk through)
+    const altar = new THREE.CylinderGeometry(0.95, 1.15, 1.25, 12);
+    altar.translate(0, baseY + 0.625, 0);
+    addTholosPart(altar, 0.90, 0.86, 0.78);
+    colCircles.push({ x: 0, z: 0, r: 1.15 });
+
+    const merged = mergeBufferGeometries(parts);
+    merged.userData = {
+        useMeshRaycastOnly: true,
+        collisionCircles: colCircles,
+        walkablePlatforms: walkablePlatforms
+    };
+    return merged;
+}
+
+// ============================================================================
+// 5Z-3. Ancient Greece Classical Agora Stoa Colonnade Portico
+// ============================================================================
+function createGreekStoaGeometry(w = 18.0, l = 8.4) {
+    const parts = [];
+    const maxH = 8.6;
+    const addStoaPart = (geo, r = 0.94, g = 0.91, b = 0.85) => {
+        tintBuildingPart(geo, r, g, b, maxH);
+        applyWorldBoxUVs(geo, 0.26, 0.30);
+        parts.push(geo);
+    };
+
+    const foundH = 4.2;
+    const found = new THREE.BoxGeometry(w + 0.8, foundH, l + 0.8);
+    found.translate(0, -foundH * 0.5, 0);
+    addStoaPart(found, 0.86, 0.83, 0.76);
+
+    const step1 = new THREE.BoxGeometry(w + 0.6, 0.34, l + 0.6);
+    step1.translate(0, 0.17, 0);
+    addStoaPart(step1, 0.88, 0.85, 0.78);
+
+    const baseH = 0.65;
+    const base = new THREE.BoxGeometry(w, baseH, l);
+    base.translate(0, baseH * 0.5, 0);
+    addStoaPart(base, 0.90, 0.87, 0.80);
+
+    // Front row of 6 Doric columns (+Z)
+    const colH = 5.0;
+    const colCircles = [];
+    for (let i = 0; i < 6; i++) {
+        const cx = -w * 0.42 + (i / 5) * (w * 0.84);
+        const cz = l * 0.36;
+        colCircles.push({ x: cx, z: cz, r: 0.48 });
+
+        const col = new THREE.CylinderGeometry(0.34, 0.42, colH, 12);
+        col.translate(cx, baseH + colH * 0.5, cz);
+        addStoaPart(col, 0.96, 0.93, 0.87);
+
+        const cap = new THREE.BoxGeometry(0.96, 0.28, 0.96);
+        cap.translate(cx, baseH + colH + 0.14, cz);
+        addStoaPart(cap, 0.95, 0.92, 0.86);
+    }
+
+    // Rear masonry wall (-Z) with central open portal
+    const wallT = 0.60;
+    const doorHalf = 1.6;
+    const segW = (w - doorHalf * 2.0) * 0.5;
+    [-1, 1].forEach(side => {
+        const wallSeg = new THREE.BoxGeometry(segW, colH + 0.28, wallT);
+        wallSeg.translate(side * (doorHalf + segW * 0.5), baseH + (colH + 0.28) * 0.5, -l * 0.42);
+        addStoaPart(wallSeg, 0.92, 0.89, 0.82);
+    });
+
+    // Entablature & Pitched Terracotta Tile Roof
+    const entab = new THREE.BoxGeometry(w + 0.2, 0.85, l - 0.2);
+    entab.translate(0, baseH + colH + 0.28 + 0.425, 0);
+    addStoaPart(entab, 0.95, 0.92, 0.85);
+
+    const roof = createPitchedRoofGeometry(w + 0.6, l + 0.6, 1.85);
+    roof.rotateY(Math.PI * 0.5);
+    roof.translate(0, baseH + colH + 1.13, 0);
+    addStoaPart(roof, 0.82, 0.46, 0.32);
+
+    const merged = mergeBufferGeometries(parts);
+    merged.userData = {
+        useMeshRaycastOnly: true,
+        collisionCircles: colCircles,
+        collisionBoxes: [
+            { minX: -w * 0.5, maxX: -doorHalf, minZ: -l * 0.42 - wallT * 0.5, maxZ: -l * 0.42 + wallT * 0.5 },
+            { minX:  doorHalf, maxX:  w * 0.5, minZ: -l * 0.42 - wallT * 0.5, maxZ: -l * 0.42 + wallT * 0.5 }
+        ],
+        walkablePlatforms: [
+            { minX: -(w + 0.6) * 0.5, maxX: (w + 0.6) * 0.5, minZ: -(l + 0.6) * 0.5, maxZ: (l + 0.6) * 0.5, y: 0.34 },
+            { minX: -w * 0.5, maxX: w * 0.5, minZ: -l * 0.5, maxZ: l * 0.5, y: baseH }
+        ]
+    };
+    return merged;
+}
+
+// ============================================================================
+// 5Z-4. Ancient Rome Flavian Amphitheatre (The Colosseum / Coliseum)
+// Features: Monumental 16-Bay Elliptical Travertine Facade, 3 Superposed Stories of
+// Open Vaulted Arcades with Engaged Columns & Entablature Cornices, Iconic Asymmetric
+// 4th-Story North Attic Wall, Ruined South Cutaway Revealing Tiered Cavea Seating &
+// Sandy Arena Floor, and Per-Pier Collision so Soldiers Can Walk/Shoot Through the Arches!
+// ============================================================================
+function createRomanColosseumGeometry(rxOuter = 23.5, rzOuter = 19.5) {
+    const parts = [];
+    const maxH = 21.0;
+
+    function addTravertinePart(geo, r = 0.90, g = 0.82, b = 0.68, uvScale = 0.24) {
+        const pos = geo.attributes.position;
+        const col = new Float32Array(pos.count * 3);
+        for (let i = 0; i < pos.count; i++) {
+            const vx = pos.getX(i), vy = pos.getY(i), vz = pos.getZ(i);
+            const hAO = 0.74 + 0.26 * Math.min(1.0, Math.max(0.0, vy / maxH));
+            const courseVar = (hash2D(Math.floor(vx * 0.7), Math.floor(vy * 1.2 + vz * 0.7)) - 0.5) * 0.08;
+            col[i * 3 + 0] = Math.min(1.0, (r + courseVar) * hAO);
+            col[i * 3 + 1] = Math.min(1.0, (g + courseVar * 0.9) * hAO);
+            col[i * 3 + 2] = Math.min(1.0, (b + courseVar * 0.7) * hAO);
+        }
+        geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+        applyWorldBoxUVs(geo, uvScale, uvScale * 1.2);
+        parts.push(geo);
+    }
+
+    const numBays = 16;
+    const tierH = 4.6;
+    const pierCircles = [];
+
+    // 0. Sub-Terrain Travertine Foundation & Sandy Arena Floor Slab
+    const foundH = 5.0;
+    const found = new THREE.CylinderGeometry(rxOuter + 1.2, rxOuter + 1.5, foundH, 24);
+    found.scale(1.0, 1.0, rzOuter / rxOuter);
+    found.translate(0, -foundH * 0.5, 0);
+    addTravertinePart(found, 0.82, 0.74, 0.60);
+
+    const arenaFloorH = 0.35;
+    const arenaFloor = new THREE.CylinderGeometry(rxOuter + 1.0, rxOuter + 1.2, arenaFloorH, 24);
+    arenaFloor.scale(1.0, 1.0, rzOuter / rxOuter);
+    arenaFloor.translate(0, arenaFloorH * 0.5, 0);
+    addTravertinePart(arenaFloor, 0.88, 0.79, 0.63);
+
+    // 1. Elliptical Travertine Ring Foundation & Central Sandy Arena Podium Wall
+    for (let i = 0; i < numBays; i++) {
+        const ang = (i / numBays) * Math.PI * 2.0;
+        const nextAng = ((i + 1) / numBays) * Math.PI * 2.0;
+        const midAng = (ang + nextAng) * 0.5;
+
+        const px = Math.cos(ang) * rxOuter;
+        const pz = Math.sin(ang) * rzOuter;
+        const nx = Math.cos(nextAng) * rxOuter;
+        const nz = Math.sin(nextAng) * rzOuter;
+        const mx = (px + nx) * 0.5;
+        const mz = (pz + nz) * 0.5;
+        const baySpan = Math.hypot(nx - px, nz - pz);
+        const tangentRot = -Math.atan2(nz - pz, nx - px);
+
+        // Tight collision circle on each travertine arcade pier (leaves the 5.5m bay arches open!)
+        pierCircles.push({ x: px, z: pz, r: 1.55 });
+
+        // Iconic asymmetric Colosseum preservation: North half (sin(ang) < 0.25) preserves all 3 tiers + 4th-story Attic;
+        // South half steps down to 2 tiers revealing the interior cavea seating tiers!
+        const isNorthPreserved = (Math.sin(midAng) < 0.28);
+        const activeTiers = isNorthPreserved ? 3 : 2;
+
+        for (let t = 0; t < activeTiers; t++) {
+            const y0 = t * tierH;
+
+            // Travertine Arcade Pier + Engaged Classical Half-Column on outer face
+            const pier = new THREE.BoxGeometry(1.85, tierH, 2.35);
+            pier.rotateY(-ang + Math.PI * 0.5);
+            pier.translate(px, y0 + tierH * 0.5, pz);
+            addTravertinePart(pier, 0.90, 0.81, 0.66);
+
+            const engCol = new THREE.CylinderGeometry(0.38, 0.44, tierH - 0.45, 10);
+            engCol.translate(px * 1.045, y0 + (tierH - 0.45) * 0.5, pz * 1.045);
+            addTravertinePart(engCol, 0.95, 0.87, 0.72);
+
+            // Upper Arch Lintel / Spandrel & Projecting Cornice Belt over the open archway
+            const spandrelH = 1.45;
+            const spandrel = new THREE.BoxGeometry(baySpan + 0.35, spandrelH, 2.25);
+            spandrel.rotateY(tangentRot);
+            spandrel.translate(mx, y0 + tierH - spandrelH * 0.5, mz);
+            addTravertinePart(spandrel, 0.92, 0.83, 0.68);
+
+            // Angled Haunch Corbels framing the semi-circular Roman arch opening
+            [-1, 1].forEach(hSide => {
+                const haunch = new THREE.BoxGeometry(1.35, 1.15, 2.05);
+                haunch.rotateZ(hSide * 0.48);
+                haunch.rotateY(tangentRot);
+                const hx = mx + Math.cos(-tangentRot) * hSide * (baySpan * 0.28);
+                const hz = mz + Math.sin(-tangentRot) * hSide * (baySpan * 0.28);
+                haunch.translate(hx, y0 + tierH - spandrelH - 0.25, hz);
+                addTravertinePart(haunch, 0.88, 0.79, 0.64);
+            });
+
+            // Projecting Classical Entablature Cornice Band above each tier
+            const cornice = new THREE.BoxGeometry(baySpan + 0.55, 0.42, 2.65);
+            cornice.rotateY(tangentRot);
+            cornice.translate(mx, y0 + tierH + 0.12, mz);
+            addTravertinePart(cornice, 0.96, 0.88, 0.74);
+        }
+
+        // 4th-Story Colosseum Attic Wall with Corinthian Pilasters & Velarium Mast Brackets on preserved North Wing
+        if (isNorthPreserved) {
+            const atticH = 4.2;
+            const yAttic = 3 * tierH;
+            const atticWall = new THREE.BoxGeometry(baySpan + 0.45, atticH, 1.95);
+            atticWall.rotateY(tangentRot);
+            atticWall.translate(mx, yAttic + atticH * 0.5, mz);
+            addTravertinePart(atticWall, 0.93, 0.84, 0.69);
+
+            const atticCornice = new THREE.BoxGeometry(baySpan + 0.75, 0.55, 2.55);
+            atticCornice.rotateY(tangentRot);
+            atticCornice.translate(mx, yAttic + atticH + 0.22, mz);
+            addTravertinePart(atticCornice, 0.97, 0.89, 0.75);
+        }
+
+        // 2. Interior Tiered Cavea Stadium Seating Wedges & Vomitoria Radial Walls (leaving 4 cardinal arena gates open!)
+        const isArenaGate = (i === 0 || i === 4 || i === 8 || i === 12);
+        if (!isArenaGate) {
+            const innerR1 = 0.78, innerR2 = 0.62;
+            const seat1 = new THREE.BoxGeometry(baySpan * 0.76, 3.2, 2.8);
+            seat1.rotateX(0.32);
+            seat1.rotateY(tangentRot);
+            seat1.translate(mx * innerR1, 1.8, mz * innerR1);
+            addTravertinePart(seat1, 0.84, 0.75, 0.60);
+
+            const seat2 = new THREE.BoxGeometry(baySpan * 0.64, 2.2, 2.6);
+            seat2.rotateX(0.28);
+            seat2.rotateY(tangentRot);
+            seat2.translate(mx * innerR2, 0.9, mz * innerR2);
+            addTravertinePart(seat2, 0.86, 0.77, 0.62);
+
+            // Collision circles for the interior stadium seating wedges so players & enemies don't walk through them
+            pierCircles.push(
+                { x: mx * innerR1, z: mz * innerR1, r: 2.15 },
+                { x: mx * innerR2, z: mz * innerR2, r: 1.85 }
+            );
+        }
+    }
+
+    const merged = mergeBufferGeometries(parts);
+    merged.userData = {
+        useMeshRaycastOnly: true,
+        collisionCircles: pierCircles,
+        walkablePlatforms: [
+            { x: 0, z: 0, r: rxOuter + 1.0, y: arenaFloorH }
+        ]
+    };
+    return merged;
+}
+
+// ============================================================================
+// 5Z-5. Ancient Rome Pantheon (Octastyle Corinthian Portico, Cylindrical Drum & Stepped Oculus Dome)
+// ============================================================================
+function createRomanPantheonGeometry(rotundaR = 13.5) {
+    const parts = [];
+    const maxH = 20.5;
+
+    const addPantheonPart = (geo, r = 0.92, g = 0.85, b = 0.73) => {
+        tintBuildingPart(geo, r, g, b, maxH);
+        applyWorldBoxUVs(geo, 0.25, 0.30);
+        parts.push(geo);
+    };
+
+    const colCircles = [];
+
+    // 0. Sub-Terrain Roman Concrete Foundation & Marble Floor Slab
+    const foundH = 5.0;
+    const found = new THREE.CylinderGeometry(rotundaR + 1.1, rotundaR + 1.4, foundH, 24);
+    found.translate(0, -foundH * 0.5, 0);
+    addPantheonPart(found, 0.82, 0.74, 0.62);
+
+    const floorSlab = new THREE.CylinderGeometry(rotundaR + 0.9, rotundaR + 1.0, 0.45, 24);
+    floorSlab.translate(0, 0.225, 0);
+    addPantheonPart(floorSlab, 0.90, 0.84, 0.74);
+
+    // 1. Cylindrical Roman Concrete/Brick & Travertine Rotunda Drum (hollow with front entrance portal!)
+    const drumH = 11.2;
+    const drumSegs = 16;
+    for (let s = 0; s < drumSegs; s++) {
+        const ang = (s / drumSegs) * Math.PI * 2.0;
+        const nextAng = ((s + 1) / drumSegs) * Math.PI * 2.0;
+        const midAng = (ang + nextAng) * 0.5;
+        const mx = Math.cos(midAng) * rotundaR;
+        const mz = Math.sin(midAng) * rotundaR;
+        // Leave front portal (+Z, where mz > rotundaR * 0.90) open into the Rotunda!
+        if (mz > rotundaR * 0.90 && Math.abs(mx) < 3.6) continue;
+
+        const segLen = 2.0 * rotundaR * Math.sin(Math.PI / drumSegs) + 0.35;
+        const rotY = -midAng + Math.PI * 0.5;
+        const wall = new THREE.BoxGeometry(segLen, drumH, 1.65);
+        wall.rotateY(rotY);
+        wall.translate(mx, drumH * 0.5, mz);
+        addPantheonPart(wall, 0.86, 0.74, 0.62);
+        // Place 2 overlapping collision circles along each 5.3m wall segment so there are zero wall gaps!
+        const a1 = ang + (nextAng - ang) * 0.25;
+        const a2 = ang + (nextAng - ang) * 0.75;
+        colCircles.push(
+            { x: Math.cos(a1) * rotundaR, z: Math.sin(a1) * rotundaR, r: 1.48 },
+            { x: Math.cos(a2) * rotundaR, z: Math.sin(a2) * rotundaR, r: 1.48 }
+        );
+    }
+
+    // 2. 3 Horizontal Travertine Cornice Rings around the Rotunda Drum
+    [0.45, 5.6, drumH].forEach(ry => {
+        const ring = new THREE.CylinderGeometry(rotundaR + 0.65, rotundaR + 0.65, 0.48, 24);
+        if (ry > 3.0) {
+            ring.translate(0, ry, 0);
+            addPantheonPart(ring, 0.95, 0.88, 0.76);
+        }
+    });
+
+    // 3. Signature 6-Step Roman Saucer Dome Rings & Open Central Oculus
+    for (let st = 0; st < 6; st++) {
+        const sr = rotundaR * (1.0 - st * 0.08);
+        const stepRing = new THREE.CylinderGeometry(sr - 0.4, sr, 0.62, 24);
+        stepRing.translate(0, drumH + 0.24 + st * 0.58, 0);
+        addPantheonPart(stepRing, 0.90, 0.83, 0.71);
+    }
+    const domeCupola = new THREE.CylinderGeometry(3.8, rotundaR * 0.54, 2.8, 24, 2, true);
+    domeCupola.translate(0, drumH + 3.6 + 1.4, 0);
+    addPantheonPart(domeCupola, 0.88, 0.82, 0.72);
+
+    // 4. Intermediate Rectangular Vestibule Block + Octastyle Corinthian Portico (+Z)
+    const portW = 19.0;
+    const portZ = rotundaR + 5.2;
+    const colH = 8.4;
+
+    const portFound = new THREE.BoxGeometry(portW + 1.0, foundH + 0.45, 7.2);
+    portFound.translate(0, (0.45 - foundH) * 0.5, rotundaR + 2.4);
+    addPantheonPart(portFound, 0.88, 0.82, 0.72);
+
+    // 8 Monolithic Egyptian Grey/Rose Granite Corinthian Columns across the front portico
+    for (let i = 0; i < 8; i++) {
+        const cx = -portW * 0.46 + (i / 7) * (portW * 0.92);
+        const cz = portZ;
+        colCircles.push({ x: cx, z: cz, r: 0.72 });
+
+        const base = new THREE.BoxGeometry(1.15, 0.45, 1.15);
+        base.translate(cx, 0.225, cz);
+        addPantheonPart(base, 0.94, 0.88, 0.78);
+
+        const shaft = new THREE.CylinderGeometry(0.46, 0.54, colH, 12);
+        shaft.translate(cx, 0.45 + colH * 0.5, cz);
+        addPantheonPart(shaft, (i % 2 === 0 ? 0.76 : 0.82), 0.72, 0.68);
+
+        const corinthCap = new THREE.CylinderGeometry(0.68, 0.46, 0.75, 12);
+        corinthCap.translate(cx, 0.45 + colH + 0.375, cz);
+        addPantheonPart(corinthCap, 0.97, 0.92, 0.82);
+    }
+
+    // Portico Entablature (M·AGRIPPA frieze), Triangular Pediment & Pitched Portico Roof
+    const entabY = 0.45 + colH + 0.75;
+    const portEntab = new THREE.BoxGeometry(portW, 1.45, 6.4);
+    portEntab.translate(0, entabY + 0.725, rotundaR + 2.4);
+    addPantheonPart(portEntab, 0.95, 0.88, 0.76);
+
+    const portRoof = createPitchedRoofGeometry(portW + 0.6, 6.8, 3.1);
+    portRoof.translate(0, entabY + 1.45, rotundaR + 2.4);
+    addPantheonPart(portRoof, 0.88, 0.76, 0.62);
+
+    const merged = mergeBufferGeometries(parts);
+    merged.userData = {
+        useMeshRaycastOnly: true,
+        collisionCircles: colCircles,
+        walkablePlatforms: [
+            { x: 0, z: 0, r: rotundaR + 0.8, y: 0.45 },
+            { minX: -(portW + 1.0) * 0.5, maxX: (portW + 1.0) * 0.5, minZ: rotundaR - 1.2, maxZ: rotundaR + 6.0, y: 0.45 }
+        ]
+    };
+    return merged;
+}
+
+// ============================================================================
+// 5Z-6. Ancient Rome Triple-Bay Monumental Triumphal Arch (Arch of Constantine / Septimius Severus)
+// Features: Central & Flanking Vaulted Archways, 8 Detached Corinthian Columns on Tall Plinths,
+// Sculpted Relief Medallions, Monumental Inscribed Attic Story, and 4 Pier Collision Boxes
+// so Tanks, Soldiers, and Shells Pass Freely Through the Open Archways!
+// ============================================================================
+function createRomanTriumphalArchGeometry(w = 18.8, h = 15.2, d = 5.4) {
+    const parts = [];
+    const addArchPart = (geo, r = 0.94, g = 0.87, b = 0.75) => {
+        tintBuildingPart(geo, r, g, b, h);
+        applyWorldBoxUVs(geo, 0.26, 0.30);
+        parts.push(geo);
+    };
+
+    // 4 Structural Piers defining 3 open vaulted archways:
+    // Central archway: x in [-2.4, 2.4] (4.8m wide!)
+    // Left archway:    x in [-6.8, -4.4] (2.4m wide!)
+    // Right archway:   x in [ 4.4,  6.8] (2.4m wide!)
+    const pierSpecs = [
+        { minX: -w * 0.5, maxX: -6.8 },
+        { minX: -4.4,     maxX: -2.4 },
+        { minX:  2.4,     maxX:  4.4 },
+        { minX:  6.8,     maxX:  w * 0.5 }
+    ];
+    const lowerH = 9.6;
+    const foundH = 4.2;
+    const collisionBoxes = [];
+
+    pierSpecs.forEach(ps => {
+        const pw = ps.maxX - ps.minX;
+        const px = (ps.minX + ps.maxX) * 0.5;
+        const pierFound = new THREE.BoxGeometry(pw + 0.2, foundH, d + 2.3);
+        pierFound.translate(px, -foundH * 0.5, 0);
+        addArchPart(pierFound, 0.86, 0.79, 0.67);
+
+        const pier = new THREE.BoxGeometry(pw, lowerH, d);
+        pier.translate(px, lowerH * 0.5, 0);
+        addArchPart(pier, 0.93, 0.86, 0.74);
+        // Extend Z to ±(d * 0.5 + 1.15) so the 8 projecting Corinthian column plinths are fully covered!
+        collisionBoxes.push({ minX: ps.minX, maxX: ps.maxX, minZ: -d * 0.5 - 1.15, maxZ: d * 0.5 + 1.15 });
+
+        // Detached Corinthian Columns on Sculpted Plinths on both Front (+Z) and Back (-Z) facades
+        [-1, 1].forEach(zSide => {
+            const cz = zSide * (d * 0.5 + 0.55);
+            const plinth = new THREE.BoxGeometry(1.15, 2.3, 1.15);
+            plinth.translate(px, 1.15, cz);
+            addArchPart(plinth, 0.90, 0.82, 0.70);
+
+            const col = new THREE.CylinderGeometry(0.38, 0.44, 6.2, 12);
+            col.translate(px, 2.3 + 3.1, cz);
+            addArchPart(col, 0.97, 0.91, 0.80);
+
+            const cap = new THREE.CylinderGeometry(0.58, 0.38, 0.65, 12);
+            cap.translate(px, 2.3 + 6.2 + 0.325, cz);
+            addArchPart(cap, 0.98, 0.93, 0.82);
+        });
+    });
+
+    // Side archway upper spandrels & circular Hadrianic relief medallions (above y = 5.6m)
+    [-5.6, 5.6].forEach(sx => {
+        const sideSpan = new THREE.BoxGeometry(2.6, lowerH - 5.4, d);
+        sideSpan.translate(sx, 5.4 + (lowerH - 5.4) * 0.5, 0);
+        addArchPart(sideSpan, 0.92, 0.85, 0.73);
+
+        [-1, 1].forEach(zSide => {
+            [-0.65, 0.65].forEach(mx => {
+                const medallion = new THREE.CylinderGeometry(0.52, 0.52, 0.24, 12);
+                medallion.rotateX(Math.PI * 0.5);
+                medallion.translate(sx + mx, 7.6, zSide * (d * 0.5 + 0.08));
+                addArchPart(medallion, 0.97, 0.90, 0.78);
+            });
+        });
+    });
+
+    // Central archway upper spandrel & keystone (above y = 7.4m so tanks & soldiers drive right through!)
+    const centerSpan = new THREE.BoxGeometry(5.0, lowerH - 7.4, d);
+    centerSpan.translate(0, 7.4 + (lowerH - 7.4) * 0.5, 0);
+    addArchPart(centerSpan, 0.94, 0.87, 0.75);
+
+    // Projecting Main Entablature Cornice & Tall Inscribed Roman Attic Story
+    const mainCornice = new THREE.BoxGeometry(w + 1.4, 0.75, d + 1.6);
+    mainCornice.translate(0, lowerH + 0.375, 0);
+    addArchPart(mainCornice, 0.98, 0.92, 0.80);
+
+    const atticH = h - lowerH - 0.75;
+    const attic = new THREE.BoxGeometry(w + 0.4, atticH, d - 0.2);
+    attic.translate(0, lowerH + 0.75 + atticH * 0.5, 0);
+    addArchPart(attic, 0.95, 0.88, 0.76);
+
+    // Central Inscribed Dedication Tablet & Crowning Cornice
+    [-1, 1].forEach(zSide => {
+        const tablet = new THREE.BoxGeometry(6.8, atticH * 0.68, 0.28);
+        tablet.translate(0, lowerH + 0.75 + atticH * 0.5, zSide * (d * 0.5));
+        addArchPart(tablet, 0.99, 0.94, 0.84);
+    });
+
+    const topCornice = new THREE.BoxGeometry(w + 1.1, 0.58, d + 0.8);
+    topCornice.translate(0, h - 0.29, 0);
+    addArchPart(topCornice, 0.98, 0.92, 0.80);
+
+    const merged = mergeBufferGeometries(parts);
+    merged.userData = {
+        useMeshRaycastOnly: true,
+        collisionBoxes: collisionBoxes
+    };
+    return merged;
+}
+
 var sharedSpruceGeo = null;
 var sharedPineGeo = null;
 var sharedDecidGeo = null;
@@ -3926,10 +7739,26 @@ var sharedAcaciaGeo = null;
 var sharedCactusGeo = null;
 var sharedCactusGeos = [];
 var sharedSandstoneRockGeo = null;
+var sharedMonumentRockGeo = null;
 var sharedKasbahGeo = null;
 var sharedDesertRuinGeo = null;
 var sharedMountainRockGeo = null;
 var sharedMountainBunkerGeo = null;
+var sharedGreatPyramidGeo = null;
+var sharedObeliskGeo = null;
+var sharedEgyptColonnadeGeo = null;
+var sharedMonumentButteGeo = null;
+var sharedMonumentSpireGeo = null;
+var sharedCanyonCliffGeo = null;
+var sharedCanyonTowerGeo = null;
+var sharedJungleTreeGeo = null;
+var sharedJungleTempleGeo = null;
+var sharedGreekParthenonGeo = null;
+var sharedGreekTholosGeo = null;
+var sharedGreekStoaGeo = null;
+var sharedRomanColosseumGeo = null;
+var sharedRomanPantheonGeo = null;
+var sharedRomanArchGeo = null;
 var sharedSmokeTex = null;
 var sharedFireTex = null;
 
@@ -3978,12 +7807,43 @@ function ensureSharedGeometries() {
     } else if (!sharedCactusGeo) {
         sharedCactusGeo = sharedCactusGeos[0];
     }
-    if (!sharedSandstoneRockGeo) sharedSandstoneRockGeo = createSandstoneRockGeometry();
+    if (!sharedSandstoneRockGeo) sharedSandstoneRockGeo = createSandstoneRockGeometry(false);
+    if (!sharedMonumentRockGeo) sharedMonumentRockGeo = createSandstoneRockGeometry(true);
     if (!sharedKasbahGeo) sharedKasbahGeo = createDesertKasbahGeometry();
     if (!sharedDesertRuinGeo) sharedDesertRuinGeo = createDesertRuinGeometry();
     if (!sharedMountainRockGeo) sharedMountainRockGeo = createMountainPeakCragGeometry();
     if (!sharedMountainBunkerGeo) sharedMountainBunkerGeo = createMountainBunkerGeometry();
+    if (!sharedGreatPyramidGeo) sharedGreatPyramidGeo = createEgyptianGreatPyramidGeometry();
+    if (!sharedObeliskGeo) sharedObeliskGeo = createEgyptianObeliskGeometry();
+    if (!sharedEgyptColonnadeGeo) sharedEgyptColonnadeGeo = createEgyptianColonnadeGeometry();
+    if (!sharedMonumentButteGeo) sharedMonumentButteGeo = createMonumentButteGeometry();
+    if (!sharedMonumentSpireGeo) sharedMonumentSpireGeo = createMonumentSpireGeometry();
+    if (!sharedCanyonCliffGeo) sharedCanyonCliffGeo = createCanyonCliffGeometry();
+    if (!sharedCanyonTowerGeo) sharedCanyonTowerGeo = createCanyonTowerGeometry();
+    if (!sharedJungleTreeGeo) sharedJungleTreeGeo = createJungleCanopyTreeGeometry();
+    if (!sharedJungleTempleGeo) sharedJungleTempleGeo = createJungleTempleGeometry();
+    if (!sharedGreekParthenonGeo) sharedGreekParthenonGeo = createGreekParthenonGeometry();
+    if (!sharedGreekTholosGeo) sharedGreekTholosGeo = createGreekTholosGeometry();
+    if (!sharedGreekStoaGeo) sharedGreekStoaGeo = createGreekStoaGeometry();
+    if (!sharedRomanColosseumGeo) sharedRomanColosseumGeo = createRomanColosseumGeometry();
+    if (!sharedRomanPantheonGeo) sharedRomanPantheonGeo = createRomanPantheonGeometry();
+    if (!sharedRomanArchGeo) sharedRomanArchGeo = createRomanTriumphalArchGeometry();
 
+    window.sharedGreatPyramidGeo = sharedGreatPyramidGeo;
+    window.sharedObeliskGeo = sharedObeliskGeo;
+    window.sharedEgyptColonnadeGeo = sharedEgyptColonnadeGeo;
+    window.sharedMonumentButteGeo = sharedMonumentButteGeo;
+    window.sharedMonumentSpireGeo = sharedMonumentSpireGeo;
+    window.sharedCanyonCliffGeo = sharedCanyonCliffGeo;
+    window.sharedCanyonTowerGeo = sharedCanyonTowerGeo;
+    window.sharedJungleTreeGeo = sharedJungleTreeGeo;
+    window.sharedJungleTempleGeo = sharedJungleTempleGeo;
+    window.sharedGreekParthenonGeo = sharedGreekParthenonGeo;
+    window.sharedGreekTholosGeo = sharedGreekTholosGeo;
+    window.sharedGreekStoaGeo = sharedGreekStoaGeo;
+    window.sharedRomanColosseumGeo = sharedRomanColosseumGeo;
+    window.sharedRomanPantheonGeo = sharedRomanPantheonGeo;
+    window.sharedRomanArchGeo = sharedRomanArchGeo;
     window.sharedSpruceGeo = sharedSpruceGeo;
     window.sharedPineGeo = sharedPineGeo;
     window.sharedDecidGeo = sharedDecidGeo;
@@ -4290,6 +8150,8 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             varying float vGrassHeightFrac;
             varying vec3 vTerrainNormalUp;
             varying vec4 vGrassZoneWeights;
+            varying vec4 vGrassZoneWeightsExt;
+            varying vec4 vGrassZoneWeightsExt2;
             ${SHARED_TERRAIN_GLSL}
         ` + shader.vertexShader;
 
@@ -4307,8 +8169,12 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             float halfPatch = uPatchSize * 0.5;
             vec2 relXZ = mod(aInstanceData.xy - uCameraPos.xz + halfPatch, uPatchSize) - halfPatch;
             vec2 worldXZ = uCameraPos.xz + relXZ;
-            vGrassZoneWeights = getZoneWeights_gpu(worldXZ);
-            int localZone = getZoneIndex_gpu(vGrassZoneWeights);
+            float wGrass[12];
+            getZoneWeights12_gpu(worldXZ, wGrass);
+            vGrassZoneWeights = vec4(wGrass[0], wGrass[1], wGrass[2], wGrass[3]);
+            vGrassZoneWeightsExt = vec4(wGrass[4], wGrass[5], wGrass[6], wGrass[7]);
+            vGrassZoneWeightsExt2 = vec4(wGrass[8], wGrass[9], wGrass[10], wGrass[11]);
+            int localZone = getZoneIndex12_gpu(wGrass);
             float distFromCam = length(relXZ);
 
             // 1. Discrete radius check: NO height squashing / shrinking transition
@@ -4361,6 +8227,44 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
                     gl_Position = vec4(2.0, 2.0, 2.0, 0.0);
                     return;
                 }
+            } else if (localZone == 6) {
+                // Monument Valley: sparse desert scrub
+                if (tuftRandom > 0.16) {
+                    gl_Position = vec4(2.0, 2.0, 2.0, 0.0);
+                    return;
+                }
+                zoneCull = 0.75;
+            } else if (localZone == 7) {
+                // Grand Canyon: arid scrub on plateaus and floor, cull on vertical canyon walls
+                if (tuftRandom > 0.12) {
+                    gl_Position = vec4(2.0, 2.0, 2.0, 0.0);
+                    return;
+                }
+                if (groundY > 3.8 && groundY < 16.8) {
+                    gl_Position = vec4(2.0, 2.0, 2.0, 0.0);
+                    return;
+                }
+                zoneCull = 0.70;
+            } else if (localZone == 8) {
+                // Ancient Egypt: sparse on open dunes, lush near Nile / oasis
+                if (groundY > -0.4 && tuftRandom > 0.12) {
+                    gl_Position = vec4(2.0, 2.0, 2.0, 0.0);
+                    return;
+                }
+                zoneCull = (groundY > -0.4) ? 0.65 : 1.0;
+            } else if (localZone == 9) {
+                // Tropical Jungle: tall, lush jungle ferns and elephant grass
+                zoneCull = 1.25;
+            } else if (localZone == 10) {
+                // Ancient Greece: Mediterranean olive-hill & garrigue grass
+                if (groundY > 12.5 && tuftRandom > 0.42) {
+                    gl_Position = vec4(2.0, 2.0, 2.0, 0.0);
+                    return;
+                }
+                zoneCull = 0.88;
+            } else if (localZone == 11) {
+                // Ancient Rome: Sun-warmed Latium Campagna meadow grass
+                zoneCull = 0.92;
             }
 
             float bldgCull = 1.0;
@@ -4372,7 +8276,8 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
                 }
             }
 
-            if (waterCull <= 0.01 || spawnCull <= 0.01 || bldgCull <= 0.01) {
+            float totalMask = roadCull * waterCull * spawnCull * bldgCull;
+            if (totalMask < 0.28) {
                 gl_Position = vec4(2.0, 2.0, 2.0, 0.0);
                 return;
             }
@@ -4390,9 +8295,10 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             float areaFlowerMod = smoothstep(0.28, 0.52, regionVar);
 
             float flowerChance = mix(0.005, origFlowerChance, areaFlowerMod);
-            flowerChance *= 1.0 - vGrassZoneWeights.y;
+            flowerChance *= (1.0 - vGrassZoneWeights.y) * (1.0 - vGrassZoneWeightsExt.z) * (1.0 - vGrassZoneWeightsExt.w) * (1.0 - vGrassZoneWeightsExt2.x) * (1.0 - vGrassZoneWeightsExt2.y);
             float flowerColor = valueNoise2D_gpu(meadowPos * 0.035 + vec2(31.0, 17.0));
-            float plumeThreshold = mix(0.90, 0.50, areaFlowerMod);
+            float noPlumeZone = clamp(vGrassZoneWeights.y + vGrassZoneWeightsExt.z + vGrassZoneWeightsExt.w + vGrassZoneWeightsExt2.x + vGrassZoneWeightsExt2.y, 0.0, 1.0);
+            float plumeThreshold = mix(mix(0.90, 0.50, areaFlowerMod), 1.0, noPlumeZone);
 
             float colIdx = aInstanceData.w < flowerChance
                 ? (flowerColor < 0.0 ? 2.0 : 3.0)
@@ -4412,8 +8318,8 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             float windWave = (wave1 + wave2) * pow(max(uv.y, 0.0), 1.65) * 0.38;
 
             vec3 localP = transformed;
-            localP.xz *= (0.85 + 0.30 * sizeVar);
-            localP.y *= (heightVar * roadCull * waterCull * spawnCull * bldgCull);
+            localP.xz *= (0.85 + 0.30 * sizeVar) * smoothstep(0.24, 0.65, totalMask);
+            localP.y *= (heightVar * totalMask);
 
             vec3 rotP;
 ` + (isBillboard ? `
@@ -4456,6 +8362,8 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             varying float vGrassHeightFrac;
             varying vec3 vTerrainNormalUp;
             varying vec4 vGrassZoneWeights;
+            varying vec4 vGrassZoneWeightsExt;
+            varying vec4 vGrassZoneWeightsExt2;
         ` + shader.fragmentShader;
 
         // Keep grass normal aligned with terrain surface normal on both front and back faces!
@@ -4480,11 +8388,45 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             float oasisF = 1.0 - smoothstep(-2.0, -0.3, vGrassWorldPos.y);
             float heatherH = smoothstep(9.5, 17.5, vGrassWorldPos.y);
             vec3 groundRootCol = vec3(0.028, 0.070, 0.014) * vGrassZoneWeights.x
-                + mix(vec3(0.42, 0.27, 0.12), vec3(0.055, 0.115, 0.028), oasisF) * vGrassZoneWeights.y
+                + mix(vec3(0.46, 0.31, 0.15), vec3(0.055, 0.115, 0.028), oasisF) * vGrassZoneWeights.y
                 + vec3(0.024, 0.060, 0.015) * vGrassZoneWeights.z
-                + mix(vec3(0.028, 0.068, 0.014), vec3(0.068, 0.052, 0.015), heatherH * 0.78) * vGrassZoneWeights.w;
-            vec3 scrubBlade = mix(vec3(0.36, 0.26, 0.11), bladeLinear, 0.32);
-            bladeLinear = mix(bladeLinear, mix(scrubBlade, bladeLinear, oasisF), vGrassZoneWeights.y);
+                + mix(vec3(0.028, 0.068, 0.014), vec3(0.068, 0.052, 0.015), heatherH * 0.78) * vGrassZoneWeights.w
+                + vec3(0.72, 0.78, 0.88) * vGrassZoneWeightsExt.x
+                + vec3(0.022, 0.075, 0.016) * vGrassZoneWeightsExt.y
+                + vec3(0.56, 0.20, 0.10) * vGrassZoneWeightsExt.z
+                + vec3(0.38, 0.26, 0.17) * vGrassZoneWeightsExt.w
+                + vec3(0.68, 0.50, 0.26) * vGrassZoneWeightsExt2.x
+                + vec3(0.022, 0.065, 0.018) * vGrassZoneWeightsExt2.y
+                + vec3(0.10, 0.11, 0.04) * vGrassZoneWeightsExt2.z
+                + vec3(0.06, 0.10, 0.03) * vGrassZoneWeightsExt2.w;
+            float bladeLuma = clamp(dot(bladeLinear, vec3(0.299, 0.587, 0.114)) * 2.35, 0.32, 1.45);
+            float aridScrubFactor = vGrassZoneWeights.y + vGrassZoneWeightsExt.z + vGrassZoneWeightsExt.w + vGrassZoneWeightsExt2.x;
+            vec3 dryDesertScrub = mix(vec3(0.38, 0.31, 0.16), vec3(0.28, 0.22, 0.10), vGrassHeightFrac) * bladeLuma;
+            bladeLinear = mix(bladeLinear, mix(dryDesertScrub, bladeLinear, oasisF), clamp(aridScrubFactor, 0.0, 1.0));
+            if (vGrassZoneWeightsExt.x > 0.05) {
+                vec3 winterFrosted = mix(vec3(0.24, 0.22, 0.18), vec3(0.85, 0.90, 0.95), smoothstep(0.40, 0.95, vGrassHeightFrac)) * bladeLuma;
+                bladeLinear = mix(bladeLinear, winterFrosted, vGrassZoneWeightsExt.x * 0.85);
+            }
+            if (vGrassZoneWeightsExt.z > 0.05) {
+                vec3 redScrub = mix(vec3(0.36, 0.18, 0.09), vec3(0.28, 0.22, 0.11), vGrassHeightFrac) * bladeLuma;
+                bladeLinear = mix(bladeLinear, redScrub, vGrassZoneWeightsExt.z * 0.85);
+            }
+            if (vGrassZoneWeightsExt2.x > 0.05) {
+                vec3 egyptScrub = mix(vec3(0.42, 0.32, 0.15), vec3(0.32, 0.26, 0.12), vGrassHeightFrac) * bladeLuma;
+                bladeLinear = mix(bladeLinear, egyptScrub, vGrassZoneWeightsExt2.x * 0.85);
+            }
+            if (vGrassZoneWeightsExt2.y > 0.05) {
+                vec3 jungleBlade = mix(vec3(0.018, 0.095, 0.020), vec3(0.055, 0.21, 0.038), vGrassHeightFrac) * bladeLuma;
+                bladeLinear = mix(bladeLinear, jungleBlade, vGrassZoneWeightsExt2.y * 0.88);
+            }
+            if (vGrassZoneWeightsExt2.z > 0.05) {
+                vec3 greeceBlade = mix(vec3(0.11, 0.14, 0.05), vec3(0.24, 0.26, 0.11), vGrassHeightFrac) * bladeLuma;
+                bladeLinear = mix(bladeLinear, greeceBlade, vGrassZoneWeightsExt2.z * 0.72);
+            }
+            if (vGrassZoneWeightsExt2.w > 0.05) {
+                vec3 romeBlade = mix(vec3(0.06, 0.13, 0.04), vec3(0.18, 0.24, 0.08), vGrassHeightFrac) * bladeLuma;
+                bladeLinear = mix(bladeLinear, romeBlade, vGrassZoneWeightsExt2.w * 0.65);
+            }
             float rootBlend = smoothstep(0.02, 0.36, vGrassHeightFrac);
             bladeLinear = mix(groundRootCol, bladeLinear, rootBlend);
 
@@ -4657,6 +8599,96 @@ class TerrainChunk {
                     if (slope > 0.20) {
                         tempCol.lerp(colCliffRock, Math.min(1.0, (slope - 0.20) * 4.5));
                     }
+                } else if (currentZoneIndex === 4) {
+                    // Ardennes Winter vertex colors
+                    tempCol.setHex(0xd0e0ec).lerp(colAlpineSnow, smoothstep(0.15, 0.75, fieldNoise));
+                    if (roadF > 0.01) {
+                        const distFromCenter = getRoadDistance(wx, wz);
+                        const rutDist = Math.abs(distFromCenter - 1.35);
+                        const isRut = rutDist < 0.55 ? 0.85 : 0.0;
+                        tempDirtCol.setHex(0x505860).lerp(new THREE.Color(0x282c30), isRut);
+                        tempCol.lerp(tempDirtCol, Math.min(1.0, roadF * 1.1));
+                    }
+                    if (slope > 0.16) {
+                        tempCol.lerp(new THREE.Color(0x38342e), Math.min(1.0, (slope - 0.16) * 3.5));
+                    }
+                    if (slope > 0.28) {
+                        tempCol.lerp(colMountain, Math.min(1.0, (slope - 0.28) * 4.5));
+                    }
+                } else if (currentZoneIndex === 5) {
+                    // Normandy Bocage vertex colors
+                    tempCol.setHex(0x365820).lerp(colLushGrass, smoothstep(0.12, 0.65, fieldNoise));
+                    tempCol.lerp(colSunlitGrass, smoothstep(0.60, 0.95, fieldNoise) * 0.6);
+                    if (roadF > 0.01) {
+                        const distFromCenter = getRoadDistance(wx, wz);
+                        const rutDist = Math.abs(distFromCenter - 1.35);
+                        const isRut = rutDist < 0.55 ? 0.85 : 0.0;
+                        tempDirtCol.setHex(0x423220).lerp(new THREE.Color(0x24180e), isRut);
+                        tempCol.lerp(tempDirtCol, Math.min(1.0, roadF * 1.1));
+                    }
+                    if (slope > 0.16) {
+                        tempCol.lerp(new THREE.Color(0x4c3c28), Math.min(1.0, (slope - 0.16) * 4.0));
+                    }
+                } else if (currentZoneIndex === 6) {
+                    // Monument Valley vertex colors
+                    tempCol.setHex(0xb44426).lerp(new THREE.Color(0xd46842), smoothstep(0.15, 0.75, fieldNoise));
+                    if (roadF > 0.01) {
+                        tempDirtCol.setHex(0x8c341b);
+                        tempCol.lerp(tempDirtCol, Math.min(1.0, roadF * 1.1));
+                    }
+                    if (slope > 0.14) {
+                        tempCol.lerp(new THREE.Color(0x7a220e), Math.min(1.0, (slope - 0.14) * 4.2));
+                    }
+                } else if (currentZoneIndex === 7) {
+                    // Grand Canyon vertex colors
+                    tempCol.setHex(0x8c5438).lerp(new THREE.Color(0xa86e50), smoothstep(0.15, 0.75, fieldNoise));
+                    if (roadF > 0.01) {
+                        tempDirtCol.setHex(0x5c3420);
+                        tempCol.lerp(tempDirtCol, Math.min(1.0, roadF * 1.1));
+                    }
+                    if (slope > 0.12) {
+                        tempCol.lerp(new THREE.Color(0x6e2a18), Math.min(1.0, (slope - 0.12) * 4.5));
+                    }
+                } else if (currentZoneIndex === 8) {
+                    // Ancient Egypt vertex colors
+                    tempCol.setHex(0xd4aa66).lerp(new THREE.Color(0xebb874), smoothstep(0.12, 0.70, fieldNoise));
+                    if (roadF > 0.01) {
+                        tempDirtCol.setHex(0xa07842);
+                        tempCol.lerp(tempDirtCol, Math.min(1.0, roadF * 1.1));
+                    }
+                    if (slope > 0.16) {
+                        tempCol.lerp(new THREE.Color(0xc29c60), Math.min(1.0, (slope - 0.16) * 4.0));
+                    }
+                } else if (currentZoneIndex === 9) {
+                    // Tropical Jungle vertex colors
+                    tempCol.setHex(0x1e421a).lerp(new THREE.Color(0x2d6824), smoothstep(0.10, 0.65, fieldNoise));
+                    if (roadF > 0.01) {
+                        tempDirtCol.setHex(0x381e0e);
+                        tempCol.lerp(tempDirtCol, Math.min(1.0, roadF * 1.1));
+                    }
+                    if (slope > 0.15) {
+                        tempCol.lerp(new THREE.Color(0x3c4832), Math.min(1.0, (slope - 0.15) * 4.2));
+                    }
+                } else if (currentZoneIndex === 10) {
+                    // Ancient Greece vertex colors (Olive-gold limestone hills & marble Via Sacra)
+                    tempCol.setHex(0x5c6838).lerp(new THREE.Color(0xa89268), smoothstep(0.32, 0.85, fieldNoise));
+                    if (roadF > 0.01) {
+                        tempDirtCol.setHex(0xd2c4aa);
+                        tempCol.lerp(tempDirtCol, Math.min(1.0, roadF * 1.1));
+                    }
+                    if (slope > 0.14) {
+                        tempCol.lerp(new THREE.Color(0xdcd4c4), Math.min(1.0, (slope - 0.14) * 4.2));
+                    }
+                } else if (currentZoneIndex === 11) {
+                    // Ancient Rome vertex colors (Sunlit Latium Campagna & Via Appia basalt road)
+                    tempCol.setHex(0x465c2c).lerp(new THREE.Color(0x7c7040), smoothstep(0.35, 0.88, fieldNoise));
+                    if (roadF > 0.01) {
+                        tempDirtCol.setHex(0x52504c);
+                        tempCol.lerp(tempDirtCol, Math.min(1.0, roadF * 1.1));
+                    }
+                    if (slope > 0.15) {
+                        tempCol.lerp(new THREE.Color(0xc2b092), Math.min(1.0, (slope - 0.15) * 4.2));
+                    }
                 } else {
                     // Coastal Meadow (default)
                     tempCol.copy(colLushGrass).lerp(colSunlitGrass, smoothstep(0.10, 0.60, fieldNoise) * 0.75);
@@ -4795,6 +8827,142 @@ class TerrainChunk {
                         height = 1.4 * struct.scale;
                         isWall = true;
                     }
+                } else if (currentZoneIndex === 6) {
+                    // Arizona Monument Valley: Natural Red Sandstone Mitten Buttes, Hoodoo Spires & Stratified Outcrops (Zero Buildings)
+                    if (struct.type === 'townhouse' || struct.type === 'cottage') {
+                        bldgGeo = (idx % 2 === 0) ? sharedMonumentButteGeo : sharedMonumentSpireGeo;
+                        height = (bldgGeo === sharedMonumentButteGeo ? 26.5 : 29.0) * struct.scale;
+                        resolvedType = (bldgGeo === sharedMonumentButteGeo) ? 'butte' : 'spire';
+                    } else if (struct.type === 'farmhouse' || struct.type === 'barn') {
+                        bldgGeo = (idx % 2 === 0) ? sharedMonumentSpireGeo : sharedMonumentRockGeo;
+                        height = (bldgGeo === sharedMonumentSpireGeo ? 22.0 : 4.8) * struct.scale;
+                        resolvedType = (bldgGeo === sharedMonumentSpireGeo) ? 'spire' : 'rock';
+                    } else if (struct.type === 'ruin') {
+                        bldgGeo = sharedMonumentSpireGeo || sharedMonumentRockGeo;
+                        height = 18.0 * struct.scale;
+                        isRuin = true;
+                        resolvedType = 'spire';
+                    } else {
+                        bldgGeo = sharedMonumentRockGeo;
+                        height = 3.2 * struct.scale;
+                        isWall = false;
+                        resolvedType = 'rock';
+                    }
+                } else if (currentZoneIndex === 7) {
+                    // Grand Canyon: Stepped Canyon Promontories, Cliff Towers, and Sandstone Boulders
+                    if (struct.type === 'townhouse' || struct.type === 'cottage') {
+                        bldgGeo = (idx % 2 === 0) ? sharedCanyonCliffGeo : sharedCanyonTowerGeo;
+                        height = 17.0 * struct.scale;
+                        resolvedType = 'canyonCliff';
+                    } else if (struct.type === 'farmhouse' || struct.type === 'barn') {
+                        bldgGeo = sharedCanyonTowerGeo || sharedMonumentRockGeo;
+                        height = 16.0 * struct.scale;
+                        resolvedType = 'canyonTower';
+                    } else if (struct.type === 'ruin') {
+                        bldgGeo = sharedCanyonTowerGeo || sharedMonumentRockGeo;
+                        height = 12.0 * struct.scale;
+                        isRuin = true;
+                    } else {
+                        bldgGeo = sharedMonumentRockGeo;
+                        height = 3.0 * struct.scale;
+                        isWall = false;
+                        resolvedType = 'rock';
+                    }
+                } else if (currentZoneIndex === 8) {
+                    // Ancient Egypt: Hypostyle Colonnades, Monolithic Obelisks, Desert Kasbahs & Ruins (Giza Pyramids placed in static landmarks)
+                    if (struct.type === 'townhouse') {
+                        const farFromGizaTriad = Math.hypot(bx - (-18), bz - 112) > 110 && Math.hypot(bx - 58, bz - 142) > 110 && Math.hypot(bx - (-74), bz - 146) > 110;
+                        bldgGeo = (isProceduralVillage && idx === 2 && farFromGizaTriad) ? sharedGreatPyramidGeo : sharedEgyptColonnadeGeo;
+                        height = (bldgGeo === sharedGreatPyramidGeo ? 26.5 : 8.2) * struct.scale;
+                        resolvedType = (bldgGeo === sharedGreatPyramidGeo) ? 'pyramid' : 'colonnade';
+                    } else if (struct.type === 'cottage') {
+                        bldgGeo = (idx % 2 === 0) ? sharedObeliskGeo : sharedEgyptColonnadeGeo;
+                        height = (bldgGeo === sharedObeliskGeo ? 17.5 : 8.2) * struct.scale;
+                        resolvedType = (bldgGeo === sharedObeliskGeo) ? 'obelisk' : 'colonnade';
+                    } else if (struct.type === 'barn' || struct.type === 'farmhouse') {
+                        bldgGeo = sharedKasbahGeo || sharedAdobeHouseGeo;
+                        height = 6.8 * struct.scale;
+                        resolvedType = 'kasbah';
+                    } else if (struct.type === 'ruin') {
+                        bldgGeo = sharedEgyptColonnadeGeo || sharedDesertRuinGeo;
+                        height = 8.0 * struct.scale;
+                        isRuin = true;
+                        resolvedType = 'ruin';
+                    } else {
+                        bldgGeo = sharedSandstoneRockGeo;
+                        height = 2.8 * struct.scale;
+                        isWall = false;
+                        resolvedType = 'rock';
+                    }
+                } else if (currentZoneIndex === 9) {
+                    // Tropical Jungle: Ancient Overgrown Stepped Temple Pyramids, Shrines & Mossy Megaliths
+                    if (struct.type === 'townhouse' || struct.type === 'cottage') {
+                        bldgGeo = sharedJungleTempleGeo;
+                        height = 14.5 * struct.scale;
+                        resolvedType = 'jungleTemple';
+                    } else if (struct.type === 'barn' || struct.type === 'farmhouse') {
+                        bldgGeo = sharedJungleTempleGeo;
+                        height = 12.0 * struct.scale;
+                        resolvedType = 'jungleTemple';
+                    } else if (struct.type === 'ruin') {
+                        bldgGeo = sharedJungleTempleGeo;
+                        height = 9.5 * struct.scale;
+                        isRuin = true;
+                        resolvedType = 'jungleRuin';
+                    } else {
+                        bldgGeo = sharedRockGeo;
+                        height = 2.6 * struct.scale;
+                        isWall = false;
+                        resolvedType = 'rock';
+                    }
+                } else if (currentZoneIndex === 10) {
+                    // Ancient Greece: Acropolis Parthenon Temples, Delphi Tholos Rotundas, Agora Stoas & Classical Houses
+                    if (struct.type === 'townhouse') {
+                        bldgGeo = (isProceduralVillage && idx === 2) ? sharedGreekParthenonGeo : sharedGreekTholosGeo;
+                        height = (bldgGeo === sharedGreekParthenonGeo ? 14.5 : 11.8) * struct.scale;
+                        resolvedType = (bldgGeo === sharedGreekParthenonGeo) ? 'parthenon' : 'tholos';
+                    } else if (struct.type === 'cottage') {
+                        bldgGeo = (idx % 2 === 0) ? sharedGreekStoaGeo : sharedGreekTholosGeo;
+                        height = (bldgGeo === sharedGreekStoaGeo ? 8.6 : 11.8) * struct.scale;
+                        resolvedType = (bldgGeo === sharedGreekStoaGeo) ? 'stoa' : 'tholos';
+                    } else if (struct.type === 'barn' || struct.type === 'farmhouse') {
+                        bldgGeo = sharedGreekStoaGeo || sharedFarmhouseGeo;
+                        height = 8.6 * struct.scale;
+                        resolvedType = 'stoa';
+                    } else if (struct.type === 'ruin') {
+                        bldgGeo = sharedGreekStoaGeo;
+                        height = 8.6 * struct.scale;
+                        isRuin = true;
+                        resolvedType = 'stoa';
+                    } else {
+                        bldgGeo = sharedStoneWallGeo;
+                        height = 1.4 * struct.scale;
+                        isWall = true;
+                    }
+                } else if (currentZoneIndex === 11) {
+                    // Ancient Rome: Roman Pantheon Temples, Monumental Triumphal Arches, Basilica Porticos & Roman Villas
+                    if (struct.type === 'townhouse') {
+                        bldgGeo = (isProceduralVillage && idx === 2) ? sharedRomanColosseumGeo : sharedRomanPantheonGeo;
+                        height = (bldgGeo === sharedRomanColosseumGeo ? 21.0 : 20.5) * struct.scale;
+                        resolvedType = (bldgGeo === sharedRomanColosseumGeo) ? 'colosseum' : 'pantheon';
+                    } else if (struct.type === 'cottage') {
+                        bldgGeo = (idx % 2 === 0) ? sharedRomanArchGeo : sharedRomanPantheonGeo;
+                        height = (bldgGeo === sharedRomanArchGeo ? 15.2 : 20.5) * struct.scale;
+                        resolvedType = (bldgGeo === sharedRomanArchGeo) ? 'romanArch' : 'pantheon';
+                    } else if (struct.type === 'barn' || struct.type === 'farmhouse') {
+                        bldgGeo = (idx % 2 === 0) ? sharedGreekStoaGeo : (sharedTownhouseGeo || sharedFarmhouseGeo);
+                        height = 8.6 * struct.scale;
+                        resolvedType = (bldgGeo === sharedGreekStoaGeo) ? 'stoa' : 'townhouse';
+                    } else if (struct.type === 'ruin') {
+                        bldgGeo = sharedRomanArchGeo;
+                        height = 15.2 * struct.scale;
+                        isRuin = true;
+                        resolvedType = 'romanArch';
+                    } else {
+                        bldgGeo = sharedStoneWallGeo;
+                        height = 1.4 * struct.scale;
+                        isWall = true;
+                    }
                 } else {
                     // Meadow & Rolling Hills: European Cottages, Townhouses, Stone Farmhouses & Barns
                     if (struct.type === 'cottage') {
@@ -4820,9 +8988,20 @@ class TerrainChunk {
                     }
                 }
 
-                const bMesh = new THREE.Mesh(bldgGeo, villageMat);
-                bMesh.position.set(bx, by - 0.15, bz);
-                bMesh.rotation.y = struct.rot + (rng() - 0.5) * 0.25;
+                // Enterable houses use 5-point max `by` so their interior floor is never buried;
+                // Monuments, ruins, and colonnades have deep sub-terrain foundations and sit at `baseBy` so their steps are never floating!
+                const placeBy = (bldgGeo && bldgGeo.userData && bldgGeo.userData.enterableSpec) ? by : baseBy;
+
+                let chosenBldgMat = villageMat;
+                if (currentZoneIndex === 6) chosenBldgMat = monumentRockMat;
+                else if (currentZoneIndex === 7) chosenBldgMat = canyonRockMat;
+                else if (currentZoneIndex === 8 && (bldgGeo === sharedGreatPyramidGeo || bldgGeo === sharedObeliskGeo || bldgGeo === sharedEgyptColonnadeGeo || bldgGeo === sharedSandstoneRockGeo)) chosenBldgMat = egyptSandstoneMat;
+                else if (currentZoneIndex === 9) chosenBldgMat = jungleTempleMat;
+                else if (currentZoneIndex === 10 && (bldgGeo === sharedGreekParthenonGeo || bldgGeo === sharedGreekTholosGeo || bldgGeo === sharedGreekStoaGeo)) chosenBldgMat = greekMarbleMat;
+                else if (currentZoneIndex === 11 && (bldgGeo === sharedRomanColosseumGeo || bldgGeo === sharedRomanPantheonGeo || bldgGeo === sharedRomanArchGeo || bldgGeo === sharedGreekStoaGeo)) chosenBldgMat = romanTravertineMat;
+                const bMesh = new THREE.Mesh(bldgGeo, chosenBldgMat);
+                bMesh.position.set(bx, placeBy - 0.15, bz);
+                bMesh.rotation.y = (bldgGeo === sharedGreatPyramidGeo) ? 0.18 : (struct.rot + (rng() - 0.5) * 0.25);
                 bMesh.scale.setScalar(struct.scale);
                 bMesh.castShadow = true;
                 bMesh.receiveShadow = true;
@@ -4834,7 +9013,7 @@ class TerrainChunk {
                 const bldgObj = attachObstacleBox({
                     mesh: bMesh,
                     x: bx,
-                    y: by,
+                    y: placeBy,
                     z: bz,
                     height: height,
                     isRuin: isRuin,
@@ -4846,7 +9025,7 @@ class TerrainChunk {
                 worldObstacles.push(bldgObj);
             });
         } else if (distFromSpawn > 35 && rng() < 0.36) {
-            // Roadside Homestead, Farmhouse, Chalet, Kasbah, Adobe House, or Ruin along road verges
+            // Roadside Landmark, Outcrop, Homestead, Chalet, Kasbah, or Temple along road verges
             const roadDistCenter = getRoadDistance(chunkCenterX, chunkCenterZ);
             if (roadDistCenter < 38) {
                 const sideSign = (rng() > 0.5) ? 1 : -1;
@@ -4871,6 +9050,8 @@ class TerrainChunk {
                     const roll = rng();
                     let bType = 'cottage';
                     let bldgGeo = sharedCottageGeo;
+                    let roadsideMat = villageMat;
+                    let allowWall = true;
                     if (currentZoneIndex === 1) {
                         if (roll < 0.18) { bType = 'ruin'; bldgGeo = sharedDesertRuinGeo; }
                         else if (roll < 0.60) { bType = 'adobe'; bldgGeo = sharedAdobeHouseGeo || sharedKasbahGeo; }
@@ -4880,6 +9061,36 @@ class TerrainChunk {
                         else if (roll < 0.65) { bType = 'chalet'; bldgGeo = sharedChaletGeo || sharedCottageGeo; }
                         else if (roll < 0.85) { bType = 'farmhouse'; bldgGeo = sharedFarmhouseGeo || sharedCottageGeo; }
                         else { bType = 'bunker'; bldgGeo = sharedMountainBunkerGeo; }
+                    } else if (currentZoneIndex === 6) {
+                        roadsideMat = monumentRockMat;
+                        allowWall = false;
+                        if (roll < 0.55) { bType = 'spire'; bldgGeo = sharedMonumentSpireGeo; }
+                        else { bType = 'rock'; bldgGeo = sharedMonumentRockGeo; }
+                    } else if (currentZoneIndex === 7) {
+                        roadsideMat = canyonRockMat;
+                        allowWall = false;
+                        if (roll < 0.55) { bType = 'canyonTower'; bldgGeo = sharedCanyonTowerGeo; }
+                        else { bType = 'rock'; bldgGeo = sharedMonumentRockGeo; }
+                    } else if (currentZoneIndex === 8) {
+                        allowWall = false;
+                        if (roll < 0.42) { bType = 'obelisk'; bldgGeo = sharedObeliskGeo; roadsideMat = egyptSandstoneMat; }
+                        else if (roll < 0.76) { bType = 'colonnade'; bldgGeo = sharedEgyptColonnadeGeo; roadsideMat = egyptSandstoneMat; }
+                        else { bType = 'kasbah'; bldgGeo = sharedKasbahGeo; roadsideMat = villageMat; }
+                    } else if (currentZoneIndex === 9) {
+                        roadsideMat = jungleTempleMat;
+                        allowWall = false;
+                        bType = 'jungleTemple';
+                        bldgGeo = sharedJungleTempleGeo;
+                    } else if (currentZoneIndex === 10) {
+                        roadsideMat = greekMarbleMat;
+                        allowWall = false;
+                        if (roll < 0.52) { bType = 'tholos'; bldgGeo = sharedGreekTholosGeo; }
+                        else { bType = 'stoa'; bldgGeo = sharedGreekStoaGeo; }
+                    } else if (currentZoneIndex === 11) {
+                        roadsideMat = romanTravertineMat;
+                        allowWall = false;
+                        if (roll < 0.55) { bType = 'romanArch'; bldgGeo = sharedRomanArchGeo; }
+                        else { bType = 'pantheon'; bldgGeo = sharedRomanPantheonGeo; }
                     } else {
                         if (roll < 0.18) { bType = 'ruin'; bldgGeo = sharedRuinGeo; }
                         else if (roll < 0.42) { bType = 'cottage'; bldgGeo = sharedCottageGeo; }
@@ -4887,9 +9098,10 @@ class TerrainChunk {
                         else if (roll < 0.84) { bType = 'townhouse'; bldgGeo = sharedTownhouseGeo || sharedCottageGeo; }
                         else { bType = 'barn'; bldgGeo = sharedBarnGeo; }
                     }
+                    const placeHy = (bldgGeo && bldgGeo.userData && bldgGeo.userData.enterableSpec) ? hy : baseHy;
                     const bScale = 0.95 + rng() * 0.25;
-                    const bMesh = new THREE.Mesh(bldgGeo, villageMat);
-                    bMesh.position.set(hx, hy - 0.15, hz);
+                    const bMesh = new THREE.Mesh(bldgGeo, roadsideMat);
+                    bMesh.position.set(hx, placeHy - 0.15, hz);
                     bMesh.rotation.y = rng() * Math.PI * 2;
                     bMesh.scale.setScalar(bScale);
                     bMesh.castShadow = true;
@@ -4902,9 +9114,9 @@ class TerrainChunk {
                     const bldgObj = attachObstacleBox({
                         mesh: bMesh,
                         x: hx,
-                        y: hy,
+                        y: placeHy,
                         z: hz,
-                        height: (bType === 'ruin' ? 4.2 : (bType === 'townhouse' ? 9.0 : (bType === 'barn' ? 7.5 : 6.6))) * bScale,
+                        height: (bType === 'spire' ? 24.0 : bType === 'pantheon' ? 20.5 : bType === 'obelisk' ? 17.5 : bType === 'romanArch' ? 15.2 : bType === 'jungleTemple' ? 14.5 : bType === 'tholos' ? 11.8 : bType === 'stoa' ? 8.6 : bType === 'colonnade' ? 8.2 : bType === 'ruin' ? 4.2 : (bType === 'townhouse' ? 9.0 : (bType === 'barn' ? 7.5 : 6.6))) * bScale,
                         isRuin: (bType === 'ruin'),
                         type: bType
                     }, bldgGeo, bScale, bMesh.rotation.y);
@@ -4912,8 +9124,8 @@ class TerrainChunk {
                     worldBuildings.push(bldgObj);
                     worldObstacles.push(bldgObj);
 
-                    // Add an attached stone wall border
-                    if (rng() < 0.60) {
+                    // Add an attached stone wall border for homestead zones only
+                    if (allowWall && rng() < 0.60) {
                         let wx = hx + (rng() > 0.5 ? 7.0 : -7.0);
                         let wz = hz + (rng() - 0.5) * 4.0;
                         wx = THREE.MathUtils.clamp(wx, xMin + 6, xMin + CHUNK_SIZE - 6);
@@ -4941,19 +9153,29 @@ class TerrainChunk {
         // 2. ZONE-SPECIFIC ROCK CRAGS, SANDSTONE HOODOOS & ALPINE GRANITE PEAKS
         // ---------------------------------------------------------------------
         this.rocks = [];
-        const rockProb = (currentZoneIndex === 2) ? (isMobile ? 0.55 : 0.90)
-                       : (currentZoneIndex === 1 || currentZoneIndex === 3) ? (isMobile ? 0.45 : 0.80)
+        const rockProb = (currentZoneIndex === 6 || currentZoneIndex === 7) ? (isMobile ? 0.65 : 0.94)
+                       : (currentZoneIndex === 2 || currentZoneIndex === 4) ? (isMobile ? 0.55 : 0.90)
+                       : (currentZoneIndex === 1 || currentZoneIndex === 3 || currentZoneIndex === 5 || currentZoneIndex === 8 || currentZoneIndex === 10 || currentZoneIndex === 11) ? (isMobile ? 0.45 : 0.80)
                        : (isMobile ? 0.35 : 0.70);
-        const maxExtraRocks = (currentZoneIndex === 2) ? (isMobile ? 2 : 3) : (isMobile ? 1 : 2);
-        const rockCount = (distFromSpawn > 20 && !isVillage && rng() < rockProb)
+        const maxExtraRocks = (currentZoneIndex === 6 || currentZoneIndex === 7) ? (isMobile ? 2 : 4)
+                            : (currentZoneIndex === 2 || currentZoneIndex === 4) ? (isMobile ? 2 : 3)
+                            : (isMobile ? 1 : 2);
+        const rockCount = (distFromSpawn > 20 && (!isVillage || currentZoneIndex === 6 || currentZoneIndex === 7) && rng() < rockProb)
             ? (1 + Math.floor(rng() * maxExtraRocks))
             : 0;
 
-        const zoneRockGeo = (currentZoneIndex === 1) ? sharedSandstoneRockGeo
-                          : (currentZoneIndex === 2) ? sharedMountainRockGeo
+        const zoneRockGeo = (currentZoneIndex === 6 || currentZoneIndex === 7) ? sharedMonumentRockGeo
+                          : (currentZoneIndex === 1 || currentZoneIndex === 8) ? sharedSandstoneRockGeo
+                          : (currentZoneIndex === 2 || currentZoneIndex === 4) ? sharedMountainRockGeo
                           : sharedRockGeo;
         const zoneRockMat = (currentZoneIndex === 1) ? desertRockMat
-                          : (currentZoneIndex === 2) ? mountainRockMat
+                          : (currentZoneIndex === 8) ? egyptSandstoneMat
+                          : (currentZoneIndex === 6) ? monumentRockMat
+                          : (currentZoneIndex === 7) ? canyonRockMat
+                          : (currentZoneIndex === 9) ? jungleTempleMat
+                          : (currentZoneIndex === 10) ? greekMarbleMat
+                          : (currentZoneIndex === 11) ? romanTravertineMat
+                          : (currentZoneIndex === 2 || currentZoneIndex === 4) ? mountainRockMat
                           : rockMat;
 
         for (let r = 0; r < rockCount; r++) {
@@ -4965,7 +9187,7 @@ class TerrainChunk {
             const ry = getTerrainHeight(rx, rz);
             if (ry < -2.0) continue;
 
-            const rs = (currentZoneIndex === 2 ? 1.15 : 1.0) + rng() * 0.50;
+            const rs = (currentZoneIndex === 6 || currentZoneIndex === 7 ? 1.25 : currentZoneIndex === 2 ? 1.15 : 1.0) + rng() * (currentZoneIndex === 6 ? 0.85 : 0.50);
             const rockMesh = new THREE.Mesh(zoneRockGeo, zoneRockMat);
             rockMesh.position.set(rx, ry - 0.2, rz);
             rockMesh.rotation.y = rng() * Math.PI * 2;
@@ -4984,11 +9206,12 @@ class TerrainChunk {
                 z: rz,
                 height: 4.4 * rs,
                 type: 'rock',
-                isRock: true
-            }, zoneRockGeo, rs);
+                isRock: true,
+                isRuin: false
+            }, zoneRockGeo, rs, rockMesh.rotation.y);
             this.rocks.push(rockObj);
             worldObstacles.push(rockObj);
-            worldBuildings.push({ x: rx, z: rz, radius: rockObj.radius, isRuin: false, isRock: true });
+            worldBuildings.push(rockObj);
         }
 
         // ---------------------------------------------------------------------
@@ -5030,6 +9253,30 @@ class TerrainChunk {
             } else {
                 targetTreeCount = 1 + Math.floor(rng() * 2);
             }
+        } else if (currentZoneIndex === 6) {
+            // Arizona Monument Valley: Sparse desert Joshua trees, Saguaro cacti & scrub acacias
+            targetTreeCount = isVillage ? (1 + Math.floor(rng() * 3)) : (2 + Math.floor(rng() * 3));
+        } else if (currentZoneIndex === 8) {
+            // Ancient Egypt: Royal Date Palm groves along the Nile & oasis palms
+            targetTreeCount = isVillage ? (5 + Math.floor(rng() * 4)) : (3 + Math.floor(rng() * 4));
+        } else if (currentZoneIndex === 9) {
+            // Tropical Jungle Zone: Dense, multi-layered rainforest canopy & palm/willow understory
+            if (isVillage) {
+                targetTreeCount = 15 + Math.floor(rng() * 6);
+            } else if (forestNoise > 0.35) {
+                targetTreeCount = 26 + Math.floor(rng() * 10);
+            } else {
+                targetTreeCount = 19 + Math.floor(rng() * 8);
+            }
+        } else if (currentZoneIndex === 10 || currentZoneIndex === 11) {
+            // Ancient Greece & Ancient Rome: Mediterranean Cypress avenues, Stone Pines & Olive groves
+            if (isVillage) {
+                targetTreeCount = 5 + Math.floor(rng() * 4);
+            } else if (forestNoise > 0.45) {
+                targetTreeCount = 10 + Math.floor(rng() * 6);
+            } else {
+                targetTreeCount = 4 + Math.floor(rng() * 4);
+            }
         } else {
             // Coastal Meadow (default)
             if (isVillage) {
@@ -5057,6 +9304,15 @@ class TerrainChunk {
                 if (Math.hypot(tx - bldg.x, tz - bldg.z) < bldg.radius + 1.8) {
                     collidesBuilding = true;
                     break;
+                }
+            }
+            if (!collidesBuilding && zoneStaticBuildings) {
+                for (let b = 0; b < zoneStaticBuildings.length; b++) {
+                    const bldg = zoneStaticBuildings[b];
+                    if (Math.hypot(tx - bldg.x, tz - bldg.z) < (bldg.radius || 18.0) + 2.5) {
+                        collidesBuilding = true;
+                        break;
+                    }
                 }
             }
             if (collidesBuilding) continue;
@@ -5142,6 +9398,130 @@ class TerrainChunk {
                     treeGeo = sharedSpruceGeo;
                     treeType = 'spruce';
                     trunkH = 14.2;
+                }
+            } else if (currentZoneIndex === 4) {
+                // Ardennes Winter: Dense frosted Scots Pine & Nordic Spruce evergreen forests
+                if (treeRoll < 0.55) {
+                    treeGeo = sharedSpruceGeo;
+                    treeType = 'spruce';
+                    trunkH = 14.2;
+                } else if (treeRoll < 0.85) {
+                    treeGeo = sharedPineGeo;
+                    treeType = 'pine';
+                    trunkH = 12.5;
+                } else {
+                    treeGeo = sharedBirchGeo || sharedDecidGeo;
+                    treeType = 'birch';
+                    trunkH = 10.6;
+                }
+            } else if (currentZoneIndex === 5) {
+                // Normandy Bocage: Apple orchards, broadleaf Oak/Beech hedgerows, and Cypress windbreaks
+                if (treeRoll < 0.48) {
+                    treeGeo = sharedDecidGeo;
+                    treeType = 'beech';
+                    trunkH = 10.2;
+                } else if (treeRoll < 0.74 && sharedBirchGeo) {
+                    treeGeo = sharedBirchGeo;
+                    treeType = 'birch';
+                    trunkH = 10.6;
+                } else if (treeRoll < 0.88 && sharedCypressGeo) {
+                    treeGeo = sharedCypressGeo;
+                    treeType = 'cypress';
+                    trunkH = 13.5;
+                } else {
+                    treeGeo = sharedWillowGeo || sharedDecidGeo;
+                    treeType = 'willow';
+                    trunkH = 9.8;
+                }
+            } else if (currentZoneIndex === 6) {
+                // Monument Valley: Desert Joshua Trees, Acacias, Saguaro Cacti & Agaves
+                if (treeRoll < 0.42 && sharedJoshuaTreeGeo) {
+                    treeGeo = sharedJoshuaTreeGeo;
+                    treeType = 'joshua';
+                    trunkH = 6.2;
+                } else if (treeRoll < 0.70 && sharedAcaciaGeo) {
+                    treeGeo = sharedAcaciaGeo;
+                    treeType = 'acacia';
+                    trunkH = 7.8;
+                } else if (sharedCactusGeo) {
+                    treeGeo = sharedCactusGeo;
+                    treeType = 'cactus';
+                    trunkH = 4.8;
+                    chosenMat = cactusMat;
+                    useTreeDepth = false;
+                } else {
+                    treeGeo = sharedPineGeo;
+                    treeType = 'pine';
+                    trunkH = 11.0;
+                }
+            } else if (currentZoneIndex === 7) {
+                // Grand Canyon: Cliff Pinyon Pines, Utah Junipers, Desert Acacias & Mountain Scrub
+                if (treeRoll < 0.52) {
+                    treeGeo = sharedPineGeo;
+                    treeType = 'pine';
+                    trunkH = 12.0;
+                } else if (treeRoll < 0.78 && sharedLarchGeo) {
+                    treeGeo = sharedLarchGeo;
+                    treeType = 'larch';
+                    trunkH = 11.5;
+                } else if (sharedAcaciaGeo) {
+                    treeGeo = sharedAcaciaGeo;
+                    treeType = 'acacia';
+                    trunkH = 7.8;
+                } else {
+                    treeGeo = sharedDecidGeo;
+                    treeType = 'beech';
+                    trunkH = 9.5;
+                }
+            } else if (currentZoneIndex === 8) {
+                // Ancient Egypt: Royal Date Palms along the Nile, Fan Palms & Umbrella Acacias
+                if (treeRoll < 0.82) {
+                    const pVar = Math.floor(rng() * (sharedPalmGeos.length || 1));
+                    treeGeo = (sharedPalmGeos && sharedPalmGeos[pVar]) ? sharedPalmGeos[pVar] : sharedPalmGeo;
+                    treeType = 'palm';
+                    trunkH = (pVar === 1 ? 14.5 : pVar === 3 ? 8.2 : 11.5);
+                } else if (sharedAcaciaGeo) {
+                    treeGeo = sharedAcaciaGeo;
+                    treeType = 'acacia';
+                    trunkH = 7.8;
+                } else {
+                    treeGeo = sharedPalmGeo;
+                    treeType = 'palm';
+                    trunkH = 11.5;
+                }
+            } else if (currentZoneIndex === 9) {
+                // Tropical Jungle: Giant Emergent Rainforest Canopy Trees, Tall Royal Palms, Weeping Willows & Broadleaf Trees
+                if (treeRoll < 0.62 && sharedJungleTreeGeo) {
+                    treeGeo = sharedJungleTreeGeo;
+                    treeType = 'jungleCanopy';
+                    trunkH = 17.5;
+                } else if (treeRoll < 0.76 && sharedPalmGeos && sharedPalmGeos[1]) {
+                    treeGeo = sharedPalmGeos[1];
+                    treeType = 'palm';
+                    trunkH = 14.2;
+                } else if (treeRoll < 0.90 && sharedWillowGeo) {
+                    treeGeo = sharedWillowGeo;
+                    treeType = 'willow';
+                    trunkH = 11.2;
+                } else {
+                    treeGeo = sharedDecidGeo;
+                    treeType = 'beech';
+                    trunkH = 11.8;
+                }
+            } else if (currentZoneIndex === 10 || currentZoneIndex === 11) {
+                // Ancient Greece & Imperial Rome: Mediterranean Cypress, Umbrella Stone Pines & Gnarled Olive/Broadleaf Trees
+                if (treeRoll < 0.46 && sharedCypressGeo) {
+                    treeGeo = sharedCypressGeo;
+                    treeType = 'cypress';
+                    trunkH = 13.8;
+                } else if (treeRoll < 0.76) {
+                    treeGeo = sharedPineGeo;
+                    treeType = 'pine';
+                    trunkH = 12.6;
+                } else {
+                    treeGeo = sharedDecidGeo;
+                    treeType = 'beech';
+                    trunkH = 9.8;
                 }
             } else {
                 // Coastal Meadow: Weeping Willow near water/hollows, Silver Birch, Cypress, Beech, Pine & Spruce
@@ -5257,8 +9637,10 @@ class TerrainChunk {
         const extraPlantMatrices = [];
         const secondaryPlantMatrices = [];
         let bushCount = (forestNoise > 0.52) ? (6 + Math.floor(rng() * 5)) : (Math.floor(rng() * 4) + 2);
-        if (currentZoneIndex === 1) {
-            bushCount = 3 + Math.floor(rng() * 4); // Desert wadi bushes, agave & prickly pear
+        if (currentZoneIndex === 1 || currentZoneIndex === 6 || currentZoneIndex === 7 || currentZoneIndex === 8) {
+            bushCount = 4 + Math.floor(rng() * 4); // Desert wadi bushes, agave & prickly pear
+        } else if (currentZoneIndex === 9) {
+            bushCount = isMobile ? (14 + Math.floor(rng() * 6)) : (28 + Math.floor(rng() * 12)); // Dense tropical fern & broadleaf undergrowth
         }
         const dummyBush = new THREE.Object3D();
 
@@ -5268,16 +9650,19 @@ class TerrainChunk {
             if (getRoadFactor(bx, bz) > 0.28) continue;
             const by = getTerrainHeight(bx, bz);
             if (by < -2.4 || (currentZoneIndex === 2 && by > 15.0)) continue;
-            const bs = 0.75 + rng() * 0.65;
+            const bs = (currentZoneIndex === 9) ? (1.05 + rng() * 0.95) : (0.75 + rng() * 0.65);
 
             dummyBush.position.set(bx, by, bz);
-            dummyBush.scale.set(bs * 1.15, bs * 0.9, bs * 1.15);
+            dummyBush.scale.set(bs * 1.15, bs * (currentZoneIndex === 9 ? 1.10 : 0.90), bs * 1.15);
             dummyBush.rotation.y = rng() * Math.PI * 2;
             dummyBush.updateMatrix();
             const pRoll = rng();
-            if (currentZoneIndex === 1) {
+            if (currentZoneIndex === 1 || currentZoneIndex === 6 || currentZoneIndex === 7 || currentZoneIndex === 8) {
                 if (pRoll < 0.42 && sharedAgaveGeo) extraPlantMatrices.push(dummyBush.matrix.clone());
                 else if (pRoll < 0.76 && sharedPricklyPearGeo) secondaryPlantMatrices.push(dummyBush.matrix.clone());
+                else bushMatrices.push(dummyBush.matrix.clone());
+            } else if (currentZoneIndex === 9) {
+                if (pRoll < 0.65 && sharedFernGeo) extraPlantMatrices.push(dummyBush.matrix.clone());
                 else bushMatrices.push(dummyBush.matrix.clone());
             } else if (currentZoneIndex === 2) {
                 if (pRoll < 0.50 && sharedFernGeo) extraPlantMatrices.push(dummyBush.matrix.clone());
@@ -5303,8 +9688,9 @@ class TerrainChunk {
             this.bushMesh = bushInstMesh;
         }
 
-        const primaryExtraGeo = (currentZoneIndex === 1) ? sharedAgaveGeo : (currentZoneIndex === 2 ? sharedFernGeo : sharedFlowerBushGeo);
-        const primaryMat = (currentZoneIndex === 1) ? cactusMat : treeMaterial;
+        const isAridSucculentZone = (currentZoneIndex === 1 || currentZoneIndex === 6 || currentZoneIndex === 7 || currentZoneIndex === 8);
+        const primaryExtraGeo = isAridSucculentZone ? sharedAgaveGeo : ((currentZoneIndex === 2 || currentZoneIndex === 9) ? sharedFernGeo : sharedFlowerBushGeo);
+        const primaryMat = isAridSucculentZone ? cactusMat : treeMaterial;
         if (extraPlantMatrices.length > 0 && primaryExtraGeo) {
             const extraInst = new THREE.InstancedMesh(primaryExtraGeo, primaryMat, extraPlantMatrices.length);
             for (let i = 0; i < extraPlantMatrices.length; i++) {
@@ -5313,13 +9699,13 @@ class TerrainChunk {
             extraInst.instanceMatrix.needsUpdate = true;
             extraInst.castShadow = true;
             extraInst.receiveShadow = true;
-            if (currentZoneIndex !== 1) extraInst.customDepthMaterial = getTreeDepthMaterial();
+            if (!isAridSucculentZone) extraInst.customDepthMaterial = getTreeDepthMaterial();
             this.group.add(extraInst);
             this.extraPlantMeshes.push(extraInst);
         }
 
-        const secondaryExtraGeo = (currentZoneIndex === 1) ? sharedPricklyPearGeo : (currentZoneIndex === 2 ? sharedFlowerBushGeo : sharedFernGeo);
-        const secondaryMat = (currentZoneIndex === 1) ? cactusMat : treeMaterial;
+        const secondaryExtraGeo = isAridSucculentZone ? sharedPricklyPearGeo : (currentZoneIndex === 9 ? (sharedPalmGeos && sharedPalmGeos[3]) : (currentZoneIndex === 2 ? sharedFlowerBushGeo : sharedFernGeo));
+        const secondaryMat = isAridSucculentZone ? cactusMat : treeMaterial;
         if (secondaryPlantMatrices.length > 0 && secondaryExtraGeo) {
             const secInst = new THREE.InstancedMesh(secondaryExtraGeo, secondaryMat, secondaryPlantMatrices.length);
             for (let i = 0; i < secondaryPlantMatrices.length; i++) {
@@ -5328,7 +9714,7 @@ class TerrainChunk {
             secInst.instanceMatrix.needsUpdate = true;
             secInst.castShadow = true;
             secInst.receiveShadow = true;
-            if (currentZoneIndex !== 1) secInst.customDepthMaterial = getTreeDepthMaterial();
+            if (!isAridSucculentZone) secInst.customDepthMaterial = getTreeDepthMaterial();
             this.group.add(secInst);
             this.extraPlantMeshes.push(secInst);
         }
@@ -5364,6 +9750,8 @@ class TerrainChunk {
             this.rocks.forEach(r => {
                 const oIdx = worldObstacles.indexOf(r);
                 if (oIdx !== -1) worldObstacles.splice(oIdx, 1);
+                const bIdx = worldBuildings.indexOf(r);
+                if (bIdx !== -1) worldBuildings.splice(bIdx, 1);
                 for (let k = worldBuildings.length - 1; k >= 0; k--) {
                     if (worldBuildings[k].isRock && Math.hypot(worldBuildings[k].x - r.x, worldBuildings[k].z - r.z) < 0.1) {
                         worldBuildings.splice(k, 1);
@@ -5563,16 +9951,53 @@ function initEnvironment(scene) {
     if (vAtlas) {
         villageMat.map = vAtlas.albedo;
         villageMat.normalMap = vAtlas.normal;
-        villageMat.normalScale = new THREE.Vector2(0.85, 0.85);
+        villageMat.normalScale = new THREE.Vector2(1.35, 1.35);
         villageMat.roughnessMap = vAtlas.roughness;
+        villageMat.needsUpdate = true;
+    }
+
+    if (!terrainUniforms.uTerrainNormalAtlas.value) {
+        terrainUniforms.uTerrainNormalAtlas.value = getTerrainNormalAtlas();
     }
 
     if (!sharedRockNormalMap) sharedRockNormalMap = createRockNormalMap();
     [rockMat, desertRockMat, mountainRockMat].forEach(mat => {
         mat.normalMap = sharedRockNormalMap;
-        mat.normalScale = new THREE.Vector2(0.22, 0.22);
+        mat.normalScale = new THREE.Vector2(0.55, 0.55);
         mat.needsUpdate = true;
     });
+
+    if (!sharedMonumentSandstonePBR) sharedMonumentSandstonePBR = createMonumentSandstonePBR();
+    [monumentRockMat, canyonRockMat].forEach(mat => {
+        mat.map = sharedMonumentSandstonePBR.albedo;
+        mat.normalMap = sharedMonumentSandstonePBR.normal;
+        mat.normalScale = new THREE.Vector2(0.55, 0.55);
+        mat.needsUpdate = true;
+    });
+
+    if (!sharedEgyptLimestonePBR) sharedEgyptLimestonePBR = createEgyptLimestonePBR();
+    egyptSandstoneMat.map = sharedEgyptLimestonePBR.albedo;
+    egyptSandstoneMat.normalMap = sharedEgyptLimestonePBR.normal;
+    egyptSandstoneMat.normalScale = new THREE.Vector2(0.55, 0.55);
+    egyptSandstoneMat.needsUpdate = true;
+
+    if (!sharedJungleTemplePBR) sharedJungleTemplePBR = createJungleTemplePBR();
+    jungleTempleMat.map = sharedJungleTemplePBR.albedo;
+    jungleTempleMat.normalMap = sharedJungleTemplePBR.normal;
+    jungleTempleMat.normalScale = new THREE.Vector2(0.60, 0.60);
+    jungleTempleMat.needsUpdate = true;
+
+    if (!sharedGreekMarblePBR) sharedGreekMarblePBR = createGreekMarblePBR();
+    greekMarbleMat.map = sharedGreekMarblePBR.albedo;
+    greekMarbleMat.normalMap = sharedGreekMarblePBR.normal;
+    greekMarbleMat.normalScale = new THREE.Vector2(0.42, 0.42);
+    greekMarbleMat.needsUpdate = true;
+
+    if (!sharedRomanTravertinePBR) sharedRomanTravertinePBR = createRomanTravertinePBR();
+    romanTravertineMat.map = sharedRomanTravertinePBR.albedo;
+    romanTravertineMat.normalMap = sharedRomanTravertinePBR.normal;
+    romanTravertineMat.normalScale = new THREE.Vector2(0.50, 0.50);
+    romanTravertineMat.needsUpdate = true;
 
     ensureSharedGeometries();
     if (!sharedSmokeTex) sharedSmokeTex = createSmokeCanvasTexture();
@@ -5647,13 +10072,38 @@ function createZoneWaterMaterial() {
                 vec3 deepCol = vec3(0.02, 0.12, 0.24);
                 vec3 midCol = vec3(0.04, 0.25, 0.36);
                 vec3 shallowCol = vec3(0.10, 0.42, 0.44);
-                vec4 waterZones = getZoneWeights_gpu(vWorldPos.xz);
-                deepCol = mix(deepCol, vec3(0.02, 0.20, 0.26), waterZones.y);
-                midCol = mix(midCol, vec3(0.05, 0.36, 0.38), waterZones.y);
-                shallowCol = mix(shallowCol, vec3(0.14, 0.54, 0.48), waterZones.y);
-                deepCol = mix(deepCol, vec3(0.02, 0.14, 0.28), waterZones.z);
-                midCol = mix(midCol, vec3(0.05, 0.28, 0.42), waterZones.z);
-                shallowCol = mix(shallowCol, vec3(0.12, 0.46, 0.54), waterZones.z);
+                float wWater[12];
+                getZoneWeights12_gpu(vWorldPos.xz, wWater);
+                deepCol = mix(deepCol, vec3(0.02, 0.20, 0.26), wWater[1]);
+                midCol = mix(midCol, vec3(0.05, 0.36, 0.38), wWater[1]);
+                shallowCol = mix(shallowCol, vec3(0.14, 0.54, 0.48), wWater[1]);
+                deepCol = mix(deepCol, vec3(0.02, 0.14, 0.28), wWater[2]);
+                midCol = mix(midCol, vec3(0.05, 0.28, 0.42), wWater[2]);
+                shallowCol = mix(shallowCol, vec3(0.12, 0.46, 0.54), wWater[2]);
+                deepCol = mix(deepCol, vec3(0.18, 0.32, 0.44), wWater[4]);
+                midCol = mix(midCol, vec3(0.35, 0.50, 0.62), wWater[4]);
+                shallowCol = mix(shallowCol, vec3(0.60, 0.75, 0.85), wWater[4]);
+                deepCol = mix(deepCol, vec3(0.03, 0.10, 0.08), wWater[5]);
+                midCol = mix(midCol, vec3(0.06, 0.18, 0.14), wWater[5]);
+                shallowCol = mix(shallowCol, vec3(0.12, 0.32, 0.22), wWater[5]);
+                deepCol = mix(deepCol, vec3(0.18, 0.08, 0.04), wWater[6]);
+                midCol = mix(midCol, vec3(0.28, 0.12, 0.06), wWater[6]);
+                shallowCol = mix(shallowCol, vec3(0.42, 0.18, 0.09), wWater[6]);
+                deepCol = mix(deepCol, vec3(0.06, 0.12, 0.10), wWater[7]);
+                midCol = mix(midCol, vec3(0.12, 0.22, 0.16), wWater[7]);
+                shallowCol = mix(shallowCol, vec3(0.24, 0.34, 0.22), wWater[7]);
+                deepCol = mix(deepCol, vec3(0.01, 0.14, 0.32), wWater[8]);
+                midCol = mix(midCol, vec3(0.03, 0.28, 0.48), wWater[8]);
+                shallowCol = mix(shallowCol, vec3(0.08, 0.48, 0.62), wWater[8]);
+                deepCol = mix(deepCol, vec3(0.02, 0.12, 0.08), wWater[9]);
+                midCol = mix(midCol, vec3(0.04, 0.24, 0.14), wWater[9]);
+                shallowCol = mix(shallowCol, vec3(0.10, 0.42, 0.24), wWater[9]);
+                deepCol = mix(deepCol, vec3(0.01, 0.16, 0.36), wWater[10]);
+                midCol = mix(midCol, vec3(0.03, 0.34, 0.56), wWater[10]);
+                shallowCol = mix(shallowCol, vec3(0.10, 0.58, 0.72), wWater[10]);
+                deepCol = mix(deepCol, vec3(0.02, 0.14, 0.28), wWater[11]);
+                midCol = mix(midCol, vec3(0.05, 0.28, 0.44), wWater[11]);
+                shallowCol = mix(shallowCol, vec3(0.12, 0.46, 0.56), wWater[11]);
 
                 float depthFactor = clamp(waterDepth / 9.0, 0.0, 1.0);
                 vec3 waterCol = mix(shallowCol, midCol, smoothstep(0.0, 0.45, depthFactor));
@@ -5761,11 +10211,19 @@ function rebuildZoneStaticProps() {
     sigGroup.position.set(sigTx, sigTy, sigTz);
     sigGroup.scale.setScalar(sigScale);
 
-    const sigTreeGeo = (currentZoneIndex === 1) ? ((sharedPalmGeos && sharedPalmGeos[1]) || sharedPalmGeo)
+    const sigTreeGeo = (currentZoneIndex === 1 || currentZoneIndex === 8) ? ((sharedPalmGeos && sharedPalmGeos[1]) || sharedPalmGeo)
                      : (currentZoneIndex === 3) ? sharedDecidGeo
+                     : (currentZoneIndex === 6) ? sharedJoshuaTreeGeo
+                     : (currentZoneIndex === 7) ? sharedPineGeo
+                     : (currentZoneIndex === 9) ? sharedJungleTreeGeo
+                     : (currentZoneIndex === 10 || currentZoneIndex === 11) ? sharedCypressGeo
                      : sharedSpruceGeo;
-    const sigTreeType = (currentZoneIndex === 1) ? 'palm'
+    const sigTreeType = (currentZoneIndex === 1 || currentZoneIndex === 8) ? 'palm'
                       : (currentZoneIndex === 3) ? 'beech'
+                      : (currentZoneIndex === 6) ? 'joshua'
+                      : (currentZoneIndex === 7) ? 'pine'
+                      : (currentZoneIndex === 9) ? 'jungleCanopy'
+                      : (currentZoneIndex === 10 || currentZoneIndex === 11) ? 'cypress'
                       : 'spruce';
     const sigMesh = new THREE.Mesh(sigTreeGeo, treeMaterial);
     sigMesh.rotation.y = 1.15;
@@ -5801,26 +10259,48 @@ function rebuildZoneStaticProps() {
     // 2. Signature Architectural Landmark at (-18.0, 112.0)
     const cotX = -18.0;
     const cotZ = 112.0;
-    const cotY = Math.max(
-        getTerrainHeight(cotX, cotZ),
-        getTerrainHeight(cotX - 2.6, cotZ - 2.6),
-        getTerrainHeight(cotX + 2.6, cotZ - 2.6),
-        getTerrainHeight(cotX - 2.6, cotZ + 2.6),
-        getTerrainHeight(cotX + 2.6, cotZ + 2.6)
-    );
     const sigBldgGeo = (currentZoneIndex === 1) ? sharedKasbahGeo
-                     : (currentZoneIndex === 2) ? (sharedChaletGeo || sharedMountainBunkerGeo)
+                     : (currentZoneIndex === 2 || currentZoneIndex === 4) ? (sharedChaletGeo || sharedMountainBunkerGeo)
+                     : (currentZoneIndex === 6) ? sharedMonumentButteGeo
+                     : (currentZoneIndex === 7) ? sharedCanyonCliffGeo
+                     : (currentZoneIndex === 8) ? sharedGreatPyramidGeo
+                     : (currentZoneIndex === 9) ? sharedJungleTempleGeo
+                     : (currentZoneIndex === 10) ? sharedGreekParthenonGeo
+                     : (currentZoneIndex === 11) ? sharedRomanColosseumGeo
                      : sharedCottageGeo;
-    const cotMesh = new THREE.Mesh(sigBldgGeo, villageMat);
+    const cotY = (sigBldgGeo && sigBldgGeo.userData && sigBldgGeo.userData.enterableSpec)
+        ? Math.max(
+            getTerrainHeight(cotX, cotZ),
+            getTerrainHeight(cotX - 2.6, cotZ - 2.6),
+            getTerrainHeight(cotX + 2.6, cotZ - 2.6),
+            getTerrainHeight(cotX - 2.6, cotZ + 2.6),
+            getTerrainHeight(cotX + 2.6, cotZ + 2.6)
+        )
+        : getTerrainHeight(cotX, cotZ);
+    const sigBldgMat = (currentZoneIndex === 6) ? monumentRockMat
+                     : (currentZoneIndex === 7) ? canyonRockMat
+                     : (currentZoneIndex === 8) ? egyptSandstoneMat
+                     : (currentZoneIndex === 9) ? jungleTempleMat
+                     : (currentZoneIndex === 10) ? greekMarbleMat
+                     : (currentZoneIndex === 11) ? romanTravertineMat
+                     : villageMat;
+    const cotScale = (currentZoneIndex === 6 || currentZoneIndex === 8 || currentZoneIndex === 9 || currentZoneIndex === 10 || currentZoneIndex === 11) ? 1.14 : 1.05;
+    const cotBaseH = (currentZoneIndex === 8) ? 26.5
+                   : (currentZoneIndex === 6) ? 24.0
+                   : (currentZoneIndex === 11) ? 21.0
+                   : (currentZoneIndex === 7) ? 18.0
+                   : (currentZoneIndex === 9 || currentZoneIndex === 10) ? 14.5
+                   : 6.6;
+    const cotMesh = new THREE.Mesh(sigBldgGeo, sigBldgMat);
     cotMesh.position.set(cotX, cotY - 0.1, cotZ);
-    cotMesh.rotation.y = 0.42;
-    cotMesh.scale.setScalar(1.05);
+    cotMesh.rotation.y = (currentZoneIndex === 8 || currentZoneIndex === 10 || currentZoneIndex === 11) ? 0.18 : 0.42;
+    cotMesh.scale.setScalar(cotScale);
     cotMesh.castShadow = true;
     cotMesh.receiveShadow = true;
     zoneStaticGroup.add(cotMesh);
     aimRaycastMeshes.push(cotMesh);
     zoneStaticRaycastMeshes.push(cotMesh);
-    const staticCotObj = attachObstacleBox({ mesh: cotMesh, x: cotX, y: cotY, z: cotZ, height: 6.6, isRuin: false, type: 'house' }, sigBldgGeo, 1.05, cotMesh.rotation.y);
+    const staticCotObj = attachObstacleBox({ mesh: cotMesh, x: cotX, y: cotY, z: cotZ, height: cotBaseH * cotScale, isRuin: false, type: 'house' }, sigBldgGeo, cotScale, cotMesh.rotation.y);
     worldBuildings.push(staticCotObj);
     worldObstacles.push(staticCotObj);
     zoneStaticBuildings.push(staticCotObj);
@@ -5831,28 +10311,45 @@ function rebuildZoneStaticProps() {
     const sigRockZ = 22.0;
     const sigRockY = getTerrainHeight(sigRockX, sigRockZ);
     const sigRGeo = (currentZoneIndex === 1) ? sharedSandstoneRockGeo
-                  : (currentZoneIndex === 2) ? sharedMountainRockGeo
+                  : (currentZoneIndex === 2 || currentZoneIndex === 4) ? sharedMountainRockGeo
+                  : (currentZoneIndex === 6) ? sharedMonumentSpireGeo
+                  : (currentZoneIndex === 7) ? sharedCanyonTowerGeo
+                  : (currentZoneIndex === 8) ? sharedObeliskGeo
+                  : (currentZoneIndex === 10) ? sharedGreekTholosGeo
+                  : (currentZoneIndex === 11) ? sharedRomanArchGeo
                   : sharedRockGeo;
     const sigRMat = (currentZoneIndex === 1) ? desertRockMat
-                  : (currentZoneIndex === 2) ? mountainRockMat
+                  : (currentZoneIndex === 2 || currentZoneIndex === 4) ? mountainRockMat
+                  : (currentZoneIndex === 6) ? monumentRockMat
+                  : (currentZoneIndex === 7) ? canyonRockMat
+                  : (currentZoneIndex === 8) ? egyptSandstoneMat
+                  : (currentZoneIndex === 9) ? jungleTempleMat
+                  : (currentZoneIndex === 10) ? greekMarbleMat
+                  : (currentZoneIndex === 11) ? romanTravertineMat
                   : rockMat;
     const sigRockMesh = new THREE.Mesh(sigRGeo, sigRMat);
     sigRockMesh.position.set(sigRockX, sigRockY - 0.25, sigRockZ);
-    sigRockMesh.rotation.y = 0.85;
-    sigRockMesh.scale.set(1.2, 1.2, 1.2);
+    sigRockMesh.rotation.y = (currentZoneIndex === 10 || currentZoneIndex === 11) ? 0.22 : 0.85;
+    const sigRockScale = (currentZoneIndex === 10 || currentZoneIndex === 11) ? 0.92 : 1.2;
+    const sigRockBaseH = (currentZoneIndex === 6) ? 24.0
+                       : (currentZoneIndex === 8) ? 17.5
+                       : (currentZoneIndex === 7) ? 16.0
+                       : (currentZoneIndex === 11) ? 15.2
+                       : (currentZoneIndex === 10) ? 11.8
+                       : 4.8;
+    sigRockMesh.scale.setScalar(sigRockScale);
     sigRockMesh.castShadow = true;
     sigRockMesh.receiveShadow = true;
     zoneStaticGroup.add(sigRockMesh);
     aimRaycastMeshes.push(sigRockMesh);
     zoneStaticRaycastMeshes.push(sigRockMesh);
-    const sigRockObj = attachObstacleCircle({ mesh: sigRockMesh, x: sigRockX, y: sigRockY, z: sigRockZ, height: 4.8, type: 'rock', isRock: true }, sigRGeo, 1.2);
-    const sigRockBldg = { x: sigRockX, z: sigRockZ, radius: sigRockObj.radius, isRuin: false, isRock: true };
-    worldBuildings.push(sigRockBldg);
+    const sigRockObj = attachObstacleCircle({ mesh: sigRockMesh, x: sigRockX, y: sigRockY, z: sigRockZ, height: sigRockBaseH * sigRockScale, type: 'rock', isRock: true, isRuin: false }, sigRGeo, sigRockScale, sigRockMesh.rotation.y);
+    worldBuildings.push(sigRockObj);
     worldObstacles.push(sigRockObj);
-    zoneStaticBuildings.push(sigRockBldg);
+    zoneStaticBuildings.push(sigRockObj);
     zoneStaticObstacles.push(sigRockObj);
 
-    // 4. Desert Oasis / Alpine Tarn / Hills Pond Shoreline Landmark Trees
+    // 4. Zone-Specific Iconic Panorama Formations & Groves
     if (currentZoneIndex === 1) {
         // Ring of lush Date Palms framing the Desert Oasis at (58, 78) with distinct variants & natural radial rotation
         for (let p = 0; p < 8; p++) {
@@ -5897,6 +10394,248 @@ function rebuildZoneStaticProps() {
             swayTrees.push(palmObj);
             zoneStaticTrees.push(palmObj);
         }
+    } else if (currentZoneIndex === 6) {
+        // Arizona Monument Valley Panorama: East Mitten Butte, Merrick Butte & Three Sisters Spires
+        const monumentFormations = [
+            { x: 54.0,  z: 98.0,  geo: sharedMonumentButteGeo, scale: 1.04, rot: -0.68, h: 27.5, type: 'butte' },
+            { x: -68.0, z: 84.0,  geo: sharedMonumentButteGeo, scale: 0.94, rot: 1.22,  h: 25.0, type: 'butte' },
+            { x: 38.0,  z: 48.0,  geo: sharedMonumentSpireGeo, scale: 1.12, rot: 0.35,  h: 30.0, type: 'spire' },
+            { x: -46.0, z: 46.0,  geo: sharedMonumentRockGeo,  scale: 1.75, rot: 1.85,  h: 6.5,  type: 'rock' }
+        ];
+        monumentFormations.forEach(mf => {
+            const my = getTerrainHeight(mf.x, mf.z);
+            const mMesh = new THREE.Mesh(mf.geo, monumentRockMat);
+            mMesh.position.set(mf.x, my - 0.15, mf.z);
+            mMesh.rotation.y = mf.rot;
+            mMesh.scale.setScalar(mf.scale);
+            mMesh.castShadow = true;
+            mMesh.receiveShadow = true;
+            zoneStaticGroup.add(mMesh);
+            aimRaycastMeshes.push(mMesh);
+            zoneStaticRaycastMeshes.push(mMesh);
+            const mObj = attachObstacleBox({ mesh: mMesh, x: mf.x, y: my, z: mf.z, height: mf.h, isRuin: false, type: mf.type }, mf.geo, mf.scale, mf.rot);
+            worldBuildings.push(mObj);
+            worldObstacles.push(mObj);
+            zoneStaticBuildings.push(mObj);
+            zoneStaticObstacles.push(mObj);
+        });
+    } else if (currentZoneIndex === 8) {
+        // Giza Necropolis Triad: Second Pyramid of Khafre, Third Pyramid of Menkaure & Processional Obelisk/Colonnade
+        const egyptMonuments = [
+            { x: 58.0,  z: 142.0, geo: sharedGreatPyramidGeo,   scale: 0.82, rot: 0.18, h: 22.0, type: 'pyramid' },
+            { x: -74.0, z: 146.0, geo: sharedGreatPyramidGeo,   scale: 0.56, rot: 0.18, h: 15.0, type: 'pyramid' },
+            { x: 22.0,  z: 68.0,  geo: sharedObeliskGeo,        scale: 1.15, rot: 0.18, h: 19.0, type: 'obelisk' },
+            { x: -42.0, z: 66.0,  geo: sharedEgyptColonnadeGeo, scale: 1.08, rot: 0.18, h: 8.5,  type: 'colonnade' }
+        ];
+        egyptMonuments.forEach(em => {
+            const ey = getTerrainHeight(em.x, em.z);
+            const eMesh = new THREE.Mesh(em.geo, egyptSandstoneMat);
+            eMesh.position.set(em.x, ey - 0.15, em.z);
+            eMesh.rotation.y = em.rot;
+            eMesh.scale.setScalar(em.scale);
+            eMesh.castShadow = true;
+            eMesh.receiveShadow = true;
+            zoneStaticGroup.add(eMesh);
+            aimRaycastMeshes.push(eMesh);
+            zoneStaticRaycastMeshes.push(eMesh);
+            const eObj = attachObstacleBox({ mesh: eMesh, x: em.x, y: ey, z: em.z, height: em.h, isRuin: false, type: em.type }, em.geo, em.scale, em.rot);
+            worldBuildings.push(eObj);
+            worldObstacles.push(eObj);
+            zoneStaticBuildings.push(eObj);
+            zoneStaticObstacles.push(eObj);
+        });
+    } else if (currentZoneIndex === 9) {
+        // Foreground Stepped Jungle Temple Shrine + Dense Tropical Rainforest Sanctuary Grove framing the Valley
+        const templeX = 24.0, templeZ = 62.0;
+        const templeY = getTerrainHeight(templeX, templeZ);
+        const tMesh = new THREE.Mesh(sharedJungleTempleGeo, jungleTempleMat);
+        tMesh.position.set(templeX, templeY - 0.15, templeZ);
+        tMesh.rotation.y = -0.38;
+        tMesh.scale.setScalar(0.95);
+        tMesh.castShadow = true;
+        tMesh.receiveShadow = true;
+        zoneStaticGroup.add(tMesh);
+        aimRaycastMeshes.push(tMesh);
+        zoneStaticRaycastMeshes.push(tMesh);
+        const tObj = attachObstacleBox({ mesh: tMesh, x: templeX, y: templeY, z: templeZ, height: 14.0, isRuin: false, type: 'jungleTemple' }, sharedJungleTempleGeo, 0.95, -0.38);
+        worldBuildings.push(tObj);
+        worldObstacles.push(tObj);
+        zoneStaticBuildings.push(tObj);
+        zoneStaticObstacles.push(tObj);
+
+        const jungleSpots = [
+            [-32, 34, 0, 1.22], [30, 26, 0, 1.18], [-44, 58, 1, 1.15], [44, 48, 0, 1.28],
+            [-36, 74, 0, 1.25], [42, 76, 1, 1.12], [-52, 92, 0, 1.32], [48, 92, 0, 1.24],
+            [14, 38, 1, 1.08],  [-28, 48, 2, 1.14], [34, 112, 0, 1.30], [-48, 122, 0, 1.26],
+            [12, 94, 0, 1.20],  [-36, 16, 1, 1.10], [36, 14, 0, 1.16], [-32, 86, 1, 1.12]
+        ];
+        jungleSpots.forEach(([jx, jz, kind, jScale], idx) => {
+            if (getRoadFactor(jx, jz) > 0.22) return;
+            const jy = getTerrainHeight(jx, jz);
+            const jGroup = new THREE.Group();
+            jGroup.position.set(jx, jy, jz);
+            jGroup.scale.setScalar(jScale);
+            const jGeo = (kind === 0 && sharedJungleTreeGeo) ? sharedJungleTreeGeo
+                       : (kind === 1 && sharedPalmGeos && sharedPalmGeos[1]) ? sharedPalmGeos[1]
+                       : (sharedWillowGeo || sharedDecidGeo);
+            const jType = (kind === 0) ? 'jungleCanopy' : (kind === 1 ? 'palm' : 'willow');
+            const jTrunkH = (kind === 0) ? 17.5 : (kind === 1 ? 12.0 : 11.2);
+            const jMesh = new THREE.Mesh(jGeo, treeMaterial);
+            jMesh.rotation.y = idx * 1.15;
+            jMesh.castShadow = true;
+            jMesh.receiveShadow = true;
+            jMesh.customDepthMaterial = getTreeDepthMaterial();
+            jGroup.add(jMesh);
+            zoneStaticGroup.add(jGroup);
+            aimRaycastMeshes.push(jMesh);
+            zoneStaticRaycastMeshes.push(jMesh);
+            const jTreeObj = {
+                id: `jungle:static:${idx}`,
+                group: jGroup,
+                mesh: jMesh,
+                phase: idx * 0.65,
+                x: jx, y: jy, z: jz,
+                scale: jScale,
+                isFallen: false, fallAngle: 0, angularVel: 0,
+                maxFallAngle: Math.PI * 0.48,
+                fallAxis: new THREE.Vector3(1, 0, 0),
+                radius: 1.45 * jScale,
+                trunkHeight: jTrunkH * jScale,
+                type: jType
+            };
+            swayTrees.push(jTreeObj);
+            zoneStaticTrees.push(jTreeObj);
+        });
+    } else if (currentZoneIndex === 10) {
+        // Ancient Greece Acropolis & Sanctuary Panorama: Parthenon of Athena, Delphi Tholos Rotunda, Agora Stoa Colonnades & Cypress/Olive Grove
+        const greekMonuments = [
+            { x: 46.0,  z: 92.0,  geo: sharedGreekParthenonGeo, scale: 0.96, rot: -0.24, h: 16.5, type: 'parthenon' },
+            { x: 24.0,  z: 52.0,  geo: sharedGreekTholosGeo,    scale: 1.08, rot: 0.15,  h: 12.0, type: 'tholos' },
+            { x: -46.0, z: 64.0,  geo: sharedGreekStoaGeo,      scale: 1.06, rot: 0.32,  h: 9.2,  type: 'stoa' },
+            { x: 52.0,  z: 142.0, geo: sharedGreekStoaGeo,      scale: 1.12, rot: -0.45, h: 9.5,  type: 'stoa' }
+        ];
+        greekMonuments.forEach(gm => {
+            const gy = getTerrainHeight(gm.x, gm.z);
+            const gMesh = new THREE.Mesh(gm.geo, greekMarbleMat);
+            gMesh.position.set(gm.x, gy - 0.15, gm.z);
+            gMesh.rotation.y = gm.rot;
+            gMesh.scale.setScalar(gm.scale);
+            gMesh.castShadow = true;
+            gMesh.receiveShadow = true;
+            zoneStaticGroup.add(gMesh);
+            aimRaycastMeshes.push(gMesh);
+            zoneStaticRaycastMeshes.push(gMesh);
+            const gObj = attachObstacleBox({ mesh: gMesh, x: gm.x, y: gy, z: gm.z, height: gm.h, isRuin: false, type: gm.type }, gm.geo, gm.scale, gm.rot);
+            worldBuildings.push(gObj);
+            worldObstacles.push(gObj);
+            zoneStaticBuildings.push(gObj);
+            zoneStaticObstacles.push(gObj);
+        });
+
+        const greekGrove = [
+            [-32, 36, 0, 1.25], [34, 34, 0, 1.22], [-38, 86, 1, 1.18], [38, 72, 0, 1.28],
+            [-28, 94, 0, 1.24], [14, 78, 1, 1.12], [-52, 48, 0, 1.20], [54, 62, 0, 1.26]
+        ];
+        greekGrove.forEach(([gx, gz, kind, gScale], idx) => {
+            if (getRoadFactor(gx, gz) > 0.22) return;
+            const gy = getTerrainHeight(gx, gz);
+            const gGroup = new THREE.Group();
+            gGroup.position.set(gx, gy, gz);
+            gGroup.scale.setScalar(gScale);
+            const gGeo = (kind === 0 && sharedCypressGeo) ? sharedCypressGeo : sharedDecidGeo;
+            const gType = (kind === 0) ? 'cypress' : 'beech';
+            const gTrunkH = (kind === 0) ? 13.8 : 9.8;
+            const gMesh = new THREE.Mesh(gGeo, treeMaterial);
+            gMesh.rotation.y = idx * 1.05;
+            gMesh.castShadow = true;
+            gMesh.receiveShadow = true;
+            gMesh.customDepthMaterial = getTreeDepthMaterial();
+            gGroup.add(gMesh);
+            zoneStaticGroup.add(gGroup);
+            aimRaycastMeshes.push(gMesh);
+            zoneStaticRaycastMeshes.push(gMesh);
+            const gTreeObj = {
+                id: `greece:static:${idx}`,
+                group: gGroup,
+                mesh: gMesh,
+                phase: idx * 0.65,
+                x: gx, y: gy, z: gz,
+                scale: gScale,
+                isFallen: false, fallAngle: 0, angularVel: 0,
+                maxFallAngle: Math.PI * 0.48,
+                fallAxis: new THREE.Vector3(1, 0, 0),
+                radius: (kind === 0 ? 0.95 : 1.35) * gScale,
+                trunkHeight: gTrunkH * gScale,
+                type: gType
+            };
+            swayTrees.push(gTreeObj);
+            zoneStaticTrees.push(gTreeObj);
+        });
+    } else if (currentZoneIndex === 11) {
+        // Imperial Rome Forum Panorama: Roman Pantheon Rotunda, Triumphal Arches of Constantine & Forum Basilica Colonnade
+        const romanMonuments = [
+            { x: 46.0,  z: 88.0,  geo: sharedRomanPantheonGeo, scale: 0.98, rot: -0.22, h: 17.5, type: 'pantheon' },
+            { x: 20.0,  z: 48.0,  geo: sharedRomanArchGeo,     scale: 1.06, rot: 0.12,  h: 13.5, type: 'romanArch' },
+            { x: -48.0, z: 66.0,  geo: sharedRomanArchGeo,     scale: 1.04, rot: 0.48,  h: 13.2, type: 'romanArch' },
+            { x: 56.0,  z: 144.0, geo: sharedGreekStoaGeo,     scale: 1.15, rot: -0.35, h: 9.8,  type: 'stoa' }
+        ];
+        romanMonuments.forEach(rm => {
+            const ry = getTerrainHeight(rm.x, rm.z);
+            const rMesh = new THREE.Mesh(rm.geo, romanTravertineMat);
+            rMesh.position.set(rm.x, ry - 0.15, rm.z);
+            rMesh.rotation.y = rm.rot;
+            rMesh.scale.setScalar(rm.scale);
+            rMesh.castShadow = true;
+            rMesh.receiveShadow = true;
+            zoneStaticGroup.add(rMesh);
+            aimRaycastMeshes.push(rMesh);
+            zoneStaticRaycastMeshes.push(rMesh);
+            const rObj = attachObstacleBox({ mesh: rMesh, x: rm.x, y: ry, z: rm.z, height: rm.h, isRuin: false, type: rm.type }, rm.geo, rm.scale, rm.rot);
+            worldBuildings.push(rObj);
+            worldObstacles.push(rObj);
+            zoneStaticBuildings.push(rObj);
+            zoneStaticObstacles.push(rObj);
+        });
+
+        const romanGrove = [
+            [-32, 36, 0, 1.26], [36, 32, 1, 1.22], [-38, 86, 0, 1.24], [38, 66, 0, 1.28],
+            [-28, 94, 1, 1.18], [12, 76, 0, 1.22], [-52, 48, 0, 1.24], [54, 60, 1, 1.20]
+        ];
+        romanGrove.forEach(([rx, rz, kind, rScale], idx) => {
+            if (getRoadFactor(rx, rz) > 0.22) return;
+            const ry = getTerrainHeight(rx, rz);
+            const rGroup = new THREE.Group();
+            rGroup.position.set(rx, ry, rz);
+            rGroup.scale.setScalar(rScale);
+            const rGeo = (kind === 0 && sharedCypressGeo) ? sharedCypressGeo : sharedPineGeo;
+            const rType = (kind === 0) ? 'cypress' : 'pine';
+            const rTrunkH = (kind === 0) ? 13.8 : 12.6;
+            const rMesh = new THREE.Mesh(rGeo, treeMaterial);
+            rMesh.rotation.y = idx * 1.10;
+            rMesh.castShadow = true;
+            rMesh.receiveShadow = true;
+            rMesh.customDepthMaterial = getTreeDepthMaterial();
+            rGroup.add(rMesh);
+            zoneStaticGroup.add(rGroup);
+            aimRaycastMeshes.push(rMesh);
+            zoneStaticRaycastMeshes.push(rMesh);
+            const rTreeObj = {
+                id: `rome:static:${idx}`,
+                group: rGroup,
+                mesh: rMesh,
+                phase: idx * 0.65,
+                x: rx, y: ry, z: rz,
+                scale: rScale,
+                isFallen: false, fallAngle: 0, angularVel: 0,
+                maxFallAngle: Math.PI * 0.48,
+                fallAxis: new THREE.Vector3(1, 0, 0),
+                radius: (kind === 0 ? 0.95 : 1.35) * rScale,
+                trunkHeight: rTrunkH * rScale,
+                type: rType
+            };
+            swayTrees.push(rTreeObj);
+            zoneStaticTrees.push(rTreeObj);
+        });
     }
 
     // 5. Rising Battlefield Smoke Plumes

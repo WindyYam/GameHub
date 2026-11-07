@@ -3053,7 +3053,7 @@ function createVillagePBRAtlas() {
         lum[i] = (aData[p] * 0.299 + aData[p + 1] * 0.587 + aData[p + 2] * 0.114) / 255.0;
     }
 
-    const bumpScale = 3.2;
+    const bumpScale = 4.8;
     for (let y = 0; y < size; y++) {
         const ym = Math.max(0, y - 1);
         const yp = Math.min(size - 1, y + 1);
@@ -3071,7 +3071,7 @@ function createVillagePBRAtlas() {
             let nx = -dX * bumpScale;
             let ny = -dY * bumpScale;
             let nz = 1.0;
-            const invLen = 1.0 / Math.hypot(nx, ny, nz);
+            const invLen = 1.0 / Math.sqrt(nx * nx + ny * ny + 1.0);
             nx *= invLen; ny *= invLen; nz *= invLen;
 
             const idx = (y * size + x) * 4;
@@ -3104,6 +3104,191 @@ function createVillagePBRAtlas() {
     _villagePBRAtlas = { albedo: albedoTex, normal: normalTex, roughness: roughTex };
     return _villagePBRAtlas;
 }
+
+// ============================================================================
+// Procedural Seamless PBR Terrain Normal Atlas
+// Quadrant 0: Ground / Meadow / Soil Loam micro-relief & root fissures
+// Quadrant 1: Road tire tread cleats, wheel ruts, compacted gravel aggregate
+// Quadrant 2: Sand wind ripples & micro-grain dune ridges
+// Quadrant 3: Rock sedimentary strata, chisel fissures, craggy cliff facets
+// ============================================================================
+let _terrainNormalAtlas = null;
+function createTerrainNormalAtlas() {
+    if (_terrainNormalAtlas) return _terrainNormalAtlas;
+    const size = 512;
+    const half = 256;
+    const canvas = document.createElement("canvas");
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext("2d");
+    const heightMap = new Float32Array(size * size);
+
+    function hash(i, j, period) {
+        const xi = (i % period + period) % period;
+        const yj = (j % period + period) % period;
+        let n = ((xi * 374761393) ^ (yj * 668265263)) | 0;
+        n = Math.imul(n ^ (n >>> 13), 1274126177);
+        return ((n ^ (n >>> 16)) >>> 0) * 2.3283064365386963e-10;
+    }
+
+    function noiseWrap(x, y, period) {
+        const xi = Math.floor(x);
+        const yi = Math.floor(y);
+        const xf = x - xi;
+        const yf = y - yi;
+        const u = xf * xf * (3.0 - 2.0 * xf);
+        const v = yf * yf * (3.0 - 2.0 * yf);
+        const n00 = hash(xi, yi, period);
+        const n10 = hash(xi + 1, yi, period);
+        const n01 = hash(xi, yi + 1, period);
+        const n11 = hash(xi + 1, yi + 1, period);
+        return (n00 * (1.0 - u) + n10 * u) * (1.0 - v) + (n01 * (1.0 - u) + n11 * u) * v;
+    }
+
+    function fbmWrap(x, y, period, octaves) {
+        let val = 0.0, amp = 0.5, freq = 1.0;
+        for (let i = 0; i < octaves; i++) {
+            val += noiseWrap(x * freq, y * freq, Math.floor(period * freq)) * amp;
+            amp *= 0.5;
+            freq *= 2.0;
+        }
+        return val;
+    }
+
+    // Q0: Ground / Soil / Loam Turf
+    for (let y = 0; y < half; y++) {
+        const yRow = y * size;
+        const v = y / half;
+        for (let x = 0; x < half; x++) {
+            const u = x / half;
+            let h = fbmWrap(u * 16.0, v * 16.0, 16, 4) * 0.55;
+            h += noiseWrap(u * 48.0, v * 48.0, 48) * 0.28;
+            h += noiseWrap(u * 96.0, v * 96.0, 96) * 0.17;
+            heightMap[yRow + x] = h;
+        }
+    }
+
+    // Q1: Road Surface
+    for (let y = 0; y < half; y++) {
+        const yRow = y * size;
+        const v = y / half;
+        for (let x = 0; x < half; x++) {
+            const gx = half + x;
+            const u = x / half;
+
+            const crown = 1.0 - Math.pow((u - 0.5) * 2.0, 2.0) * 0.35;
+            let h = crown * 0.35;
+
+            const rut1 = Math.exp(-Math.pow((u - 0.28) / 0.10, 2.0)) * 0.40;
+            const rut2 = Math.exp(-Math.pow((u - 0.72) / 0.10, 2.0)) * 0.40;
+            h -= (rut1 + rut2);
+
+            const cleatPattern = Math.sin((v * 36.0 + Math.abs(u - 0.5) * 8.0) * Math.PI * 2.0);
+            const inTrackLane = (rut1 > 0.12 || rut2 > 0.12) ? 1.0 : 0.0;
+            h += cleatPattern * 0.16 * inTrackLane;
+
+            h += noiseWrap(u * 64.0, v * 64.0, 64) * 0.22;
+            h += noiseWrap(u * 128.0, v * 128.0, 128) * 0.14;
+
+            heightMap[yRow + gx] = h;
+        }
+    }
+
+    // Q2: Sand Dunes & Beach
+    for (let y = 0; y < half; y++) {
+        const gy = half + y;
+        const gyRow = gy * size;
+        const v = y / half;
+        for (let x = 0; x < half; x++) {
+            const u = x / half;
+
+            const ripplePhase = (u * 14.0 + v * 9.0) * Math.PI * 2.0 + Math.sin(u * 8.0) * 1.5;
+            const rippleSaw = Math.sin(ripplePhase) + 0.35 * Math.sin(ripplePhase * 2.0 - 0.4);
+            let h = rippleSaw * 0.45;
+
+            const rippleCross = Math.sin((u * 28.0 - v * 16.0) * Math.PI * 2.0) * 0.18;
+            h += rippleCross;
+
+            h += noiseWrap(u * 96.0, v * 96.0, 96) * 0.18;
+            h += noiseWrap(u * 160.0, v * 160.0, 160) * 0.12;
+
+            heightMap[gyRow + x] = h;
+        }
+    }
+
+    // Q3: Rock & Cliff Strata
+    for (let y = 0; y < half; y++) {
+        const gy = half + y;
+        const gyRow = gy * size;
+        const v = y / half;
+        for (let x = 0; x < half; x++) {
+            const gx = half + x;
+            const u = x / half;
+
+            const strataWarp = noiseWrap(u * 8.0, v * 8.0, 8) * 1.8;
+            const strata = Math.sin((v * 24.0 + strataWarp) * Math.PI * 2.0);
+            let h = (strata > 0 ? Math.pow(strata, 0.6) : -Math.pow(-strata, 0.6)) * 0.45;
+
+            const joint1 = Math.abs(Math.sin((u * 16.0 + v * 12.0) * Math.PI * 2.0));
+            const joint2 = Math.abs(Math.sin((u * 12.0 - v * 20.0) * Math.PI * 2.0));
+            h -= (1.0 - Math.min(joint1, joint2)) * 0.35;
+
+            h += noiseWrap(u * 40.0, v * 40.0, 40) * 0.25;
+            h += noiseWrap(u * 96.0, v * 96.0, 96) * 0.15;
+
+            heightMap[gyRow + gx] = h;
+        }
+    }
+
+    // Compute Sobel Filter Normal Map (Calibrated soft bump scale for organic ground shading)
+    const imgData = ctx.createImageData(size, size);
+    const bumpScale = 2.2;
+
+    for (let y = 0; y < size; y++) {
+        const ym = (y + size - 1) % size;
+        const yp = (y + 1) % size;
+        const ymRow = ym * size;
+        const yRow = y * size;
+        const ypRow = yp * size;
+        for (let x = 0; x < size; x++) {
+            const xm = (x + size - 1) % size;
+            const xp = (x + 1) % size;
+
+            const tl = heightMap[ymRow + xm], t = heightMap[ymRow + x], tr = heightMap[ymRow + xp];
+            const l  = heightMap[yRow  + xm],                            r  = heightMap[yRow  + xp];
+            const bl = heightMap[ypRow + xm], b = heightMap[ypRow + x], br = heightMap[ypRow + xp];
+
+            const dX = (tr + 2.0 * r + br) - (tl + 2.0 * l + bl);
+            const dY = (bl + 2.0 * b + br) - (tl + 2.0 * t + tr);
+
+            let nx = -dX * bumpScale;
+            let ny = -dY * bumpScale;
+            let nz = 1.0;
+            const invLen = 1.0 / Math.sqrt(nx * nx + ny * ny + 1.0);
+            nx *= invLen; ny *= invLen; nz *= invLen;
+
+            const idx = (yRow + x) * 4;
+            imgData.data[idx]     = Math.floor((nx * 0.5 + 0.5) * 255);
+            imgData.data[idx + 1] = Math.floor((ny * 0.5 + 0.5) * 255);
+            imgData.data[idx + 2] = Math.floor((nz * 0.5 + 0.5) * 255);
+            imgData.data[idx + 3] = 255;
+        }
+    }
+
+    ctx.putImageData(imgData, 0, 0);
+
+    const normalTex = new THREE.CanvasTexture(canvas);
+    normalTex.wrapS = THREE.RepeatWrapping;
+    normalTex.wrapT = THREE.RepeatWrapping;
+    normalTex.repeat.set(1, 1);
+    normalTex.anisotropy = 4;
+    normalTex.needsUpdate = true;
+
+    _terrainNormalAtlas = normalTex;
+    return _terrainNormalAtlas;
+}
+window.createTerrainNormalAtlas = createTerrainNormalAtlas;
+
 
 // ============================================================================
 // Photorealistic Maldive-Grade Atmospheric Sky, Sun, High Clouds & Moon Shader

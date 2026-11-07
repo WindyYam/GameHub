@@ -885,7 +885,10 @@
                 const bldgs = window.worldBuildings || [];
                 const allObs = [...obstacles];
                 for (let bIdx = 0; bIdx < bldgs.length; bIdx++) {
-                    if (!allObs.includes(bldgs[bIdx])) allObs.push(bldgs[bIdx]);
+                    const bObj = bldgs[bIdx];
+                    if (!bObj || allObs.includes(bObj)) continue;
+                    if (!bObj.mesh && allObs.some(o => o && o.mesh && Math.hypot(o.x - bObj.x, o.z - bObj.z) < 0.25)) continue;
+                    allObs.push(bObj);
                 }
 
                 const segX = g.pos.x - prevPos.x;
@@ -925,8 +928,8 @@
                                 break;
                             }
                         }
-                        // For rocks with 3D mesh: if the ray missed the mesh, do not fall back to giant cylinder
-                        if (!hitPoint && (obs.isRock || obs.type === 'rock')) {
+                        // For rocks or tapered/open landmarks with 3D mesh: if the ray missed the mesh, do not fall back to 2D ground box/cylinder
+                        if (!hitPoint && (obs.isRock || obs.type === 'rock' || obs.useMeshRaycastOnly)) {
                             continue;
                         }
                     }
@@ -1017,10 +1020,15 @@
 
             const obsY = (typeof obs.y === 'number') ? obs.y : 0;
             const obsH = (typeof obs.height === 'number') ? obs.height : 6.5;
-            if (s.y < obsY - 1.0 || s.y > obsY + obsH + 0.5) continue;
+            if (s.y < obsY - 8.0 || s.y > obsY + obsH + 2.0) continue;
+
+            const meshBaseY = (obs.mesh && obs.mesh.position && typeof obs.mesh.position.y === 'number')
+                ? obs.mesh.position.y
+                : (obsY - 0.15);
+            const entityRelY = (typeof s.y === 'number') ? (s.y - meshBaseY) : 0;
 
             if (typeof obstaclePushOut === 'function') {
-                const push = obstaclePushOut(obs, s.x, s.z, soldierRadius);
+                const push = obstaclePushOut(obs, s.x, s.z, soldierRadius, entityRelY);
                 if (push) { s.x += push.x; s.z += push.z; }
                 continue;
             }
@@ -1039,8 +1047,17 @@
             const b = buildings[i];
             if (!b || typeof b.x !== 'number' || typeof b.z !== 'number') continue;
 
+            const bY = (typeof b.y === 'number') ? b.y : 0;
+            const bH = (typeof b.height === 'number') ? b.height : 6.5;
+            if (s.y < bY - 8.0 || s.y > bY + bH + 2.0) continue;
+
+            const bMeshBaseY = (b.mesh && b.mesh.position && typeof b.mesh.position.y === 'number')
+                ? b.mesh.position.y
+                : (bY - 0.15);
+            const bRelY = (typeof s.y === 'number') ? (s.y - bMeshBaseY) : 0;
+
             if (typeof obstaclePushOut === 'function') {
-                const push = obstaclePushOut(b, s.x, s.z, soldierRadius);
+                const push = obstaclePushOut(b, s.x, s.z, soldierRadius, bRelY);
                 if (push) { s.x += push.x; s.z += push.z; }
                 continue;
             }
@@ -1074,7 +1091,7 @@
 
             const treeY = (typeof tree.y === 'number') ? tree.y : 0;
             const treeH = ((typeof tree.trunkHeight === 'number') ? tree.trunkHeight : 5.0) * (tree.scale || 1.0) + 3.0;
-            if (s.y < treeY - 0.5 || s.y > treeY + treeH) continue;
+            if (s.y < treeY - 4.0 || s.y > treeY + treeH) continue;
 
             const dist = Math.hypot(dx, dz);
             if (dist < minTreeClearance && dist > 0.0001) {
@@ -1725,7 +1742,7 @@
         // Detect water environment and swimming status
         const WATER_LEVEL = (typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5;
         const currentGH = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(s.x, s.z) : 0;
-        const currentFloorH = (typeof window.getBuildingFloorHeight === 'function') ? window.getBuildingFloorHeight(s.x, s.z, currentGH) : currentGH;
+        let currentFloorH = (typeof window.getBuildingFloorHeight === 'function') ? window.getBuildingFloorHeight(s.x, s.z, currentGH, s.y) : currentGH;
         const currentWaterDepth = WATER_LEVEL - currentFloorH;
         const isSwimming = currentWaterDepth >= 1.15;
         const isWading = !isSwimming && currentWaterDepth > 0.05;
@@ -1878,6 +1895,10 @@
         } else {
             s.healTimer = 0;
         }
+
+        // Refresh floor height at the soldier's post-movement / post-collision position
+        const postMoveGH = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(s.x, s.z) : currentGH;
+        currentFloorH = (typeof window.getBuildingFloorHeight === 'function') ? window.getBuildingFloorHeight(s.x, s.z, postMoveGH, s.y) : postMoveGH;
 
         // Vertical physics (gravity, buoyancy and flotation)
         const floatTargetY = WATER_LEVEL - 1.25; // Chest/neck at surface, head above surface at WATER_LEVEL + 0.43m

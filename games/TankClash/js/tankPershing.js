@@ -1446,14 +1446,6 @@ function buildPershingTank(scene, mats, options = {}) {
     };
 }
 
-// Prewarm both player and enemy material caches immediately at script load
-if (typeof document !== 'undefined') {
-    try {
-        getPershingSharedAssets(false);
-        getPershingSharedAssets(true);
-    } catch (_) {}
-}
-
 if (typeof window !== 'undefined') {
     window.buildPershingTank = buildPershingTank;
     window.getPershingSharedAssets = getPershingSharedAssets;

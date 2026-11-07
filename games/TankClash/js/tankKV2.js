@@ -1136,13 +1136,6 @@ function buildKV2Tank(scene, mats, options = {}) {
     };
 }
 
-if (typeof document !== 'undefined') {
-    try {
-        getKV2SharedAssets(false);
-        getKV2SharedAssets(true);
-    } catch (_) {}
-}
-
 if (typeof window !== 'undefined') {
     window.buildKV2Tank = buildKV2Tank;
     window.getKV2SharedAssets = getKV2SharedAssets;
