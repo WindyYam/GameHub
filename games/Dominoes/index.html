@@ -18,8 +18,24 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cannon.js/0.6.2/cannon.min.js"></script>
 
     <style>
+        :root {
+            --safe-bottom: max(16px, env(safe-area-inset-bottom, 16px));
+            --mobile-bottom-offset: 0px;
+        }
+        html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
         body {
             font-family: 'Inter', sans-serif;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            width: 100%;
+            height: 100%;
             margin: 0;
             overflow: hidden;
             user-select: none;
@@ -29,19 +45,23 @@
             background-color: #38bdf8;
         }
         #canvas-container {
-            width: 100vw;
-            height: 100vh;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
             display: block;
             touch-action: none;
+            overflow: hidden;
         }
         #canvas-container canvas {
             touch-action: none;
             outline: none;
         }
         .glass-panel {
-            background: rgba(15, 23, 42, 0.80);
-            backdrop-filter: blur(14px);
-            -webkit-backdrop-filter: blur(14px);
+            background: rgba(15, 23, 42, 0.82);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
             border: 1px solid rgba(255, 255, 255, 0.18);
         }
         .tool-btn.active {
@@ -72,22 +92,29 @@
         }
         #left-sidebar {
             transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease;
+            bottom: calc(var(--safe-bottom) + var(--mobile-bottom-offset) + 64px);
         }
         #left-sidebar.collapsed {
             transform: translateX(calc(-100% - 24px));
             opacity: 0;
             pointer-events: none;
         }
-        #top-bar {
-            transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease;
+        #bottom-bar, #top-bar {
+            transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease, bottom 0.2s ease;
+            bottom: calc(var(--safe-bottom) + var(--mobile-bottom-offset));
         }
-        #top-bar.collapsed {
-            transform: translateY(calc(-100% - 24px));
+        #bottom-bar.collapsed, #top-bar.collapsed {
+            transform: translateY(calc(100% + 48px));
             opacity: 0;
             pointer-events: none;
         }
-        #top-floating-bar {
-            transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease;
+        #bottom-floating-bar, #top-floating-bar {
+            transition: transform 0.35s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.25s ease, bottom 0.2s ease;
+            bottom: calc(var(--safe-bottom) + var(--mobile-bottom-offset));
+        }
+        #quick-actions-dock {
+            bottom: calc(var(--safe-bottom) + var(--mobile-bottom-offset) + 60px);
+            transition: bottom 0.2s ease;
         }
         .no-scrollbar::-webkit-scrollbar {
             display: none;
@@ -115,79 +142,84 @@
     <!-- 3D Canvas Container -->
     <div id="canvas-container"></div>
 
-    <!-- Top Simulation & Preset Bar (Collapsible) -->
-    <div id="top-bar" class="fixed top-2 sm:top-4 left-2 sm:left-4 right-2 sm:right-4 z-20 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2 pointer-events-none max-h-[85vh] overflow-y-auto no-scrollbar">
+    <!-- Bottom Simulation & Preset Bar -->
+    <div id="bottom-bar" class="fixed left-2 sm:left-4 right-2 sm:right-4 z-20 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-1.5 sm:gap-2 pointer-events-none max-h-[85vh] overflow-visible">
         <!-- Brand & Sim Controls -->
-        <div class="glass-panel px-3 py-2 sm:px-4 sm:py-2.5 rounded-2xl shadow-2xl flex flex-wrap items-center justify-between sm:justify-start gap-2 pointer-events-auto">
+        <div class="glass-panel px-2 py-1.5 sm:px-4 sm:py-2 rounded-2xl shadow-2xl flex flex-nowrap items-center justify-between gap-1.5 sm:gap-2 pointer-events-auto">
             <!-- Left: Sidebar toggle + Brand -->
-            <div class="flex items-center gap-2">
-                <button id="btn-toggle-sidebar" class="flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-600/80 transition shadow" title="Toggle Left Menu (Tab)">
+            <div class="flex items-center gap-1.5 sm:gap-2 shrink-0">
+                <button id="btn-toggle-sidebar" class="flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-slate-200 border border-slate-600/80 transition shadow shrink-0" title="Toggle Left Menu (Tab)">
                     <i data-lucide="panel-left-close" id="icon-sidebar-toggle" class="w-4 h-4 text-sky-400"></i>
                 </button>
 
-                <div class="flex items-center gap-2 pr-2 sm:pr-3 sm:border-r border-slate-700/80">
-                    <div class="w-7 h-7 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-br from-sky-400 to-blue-600 flex items-center justify-center shadow-lg shadow-sky-500/30">
-                        <i data-lucide="cloud-sun" class="w-4 h-4 sm:w-5 sm:h-5 text-white"></i>
+                <div class="hidden sm:flex items-center gap-2 pr-2 sm:pr-3 sm:border-r border-slate-700/80">
+                    <div class="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-gradient-to-br from-sky-400 to-blue-600 flex items-center justify-center shadow-lg shadow-sky-500/30 shrink-0">
+                        <i data-lucide="cloud-sun" class="w-4 h-4 text-white"></i>
                     </div>
                     <div>
                         <h1 class="font-bold text-xs sm:text-sm tracking-tight text-white leading-none">DominoSky 3D</h1>
-                        <span class="text-[10px] sm:text-[11px] text-sky-300 font-medium hidden xs:inline sm:inline">Physics Studio</span>
+                        <span class="text-[10px] text-sky-300 font-medium hidden md:inline">Physics Studio</span>
                     </div>
                 </div>
             </div>
 
             <!-- Action Controls -->
-            <div class="flex flex-wrap items-center gap-1.5 sm:gap-2">
-                <!-- Place Mode Button (Next to Push Button) -->
-                <button id="btn-top-place" class="flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl font-bold text-xs bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 transition shadow active:scale-95" title="Toggle Place Mode (P) - When OFF, 1-finger rotates camera">
-                    <i data-lucide="pen-tool" id="top-place-icon" class="w-3.5 h-3.5"></i>
-                    <span id="top-place-text">Place</span>
-                    <span id="top-place-badge" class="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-700 text-cyan-300 font-medium">OFF</span>
+            <div class="flex items-center gap-1 sm:gap-1.5 overflow-x-auto no-scrollbar py-0.5">
+                <!-- Mode Toggle Button (Next to Push Button) -->
+                <button id="btn-bottom-place" class="flex items-center gap-1 sm:gap-1.5 px-2.5 py-1.5 sm:px-3.5 sm:py-2 rounded-xl font-bold text-xs bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 transition shadow active:scale-95 shrink-0" title="Cycle Mode: Camera Look, Draw Line, Place Item, Push Force, Drag Move, Erase (Shortcut: P / 0-5)">
+                    <i data-lucide="orbit" id="bottom-place-icon" class="w-3.5 h-3.5 text-cyan-400"></i>
+                    <span id="bottom-place-text">Look</span>
+                    <span id="bottom-place-badge" class="text-[10px] px-1.5 py-0.2 rounded-full bg-slate-700 text-cyan-300 font-medium">CAM</span>
                 </button>
 
                 <!-- Dedicated PUSH Button -->
-                <button id="btn-push-now" class="flex items-center gap-1.5 px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl font-bold text-xs bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 transition shadow-lg shadow-amber-500/30 active:scale-95" title="Push the first standing domino to start the chain reaction, or switch to Push cursor!">
+                <button id="btn-push-now" class="flex items-center gap-1 sm:gap-1.5 px-2.5 py-1.5 sm:px-4 sm:py-2 rounded-xl font-bold text-xs bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 transition shadow-lg shadow-amber-500/30 active:scale-95 shrink-0" title="Push the first standing domino to start the chain reaction, or switch to Push cursor!">
                     <i data-lucide="zap" class="w-3.5 h-3.5 fill-slate-950"></i>
                     <span>Push!</span>
                 </button>
 
                 <!-- Play / Pause -->
-                <button id="btn-play-pause" class="flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3.5 sm:py-2 rounded-xl font-semibold text-xs bg-emerald-600 hover:bg-emerald-500 text-white transition shadow-lg shadow-emerald-600/25">
+                <button id="btn-play-pause" class="flex items-center gap-1 sm:gap-1.5 px-2 py-1.5 sm:px-3 sm:py-2 rounded-xl font-semibold text-xs bg-emerald-600 hover:bg-emerald-500 text-white transition shadow-lg shadow-emerald-600/25 shrink-0">
                     <i data-lucide="pause" id="icon-play-pause" class="w-3.5 h-3.5"></i>
-                    <span id="text-play-pause">Simulating</span>
+                    <span id="text-play-pause" class="hidden xs:inline sm:inline">Simulating</span>
                 </button>
 
                 <!-- Reset to Standing -->
-                <button id="btn-reset" class="flex items-center gap-1 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl font-medium text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition" title="Rewind all pieces to their standing positions before toppling">
+                <button id="btn-reset" class="flex items-center gap-1 px-2 py-1.5 sm:px-3 sm:py-2 rounded-xl font-medium text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition shrink-0" title="Rewind all pieces to their standing positions before toppling">
                     <i data-lucide="rotate-ccw" class="w-3.5 h-3.5 text-amber-400"></i>
-                    <span>Reset</span>
+                    <span class="hidden xs:inline sm:inline">Reset</span>
                 </button>
 
-                <!-- Save Checkpoint -->
-                <button id="btn-checkpoint" class="flex items-center gap-1 px-2 py-1.5 sm:px-3 sm:py-2 rounded-xl font-medium text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition" title="Save current positions as the reset state">
+                <!-- Save Checkpoint (Desktop) -->
+                <button id="btn-checkpoint" class="hidden md:flex items-center gap-1 px-2.5 py-2 rounded-xl font-medium text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition shrink-0" title="Save current positions as the reset state">
                     <i data-lucide="bookmark-check" class="w-3.5 h-3.5 text-sky-400"></i>
-                    <span class="hidden md:inline">Save</span>
+                    <span>Save</span>
                 </button>
 
-                <!-- Clear All -->
-                <button id="btn-clear" class="flex items-center gap-1 px-2 py-1.5 sm:px-3 sm:py-2 rounded-xl font-medium text-xs bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/60 transition" title="Clear All Pieces">
+                <!-- Clear All (Desktop) -->
+                <button id="btn-clear" class="hidden md:flex items-center gap-1 px-2.5 py-2 rounded-xl font-medium text-xs bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/60 transition shrink-0" title="Clear All Pieces">
                     <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-                    <span class="hidden md:inline">Clear</span>
+                    <span>Clear</span>
                 </button>
 
-                <!-- Top Menu Collapse Button -->
-                <button id="btn-collapse-top" class="flex items-center gap-1 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl font-medium text-xs bg-slate-800/90 hover:bg-slate-700 text-sky-300 border border-slate-600/80 transition ml-auto" title="Collapse Top Menu">
-                    <i data-lucide="chevron-up" class="w-4 h-4"></i>
-                    <span class="hidden sm:inline">Hide Menu</span>
+                <!-- Mobile More / Settings Toggle Button -->
+                <button id="btn-toggle-options" class="flex md:hidden items-center justify-center w-8 h-8 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-sky-300 border border-slate-700 transition shadow shrink-0" title="Presets, Floor & Graphics Options">
+                    <i data-lucide="sliders-horizontal" id="icon-toggle-options" class="w-4 h-4"></i>
+                </button>
+
+                <!-- Minimize Menu Button -->
+                <button id="btn-collapse-bottom" class="flex items-center justify-center w-8 h-8 sm:w-auto sm:px-2.5 sm:py-2 rounded-xl font-medium text-xs bg-slate-800/90 hover:bg-slate-700 text-slate-400 hover:text-sky-300 border border-slate-700/80 transition shrink-0 ml-auto" title="Minimize Menu">
+                    <i data-lucide="chevron-down" class="w-4 h-4"></i>
+                    <span class="hidden lg:inline ml-1">Hide</span>
                 </button>
             </div>
         </div>
 
         <!-- Presets, Graphics Quality, Audio & Stats -->
-        <div class="glass-panel px-3 py-2 sm:px-3.5 sm:py-2 rounded-2xl shadow-2xl flex flex-wrap items-center justify-between sm:justify-start gap-2 pointer-events-auto">
+        <div id="secondary-options-panel" class="hidden md:flex glass-panel px-3 py-2 sm:px-3.5 sm:py-2 rounded-2xl shadow-2xl flex-wrap items-center justify-between sm:justify-start gap-2 pointer-events-auto">
             <div class="flex items-center gap-1.5">
                 <span class="text-xs font-medium text-slate-300 hidden sm:inline">Preset:</span>
-                <select id="preset-select" class="bg-slate-800/90 text-xs font-medium text-slate-100 rounded-xl px-2.5 py-1.5 border border-slate-700 focus:outline-none focus:border-sky-400 cursor-pointer">
+                <select id="preset-select" class="bg-slate-800/90 text-xs font-medium text-slate-100 rounded-xl px-2 py-1.5 border border-slate-700 focus:outline-none focus:border-sky-400 cursor-pointer">
                     <option value="cascade">Tabletop Cascade</option>
                     <option value="spiral">Sky Spiral & Bridge</option>
                     <option value="fortress">Block Tower</option>
@@ -215,6 +247,18 @@
                 </select>
             </div>
 
+            <!-- Mobile Checkpoint & Clear in Drawer -->
+            <div class="flex md:hidden items-center gap-1.5">
+                <button id="btn-checkpoint-mobile" class="flex items-center gap-1 px-2 py-1.5 rounded-xl font-medium text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition" title="Save Checkpoint">
+                    <i data-lucide="bookmark-check" class="w-3.5 h-3.5 text-sky-400"></i>
+                    <span>Save</span>
+                </button>
+                <button id="btn-clear-mobile" class="flex items-center gap-1 px-2 py-1.5 rounded-xl font-medium text-xs bg-rose-950/60 hover:bg-rose-900/80 text-rose-300 border border-rose-800/60 transition" title="Clear All">
+                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                    <span>Clear</span>
+                </button>
+            </div>
+
             <div class="flex items-center gap-2 ml-auto">
                 <!-- Sound Toggle -->
                 <button id="btn-sound" class="p-1.5 sm:p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-slate-700 transition" title="Toggle Sound">
@@ -231,18 +275,18 @@
         </div>
     </div>
 
-    <!-- Floating Compact Bar when Top Bar is Collapsed -->
-    <div id="top-floating-bar" class="fixed top-2.5 left-1/2 -translate-x-1/2 z-20 hidden items-center gap-1.5 p-1.5 pl-2.5 rounded-2xl glass-panel shadow-2xl pointer-events-auto">
+    <!-- Floating Compact Bar when Bottom Bar is Collapsed -->
+    <div id="bottom-floating-bar" class="fixed left-1/2 -translate-x-1/2 z-20 hidden items-center gap-1.5 p-1.5 pl-2.5 rounded-2xl glass-panel shadow-2xl pointer-events-auto">
         <div class="flex items-center gap-1.5 pr-2 border-r border-slate-700/80">
             <i data-lucide="cloud-sun" class="w-4 h-4 text-sky-400 shrink-0"></i>
             <span class="font-bold text-xs text-white tracking-tight hidden sm:inline">DominoSky</span>
         </div>
 
-        <!-- Place Button in Floating Pill (Next to Push Button) -->
-        <button id="btn-pill-place" class="flex items-center gap-1 px-2.5 py-1.5 rounded-xl font-bold text-xs bg-slate-800 text-slate-300 border border-slate-700 transition shadow active:scale-95" title="Toggle Place Mode (P) - When OFF, 1-finger rotates camera">
-            <i data-lucide="pen-tool" id="pill-place-icon" class="w-3.5 h-3.5"></i>
-            <span id="pill-place-text">Place</span>
-            <span id="pill-place-badge" class="text-[9px] px-1 py-0.2 rounded-full bg-slate-700 text-cyan-300 font-medium">OFF</span>
+        <!-- Mode Button in Floating Pill (Next to Push Button) -->
+        <button id="btn-pill-place" class="flex items-center gap-1 px-2.5 py-1.5 rounded-xl font-bold text-xs bg-slate-800 text-slate-300 border border-slate-700 transition shadow active:scale-95" title="Cycle Mode: Camera Look, Draw Line, Place, Push, Move, Delete (Shortcut: P)">
+            <i data-lucide="orbit" id="pill-place-icon" class="w-3.5 h-3.5 text-cyan-400"></i>
+            <span id="pill-place-text">Look</span>
+            <span id="pill-place-badge" class="text-[9px] px-1 py-0.2 rounded-full bg-slate-700 text-cyan-300 font-medium">CAM</span>
         </button>
 
         <!-- Push Button -->
@@ -255,20 +299,20 @@
             <i data-lucide="pause" id="icon-pill-play" class="w-3.5 h-3.5"></i>
         </button>
 
-        <button id="btn-expand-top" class="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-sky-300 hover:text-white bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/80 transition shadow" title="Expand Top Menu">
+        <button id="btn-expand-bottom" class="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-sky-300 hover:text-white bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/80 transition shadow" title="Expand Bottom Menu">
             <span>Menu</span>
-            <i data-lucide="chevron-down" class="w-3.5 h-3.5"></i>
+            <i data-lucide="chevron-up" class="w-3.5 h-3.5"></i>
         </button>
     </div>
 
     <!-- Floating Expand Button when Sidebar is Collapsed -->
-    <button id="btn-expand-floating" class="fixed left-2.5 sm:left-4 top-2.5 sm:top-20 z-20 hidden items-center gap-1.5 px-2.5 py-1.5 sm:px-3.5 sm:py-2.5 rounded-2xl glass-panel text-xs font-semibold text-white hover:bg-slate-800/90 transition shadow-2xl pointer-events-auto" title="Open Builder Menu">
+    <button id="btn-expand-floating" class="fixed left-2.5 sm:left-4 top-2.5 sm:top-4 z-20 hidden items-center gap-1.5 px-2.5 py-1.5 sm:px-3.5 sm:py-2.5 rounded-2xl glass-panel text-xs font-semibold text-white hover:bg-slate-800/90 transition shadow-2xl pointer-events-auto" title="Open Builder Menu">
         <i data-lucide="panel-left-open" class="w-4 h-4 text-sky-400"></i>
         <span class="hidden sm:inline">Builder Menu</span>
     </button>
 
-    <!-- Mobile & Quick Action Floating Dock (Bottom-Right) -->
-    <div class="fixed right-2.5 sm:right-4 bottom-14 sm:bottom-20 z-20 flex sm:flex-col flex-row items-center gap-1.5 pointer-events-auto">
+    <!-- Mobile & Quick Action Floating Dock (Right side) -->
+    <div id="quick-actions-dock" class="fixed right-2.5 sm:right-4 z-20 flex sm:flex-col flex-row items-center gap-1.5 pointer-events-auto">
         <!-- Rotate Button -->
         <button id="btn-quick-rotate" class="flex items-center justify-center gap-1 px-2.5 py-2 sm:px-3 sm:py-2.5 rounded-2xl glass-panel hover:bg-slate-800/90 text-sky-300 font-semibold text-xs shadow-xl active:scale-95 transition" title="Rotate Item 22.5° (Shortcut: R)">
             <i data-lucide="rotate-cw" class="w-4 h-4"></i>
@@ -280,19 +324,25 @@
             <i data-lucide="undo-2" class="w-4 h-4"></i>
             <span class="hidden sm:inline">Undo</span>
         </button>
+
+        <!-- Clear All Button -->
+        <button id="btn-quick-clear" class="flex items-center justify-center gap-1 px-2.5 py-2 sm:px-3 sm:py-2.5 rounded-2xl glass-panel hover:bg-rose-950/80 text-rose-400 hover:text-rose-300 font-semibold text-xs shadow-xl active:scale-95 transition border border-rose-900/50" title="Clear All Pieces">
+            <i data-lucide="trash-2" class="w-4 h-4"></i>
+            <span class="hidden sm:inline">Clear</span>
+        </button>
     </div>
 
     <!-- Left Sidebar Backdrop for Mobile -->
     <div id="sidebar-backdrop" class="fixed inset-0 bg-slate-950/60 backdrop-blur-sm z-25 hidden transition-opacity pointer-events-auto"></div>
 
     <!-- Left Sidebar: Collapsible Mode & Object Catalog -->
-    <div id="left-sidebar" class="fixed left-2.5 sm:left-4 top-2.5 sm:top-20 bottom-14 sm:bottom-20 z-30 flex flex-col gap-3 w-80 max-w-[88vw] pointer-events-none">
-        <!-- Interaction Modes (Radio Buttons for Place Button Function) -->
+    <div id="left-sidebar" class="fixed left-2.5 sm:left-4 top-2.5 sm:top-4 bottom-16 sm:bottom-20 z-30 flex flex-col gap-3 w-80 max-w-[88vw] pointer-events-none">
+        <!-- Interaction Modes (Radio Buttons for Mode / Function) -->
         <div class="glass-panel p-3 sm:p-3.5 rounded-2xl shadow-2xl pointer-events-auto flex flex-col gap-2 shrink-0">
             <div class="flex items-center justify-between">
                 <div>
-                    <span class="text-[11px] font-bold uppercase tracking-wider text-sky-300">Place Button Function</span>
-                    <span class="text-[10px] text-slate-400 block leading-none mt-0.5">Decides what the Place button does</span>
+                    <span class="text-[11px] font-bold uppercase tracking-wider text-sky-300">Interaction Mode</span>
+                    <span class="text-[10px] text-slate-400 block leading-none mt-0.5">Choose active tool or 1-finger camera orbit</span>
                 </div>
                 <button id="btn-collapse-inner" class="px-2 py-1 rounded-lg bg-slate-800/80 text-[11px] text-slate-300 hover:text-white flex items-center gap-1 transition" title="Collapse Menu">
                     <span>Close</span>
@@ -300,10 +350,22 @@
                 </button>
             </div>
 
-            <div class="grid grid-cols-2 gap-1.5" role="radiogroup" aria-label="Place button function">
+            <div class="grid grid-cols-2 gap-1.5" role="radiogroup" aria-label="Interaction mode">
+                <!-- 0. Camera / Look Around (Off mode) -->
+                <label class="tool-radio flex items-center gap-2 p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/80 cursor-pointer transition text-left" title="Orbit & look around with 1 finger">
+                    <input type="radio" name="place-function" value="camera" class="hidden">
+                    <div class="radio-indicator w-3.5 h-3.5 rounded-full border-2 border-slate-500 flex items-center justify-center shrink-0">
+                        <div class="radio-dot w-1.5 h-1.5 rounded-full bg-cyan-400 hidden"></div>
+                    </div>
+                    <div class="flex items-center gap-1.5 min-w-0">
+                        <i data-lucide="orbit" class="w-3.5 h-3.5 shrink-0 text-cyan-400"></i>
+                        <span class="text-xs font-medium text-slate-200 truncate">Orbit / Look</span>
+                    </div>
+                </label>
+
                 <!-- 1. Draw Line -->
                 <label class="tool-radio active flex items-center gap-2 p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/80 cursor-pointer transition text-left" title="Continuous domino line drawing">
-                    <input type="radio" name="place-function" value="draw" checked class="hidden">
+                    <input type="radio" name="place-function" value="draw" class="hidden">
                     <div class="radio-indicator w-3.5 h-3.5 rounded-full border-2 border-sky-400 flex items-center justify-center shrink-0">
                         <div class="radio-dot w-1.5 h-1.5 rounded-full bg-sky-400"></div>
                     </div>
@@ -333,7 +395,7 @@
                     </div>
                     <div class="flex items-center gap-1.5 min-w-0">
                         <i data-lucide="zap" class="w-3.5 h-3.5 shrink-0 text-amber-400"></i>
-                        <span class="text-xs font-medium text-slate-200 truncate">Push / Force</span>
+                        <span class="text-xs font-medium text-slate-200 truncate">Push Force</span>
                     </div>
                 </label>
 
@@ -350,7 +412,7 @@
                 </label>
 
                 <!-- 5. Delete -->
-                <label class="tool-radio col-span-2 flex items-center gap-2 p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/80 cursor-pointer transition text-left" title="Tap or drag to delete pieces">
+                <label class="tool-radio flex items-center gap-2 p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/80 cursor-pointer transition text-left" title="Tap or drag to delete pieces">
                     <input type="radio" name="place-function" value="delete" class="hidden">
                     <div class="radio-indicator w-3.5 h-3.5 rounded-full border-2 border-slate-500 flex items-center justify-center shrink-0">
                         <div class="radio-dot w-1.5 h-1.5 rounded-full bg-rose-400 hidden"></div>
@@ -463,8 +525,8 @@
         </div>
     </div>
 
-        <!-- Bottom Contextual Instructions Banner -->
-    <div class="fixed bottom-2 sm:bottom-4 left-1/2 -translate-x-1/2 z-10 pointer-events-none w-max max-w-[95vw]">
+    <!-- Top Contextual Instructions Banner -->
+    <div class="fixed top-12 sm:top-3 left-1/2 -translate-x-1/2 z-10 pointer-events-none w-max max-w-[95vw]">
         <div class="glass-panel px-3 py-1.5 sm:px-4 sm:py-2 rounded-full shadow-2xl flex items-center gap-3 text-[11px] sm:text-xs text-slate-200 pointer-events-auto">
             <div id="status-hint" class="flex items-center gap-1.5 sm:gap-2 font-medium truncate max-w-[84vw] sm:max-w-none">
                 <span class="w-2 h-2 rounded-full bg-sky-400 animate-pulse shrink-0"></span>
@@ -472,7 +534,7 @@
             </div>
             <div class="hidden lg:flex items-center gap-2.5 pl-3 border-l border-slate-700 text-slate-300 text-[11px] shrink-0">
                 <span><kbd class="px-1.5 py-0.5 bg-slate-800 rounded border border-slate-700 text-white">Tab</kbd> Builder</span>
-                <span><kbd class="px-1.5 py-0.5 bg-slate-800 rounded border border-slate-700 text-white">T</kbd> Top Menu</span>
+                <span><kbd class="px-1.5 py-0.5 bg-slate-800 rounded border border-slate-700 text-white">B</kbd> Menu</span>
                 <span><kbd class="px-1.5 py-0.5 bg-slate-800 rounded border border-slate-700 text-white">R</kbd> Rotate</span>
                 <span><kbd class="px-1.5 py-0.5 bg-slate-800 rounded border border-slate-700 text-white">Space</kbd> Play</span>
             </div>
@@ -480,7 +542,7 @@
     </div>
 
     <!-- Toast Notification -->
-    <div id="toast" class="fixed top-20 left-1/2 -translate-x-1/2 z-50 pointer-events-none opacity-0 transition-opacity duration-300">
+    <div id="toast" class="fixed top-20 sm:top-14 left-1/2 -translate-x-1/2 z-50 pointer-events-none opacity-0 transition-opacity duration-300">
         <div class="bg-slate-900/95 border border-sky-400/50 text-white px-4 py-2 rounded-xl shadow-xl text-xs font-medium flex items-center gap-2">
             <i data-lucide="sparkles" class="w-4 h-4 text-sky-400"></i>
             <span id="toast-text">State Saved</span>
@@ -2278,6 +2340,7 @@
                     state.draggedObject = null;
                 }
                 if (ghostMesh) ghostMesh.visible = false;
+
                 return;
             }
 
@@ -2287,31 +2350,17 @@
             if (e.pointerType === 'mouse' && e.button !== 0) return;
             if (state.mode === 'camera') return;
 
+
+
             state.isPointerDown = true;
             const targetY = getTouchOffsetClientY(e);
 
             if (state.mode === 'place') {
                 const hit = getSurfaceIntersection(e.clientX, targetY, false);
                 if (hit) {
-                    if (e.pointerType === 'touch') {
-                        // On touch, show & position the ghost preview and let user drag to aim or tap "Place Here"
-                        lastPendingTouchPlacePoint = hit.point.clone();
-                        if (ghostMesh) {
-                            ghostMesh.visible = true;
-                            ghostMesh.position.copy(hit.point);
-                            ghostMesh.rotation.y = state.rotationY;
-                        }
-                        const btnTouchPlace = document.getElementById('btn-touch-place');
-                        if (btnTouchPlace) {
-                            btnTouchPlace.classList.remove('hidden');
-                            btnTouchPlace.classList.add('flex');
-                        }
-                    } else {
-                        spawnObject(state.item, hit.point, state.rotationY);
-                        saveCurrentStateAsInitial();
-                    }
+                    spawnObject(state.item, hit.point, state.rotationY);
+                    saveCurrentStateAsInitial();
                 }
-
             } else if (state.mode === 'draw') {
                 const hit = getSurfaceIntersection(e.clientX, targetY, false);
                 if (hit) {
@@ -2447,12 +2496,6 @@
                         state.draggedObject.body.wakeUp();
                         saveCurrentStateAsInitial();
                         state.draggedObject = null;
-                    }
-                    // On touch in 'place' mode, tapping & releasing spawns the item at the preview spot!
-                    if (e.pointerType === 'touch' && state.mode === 'place' && lastPendingTouchPlacePoint) {
-                        spawnObject(state.item, lastPendingTouchPlacePoint, state.rotationY);
-                        saveCurrentStateAsInitial();
-                        lastPendingTouchPlacePoint = null;
                     }
                 }
                 multiTouchGestureActive = false;
@@ -2668,12 +2711,9 @@
             const icon = document.getElementById('icon-sidebar-toggle');
             if (isSidebarCollapsed) {
                 if (icon) icon.setAttribute('data-lucide', 'panel-left-open');
-                if (isTopMenuCollapsed) {
+                if (btnExpandFloating) {
                     btnExpandFloating.classList.remove('hidden');
                     btnExpandFloating.classList.add('flex');
-                } else {
-                    btnExpandFloating.classList.add('hidden');
-                    btnExpandFloating.classList.remove('flex');
                 }
                 if (sidebarBackdrop) sidebarBackdrop.classList.add('hidden');
             } else {
@@ -2694,34 +2734,39 @@
             sidebarBackdrop.addEventListener('click', () => toggleSidebar(true));
         }
 
-        // Collapsible Top Menu Logic
-        let isTopMenuCollapsed = false;
-        const topBar = document.getElementById('top-bar');
-        const topFloatingBar = document.getElementById('top-floating-bar');
-        const btnCollapseTop = document.getElementById('btn-collapse-top');
-        const btnExpandTop = document.getElementById('btn-expand-top');
+        // Collapsible Bottom Menu Logic
+        let isBottomMenuCollapsed = false;
+        const bottomBar = document.getElementById('bottom-bar') || document.getElementById('top-bar');
+        const bottomFloatingBar = document.getElementById('bottom-floating-bar') || document.getElementById('top-floating-bar');
+        const btnCollapseBottom = document.getElementById('btn-collapse-bottom') || document.getElementById('btn-collapse-top');
+        const btnExpandBottom = document.getElementById('btn-expand-bottom') || document.getElementById('btn-expand-top');
 
-        function toggleTopMenu(forceState = null) {
-            isTopMenuCollapsed = forceState !== null ? forceState : !isTopMenuCollapsed;
-            topBar.classList.toggle('collapsed', isTopMenuCollapsed);
-            if (isTopMenuCollapsed) {
-                topFloatingBar.classList.remove('hidden');
-                topFloatingBar.classList.add('flex');
-                if (isSidebarCollapsed) {
-                    btnExpandFloating.classList.remove('hidden');
-                    btnExpandFloating.classList.add('flex');
+        function toggleBottomMenu(forceState = null) {
+            isBottomMenuCollapsed = forceState !== null ? forceState : !isBottomMenuCollapsed;
+            if (bottomBar) bottomBar.classList.toggle('collapsed', isBottomMenuCollapsed);
+            if (bottomFloatingBar) {
+                if (isBottomMenuCollapsed) {
+                    bottomFloatingBar.classList.remove('hidden');
+                    bottomFloatingBar.classList.add('flex');
+                    if (isSidebarCollapsed && btnExpandFloating) {
+                        btnExpandFloating.classList.remove('hidden');
+                        btnExpandFloating.classList.add('flex');
+                    }
+                } else {
+                    bottomFloatingBar.classList.add('hidden');
+                    bottomFloatingBar.classList.remove('flex');
+                    if (btnExpandFloating) {
+                        btnExpandFloating.classList.add('hidden');
+                        btnExpandFloating.classList.remove('flex');
+                    }
                 }
-            } else {
-                topFloatingBar.classList.add('hidden');
-                topFloatingBar.classList.remove('flex');
-                btnExpandFloating.classList.add('hidden');
-                btnExpandFloating.classList.remove('flex');
             }
             lucide.createIcons();
         }
+        const toggleTopMenu = toggleBottomMenu; // Backwards compatibility alias
 
-        if (btnCollapseTop) btnCollapseTop.addEventListener('click', () => toggleTopMenu(true));
-        if (btnExpandTop) btnExpandTop.addEventListener('click', () => toggleTopMenu(false));
+        if (btnCollapseBottom) btnCollapseBottom.addEventListener('click', () => toggleBottomMenu(true));
+        if (btnExpandBottom) btnExpandBottom.addEventListener('click', () => toggleBottomMenu(false));
 
         const btnPillPush = document.getElementById('btn-pill-push');
         if (btnPillPush) {
@@ -2736,10 +2781,37 @@
             btnPillPlay.addEventListener('click', () => toggleSimulation());
         }
 
-        // Auto-collapse top bar & sidebar on mobile screens for an uncluttered 3D arena
+        // Mobile Options / Presets drawer toggle
+        const btnToggleOptions = document.getElementById('btn-toggle-options');
+        const secondaryOptionsPanel = document.getElementById('secondary-options-panel');
+        if (btnToggleOptions && secondaryOptionsPanel) {
+            btnToggleOptions.addEventListener('click', () => {
+                const isHidden = secondaryOptionsPanel.classList.contains('hidden');
+                secondaryOptionsPanel.classList.toggle('hidden', !isHidden);
+                secondaryOptionsPanel.classList.toggle('flex', isHidden);
+                btnToggleOptions.classList.toggle('bg-sky-950', isHidden);
+                btnToggleOptions.classList.toggle('text-sky-300', isHidden);
+                lucide.createIcons();
+            });
+        }
+
+        const btnCheckpointMobile = document.getElementById('btn-checkpoint-mobile');
+        if (btnCheckpointMobile) {
+            btnCheckpointMobile.addEventListener('click', saveCurrentStateAsInitial);
+        }
+
+        const btnClearMobile = document.getElementById('btn-clear-mobile');
+        if (btnClearMobile) {
+            btnClearMobile.addEventListener('click', () => {
+                clearAllObjects();
+                showToast('Cleared studio floor');
+            });
+        }
+
+        // On mobile screens: collapse sidebar by default, but KEEP THE BOTTOM BAR ADAPTIVELY SHOWN!
         if (window.innerWidth < 768) {
-            toggleTopMenu(true);
             toggleSidebar(true);
+            toggleBottomMenu(false); // Make sure bottom bar is shown adaptively on mobile!
         }
 
         // Dedicated Push Domino Button
@@ -2748,43 +2820,89 @@
             pushFirstStandingDomino();
         });
 
+        const MODE_ORDER = ['camera', 'draw', 'place', 'push', 'move', 'delete'];
+
         const TOOL_META = {
-            draw:   { name: 'Line', full: 'Draw Line', icon: 'pen-tool', color: 'from-sky-500 to-blue-600' },
-            place:  { name: 'Place', full: 'Place Item', icon: 'plus-square', color: 'from-blue-500 to-indigo-600' },
-            push:   { name: 'Force', full: 'Push / Force', icon: 'zap', color: 'from-amber-500 to-orange-500' },
-            move:   { name: 'Move', full: 'Drag / Move', icon: 'move', color: 'from-emerald-500 to-teal-600' },
-            delete: { name: 'Delete', full: 'Delete / Erase', icon: 'eraser', color: 'from-rose-500 to-red-600' }
+            camera: { name: 'Look', full: 'Camera Orbit & Look', icon: 'orbit', color: 'bg-slate-800 text-slate-200 border-slate-700', badge: 'CAM' },
+            draw:   { name: 'Line', full: 'Draw Line', icon: 'pen-tool', color: 'bg-gradient-to-r from-sky-500 to-blue-600 text-white shadow-sky-500/25 ring-2 ring-sky-300/60', badge: 'LINE' },
+            place:  { name: 'Place', full: 'Place Item', icon: 'plus-square', color: 'bg-gradient-to-r from-blue-500 to-indigo-600 text-white shadow-blue-500/25 ring-2 ring-blue-300/60', badge: 'ITEM' },
+            push:   { name: 'Force', full: 'Push / Force', icon: 'zap', color: 'bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 shadow-amber-500/25 ring-2 ring-amber-300/60', badge: 'FORCE' },
+            move:   { name: 'Move', full: 'Drag / Move', icon: 'move', color: 'bg-gradient-to-r from-emerald-500 to-teal-600 text-white shadow-emerald-500/25 ring-2 ring-emerald-300/60', badge: 'MOVE' },
+            delete: { name: 'Delete', full: 'Delete / Erase', icon: 'eraser', color: 'bg-gradient-to-r from-rose-500 to-red-600 text-white shadow-rose-500/25 ring-2 ring-rose-300/60', badge: 'ERASE' }
         };
 
+        function setInteractionMode(mode, silent = false) {
+            if (mode === 'camera' || mode === 'off') {
+                state.isPlaceActive = false;
+                if (!silent) showToast('Camera Mode (OFF): 1-Finger Orbit & Look');
+            } else {
+                state.isPlaceActive = true;
+                state.placeFunction = mode;
+                const meta = TOOL_META[mode] || TOOL_META.draw;
+                if (!silent) showToast(`Mode: ${meta.full}`);
+            }
+            updatePlaceButtonUI();
+        }
+
+        function cycleInteractionMode() {
+            const currentMode = state.mode; // 'camera', 'draw', 'place', 'push', 'move', 'delete'
+            const curIdx = MODE_ORDER.indexOf(currentMode);
+            const nextIdx = (curIdx + 1) % MODE_ORDER.length;
+            setInteractionMode(MODE_ORDER[nextIdx]);
+        }
+        const togglePlace = cycleInteractionMode; // Alias for button clicks & shortcuts
+
         function updatePlaceButtonUI() {
-            const meta = TOOL_META[state.placeFunction] || TOOL_META.draw;
+            const currentMode = state.mode; // 'camera' or 'draw'/'place'/'push'/'move'/'delete'
+            const meta = TOOL_META[currentMode] || TOOL_META.camera;
 
-            // 1. Top Bar Place Button
-            const topBtn = document.getElementById('btn-top-place');
-            const topIcon = document.getElementById('top-place-icon');
-            const topText = document.getElementById('top-place-text');
-            const topBadge = document.getElementById('top-place-badge');
+            // 1. Bottom Bar Mode Toggle Button
+            const bottomBtn = document.getElementById('btn-bottom-place') || document.getElementById('btn-top-place');
+            const bottomIcon = document.getElementById('bottom-place-icon') || document.getElementById('top-place-icon');
+            const bottomText = document.getElementById('bottom-place-text') || document.getElementById('top-place-text');
+            const bottomBadge = document.getElementById('bottom-place-badge') || document.getElementById('top-place-badge');
 
-            // 2. Floating Pill Place Button
+            // 2. Floating Pill Mode Button
             const pillBtn = document.getElementById('btn-pill-place');
             const pillIcon = document.getElementById('pill-place-icon');
             const pillText = document.getElementById('pill-place-text');
             const pillBadge = document.getElementById('pill-place-badge');
 
-            if (state.isPlaceActive) {
-                // Place is ON
-                if (topBtn) {
-                    topBtn.className = `flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl font-bold text-xs bg-gradient-to-r ${meta.color} text-white shadow-lg shadow-sky-500/25 ring-2 ring-sky-300/60 active:scale-95 transition`;
+            if (currentMode === 'camera') {
+                // Camera / Look mode (OFF mode: 1-finger camera orbit)
+                if (bottomBtn) {
+                    bottomBtn.className = 'flex items-center gap-1 sm:gap-1.5 px-2.5 py-1.5 sm:px-3.5 sm:py-2 rounded-xl font-medium text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 active:scale-95 transition shadow shrink-0';
                 }
-                if (topIcon) topIcon.setAttribute('data-lucide', meta.icon);
-                if (topText) topText.textContent = `Place (${meta.name})`;
-                if (topBadge) {
-                    topBadge.textContent = 'ON';
-                    topBadge.className = 'text-[10px] px-1.5 py-0.5 rounded-full bg-white/25 text-white font-bold';
+                if (bottomIcon) bottomIcon.setAttribute('data-lucide', 'orbit');
+                if (bottomText) bottomText.textContent = 'Look';
+                if (bottomBadge) {
+                    bottomBadge.textContent = 'OFF';
+                    bottomBadge.className = 'text-[10px] px-1.5 py-0.2 rounded-full bg-slate-700 text-cyan-300 font-medium';
                 }
 
                 if (pillBtn) {
-                    pillBtn.className = `flex items-center gap-1 px-2.5 py-1.5 rounded-xl font-bold text-xs bg-gradient-to-r ${meta.color} text-white shadow active:scale-95 transition ring-1 ring-sky-300/50`;
+                    pillBtn.className = 'flex items-center gap-1 px-2.5 py-1.5 rounded-xl font-medium text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 active:scale-95 transition shadow';
+                }
+                if (pillIcon) pillIcon.setAttribute('data-lucide', 'orbit');
+                if (pillText) pillText.textContent = 'Look';
+                if (pillBadge) {
+                    pillBadge.textContent = 'OFF';
+                    pillBadge.className = 'text-[9px] px-1 py-0.2 rounded-full bg-slate-700 text-cyan-300 font-medium';
+                }
+            } else {
+                // Active tool mode (draw, place, push, move, delete)
+                if (bottomBtn) {
+                    bottomBtn.className = `flex items-center gap-1 sm:gap-1.5 px-2.5 py-1.5 sm:px-3.5 sm:py-2 rounded-xl font-bold text-xs ${meta.color} active:scale-95 transition shrink-0`;
+                }
+                if (bottomIcon) bottomIcon.setAttribute('data-lucide', meta.icon);
+                if (bottomText) bottomText.textContent = meta.name;
+                if (bottomBadge) {
+                    bottomBadge.textContent = 'ON';
+                    bottomBadge.className = 'text-[10px] px-1.5 py-0.2 rounded-full bg-white/25 text-white font-bold';
+                }
+
+                if (pillBtn) {
+                    pillBtn.className = `flex items-center gap-1 px-2.5 py-1.5 rounded-xl font-bold text-xs ${meta.color} active:scale-95 transition ring-1 ring-sky-300/50`;
                 }
                 if (pillIcon) pillIcon.setAttribute('data-lucide', meta.icon);
                 if (pillText) pillText.textContent = meta.name;
@@ -2792,32 +2910,11 @@
                     pillBadge.textContent = 'ON';
                     pillBadge.className = 'text-[9px] px-1 py-0.2 rounded-full bg-white/30 text-white font-bold';
                 }
-            } else {
-                // Place is OFF -> Default 1-finger rotate mode!
-                if (topBtn) {
-                    topBtn.className = 'flex items-center gap-1.5 px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl font-medium text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 active:scale-95 transition shadow';
-                }
-                if (topIcon) topIcon.setAttribute('data-lucide', meta.icon);
-                if (topText) topText.textContent = `Place (${meta.name})`;
-                if (topBadge) {
-                    topBadge.textContent = 'OFF';
-                    topBadge.className = 'text-[10px] px-1.5 py-0.5 rounded-full bg-slate-700 text-cyan-300 font-medium';
-                }
-
-                if (pillBtn) {
-                    pillBtn.className = 'flex items-center gap-1 px-2.5 py-1.5 rounded-xl font-medium text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 active:scale-95 transition shadow';
-                }
-                if (pillIcon) pillIcon.setAttribute('data-lucide', meta.icon);
-                if (pillText) pillText.textContent = meta.name;
-                if (pillBadge) {
-                    pillBadge.textContent = 'OFF';
-                    pillBadge.className = 'text-[9px] px-1 py-0.2 rounded-full bg-slate-700 text-cyan-300 font-medium';
-                }
             }
 
             // Update radio buttons on the left sidebar
             document.querySelectorAll('input[name="place-function"]').forEach(radio => {
-                const isSelected = radio.value === state.placeFunction;
+                const isSelected = radio.value === currentMode;
                 radio.checked = isSelected;
                 const label = radio.closest('.tool-radio');
                 if (label) {
@@ -2827,13 +2924,13 @@
                 }
             });
 
-            // Update contextual status hint at bottom
+            // Update contextual status hint at top
             const hintElem = document.getElementById('status-hint');
             if (hintElem) {
-                if (!state.isPlaceActive) {
+                if (currentMode === 'camera') {
                     hintElem.innerHTML = `
                         <span class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse shrink-0"></span>
-                        <span><strong>1-Finger Rotate:</strong> Drag 1 finger to rotate camera. Turn <strong>Place ON</strong> (top menu) to ${meta.full.toLowerCase()}.</span>
+                        <span><strong>1-Finger Rotate:</strong> Drag 1 finger to orbit & look around. Tap <strong>Look</strong> to switch mode.</span>
                     `;
                 } else {
                     hintElem.innerHTML = `
@@ -2846,17 +2943,6 @@
             updateCameraControlsForMode(state.mode);
             rebuildGhostMesh();
             lucide.createIcons();
-        }
-
-        function togglePlace(forceState = null) {
-            state.isPlaceActive = forceState !== null ? forceState : !state.isPlaceActive;
-            updatePlaceButtonUI();
-            const meta = TOOL_META[state.placeFunction] || TOOL_META.draw;
-            if (state.isPlaceActive) {
-                showToast(`Place ON: ${meta.full}`);
-            } else {
-                showToast('Place OFF: 1-Finger Camera Rotate');
-            }
         }
 
         function rotateActiveItem() {
@@ -2881,10 +2967,10 @@
             }
         }
 
-        // Place Button Listeners (Top Bar & Floating Pill)
-        const btnTopPlace = document.getElementById('btn-top-place');
-        if (btnTopPlace) {
-            btnTopPlace.addEventListener('click', () => togglePlace());
+        // Place Button Listeners (Bottom Bar & Floating Pill)
+        const btnBottomPlace = document.getElementById('btn-bottom-place') || document.getElementById('btn-top-place');
+        if (btnBottomPlace) {
+            btnBottomPlace.addEventListener('click', () => togglePlace());
         }
 
         const btnPillPlace = document.getElementById('btn-pill-place');
@@ -2901,6 +2987,14 @@
             undoLastObject();
         });
 
+        const btnQuickClear = document.getElementById('btn-quick-clear');
+        if (btnQuickClear) {
+            btnQuickClear.addEventListener('click', () => {
+                clearAllObjects();
+                showToast('Cleared studio floor');
+            });
+        }
+
         document.getElementById('quality-select').addEventListener('change', (e) => {
             applyGraphicsQuality(e.target.value);
             showToast(`Graphics Quality: ${e.target.options[e.target.selectedIndex].text}`);
@@ -2914,14 +3008,10 @@
             });
         }
 
-        // Radio buttons in Left Sidebar deciding Place button function
+        // Radio buttons in Left Sidebar deciding interaction mode
         document.querySelectorAll('input[name="place-function"]').forEach(radio => {
             radio.addEventListener('change', () => {
-                state.placeFunction = radio.value;
-                state.isPlaceActive = true; // Selecting function automatically activates Place mode!
-                updatePlaceButtonUI();
-                const meta = TOOL_META[state.placeFunction] || TOOL_META.draw;
-                showToast(`Place Function: ${meta.full}`);
+                setInteractionMode(radio.value);
             });
         });
 
@@ -2929,11 +3019,9 @@
             btn.addEventListener('click', () => {
                 state.item = btn.dataset.item;
                 document.querySelectorAll('.item-btn').forEach(b => b.classList.toggle('active', b === btn));
-                // If user selects a furniture/block item while in 'draw' mode, automatically switch radio to 'place'
-                if (state.item !== 'domino' && state.placeFunction === 'draw') {
-                    state.placeFunction = 'place';
-                    state.isPlaceActive = true;
-                    updatePlaceButtonUI();
+                // If user selects a furniture/block item while in 'camera' or 'draw' mode, switch to 'place'
+                if (state.item !== 'domino' && (state.placeFunction === 'draw' || !state.isPlaceActive)) {
+                    setInteractionMode('place');
                 } else {
                     rebuildGhostMesh();
                 }
@@ -3028,48 +3116,61 @@
             } else if (e.code === 'Tab') {
                 e.preventDefault();
                 toggleSidebar();
-            } else if (e.code === 'KeyT' || e.code === 'KeyM') {
+            } else if (e.code === 'KeyB' || e.code === 'KeyT' || e.code === 'KeyM') {
                 e.preventDefault();
-                toggleTopMenu();
+                toggleBottomMenu();
             } else if (e.code === 'KeyP') {
                 e.preventDefault();
-                togglePlace();
+                cycleInteractionMode();
+            } else if (e.code === 'Digit0' || e.code === 'KeyC') {
+                setInteractionMode('camera');
             } else if (e.code === 'Digit1') {
-                state.placeFunction = 'draw';
-                state.isPlaceActive = true;
-                updatePlaceButtonUI();
+                setInteractionMode('draw');
             } else if (e.code === 'Digit2') {
-                state.placeFunction = 'place';
-                state.isPlaceActive = true;
-                updatePlaceButtonUI();
+                setInteractionMode('place');
             } else if (e.code === 'Digit3') {
-                state.placeFunction = 'push';
-                state.isPlaceActive = true;
-                updatePlaceButtonUI();
+                setInteractionMode('push');
             } else if (e.code === 'Digit4') {
-                state.placeFunction = 'move';
-                state.isPlaceActive = true;
-                updatePlaceButtonUI();
+                setInteractionMode('move');
             } else if (e.code === 'Digit5') {
-                state.placeFunction = 'delete';
-                state.isPlaceActive = true;
-                updatePlaceButtonUI();
+                setInteractionMode('delete');
             }
         });
 
-        // Window Resize
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            if (ssaoRenderTarget && ssaoMaterial) {
-                const dpr = renderer.getPixelRatio();
-                const w = Math.floor(window.innerWidth * dpr);
-                const h = Math.floor(window.innerHeight * dpr);
-                ssaoRenderTarget.setSize(w, h);
-                ssaoMaterial.uniforms.resolution.value.set(w, h);
+        // Dynamic Viewport & Mobile Safe Area Adaptation
+        function syncViewportMetrics() {
+            const vv = window.visualViewport;
+            const w = vv ? vv.width : window.innerWidth;
+            const h = vv ? vv.height : window.innerHeight;
+
+            // Calculate offset if visualViewport is compressed by browser toolbars or virtual keyboard
+            let bottomOffset = 0;
+            if (vv && window.innerHeight > vv.height) {
+                bottomOffset = Math.max(0, window.innerHeight - (vv.height + (vv.offsetTop || 0)));
             }
-        });
+            document.documentElement.style.setProperty('--mobile-bottom-offset', `${Math.round(bottomOffset)}px`);
+
+            if (renderer && camera) {
+                camera.aspect = w / h;
+                camera.updateProjectionMatrix();
+                renderer.setSize(w, h);
+                if (ssaoRenderTarget && ssaoMaterial) {
+                    const dpr = renderer.getPixelRatio();
+                    const rw = Math.floor(w * dpr);
+                    const rh = Math.floor(h * dpr);
+                    ssaoRenderTarget.setSize(rw, rh);
+                    ssaoMaterial.uniforms.resolution.value.set(rw, rh);
+                }
+            }
+        }
+
+        window.addEventListener('resize', syncViewportMetrics);
+        window.addEventListener('orientationchange', () => setTimeout(syncViewportMetrics, 150));
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', syncViewportMetrics);
+            window.visualViewport.addEventListener('scroll', syncViewportMetrics);
+        }
+        syncViewportMetrics();
 
         // ==========================================
         // 8. MAIN ANIMATION, AO & PHYSICS LOOP
