@@ -19,7 +19,7 @@
 
     <style>
         :root {
-            --safe-bottom: max(16px, env(safe-area-inset-bottom, 16px));
+            --safe-bottom: max(32px, calc(env(safe-area-inset-bottom, 0px) + 24px));
             --mobile-bottom-offset: 0px;
         }
         html {
@@ -1025,6 +1025,8 @@
             return mats;
         }
 
+
+
         // ==========================================
         // 3. THREE.JS SKY, IBL, SSAO + CONTACT AO & CANNON.JS
         // ==========================================
@@ -1255,14 +1257,15 @@
         const _aoLocalVec = new THREE.Vector3();
         const _aoQuat = new THREE.Quaternion();
         const _aoUp = new THREE.Vector3();
+        const _aoZeroMatrix = new THREE.Matrix4().makeScale(0, 0, 0);
 
         function updateContactAODecals() {
             let idx = 0;
             for (let i = 0; i < objects.length; i++) {
                 if (idx >= MAX_AO_INSTANCES - 8) break;
                 const obj = objects[i];
-                const pos = obj.mesh.position;
-                const q = obj.mesh.quaternion;
+                const pos = obj.body.position;
+                const q = obj.body.quaternion;
 
                 if (obj.type === 'domino') {
                     _aoUp.set(0, 1, 0).applyQuaternion(q);
@@ -1330,6 +1333,9 @@
                     _aoDummy.updateMatrix();
                     contactAOMesh.setMatrixAt(idx++, _aoDummy.matrix);
                 }
+            }
+            for (let i = idx; i < MAX_AO_INSTANCES; i++) {
+                contactAOMesh.setMatrixAt(i, _aoZeroMatrix);
             }
             contactAOMesh.count = idx;
             contactAOMesh.instanceMatrix.needsUpdate = true;
@@ -1521,7 +1527,7 @@
         world.gravity.set(0, -32, 0); // Snappy gravity for brisk, decisive domino toppling
         world.broadphase = new CANNON.SAPBroadphase(world);
         world.allowSleep = true;
-        world.solver.iterations = 25;
+        world.solver.iterations = 10;
 
         // Physics Materials
         const groundPhysMat = new CANNON.Material('ground');
@@ -1713,6 +1719,30 @@
 
         // State Arrays
         const objects = []; // { id, type, mesh, body, color, initialState, soundCount, lastSoundTime }
+        window.objects = objects;
+
+        // ==========================================
+        // 2B. ULTRA-PERFORMANCE INSTANCED DOMINO PIPELINE
+        // ==========================================
+        // Renders thousands of dominoes in a SINGLE WebGL draw call instead of 7,000+ separate draw calls!
+        const MAX_DOMINO_INSTANCES = 12000;
+        const dominoWhiteMaterials = getDominoMaterials('#ffffff');
+        const dominoInstancedMesh = new THREE.InstancedMesh(SHARED_GEOS.domino, dominoWhiteMaterials, MAX_DOMINO_INSTANCES);
+        dominoInstancedMesh.count = 0;
+        dominoInstancedMesh.castShadow = true;
+        dominoInstancedMesh.receiveShadow = true;
+        dominoInstancedMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        // Pre-allocate the full instanceColor buffer for MAX_DOMINO_INSTANCES so all dominoes have their true colors!
+        dominoInstancedMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_DOMINO_INSTANCES * 3), 3);
+        dominoInstancedMesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
+        scene.add(dominoInstancedMesh);
+        window.dominoInstancedMesh = dominoInstancedMesh;
+
+        const dominoInstances = []; // Maps instanceId -> objRecord
+        const objectsById = new Map(); // Maps objectId -> objRecord
+        const _dominoDummy = new THREE.Object3D();
+        const _dummyMatrix = new THREE.Matrix4();
+        const _dummyColor = new THREE.Color();
         let objectIdCounter = 1;
 
         function getNextDominoColor() {
@@ -1738,13 +1768,18 @@
 
             if (type === 'domino') {
                 const { w, h, d, mass } = DIMENSIONS.domino;
-                mesh = new THREE.Mesh(SHARED_GEOS.domino, getDominoMaterials(color));
-                mesh.castShadow = true;
-                mesh.receiveShadow = true;
-
                 const centerY = pos.y + h / 2;
-                mesh.position.set(pos.x, centerY, pos.z);
-                mesh.quaternion.copy(q);
+
+                const instanceId = dominoInstancedMesh.count;
+                dominoInstancedMesh.count++;
+
+                _dominoDummy.position.set(pos.x, centerY, pos.z);
+                _dominoDummy.quaternion.copy(q);
+                _dominoDummy.updateMatrix();
+                dominoInstancedMesh.setMatrixAt(instanceId, _dominoDummy.matrix);
+                dominoInstancedMesh.setColorAt(instanceId, new THREE.Color(color));
+                dominoInstancedMesh.instanceMatrix.needsUpdate = true;
+                if (dominoInstancedMesh.instanceColor) dominoInstancedMesh.instanceColor.needsUpdate = true;
 
                 body = new CANNON.Body({
                     mass,
@@ -1753,11 +1788,12 @@
                     angularDamping: 0.015
                 });
                 body.allowSleep = true;
-                body.sleepSpeedLimit = 0.25;
-                body.sleepTimeLimit = 0.35;
+                body.sleepSpeedLimit = 0.20;
+                body.sleepTimeLimit = 0.25;
                 body.addShape(new CANNON.Box(new CANNON.Vec3(w / 2, h / 2, d / 2)));
                 body.position.set(pos.x, centerY, pos.z);
                 body.quaternion.set(q.x, q.y, q.z, q.w);
+                body.sleep(); // Stationary standing blocks sleep immediately until toppled!
 
             } else if (type === 'plank') {
                 const { w, h, d, mass } = DIMENSIONS.plank;
@@ -1771,11 +1807,12 @@
 
                 body = new CANNON.Body({ mass, material: woodPhysMat });
                 body.allowSleep = true;
-                body.sleepSpeedLimit = 0.25;
-                body.sleepTimeLimit = 0.35;
+                body.sleepSpeedLimit = 0.20;
+                body.sleepTimeLimit = 0.25;
                 body.addShape(new CANNON.Box(new CANNON.Vec3(w / 2, h / 2, d / 2)));
                 body.position.set(pos.x, centerY, pos.z);
                 body.quaternion.set(q.x, q.y, q.z, q.w);
+                body.sleep();
 
             } else if (type === 'cube') {
                 const { w, h, d, mass } = DIMENSIONS.cube;
@@ -1789,11 +1826,12 @@
 
                 body = new CANNON.Body({ mass, material: woodPhysMat });
                 body.allowSleep = true;
-                body.sleepSpeedLimit = 0.25;
-                body.sleepTimeLimit = 0.35;
+                body.sleepSpeedLimit = 0.20;
+                body.sleepTimeLimit = 0.25;
                 body.addShape(new CANNON.Box(new CANNON.Vec3(w / 2, h / 2, d / 2)));
                 body.position.set(pos.x, centerY, pos.z);
                 body.quaternion.set(q.x, q.y, q.z, q.w);
+                body.sleep();
 
             } else if (type === 'ramp') {
                 // 3-step staircase block so dominoes can climb up/down smoothly!
@@ -1919,16 +1957,10 @@
                 body.quaternion.set(q.x, q.y, q.z, q.w);
             }
 
-            // Tag meshes for raycasting
-            mesh.userData.objectId = id;
-            mesh.traverse(child => {
-                if (child.isMesh) child.userData.objectId = id;
-            });
-
             const objRecord = {
                 id,
                 type,
-                mesh,
+                mesh: mesh || null,
                 body,
                 color,
                 soundCount: 0,
@@ -1938,6 +1970,18 @@
                     quaternion: body.quaternion.clone()
                 }
             };
+
+            if (type === 'domino') {
+                objRecord.instanceId = dominoInstancedMesh.count - 1;
+                dominoInstances[objRecord.instanceId] = objRecord;
+            } else if (mesh) {
+                mesh.userData.objectId = id;
+                mesh.traverse(child => {
+                    if (child.isMesh) child.userData.objectId = id;
+                });
+                scene.add(mesh);
+            }
+            objectsById.set(id, objRecord);
 
             // Collision Audio Listener with anti-chatter filtering for fallen/resting dominoes
             body.addEventListener('collide', (e) => {
@@ -1978,7 +2022,6 @@
                 sound.playClick(impactSpeed, type === 'domino' ? 'domino' : 'wood');
             });
 
-            scene.add(mesh);
             world.addBody(body);
 
             objects.push(objRecord);
@@ -1988,20 +2031,57 @@
 
         function removeObject(objRecord) {
             if (!objRecord) return;
-            scene.remove(objRecord.mesh);
+            objectsById.delete(objRecord.id);
             world.removeBody(objRecord.body);
+
+            if (objRecord.type === 'domino' && objRecord.instanceId !== undefined) {
+                const lastIdx = dominoInstancedMesh.count - 1;
+                const delIdx = objRecord.instanceId;
+                if (delIdx !== lastIdx && dominoInstances[lastIdx]) {
+                    const lastObj = dominoInstances[lastIdx];
+                    dominoInstancedMesh.getMatrixAt(lastIdx, _dummyMatrix);
+                    dominoInstancedMesh.setMatrixAt(delIdx, _dummyMatrix);
+                    if (dominoInstancedMesh.instanceColor) {
+                        dominoInstancedMesh.getColorAt(lastIdx, _dummyColor);
+                        dominoInstancedMesh.setColorAt(delIdx, _dummyColor);
+                    }
+                    lastObj.instanceId = delIdx;
+                    dominoInstances[delIdx] = lastObj;
+                }
+                // Zero-scale the retired slot so no shadow/geometry lingers
+                _dummyMatrix.makeScale(0, 0, 0);
+                dominoInstancedMesh.setMatrixAt(lastIdx, _dummyMatrix);
+                delete dominoInstances[lastIdx];
+                dominoInstancedMesh.count = Math.max(0, dominoInstancedMesh.count - 1);
+                dominoInstancedMesh.instanceMatrix.needsUpdate = true;
+                if (dominoInstancedMesh.instanceColor) dominoInstancedMesh.instanceColor.needsUpdate = true;
+            } else if (objRecord.mesh) {
+                scene.remove(objRecord.mesh);
+            }
+
             const idx = objects.indexOf(objRecord);
             if (idx !== -1) objects.splice(idx, 1);
             updateItemCounter();
+            updateContactAODecals(); // Immediately recalculate and clear removed object shadow decals!
         }
 
         function clearAllObjects() {
             while (objects.length > 0) {
                 const obj = objects.pop();
-                scene.remove(obj.mesh);
                 world.removeBody(obj.body);
+                if (obj.mesh) scene.remove(obj.mesh);
             }
+            // Zero out all instance matrices in buffer so no shadows linger
+            for (let i = 0; i < dominoInstancedMesh.count; i++) {
+                _dummyMatrix.makeScale(0, 0, 0);
+                dominoInstancedMesh.setMatrixAt(i, _dummyMatrix);
+            }
+            dominoInstancedMesh.count = 0;
+            dominoInstancedMesh.instanceMatrix.needsUpdate = true;
+            dominoInstances.length = 0;
+            objectsById.clear();
             updateItemCounter();
+            updateContactAODecals(); // Clear all contact shadow decals from floor!
         }
 
         function saveCurrentStateAsInitial() {
@@ -2020,10 +2100,19 @@
                 obj.body.angularVelocity.set(0, 0, 0);
                 obj.soundCount = 0;
                 obj.lastSoundTime = 0;
-                obj.body.wakeUp();
-                obj.mesh.position.copy(obj.body.position);
-                obj.mesh.quaternion.copy(obj.body.quaternion);
+                obj.body.sleep(); // Reset into sleeping standing state!
+                if (obj.type === 'domino') {
+                    _dominoDummy.position.copy(obj.body.position);
+                    _dominoDummy.quaternion.copy(obj.body.quaternion);
+                    _dominoDummy.updateMatrix();
+                    dominoInstancedMesh.setMatrixAt(obj.instanceId, _dominoDummy.matrix);
+                } else if (obj.mesh) {
+                    obj.mesh.position.copy(obj.body.position);
+                    obj.mesh.quaternion.copy(obj.body.quaternion);
+                }
             }
+            dominoInstancedMesh.instanceMatrix.needsUpdate = true;
+            updateContactAODecals();
             showToast('Rewound all pieces to standing state!');
         }
 
@@ -2102,13 +2191,20 @@
                 toggleSimulation();
             }
 
-            // Reset sound counters for any upright dominoes and wake bodies so neighbors react smoothly
-            for (const o of objects) {
-                const upY = 1 - 2 * (o.body.quaternion.x * o.body.quaternion.x + o.body.quaternion.z * o.body.quaternion.z);
-                if (upY > 0.75) {
+            // Wake up the targeted body and reset its sound count so chain reaction begins crisply!
+            objRecord.body.wakeUp();
+            objRecord.soundCount = 0;
+            // Also wake immediate neighbors within strike distance
+            const px = objRecord.body.position.x;
+            const pz = objRecord.body.position.z;
+            for (let i = 0; i < objects.length; i++) {
+                const o = objects[i];
+                if (o.id === objRecord.id) continue;
+                const distSq = (o.body.position.x - px) ** 2 + (o.body.position.z - pz) ** 2;
+                if (distSq < 9.0) {
+                    o.body.wakeUp();
                     o.soundCount = 0;
                 }
-                o.body.wakeUp();
             }
 
             const pos = objRecord.body.position;
@@ -2191,7 +2287,9 @@
             const standingDominoes = objects.filter(o => {
                 if (o.type !== 'domino') return false;
                 // Check if upright (local Y axis points mostly up)
-                const up = new THREE.Vector3(0, 1, 0).applyQuaternion(o.mesh.quaternion);
+                const q = o.body ? o.body.quaternion : (o.mesh ? o.mesh.quaternion : null);
+                if (!q) return false;
+                const up = new THREE.Vector3(0, 1, 0).applyQuaternion(q);
                 return up.y > 0.75;
             });
 
@@ -2277,10 +2375,13 @@
             raycaster.setFromCamera(mouse, camera);
 
             const targets = [floorMesh];
+            if (includeDominoes && dominoInstancedMesh.count > 0) {
+                targets.push(dominoInstancedMesh);
+            }
             for (const obj of objects) {
-                if (!includeDominoes && obj.type === 'domino') continue;
+                if (obj.type === 'domino') continue;
                 if (state.draggedObject && obj.id === state.draggedObject.id) continue;
-                targets.push(obj.mesh);
+                if (obj.mesh) targets.push(obj.mesh);
             }
 
             const hits = raycaster.intersectObjects(targets, true);
@@ -2296,13 +2397,22 @@
             mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
 
             raycaster.setFromCamera(mouse, camera);
-            const meshes = objects.map(o => o.mesh);
-            const hits = raycaster.intersectObjects(meshes, true);
+            const targets = [];
+            if (dominoInstancedMesh.count > 0) targets.push(dominoInstancedMesh);
+            for (const obj of objects) {
+                if (obj.type !== 'domino' && obj.mesh) targets.push(obj.mesh);
+            }
+
+            const hits = raycaster.intersectObjects(targets, true);
             if (hits.length > 0) {
                 const hit = hits[0];
-                const objId = hit.object.userData.objectId;
-                const objRecord = objects.find(o => o.id === objId);
-                if (objRecord) return { hit, objRecord };
+                if (hit.object === dominoInstancedMesh && hit.instanceId !== undefined) {
+                    const objRecord = dominoInstances[hit.instanceId];
+                    if (objRecord) return { hit, objRecord };
+                } else if (hit.object.userData.objectId !== undefined) {
+                    const objRecord = objectsById.get(hit.object.userData.objectId);
+                    if (objRecord) return { hit, objRecord };
+                }
             }
             return null;
         }
@@ -2474,7 +2584,15 @@
                     obj.body.position.set(targetX, targetYPos, targetZ);
                     obj.body.velocity.set(0, 0, 0);
                     obj.body.angularVelocity.set(0, 0, 0);
-                    obj.mesh.position.copy(obj.body.position);
+                    if (obj.type === 'domino') {
+                        _dominoDummy.position.copy(obj.body.position);
+                        _dominoDummy.quaternion.copy(obj.body.quaternion);
+                        _dominoDummy.updateMatrix();
+                        dominoInstancedMesh.setMatrixAt(obj.instanceId, _dominoDummy.matrix);
+                        dominoInstancedMesh.instanceMatrix.needsUpdate = true;
+                    } else if (obj.mesh) {
+                        obj.mesh.position.copy(obj.body.position);
+                    }
                 }
 
             } else if (state.mode === 'delete') {
@@ -2953,7 +3071,15 @@
             if (state.draggedObject) {
                 const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), state.rotationY);
                 state.draggedObject.body.quaternion.set(q.x, q.y, q.z, q.w);
-                state.draggedObject.mesh.quaternion.copy(q);
+                if (state.draggedObject.type === 'domino') {
+                    _dominoDummy.position.copy(state.draggedObject.body.position);
+                    _dominoDummy.quaternion.copy(q);
+                    _dominoDummy.updateMatrix();
+                    dominoInstancedMesh.setMatrixAt(state.draggedObject.instanceId, _dominoDummy.matrix);
+                    dominoInstancedMesh.instanceMatrix.needsUpdate = true;
+                } else if (state.draggedObject.mesh) {
+                    state.draggedObject.mesh.quaternion.copy(q);
+                }
             }
         }
 
@@ -3179,6 +3305,7 @@
         let fpsFrames = 0;
         let fpsLastStamp = performance.now();
         const fpsEl = document.getElementById('stat-fps');
+        let aoFrameThrottle = 0;
 
         function animate(now) {
             requestAnimationFrame(animate);
@@ -3207,19 +3334,35 @@
             }
 
             if (state.isSimulating) {
-                // Step physics at 60Hz with up to 5 substeps for ultra-smooth low-friction domino cascades
-                world.step(1 / 60, dt, 5);
+                // Step physics at 60Hz with max 2 substeps and dt clamped to 0.033 to prevent spiral of death
+                world.step(1 / 60, Math.min(dt, 0.033), 2);
 
+                let awakeCount = 0;
                 for (let i = 0; i < objects.length; i++) {
                     const obj = objects[i];
                     if (state.draggedObject && obj.id === state.draggedObject.id) continue;
-                    obj.mesh.position.copy(obj.body.position);
-                    obj.mesh.quaternion.copy(obj.body.quaternion);
+                    if (obj.body.sleepState === CANNON.Body.SLEEPING) continue; // Skip thousands of stationary sleeping blocks!
+
+                    if (obj.type === 'domino') {
+                        _dominoDummy.position.copy(obj.body.position);
+                        _dominoDummy.quaternion.copy(obj.body.quaternion);
+                        _dominoDummy.updateMatrix();
+                        dominoInstancedMesh.setMatrixAt(obj.instanceId, _dominoDummy.matrix);
+                        awakeCount++;
+                    } else if (obj.mesh) {
+                        obj.mesh.position.copy(obj.body.position);
+                        obj.mesh.quaternion.copy(obj.body.quaternion);
+                        awakeCount++;
+                    }
+                }
+
+                if (awakeCount > 0) {
+                    dominoInstancedMesh.instanceMatrix.needsUpdate = true;
+                    if (++aoFrameThrottle % 3 === 0) {
+                        updateContactAODecals();
+                    }
                 }
             }
-
-            // Update Real-Time Instanced Contact Ambient Occlusion Decals
-            updateContactAODecals();
 
             controls.update();
 
