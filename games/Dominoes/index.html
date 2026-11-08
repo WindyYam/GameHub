@@ -202,7 +202,7 @@
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center bg-slate-900/70 p-3 rounded-xl border border-slate-800">
                 <!-- Live Pixel Preview -->
                 <div class="flex flex-col items-center justify-center">
-                    <canvas id="mosaic-preview-canvas" width="128" height="128" class="rounded-lg shadow-lg border border-slate-700 bg-slate-950 aspect-square object-contain max-h-[135px]"></canvas>
+                    <canvas id="mosaic-preview-canvas" width="128" height="128" class="rounded-lg shadow-lg border border-slate-700 bg-slate-950 object-contain max-h-[135px] max-w-[190px]"></canvas>
                     <span id="mosaic-info-text" class="text-[11px] text-slate-400 mt-1 font-mono">28 × 28 (784 pieces)</span>
                 </div>
 
@@ -2243,7 +2243,10 @@
         function removeObject(objRecord) {
             if (!objRecord) return;
             objectsById.delete(objRecord.id);
-            world.removeBody(objRecord.body);
+            if (typeof _removeFrozenFromGrid === 'function') _removeFrozenFromGrid(objRecord);
+            if (objRecord.body && objRecord.body.world) {
+                world.removeBody(objRecord.body);
+            }
 
             if (objRecord.type === 'domino' && objRecord.instanceId !== undefined) {
                 const lastIdx = dominoInstancedMesh.count - 1;
@@ -2278,9 +2281,15 @@
         }
 
         function clearAllObjects() {
+            if (typeof _frozenSpatialGrid !== 'undefined' && _frozenSpatialGrid) {
+                _frozenSpatialGrid.clear();
+                _hasFrozenObjects = false;
+            }
             while (objects.length > 0) {
                 const obj = objects.pop();
-                world.removeBody(obj.body);
+                if (obj.body && obj.body.world) {
+                    world.removeBody(obj.body);
+                }
                 if (obj.mesh) {
                     if (obj.mesh.parent) obj.mesh.parent.remove(obj.mesh);
                     else scene.remove(obj.mesh);
@@ -2400,17 +2409,94 @@
         // ==========================================
         // AUTO-FREEZE ENGINE: DETACH RESTING DOMINOES FROM PHYSICS FOR 60 FPS
         // ==========================================
-        // When dominoes settle with little/no movement, they are detached from the active solver (made STATIC).
-        // Static bodies generate zero contact pairs against each other or the ground plane, eliminating all lag!
-        // When hit by another moving domino or pushed by user Force, they instantly unfreeze back to DYNAMIC.
+        // When dominoes settle with little/no movement, they are completely detached from the active Cannon world.
+        // Detached bodies generate zero broadphase pairs, zero contacts, and zero solver cost!
+        // When approached by an actively falling domino or pushed by user Force, they instantly re-enter the world.
+        const _frozenSpatialGrid = new Map();
+        let _hasFrozenObjects = false;
+        const _FROZEN_CELL_SIZE = 3.0;
+
+        function _getGridKey(x, z) {
+            const gx = Math.floor(x / _FROZEN_CELL_SIZE);
+            const gz = Math.floor(z / _FROZEN_CELL_SIZE);
+            return (gx & 0xFFFF) | ((gz & 0xFFFF) << 16);
+        }
+
+        function _addFrozenToGrid(obj) {
+            const key = _getGridKey(obj.body.position.x, obj.body.position.z);
+            let cell = _frozenSpatialGrid.get(key);
+            if (!cell) {
+                cell = [];
+                _frozenSpatialGrid.set(key, cell);
+            }
+            cell.push(obj);
+            obj._gridKey = key;
+            _hasFrozenObjects = true;
+        }
+
+        function _removeFrozenFromGrid(obj) {
+            if (obj._gridKey !== undefined) {
+                const cell = _frozenSpatialGrid.get(obj._gridKey);
+                if (cell) {
+                    const idx = cell.indexOf(obj);
+                    if (idx !== -1) cell.splice(idx, 1);
+                    if (cell.length === 0) _frozenSpatialGrid.delete(obj._gridKey);
+                }
+                delete obj._gridKey;
+            }
+            if (_frozenSpatialGrid.size === 0) {
+                _hasFrozenObjects = false;
+            }
+        }
+
+        function wakeNearbyFrozenObjects(awakeList) {
+            for (let i = 0; i < awakeList.length; i++) {
+                const a = awakeList[i];
+                // Only dominoes that are still upright or actively tipping (upY > 0.65) with genuine momentum can strike & wake resting dominoes!
+                const aq = a.body.quaternion;
+                const aUpY = 1 - 2 * (aq.x * aq.x + aq.z * aq.z);
+                if (aUpY < 0.65) continue; // Once fallen flat, cannot topple adjacent pieces
+
+                const vSq = a.body.velocity.lengthSquared();
+                if (vSq < 0.20) continue; // Must have sufficient impact speed
+
+                const ax = a.body.position.x;
+                const az = a.body.position.z;
+                const gx = Math.floor(ax / _FROZEN_CELL_SIZE);
+                const gz = Math.floor(az / _FROZEN_CELL_SIZE);
+
+                for (let dx = -1; dx <= 1; dx++) {
+                    for (let dz = -1; dz <= 1; dz++) {
+                        const key = ((gx + dx) & 0xFFFF) | (((gz + dz) & 0xFFFF) << 16);
+                        const cell = _frozenSpatialGrid.get(key);
+                        if (!cell || cell.length === 0) continue;
+
+                        for (let c = cell.length - 1; c >= 0; c--) {
+                            const f = cell[c];
+                            const distSq = (f.body.position.x - ax) ** 2 + (f.body.position.z - az) ** 2;
+                            if (distSq < 3.24) { // 1.8m interaction reach
+                                unfreezeObject(f);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         function freezeObject(obj) {
-            if (!obj || !obj.body || obj.body.type === CANNON.Body.STATIC) return;
+            if (!obj || !obj.body || obj.isFrozen) return;
             obj.body.type = CANNON.Body.STATIC;
             obj.body.velocity.set(0, 0, 0);
             obj.body.angularVelocity.set(0, 0, 0);
             obj.body.updateMassProperties();
             obj.isFrozen = true;
             obj.settleTimer = 0;
+
+            // Remove from active Cannon world so broadphase & solver completely skip it!
+            if (obj.body.world) {
+                world.removeBody(obj.body);
+            }
+            _addFrozenToGrid(obj);
 
             // Commit final exact resting transform to instanced buffer
             if (obj.type === 'domino') {
@@ -2426,7 +2512,11 @@
         }
 
         function unfreezeObject(obj) {
-            if (!obj || !obj.body || (obj.body.type === CANNON.Body.DYNAMIC && !obj.isFrozen)) return;
+            if (!obj || !obj.body || (!obj.isFrozen && obj.body.world)) return;
+            _removeFrozenFromGrid(obj);
+            if (!obj.body.world) {
+                world.addBody(obj.body);
+            }
             const defMass = DIMENSIONS[obj.type] ? (DIMENSIONS[obj.type].mass || 0.35) : 0.35;
             obj.body.type = CANNON.Body.DYNAMIC;
             obj.body.mass = defMass;
@@ -2459,7 +2549,7 @@
                 const o = objects[i];
                 if (o.id === objRecord.id) continue;
                 const distSq = (o.body.position.x - px) ** 2 + (o.body.position.z - pz) ** 2;
-                if (distSq < 9.0) {
+                if (distSq < 10.5) {
                     unfreezeObject(o);
                     o.body.wakeUp();
                     o.soundCount = 0;
@@ -2553,9 +2643,25 @@
             });
 
             if (standingDominoes.length > 0) {
-                // If a red starter trigger domino (#ef4444) exists, push it first!
-                const redStarter = standingDominoes.find(o => o.color === '#ef4444');
-                const targetDomino = redStarter || standingDominoes[0];
+                // Prioritize the MOST RECENTLY PLACED standing starter trigger domino!
+                let targetDomino = null;
+                for (let i = standingDominoes.length - 1; i >= 0; i--) {
+                    if (standingDominoes[i].isStarter) {
+                        targetDomino = standingDominoes[i];
+                        break;
+                    }
+                }
+                if (!targetDomino) {
+                    for (let i = standingDominoes.length - 1; i >= 0; i--) {
+                        if (standingDominoes[i].color === '#ef4444') {
+                            targetDomino = standingDominoes[i];
+                            break;
+                        }
+                    }
+                }
+                if (!targetDomino) {
+                    targetDomino = standingDominoes[standingDominoes.length - 1];
+                }
                 toppleObject(targetDomino);
                 showToast('Pushed starting domino! Watch the cascade!');
             } else {
@@ -2641,11 +2747,12 @@
 
         function updateMatrixPlacementVisuals(dist = 0) {
             if (!pendingMatrixConfig) return;
-            const res = pendingMatrixConfig.res || 28;
+            const cols = pendingMatrixConfig.cols || pendingMatrixConfig.res || 28;
+            const rows = pendingMatrixConfig.rows || pendingMatrixConfig.res || 28;
             const spacingX = 0.88;
             const spacingZ = 0.80;
-            const totalW = res * spacingX;
-            const totalD = res * spacingZ;
+            const totalW = cols * spacingX;
+            const totalD = rows * spacingZ;
 
             matrixOutlineMesh.scale.set(totalW, 1, totalD);
             matrixFillMesh.scale.set(totalW, 1, totalD);
@@ -3778,32 +3885,67 @@
             return c;
         }
 
+        function getMatrixDimensions(imgSource, maxRes) {
+            if (!imgSource) return { cols: maxRes, rows: maxRes, aspect: 1 };
+            const nw = imgSource.naturalWidth || imgSource.videoWidth || imgSource.width || 64;
+            const nh = imgSource.naturalHeight || imgSource.videoHeight || imgSource.height || 64;
+            const aspect = (nw > 0 && nh > 0) ? (nw / nh) : 1;
+            let cols = maxRes;
+            let rows = maxRes;
+            if (aspect >= 1.0) {
+                cols = maxRes;
+                rows = Math.max(6, Math.min(64, Math.round(maxRes / aspect)));
+            } else {
+                rows = maxRes;
+                cols = Math.max(6, Math.min(64, Math.round(maxRes * aspect)));
+            }
+            return { cols, rows, aspect };
+        }
+
         function renderMosaicPreview() {
             const previewCanvas = document.getElementById('mosaic-preview-canvas');
             if (!previewCanvas) return;
             const res = parseInt(document.getElementById('mosaic-slider-res').value) || 28;
-            document.getElementById('mosaic-val-res').textContent = `${res} × ${res}`;
 
             if (!currentMosaicSource) {
                 currentMosaicSource = createSamplePresetImage('smiley');
             }
 
+            const { cols, rows, aspect } = getMatrixDimensions(currentMosaicSource, res);
+            document.getElementById('mosaic-val-res').textContent = `${cols} × ${rows}`;
+
+            // Adjust preview canvas dimensions to reflect natural aspect ratio without distortion
+            const baseSize = 130;
+            let canvasW = baseSize;
+            let canvasH = baseSize;
+            if (aspect >= 1.0) {
+                canvasW = baseSize;
+                canvasH = Math.max(36, Math.round(baseSize / aspect));
+            } else {
+                canvasH = baseSize;
+                canvasW = Math.max(36, Math.round(baseSize * aspect));
+            }
+            previewCanvas.width = cols * 4;
+            previewCanvas.height = rows * 4;
+            previewCanvas.style.width = `${canvasW}px`;
+            previewCanvas.style.height = `${canvasH}px`;
+
             const pCtx = previewCanvas.getContext('2d');
             pCtx.imageSmoothingEnabled = false;
 
-            // Draw to temp canvas downscaled to res x res
+            // Draw to temp canvas downscaled to cols x rows
             const tempC = document.createElement('canvas');
-            tempC.width = res;
-            tempC.height = res;
+            tempC.width = cols;
+            tempC.height = rows;
             const tCtx = tempC.getContext('2d');
-            tCtx.drawImage(currentMosaicSource, 0, 0, res, res);
+            tCtx.drawImage(currentMosaicSource, 0, 0, cols, rows);
 
             // Blit scaled up with crisp pixels to preview
             pCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
             pCtx.drawImage(tempC, 0, 0, previewCanvas.width, previewCanvas.height);
 
-            const total = res * res;
-            document.getElementById('mosaic-info-text').textContent = `${res} × ${res} (${total.toLocaleString()} dominoes)`;
+            const total = cols * rows;
+            document.getElementById('mosaic-info-text').textContent = `${cols} × ${rows} (${total.toLocaleString()} dominoes)`;
             document.getElementById('btn-generate-mosaic-text').textContent = `Build Domino Matrix (${total.toLocaleString()} pcs)`;
         }
 
@@ -3812,8 +3954,9 @@
             sound.init();
             // NOTICE: Does NOT call clearAllObjects()! Retains all existing items in scene.
             const { imgSource, res, layout, addStarter } = config;
-            const cols = res;
-            const rows = res;
+            const dims = getMatrixDimensions(imgSource, res || 28);
+            const cols = config.cols || dims.cols;
+            const rows = config.rows || dims.rows;
             const tempC = document.createElement('canvas');
             tempC.width = cols;
             tempC.height = rows;
@@ -3859,7 +4002,8 @@
                     const runnerZ = startZ - 0.95;
                     // Red Primary Starter Trigger Domino on the far left entry
                     const entryX = startX - 0.90;
-                    spawnObject('domino', toWorldPos(entryX - 0.85, runnerZ), angleY + Math.PI / 2, '#ef4444');
+                    const stRunner = spawnObject('domino', toWorldPos(entryX - 0.85, runnerZ), angleY + Math.PI / 2, '#ef4444');
+                    if (stRunner) stRunner.isStarter = true;
                     spawnObject('domino', toWorldPos(entryX, runnerZ), angleY + Math.PI / 2, '#ffffff');
                     spawnedCount += 2;
 
@@ -3912,7 +4056,8 @@
                 if (addStarter) {
                     const s2 = toWorldPos(startX - 1.70, startZ);
                     const s1 = toWorldPos(startX - 0.85, startZ);
-                    spawnObject('domino', s2, angleY + Math.PI / 2, '#ef4444');
+                    const stSnake = spawnObject('domino', s2, angleY + Math.PI / 2, '#ef4444');
+                    if (stSnake) stSnake.isStarter = true;
                     spawnObject('domino', s1, angleY + Math.PI / 2, '#ffffff');
                     spawnedCount += 2;
                 }
@@ -4094,9 +4239,13 @@
                     currentMosaicSource = createSamplePresetImage('smiley');
                 }
 
+                const { cols, rows } = getMatrixDimensions(currentMosaicSource, res);
+
                 const config = {
                     imgSource: currentMosaicSource,
                     res,
+                    cols,
+                    rows,
                     layout,
                     addStarter
                 };
@@ -4118,9 +4267,13 @@
                     currentMosaicSource = createSamplePresetImage('smiley');
                 }
 
+                const { cols, rows } = getMatrixDimensions(currentMosaicSource, res);
+
                 const config = {
                     imgSource: currentMosaicSource,
                     res,
+                    cols,
+                    rows,
                     layout,
                     addStarter
                 };
@@ -4613,6 +4766,8 @@
         const fpsEl = document.getElementById('stat-fps');
         let aoFrameThrottle = 0;
 
+        const _awakeObjectsBuffer = [];
+
         function animate(now, xrFrame) {
             // WebXR Hit Testing for Real-World Surface Detection in AR Mode
             if (isARActive && xrFrame && arSession) {
@@ -4691,6 +4846,7 @@
                 world.step(1 / 60, Math.min(dt, 0.033), 2);
 
                 let awakeCount = 0;
+                _awakeObjectsBuffer.length = 0;
                 for (let i = 0; i < objects.length; i++) {
                     const obj = objects[i];
                     if (state.draggedObject && obj.id === state.draggedObject.id) continue;
@@ -4703,14 +4859,22 @@
                         }
                         const vSq = obj.body.velocity.lengthSquared();
                         const wSq = obj.body.angularVelocity.lengthSquared();
-                        // Minimal movement tolerance (< 0.22 m/s & < 0.28 rad/s) for a full 1.0s before freezing
-                        if (vSq < 0.05 && wSq < 0.08) {
+                        const q = obj.body.quaternion;
+                        // Check if piece has fallen flat onto floor or others
+                        const upY = 1 - 2 * (q.x * q.x + q.z * q.z);
+                        const isTiltedOrFallen = upY < 0.65;
+
+                        // Fallen/resting dominoes have solver contact chatter (wSq up to ~0.45); standing pieces are quiet
+                        const maxVSq = isTiltedOrFallen ? 0.12 : 0.04;
+                        const maxWSq = isTiltedOrFallen ? 0.45 : 0.08;
+
+                        if (vSq < maxVSq && wSq < maxWSq) {
                             obj.settleTimer = (obj.settleTimer || 0) + dt;
                             if (obj.settleTimer >= 1.0) {
                                 freezeObject(obj);
                                 continue;
                             }
-                        } else {
+                        } else if (vSq > 0.15 || wSq > 0.6) {
                             obj.settleTimer = Math.max(0, (obj.settleTimer || 0) - dt * 2.0);
                         }
                     }
@@ -4723,11 +4887,17 @@
                         _dominoDummy.updateMatrix();
                         dominoInstancedMesh.setMatrixAt(obj.instanceId, _dominoDummy.matrix);
                         awakeCount++;
+                        _awakeObjectsBuffer.push(obj);
                     } else if (obj.mesh) {
                         obj.mesh.position.copy(obj.body.position);
                         obj.mesh.quaternion.copy(obj.body.quaternion);
                         awakeCount++;
+                        _awakeObjectsBuffer.push(obj);
                     }
+                }
+
+                if (_awakeObjectsBuffer.length > 0 && _hasFrozenObjects) {
+                    wakeNearbyFrozenObjects(_awakeObjectsBuffer);
                 }
 
                 if (awakeCount > 0) {
