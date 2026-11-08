@@ -3556,6 +3556,11 @@
                     arSession = session;
                     session.addEventListener('end', () => exitAR(false));
 
+                    // Configure close-up near plane for WebXR so tabletop dominoes are never clipped
+                    try {
+                        session.updateRenderState({ depthNear: 0.01, depthFar: 50.0 });
+                    } catch (_) {}
+
                     renderer.xr.setReferenceSpaceType('local');
                     await renderer.xr.setSession(session);
 
@@ -3660,6 +3665,20 @@
                 if (typeof skyDome !== 'undefined' && skyDome) skyDome.visible = false;
                 if (typeof cloudInstancedMesh !== 'undefined' && cloudInstancedMesh) cloudInstancedMesh.visible = false;
 
+                // Set camera near plane to 0.01m (1 cm) so close-up tabletop dominoes are never clipped!
+                camera.near = 0.01;
+                camera.far = 50.0;
+                camera.updateProjectionMatrix();
+
+                // Scale directional light shadow frustum to fit tabletop AR stage with tight clipping bounds
+                dirLight.shadow.camera.near = 0.05;
+                dirLight.shadow.camera.far = 12.0;
+                dirLight.shadow.camera.left = -3.0;
+                dirLight.shadow.camera.right = 3.0;
+                dirLight.shadow.camera.top = 3.0;
+                dirLight.shadow.camera.bottom = -3.0;
+                dirLight.shadow.camera.updateProjectionMatrix();
+
                 // Sync AR Scale from dropdown (defaults to 0.035 Tabletop)
                 const scaleEl = document.getElementById('ar-scale-select');
                 arScale = scaleEl ? (parseFloat(scaleEl.value) || 0.035) : 0.035;
@@ -3719,10 +3738,23 @@
                 arWorldGroup.scale.set(1, 1, 1);
                 arWorldGroup.updateMatrixWorld(true);
 
-                // Restore studio lighting target
+                // Restore studio camera near and far planes
+                camera.near = 0.25;
+                camera.far = 420.0;
+                camera.updateProjectionMatrix();
+
+                // Restore studio directional light shadow camera
                 dirLight.position.set(24, 42, 22);
                 dirLight.target.position.set(0, 0, 0);
                 dirLight.target.updateMatrixWorld();
+                dirLight.shadow.camera.near = 8.0;
+                dirLight.shadow.camera.far = 110.0;
+                const d = 36;
+                dirLight.shadow.camera.left = -d;
+                dirLight.shadow.camera.right = d;
+                dirLight.shadow.camera.top = d;
+                dirLight.shadow.camera.bottom = -d;
+                dirLight.shadow.camera.updateProjectionMatrix();
 
                 if (typeof floorMesh !== 'undefined' && floorMesh) floorMesh.visible = true;
                 if (typeof baseMesh !== 'undefined' && baseMesh) baseMesh.visible = true;
