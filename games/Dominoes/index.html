@@ -1128,10 +1128,43 @@
             ctx.fillStyle = '#ffffff';
             ctx.fillRect(0, 0, 256, 512);
 
-            // Subtle crisp border bevel inset so domino blocks in mosaics stay individually distinct without color contamination
-            ctx.strokeStyle = 'rgba(0, 0, 0, 0.08)';
-            ctx.lineWidth = 10;
-            ctx.strokeRect(5, 5, 246, 502);
+            // Subtle crisp border bevel inset so domino blocks in mosaics stay individually distinct
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.12)';
+            ctx.lineWidth = 8;
+            ctx.strokeRect(10, 10, 236, 492);
+
+            // Center divider bar with engraved groove
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.22)';
+            ctx.fillRect(30, 251, 196, 10);
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.65)';
+            ctx.fillRect(32, 253, 192, 6);
+
+            // Classic domino pips (circles) with subtle engraved cavity shading
+            const drawPip = (x, y) => {
+                const pGrad = ctx.createRadialGradient(x - 2, y - 2, 2, x, y, 16);
+                pGrad.addColorStop(0.0, 'rgba(15, 23, 42, 0.85)');
+                pGrad.addColorStop(0.80, 'rgba(15, 23, 42, 0.75)');
+                pGrad.addColorStop(1.0, 'rgba(0, 0, 0, 0.25)');
+                ctx.fillStyle = pGrad;
+                ctx.beginPath();
+                ctx.arc(x, y, 14, 0, Math.PI * 2);
+                ctx.fill();
+            };
+
+            // Top half: 5 circles (pips)
+            drawPip(72, 72);
+            drawPip(184, 72);
+            drawPip(128, 128);
+            drawPip(72, 184);
+            drawPip(184, 184);
+
+            // Bottom half: 6 circles (pips)
+            drawPip(72, 320);
+            drawPip(184, 320);
+            drawPip(72, 380);
+            drawPip(184, 380);
+            drawPip(72, 440);
+            drawPip(184, 440);
 
             const faceTex = new THREE.CanvasTexture(canvas);
             faceTex.anisotropy = 4;
