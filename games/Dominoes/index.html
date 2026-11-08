@@ -2156,10 +2156,10 @@
 
             // Collision Audio Listener with anti-chatter filtering for fallen/resting dominoes
             body.addEventListener('collide', (e) => {
-                // Instantly unfreeze if hit by an actively moving body (> 1.0 m/s impact)
+                // Instantly unfreeze if hit by an actively moving body (> 0.6 m/s impact)
                 if (objRecord.isFrozen || body.type === CANNON.Body.STATIC) {
                     const other = e.body;
-                    if (other && other.velocity && other.velocity.lengthSquared() > 1.0) {
+                    if (other && other.velocity && other.velocity.lengthSquared() > 0.36) {
                         unfreezeObject(objRecord);
                     }
                 }
@@ -4670,9 +4670,10 @@
                         }
                         const vSq = obj.body.velocity.lengthSquared();
                         const wSq = obj.body.angularVelocity.lengthSquared();
-                        if (vSq < 1.2 && wSq < 1.5) {
+                        // Minimal movement tolerance (< 0.22 m/s & < 0.28 rad/s) for a full 1.0s before freezing
+                        if (vSq < 0.05 && wSq < 0.08) {
                             obj.settleTimer = (obj.settleTimer || 0) + dt;
-                            if (obj.settleTimer > 0.18) {
+                            if (obj.settleTimer >= 1.0) {
                                 freezeObject(obj);
                                 continue;
                             }
