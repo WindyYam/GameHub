@@ -1307,6 +1307,7 @@
         dirLight.shadow.bias = -0.00035;
         dirLight.shadow.normalBias = 0.015;
         scene.add(dirLight);
+        scene.add(dirLight.target);
 
         const bounceLight = new THREE.DirectionalLight(0xbae6fd, 0.38);
         bounceLight.position.set(-26, 18, -22);
@@ -2458,7 +2459,7 @@
          * so you can place or draw domino trails ON TOP of tables, bridges, and chairs!
          */
         function getSurfaceIntersection(clientX, clientY, includeDominoes = false) {
-            const activeCam = (renderer.xr && renderer.xr.isPresenting) ? renderer.xr.getCamera() : camera;
+            const activeCam = camera;
             const rect = renderer.domElement.getBoundingClientRect();
             mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
             mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
@@ -2522,7 +2523,7 @@
         }
 
         function getObjectIntersection(clientX, clientY) {
-            const activeCam = (renderer.xr && renderer.xr.isPresenting) ? renderer.xr.getCamera() : camera;
+            const activeCam = camera;
             const rect = renderer.domElement.getBoundingClientRect();
             mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
             mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
@@ -3485,11 +3486,11 @@
             arIsAnchored = true;
             arWorldGroup.position.copy(arAnchorPos);
             arWorldGroup.scale.set(arScale, arScale, arScale);
+            arWorldGroup.visible = true;
 
             // Orient the stage horizontally toward the user
-            const activeCam = (renderer.xr && renderer.xr.isPresenting) ? renderer.xr.getCamera() : camera;
             const camPos = new THREE.Vector3();
-            activeCam.getWorldPosition(camPos);
+            camera.getWorldPosition(camPos);
             arWorldGroup.rotation.y = Math.atan2(camPos.x - x, camPos.z - z);
             arWorldGroup.updateMatrixWorld(true);
 
@@ -3508,6 +3509,7 @@
         function repositionARStage() {
             arIsAnchored = false;
             arReticle.visible = true;
+            arWorldGroup.visible = false;
             const bannerText = document.getElementById('ar-banner-text');
             if (bannerText) {
                 bannerText.innerHTML = '<strong>Move Stage:</strong> Point at table/floor, tap to anchor';
@@ -3668,6 +3670,7 @@
 
                 if (mode === 'webxr') {
                     arIsAnchored = false;
+                    arWorldGroup.visible = false; // Hide stage until anchored to prevent jumpy updates during scanning
                     arReticle.visible = true;
                     controls.enabled = false;
                     if (bannerText) bannerText.innerHTML = '<strong>Scan Surface:</strong> Point camera at table/floor, tap to anchor';
@@ -3677,6 +3680,7 @@
                     arAnchorPos.set(0, -0.6, -1.2);
                     arWorldGroup.position.copy(arAnchorPos);
                     arWorldGroup.rotation.set(0, 0, 0);
+                    arWorldGroup.visible = true;
                     arIsAnchored = true;
                     arReticle.visible = false;
                     controls.enabled = true;
@@ -3709,6 +3713,7 @@
                 scene.fog = new THREE.FogExp2(0xb8e6fe, 0.0028);
 
                 // Reset world group to 1:1 origin
+                arWorldGroup.visible = true;
                 arWorldGroup.position.set(0, 0, 0);
                 arWorldGroup.rotation.set(0, 0, 0);
                 arWorldGroup.scale.set(1, 1, 1);
@@ -3784,26 +3789,31 @@
 
                             if (!arIsAnchored) {
                                 arReticle.visible = true;
-                                // Hover stage on detected surface facing the camera before user taps to anchor
-                                arWorldGroup.position.copy(arReticlePos);
-                                const xrCam = renderer.xr.getCamera();
-                                const camPos = new THREE.Vector3();
-                                xrCam.getWorldPosition(camPos);
-                                arWorldGroup.rotation.y = Math.atan2(camPos.x - arReticlePos.x, camPos.z - arReticlePos.z);
-                                arWorldGroup.updateMatrixWorld(true);
+                                const bannerText = document.getElementById('ar-banner-text');
+                                if (bannerText && !bannerText.dataset.found) {
+                                    bannerText.innerHTML = '<strong>Surface Found!</strong> Tap screen to place domino stage';
+                                    bannerText.dataset.found = '1';
+                                }
                             } else {
                                 arReticle.visible = false;
                             }
                         }
                     } else if (!arIsAnchored) {
                         arReticle.visible = false;
+                        const bannerText = document.getElementById('ar-banner-text');
+                        if (bannerText && bannerText.dataset.found) {
+                            bannerText.innerHTML = '<strong>Scan Surface:</strong> Point camera at table/floor, tap to anchor';
+                            delete bannerText.dataset.found;
+                        }
                     }
                 }
 
-                // Keep directional shadow light centered directly over the domino stage in AR
-                dirLight.target.position.copy(arWorldGroup.position);
-                dirLight.target.updateMatrixWorld();
-                dirLight.position.set(arWorldGroup.position.x + 1.2, arWorldGroup.position.y + 2.5, arWorldGroup.position.z + 1.0);
+                if (arIsAnchored) {
+                    // Keep directional shadow light centered directly over the domino stage in AR
+                    dirLight.target.position.copy(arWorldGroup.position);
+                    dirLight.target.updateMatrixWorld();
+                    dirLight.position.set(arWorldGroup.position.x + 1.2, arWorldGroup.position.y + 2.5, arWorldGroup.position.z + 1.0);
+                }
             }
 
             const dt = Math.min((now - lastTime) / 1000, 0.1);
@@ -3862,8 +3872,10 @@
 
             controls.update();
 
-            // Render with Screen-Space Ambient Occlusion (High) or Direct Hardware MSAA + Contact AO (Balanced / Mobile)
-            if (graphicsQuality === 'high' && ssaoRenderTarget && ssaoMaterial) {
+            // In AR mode, render directly to WebXR framebuffer without setRenderTarget(null)
+            if (isARActive) {
+                renderer.render(scene, camera);
+            } else if (graphicsQuality === 'high' && ssaoRenderTarget && ssaoMaterial) {
                 renderer.setRenderTarget(ssaoRenderTarget);
                 renderer.render(scene, camera);
                 renderer.setRenderTarget(null);

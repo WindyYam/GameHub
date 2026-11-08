@@ -16,33 +16,41 @@
         body {
             margin: 0;
             padding: 0;
+            width: 100%;
             height: 100%;
+            height: 100dvh;
+            min-height: -webkit-fill-available;
             overflow: hidden;
         }
 
         #root {
+            width: 100%;
             height: 100%;
+            height: 100dvh;
             display: flex;
             flex-direction: column;
-            align-items: center;
-            justify-content: center;
+            align-items: stretch;
+            justify-content: flex-start;
         }
 
         .app-shell {
             position: relative;
             width: 100%;
             height: 100%;
+            height: 100dvh;
+            overflow: hidden;
         }
 
         .game-container {
             position: relative;
             width: 100%;
-            height: 100vh;
+            height: 100%;
+            height: 100dvh;
             overflow: hidden;
             display: flex;
             flex-direction: column;
-            justify-content: center;
-            align-items: center;
+            justify-content: flex-start;
+            align-items: stretch;
         }
 
         .drag-zone {
@@ -56,13 +64,15 @@
             z-index: 10;
             cursor: ns-resize;
             transition: height 0.2s, background 0.2s;
+            touch-action: pan-y;
         }
 
         .dragging .drag-zone {
             left: 0;
             transform: none;
             width: 100%;
-            height: 100vh;
+            height: 100%;
+            height: 100dvh;
             background: transparent;
         }
 
@@ -71,6 +81,7 @@
             height: 100%;
             border: none;
             z-index: 5;
+            display: block;
         }
 
         .pulling-indicator {
@@ -668,6 +679,22 @@
                 return false;
             };
 
+            React.useEffect(() => {
+                const onGlobalEnd = () => {
+                    if (isDragging || pulling) {
+                        handleEnd();
+                    }
+                };
+                window.addEventListener('mouseup', onGlobalEnd);
+                window.addEventListener('touchend', onGlobalEnd);
+                window.addEventListener('touchcancel', onGlobalEnd);
+                return () => {
+                    window.removeEventListener('mouseup', onGlobalEnd);
+                    window.removeEventListener('touchend', onGlobalEnd);
+                    window.removeEventListener('touchcancel', onGlobalEnd);
+                };
+            }, [isDragging, pulling]);
+
             const handleEnd = () => {
                 if (pulling && games.length > 0) {
                     setSlidingOut(true);
@@ -787,6 +814,7 @@
                             src={`${games[currentGame].path}?_cache=${shuffleTimestamp}`}
                             className="game-frame"
                             title={`Game ${currentGame + 1}`}
+                            allow="xr-spatial-tracking; camera; accelerometer; gyroscope; fullscreen"
                         />
                     </div>
                 )}
