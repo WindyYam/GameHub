@@ -159,10 +159,11 @@
     <div id="canvas-container"></div>
 
     <!-- AR Active Top Notification Banner -->
-    <div id="ar-banner" class="fixed top-3 sm:top-4 left-1/2 -translate-x-1/2 z-40 hidden items-center gap-2 px-3.5 py-2 rounded-full glass-panel shadow-2xl text-xs font-medium text-purple-200 border border-purple-500/40 pointer-events-auto">
+    <div id="ar-banner" class="fixed top-3 sm:top-4 left-1/2 -translate-x-1/2 z-40 hidden items-center gap-2 px-3.5 py-2 rounded-full glass-panel shadow-2xl text-xs font-medium text-purple-200 border border-purple-500/40 pointer-events-auto max-w-[92vw]">
         <span class="w-2 h-2 rounded-full bg-purple-400 animate-pulse shrink-0"></span>
-        <span id="ar-banner-text"><strong>AR Active:</strong> Point camera at floor/table to place dominoes</span>
-        <button id="btn-ar-exit-banner" class="ml-1 px-2 py-0.5 rounded-lg bg-rose-900/80 hover:bg-rose-800 text-white text-[11px] font-bold shadow active:scale-95 transition">Exit AR</button>
+        <span id="ar-banner-text" class="truncate"><strong>Scan Surface:</strong> Point camera at table/floor, tap to anchor</span>
+        <button id="btn-ar-reposition" class="hidden px-2 py-0.5 rounded-lg bg-purple-700/90 hover:bg-purple-600 text-white text-[11px] font-bold shadow active:scale-95 transition shrink-0">Move Stage</button>
+        <button id="btn-ar-exit-banner" class="ml-1 px-2 py-0.5 rounded-lg bg-rose-900/80 hover:bg-rose-800 text-white text-[11px] font-bold shadow active:scale-95 transition shrink-0">Exit AR</button>
     </div>
 
     <!-- Bottom Simulation & Preset Bar -->
@@ -281,9 +282,11 @@
             <div id="ar-scale-container" class="hidden items-center gap-1.5" title="AR World Scale">
                 <i data-lucide="scan" class="w-3.5 h-3.5 text-purple-400 hidden sm:inline"></i>
                 <select id="ar-scale-select" class="bg-slate-800/90 text-xs font-medium text-purple-300 rounded-xl px-2 py-1.5 border border-slate-700 focus:outline-none focus:border-purple-400 cursor-pointer">
-                    <option value="0.08" selected>AR: Tabletop (Desk)</option>
-                    <option value="0.25">AR: Medium (Floor)</option>
-                    <option value="1.0">AR: 1:1 Life Size</option>
+                    <option value="0.035" selected>AR: Tabletop (~5.8 cm)</option>
+                    <option value="0.022">AR: Miniature (~3.6 cm)</option>
+                    <option value="0.07">AR: Floor (~11.5 cm)</option>
+                    <option value="0.20">AR: Large (~33 cm)</option>
+                    <option value="1.0">AR: 1:1 Life Size (1.65 m)</option>
                 </select>
             </div>
 
@@ -1218,15 +1221,20 @@
         }
         updateInstancedClouds(0, 0);
 
+        // AR World Root Group: Handles real-world positioning, surface anchoring & realistic tabletop scaling
+        const arWorldGroup = new THREE.Group();
+        arWorldGroup.name = 'arWorldGroup';
+        scene.add(arWorldGroup);
+
         // AR Floor Shadow Receiver (Invisible plane that catches dynamic domino shadows onto real surfaces)
-        const arShadowGeo = new THREE.PlaneGeometry(120, 120);
-        const arShadowMat = new THREE.ShadowMaterial({ opacity: 0.38 });
+        const arShadowGeo = new THREE.PlaneGeometry(160, 160);
+        const arShadowMat = new THREE.ShadowMaterial({ opacity: 0.42 });
         const arShadowPlane = new THREE.Mesh(arShadowGeo, arShadowMat);
         arShadowPlane.rotation.x = -Math.PI / 2;
-        arShadowPlane.position.y = 0;
+        arShadowPlane.position.set(0, 0, 0);
         arShadowPlane.receiveShadow = true;
         arShadowPlane.visible = false;
-        scene.add(arShadowPlane);
+        arWorldGroup.add(arShadowPlane);
 
         // Real-World Surface Detection Reticle (WebXR Hit-Test)
         const reticleRingGeo = new THREE.RingGeometry(0.09, 0.12, 32).rotateX(-Math.PI / 2);
@@ -1326,7 +1334,7 @@
         contactAOMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
         contactAOMesh.frustumCulled = false;
         contactAOMesh.renderOrder = 1;
-        scene.add(contactAOMesh);
+        arWorldGroup.add(contactAOMesh);
 
         const _aoDummy = new THREE.Object3D();
         const _aoLocalVec = new THREE.Vector3();
@@ -1810,7 +1818,7 @@
         // Pre-allocate the full instanceColor buffer for MAX_DOMINO_INSTANCES so all dominoes have their true colors!
         dominoInstancedMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_DOMINO_INSTANCES * 3), 3);
         dominoInstancedMesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
-        scene.add(dominoInstancedMesh);
+        arWorldGroup.add(dominoInstancedMesh);
         window.dominoInstancedMesh = dominoInstancedMesh;
 
         const dominoInstances = []; // Maps instanceId -> objRecord
@@ -2054,7 +2062,7 @@
                 mesh.traverse(child => {
                     if (child.isMesh) child.userData.objectId = id;
                 });
-                scene.add(mesh);
+                arWorldGroup.add(mesh);
             }
             objectsById.set(id, objRecord);
 
@@ -2131,7 +2139,8 @@
                 dominoInstancedMesh.instanceMatrix.needsUpdate = true;
                 if (dominoInstancedMesh.instanceColor) dominoInstancedMesh.instanceColor.needsUpdate = true;
             } else if (objRecord.mesh) {
-                scene.remove(objRecord.mesh);
+                if (objRecord.mesh.parent) objRecord.mesh.parent.remove(objRecord.mesh);
+                else scene.remove(objRecord.mesh);
             }
 
             const idx = objects.indexOf(objRecord);
@@ -2144,7 +2153,10 @@
             while (objects.length > 0) {
                 const obj = objects.pop();
                 world.removeBody(obj.body);
-                if (obj.mesh) scene.remove(obj.mesh);
+                if (obj.mesh) {
+                    if (obj.mesh.parent) obj.mesh.parent.remove(obj.mesh);
+                    else scene.remove(obj.mesh);
+                }
             }
             // Zero out all instance matrices in buffer so no shadows linger
             for (let i = 0; i < dominoInstancedMesh.count; i++) {
@@ -2247,7 +2259,7 @@
             opacity: 0
         });
         const pulseMesh = new THREE.Mesh(pulseGeo, pulseMat);
-        scene.add(pulseMesh);
+        arWorldGroup.add(pulseMesh);
         let pulseAnim = 0;
 
         function triggerPushVisual(pos) {
@@ -2392,7 +2404,10 @@
         });
 
         function rebuildGhostMesh() {
-            if (ghostMesh) scene.remove(ghostMesh);
+            if (ghostMesh) {
+                if (ghostMesh.parent) ghostMesh.parent.remove(ghostMesh);
+                else scene.remove(ghostMesh);
+            }
             const type = state.mode === 'draw' ? 'domino' : state.item;
 
             if (type === 'domino') {
@@ -2433,7 +2448,7 @@
             }
 
             ghostMesh.visible = (state.mode === 'place' || state.mode === 'draw');
-            scene.add(ghostMesh);
+            arWorldGroup.add(ghostMesh);
         }
 
         rebuildGhostMesh();
@@ -2443,19 +2458,53 @@
          * so you can place or draw domino trails ON TOP of tables, bridges, and chairs!
          */
         function getSurfaceIntersection(clientX, clientY, includeDominoes = false) {
-            // When in WebXR AR mode and surface reticle is active, place directly on real table/floor!
-            if (isARActive && arReticle.visible) {
-                return { point: arReticlePos.clone() };
-            }
-
+            const activeCam = (renderer.xr && renderer.xr.isPresenting) ? renderer.xr.getCamera() : camera;
             const rect = renderer.domElement.getBoundingClientRect();
             mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
             mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
 
-            raycaster.setFromCamera(mouse, camera);
+            raycaster.setFromCamera(mouse, activeCam);
 
-            const activeFloor = isARActive ? arShadowPlane : floorMesh;
-            const targets = [activeFloor];
+            if (isARActive) {
+                if (!arIsAnchored && arModeType === 'webxr') {
+                    // Not anchored yet: Stage follows reticle
+                    return { point: new THREE.Vector3(0, 0, 0) };
+                }
+
+                // Raycast against arShadowPlane and any placed objects inside arWorldGroup
+                const targets = [arShadowPlane];
+                if (includeDominoes && dominoInstancedMesh.count > 0) {
+                    targets.push(dominoInstancedMesh);
+                }
+                for (const obj of objects) {
+                    if (obj.type === 'domino') continue;
+                    if (state.draggedObject && obj.id === state.draggedObject.id) continue;
+                    if (obj.mesh) targets.push(obj.mesh);
+                }
+
+                const hits = raycaster.intersectObjects(targets, true);
+                if (hits.length > 0) {
+                    // Convert world intersection point into arWorldGroup local coordinate space!
+                    const localPt = arWorldGroup.worldToLocal(hits[0].point.clone());
+                    // Clamp slight numerical floating error on table surface
+                    if (hits[0].object === arShadowPlane) localPt.y = 0;
+                    return { point: localPt, object: hits[0].object, face: hits[0].face };
+                }
+
+                // If raycast misses outer finite plane bounds, intersect infinite horizontal plane at stage height
+                const surfacePlane = new THREE.Plane();
+                surfacePlane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 1, 0), arWorldGroup.position);
+                const worldPt = new THREE.Vector3();
+                if (raycaster.ray.intersectPlane(surfacePlane, worldPt)) {
+                    const localPt = arWorldGroup.worldToLocal(worldPt.clone());
+                    localPt.y = 0;
+                    return { point: localPt };
+                }
+                return null;
+            }
+
+            // Normal Studio Mode
+            const targets = [floorMesh];
             if (includeDominoes && dominoInstancedMesh.count > 0) {
                 targets.push(dominoInstancedMesh);
             }
@@ -2473,11 +2522,12 @@
         }
 
         function getObjectIntersection(clientX, clientY) {
+            const activeCam = (renderer.xr && renderer.xr.isPresenting) ? renderer.xr.getCamera() : camera;
             const rect = renderer.domElement.getBoundingClientRect();
             mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
             mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
 
-            raycaster.setFromCamera(mouse, camera);
+            raycaster.setFromCamera(mouse, activeCam);
             const targets = [];
             if (dominoInstancedMesh.count > 0) targets.push(dominoInstancedMesh);
             for (const obj of objects) {
@@ -2536,6 +2586,14 @@
             }
 
             multiTouchGestureActive = false;
+
+            // In WebXR AR mode, if stage is not yet anchored, first tap anchors the domino stage onto the detected surface!
+            if (isARActive && !arIsAnchored && arModeType === 'webxr') {
+                if (arReticle.visible) {
+                    anchorARStage(arReticlePos.x, arReticlePos.y, arReticlePos.z);
+                    return;
+                }
+            }
 
             // On mouse, only handle left-click (button 0) for tools
             if (e.pointerType === 'mouse' && e.button !== 0) return;
@@ -3188,11 +3246,14 @@
         const btnARExitBanner = document.getElementById('btn-ar-exit-banner');
         if (btnARExitBanner) btnARExitBanner.addEventListener('click', () => exitAR(true));
 
+        const btnARReposition = document.getElementById('btn-ar-reposition');
+        if (btnARReposition) btnARReposition.addEventListener('click', () => repositionARStage());
+
         const arScaleSelect = document.getElementById('ar-scale-select');
         if (arScaleSelect) {
             arScaleSelect.addEventListener('change', (e) => {
-                const sc = parseFloat(e.target.value) || 0.08;
-                // Scale entire scene or domino dimensions in AR
+                const sc = parseFloat(e.target.value) || 0.035;
+                setARScale(sc);
                 showToast(`AR Scale: ${e.target.options[e.target.selectedIndex].text}`);
             });
         }
@@ -3414,6 +3475,56 @@
         let arModeType = 'none'; // 'webxr', 'camera', 'preview'
         let isWebXRSupported = false;
 
+        // AR Surface Anchoring & Scale
+        let arIsAnchored = false;
+        const arAnchorPos = new THREE.Vector3(0, -0.6, -1.0);
+        let arScale = 0.035; // Default tabletop scale: 1.65m * 0.035 = 5.77 cm tall dominoes!
+
+        function anchorARStage(x, y, z) {
+            arAnchorPos.set(x, y, z);
+            arIsAnchored = true;
+            arWorldGroup.position.copy(arAnchorPos);
+            arWorldGroup.scale.set(arScale, arScale, arScale);
+
+            // Orient the stage horizontally toward the user
+            const activeCam = (renderer.xr && renderer.xr.isPresenting) ? renderer.xr.getCamera() : camera;
+            const camPos = new THREE.Vector3();
+            activeCam.getWorldPosition(camPos);
+            arWorldGroup.rotation.y = Math.atan2(camPos.x - x, camPos.z - z);
+            arWorldGroup.updateMatrixWorld(true);
+
+            arReticle.visible = false;
+
+            const bannerText = document.getElementById('ar-banner-text');
+            if (bannerText) {
+                bannerText.innerHTML = '<strong>Stage Anchored!</strong> Tap or draw on table to build, Push to topple';
+            }
+            const btnRepo = document.getElementById('btn-ar-reposition');
+            if (btnRepo) btnRepo.classList.remove('hidden');
+
+            showToast('Domino stage anchored on surface! Real tabletop scale active');
+        }
+
+        function repositionARStage() {
+            arIsAnchored = false;
+            arReticle.visible = true;
+            const bannerText = document.getElementById('ar-banner-text');
+            if (bannerText) {
+                bannerText.innerHTML = '<strong>Move Stage:</strong> Point at table/floor, tap to anchor';
+            }
+            const btnRepo = document.getElementById('btn-ar-reposition');
+            if (btnRepo) btnRepo.classList.add('hidden');
+            showToast('Move camera to new spot and tap to re-anchor');
+        }
+
+        function setARScale(newScale) {
+            arScale = newScale;
+            if (isARActive) {
+                arWorldGroup.scale.set(arScale, arScale, arScale);
+                arWorldGroup.updateMatrixWorld(true);
+            }
+        }
+
         // Check WebXR AR support
         if ('xr' in navigator) {
             navigator.xr.isSessionSupported('immersive-ar').then(supported => {
@@ -3532,22 +3643,47 @@
             const textAR = document.getElementById('text-ar');
             const arBanner = document.getElementById('ar-banner');
             const arScaleContainer = document.getElementById('ar-scale-container');
+            const btnRepo = document.getElementById('btn-ar-reposition');
+            const bannerText = document.getElementById('ar-banner-text');
 
             if (active) {
                 document.body.classList.add('ar-mode');
                 scene.background = null;
                 scene.fog = null;
 
-                // Hide studio geometry
+                // Hide studio floating island geometry
                 if (typeof floorMesh !== 'undefined' && floorMesh) floorMesh.visible = false;
                 if (typeof baseMesh !== 'undefined' && baseMesh) baseMesh.visible = false;
                 if (typeof gridHelper !== 'undefined' && gridHelper) gridHelper.visible = false;
                 if (typeof skyDome !== 'undefined' && skyDome) skyDome.visible = false;
                 if (typeof cloudInstancedMesh !== 'undefined' && cloudInstancedMesh) cloudInstancedMesh.visible = false;
 
-                // Show AR helpers
+                // Sync AR Scale from dropdown (defaults to 0.035 Tabletop)
+                const scaleEl = document.getElementById('ar-scale-select');
+                arScale = scaleEl ? (parseFloat(scaleEl.value) || 0.035) : 0.035;
+                arWorldGroup.scale.set(arScale, arScale, arScale);
+
+                // Show real-world shadow plane
                 arShadowPlane.visible = true;
-                arReticle.visible = mode === 'webxr';
+
+                if (mode === 'webxr') {
+                    arIsAnchored = false;
+                    arReticle.visible = true;
+                    controls.enabled = false;
+                    if (bannerText) bannerText.innerHTML = '<strong>Scan Surface:</strong> Point camera at table/floor, tap to anchor';
+                    if (btnRepo) btnRepo.classList.add('hidden');
+                } else {
+                    // Camera pass-through fallback (e.g. iOS Safari)
+                    arAnchorPos.set(0, -0.6, -1.2);
+                    arWorldGroup.position.copy(arAnchorPos);
+                    arWorldGroup.rotation.set(0, 0, 0);
+                    arIsAnchored = true;
+                    arReticle.visible = false;
+                    controls.enabled = true;
+                    if (bannerText) bannerText.innerHTML = '<strong>Camera AR:</strong> Tabletop scale active over camera';
+                    if (btnRepo) btnRepo.classList.add('hidden');
+                }
+                arWorldGroup.updateMatrixWorld(true);
 
                 if (btnAR) {
                     btnAR.className = 'flex items-center gap-1 sm:gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl font-bold text-xs bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white transition shadow-lg shadow-rose-500/25 active:scale-95 shrink-0';
@@ -3567,14 +3703,21 @@
                     arScaleContainer.classList.remove('hidden');
                     arScaleContainer.classList.add('flex');
                 }
-
-                if (mode === 'webxr') {
-                    controls.enabled = false;
-                }
             } else {
                 document.body.classList.remove('ar-mode');
                 scene.background = new THREE.Color(0x7dd3fc);
                 scene.fog = new THREE.FogExp2(0xb8e6fe, 0.0028);
+
+                // Reset world group to 1:1 origin
+                arWorldGroup.position.set(0, 0, 0);
+                arWorldGroup.rotation.set(0, 0, 0);
+                arWorldGroup.scale.set(1, 1, 1);
+                arWorldGroup.updateMatrixWorld(true);
+
+                // Restore studio lighting target
+                dirLight.position.set(24, 42, 22);
+                dirLight.target.position.set(0, 0, 0);
+                dirLight.target.updateMatrixWorld();
 
                 if (typeof floorMesh !== 'undefined' && floorMesh) floorMesh.visible = true;
                 if (typeof baseMesh !== 'undefined' && baseMesh) baseMesh.visible = true;
@@ -3584,6 +3727,7 @@
 
                 arShadowPlane.visible = false;
                 arReticle.visible = false;
+                arIsAnchored = false;
 
                 if (btnAR) {
                     btnAR.className = 'flex items-center gap-1 sm:gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl font-bold text-xs bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white transition shadow-lg shadow-purple-500/25 active:scale-95 shrink-0';
@@ -3635,15 +3779,31 @@
                         const hit = hitTestResults[0];
                         const pose = hit.getPose(arRefSpace);
                         if (pose) {
-                            arReticle.visible = true;
                             arReticle.matrix.fromArray(pose.transform.matrix);
                             arReticlePos.setFromMatrixPosition(arReticle.matrix);
-                            arShadowPlane.position.y = arReticlePos.y;
+
+                            if (!arIsAnchored) {
+                                arReticle.visible = true;
+                                // Hover stage on detected surface facing the camera before user taps to anchor
+                                arWorldGroup.position.copy(arReticlePos);
+                                const xrCam = renderer.xr.getCamera();
+                                const camPos = new THREE.Vector3();
+                                xrCam.getWorldPosition(camPos);
+                                arWorldGroup.rotation.y = Math.atan2(camPos.x - arReticlePos.x, camPos.z - arReticlePos.z);
+                                arWorldGroup.updateMatrixWorld(true);
+                            } else {
+                                arReticle.visible = false;
+                            }
                         }
-                    } else {
+                    } else if (!arIsAnchored) {
                         arReticle.visible = false;
                     }
                 }
+
+                // Keep directional shadow light centered directly over the domino stage in AR
+                dirLight.target.position.copy(arWorldGroup.position);
+                dirLight.target.updateMatrixWorld();
+                dirLight.position.set(arWorldGroup.position.x + 1.2, arWorldGroup.position.y + 2.5, arWorldGroup.position.z + 1.0);
             }
 
             const dt = Math.min((now - lastTime) / 1000, 0.1);
