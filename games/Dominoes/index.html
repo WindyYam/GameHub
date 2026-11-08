@@ -1931,6 +1931,7 @@
         dominoInstancedMesh.count = 0;
         dominoInstancedMesh.castShadow = true;
         dominoInstancedMesh.receiveShadow = true;
+        dominoInstancedMesh.frustumCulled = false;
         dominoInstancedMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
         // Pre-allocate the full instanceColor buffer for MAX_DOMINO_INSTANCES so all dominoes have their true colors!
         dominoInstancedMesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX_DOMINO_INSTANCES * 3), 3);
