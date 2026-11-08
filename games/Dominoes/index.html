@@ -213,7 +213,7 @@
                             <span>Grid Resolution</span>
                             <span id="mosaic-val-res" class="text-purple-300 font-mono font-bold">28 × 28</span>
                         </div>
-                        <input type="range" id="mosaic-slider-res" min="16" max="48" step="2" value="28" class="w-full accent-purple-500 h-1.5 bg-slate-800 rounded-lg cursor-pointer">
+                        <input type="range" id="mosaic-slider-res" min="16" max="96" step="2" value="28" class="w-full accent-purple-500 h-1.5 bg-slate-800 rounded-lg cursor-pointer">
                     </div>
 
                     <div>
@@ -1433,7 +1433,7 @@
         // 1. Real-Time Contact AO Instanced Decals:
         // Renders soft dark ambient occlusion footprints directly beneath every domino, block,
         // table leg, and chair leg, dynamically scaling/fading as pieces tilt or lift!
-        const MAX_AO_INSTANCES = 6000;
+        const MAX_AO_INSTANCES = 16000;
         const contactAOGeo = new THREE.PlaneGeometry(1, 1);
         contactAOGeo.rotateX(-Math.PI / 2);
         const contactAOMat = new THREE.MeshBasicMaterial({
@@ -1925,7 +1925,7 @@
         // 2B. ULTRA-PERFORMANCE INSTANCED DOMINO PIPELINE
         // ==========================================
         // Renders thousands of dominoes in a SINGLE WebGL draw call instead of 7,000+ separate draw calls!
-        const MAX_DOMINO_INSTANCES = 12000;
+        const MAX_DOMINO_INSTANCES = 24000;
         const dominoWhiteMaterials = getDominoMaterials('#ffffff');
         const dominoInstancedMesh = new THREE.InstancedMesh(SHARED_GEOS.domino, dominoWhiteMaterials, MAX_DOMINO_INSTANCES);
         dominoInstancedMesh.count = 0;
@@ -3895,10 +3895,10 @@
             let rows = maxRes;
             if (aspect >= 1.0) {
                 cols = maxRes;
-                rows = Math.max(6, Math.min(64, Math.round(maxRes / aspect)));
+                rows = Math.max(6, Math.min(128, Math.round(maxRes / aspect)));
             } else {
                 rows = maxRes;
-                cols = Math.max(6, Math.min(64, Math.round(maxRes * aspect)));
+                cols = Math.max(6, Math.min(128, Math.round(maxRes * aspect)));
             }
             return { cols, rows, aspect };
         }
