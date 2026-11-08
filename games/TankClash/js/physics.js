@@ -1327,7 +1327,7 @@ function spawnPlayerRocket(muzzlePos, fireDir, owner) {
         sourceSoldier: owner,
         blastRadius: rocketBlastRadius,
         blastDamage: rocketBlastDamage,
-        cannonDamage: 3,
+        cannonDamage: 1,
         tankType: 'bazooka',
         traceTimer: 0
     });

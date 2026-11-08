@@ -1596,10 +1596,6 @@
     function firePlayerBazooka() {
         if (playerMode !== 'soldier' || !playerSoldier || playerSoldier.isDead) return;
         const s = playerSoldier;
-        if (s.isMountedBicycle) {
-            if (typeof window.showKillFeedBanner === 'function') window.showKillFeedBanner('DISMOUNT TO FIRE BAZOOKA', '#f59e0b');
-            return;
-        }
         if (s.fireCooldown > 0) return;
 
         // 6 sec reload time
