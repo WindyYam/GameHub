@@ -1732,8 +1732,10 @@ function getSpawnPlayerMoney() {
 }
 
 function getSelectedSoldierPrice() {
-    if (window.selectedSoldierType !== 'mortar' || !window.TANK_PRICES) return 0;
-    return window.TANK_PRICES.mortar || 0;
+    if (!window.TANK_PRICES) return 0;
+    if (window.selectedSoldierType === 'mortar') return (window.TANK_PRICES && typeof window.TANK_PRICES.mortar === 'number') ? window.TANK_PRICES.mortar : 250;
+    if (window.selectedSoldierType === 'bazooka' || window.selectedSoldierType === 'bazooka_soldier') return window.TANK_PRICES.bazooka || 350;
+    return 0;
 }
 
 function setSpawnModalStage(stage) {
@@ -1744,7 +1746,7 @@ function setSpawnModalStage(stage) {
 }
 
 function selectSoldierType(type) {
-    window.selectedSoldierType = (type === 'rifle' || type === 'mortar') ? type : 'smg';
+    window.selectedSoldierType = (type === 'rifle' || type === 'mortar' || type === 'bazooka') ? type : 'smg';
     const cards = document.querySelectorAll('.soldier-type-card');
     cards.forEach(card => {
         const cType = card.getAttribute('data-soldier-type');
@@ -1768,11 +1770,13 @@ function selectSoldierType(type) {
     });
     const badge = document.getElementById('spawn-selected-soldier-badge');
     if (badge) {
-        const selectedNames = { smg: 'Submachine Gunner', rifle: 'Rifleman', mortar: 'Mortar Crew' };
+        const selectedNames = { smg: 'Submachine Gunner', rifle: 'Rifleman', mortar: 'Mortar Crew', bazooka: 'Bazooka Soldier' };
         badge.textContent = `Selected: ${selectedNames[window.selectedSoldierType]}`;
         badge.className = window.selectedSoldierType === 'smg'
             ? 'text-[10px] font-bold text-emerald-300 bg-emerald-950/80 border border-emerald-500/40 px-2 py-0.5 rounded-full uppercase tracking-wider'
-            : 'text-[10px] font-bold text-amber-300 bg-amber-950/80 border border-amber-500/40 px-2 py-0.5 rounded-full uppercase tracking-wider';
+            : (window.selectedSoldierType === 'bazooka'
+                ? 'text-[10px] font-bold text-orange-300 bg-orange-950/80 border border-orange-500/40 px-2 py-0.5 rounded-full uppercase tracking-wider'
+                : 'text-[10px] font-bold text-amber-300 bg-amber-950/80 border border-amber-500/40 px-2 py-0.5 rounded-full uppercase tracking-wider');
     }
     updateSoldierDeployPrice();
     updateSpawnBudgetUI();
@@ -2000,7 +2004,8 @@ function deployAsSoldier(suppressBanner = false, soldierCostAlreadyPaid = false)
     if (!soldierCostAlreadyPaid && soldierPrice > 0 &&
         (typeof window.deductPlayerMoney !== 'function' || !window.deductPlayerMoney(soldierPrice))) {
         if (typeof window.showKillFeedBanner === 'function') {
-            window.showKillFeedBanner(`❌ Insufficient funds for MORTAR CREW! Requires $${soldierPrice}`, '#ef4444');
+            const typeUpper = sType === 'bazooka' ? 'BAZOOKA SOLDIER' : (sType === 'mortar' ? 'MORTAR CREW' : 'SOLDIER');
+            window.showKillFeedBanner(`❌ Insufficient funds for ${typeUpper}! Requires $${soldierPrice}`, '#ef4444');
         }
         updateSpawnModalUI();
         return false;
@@ -2069,7 +2074,7 @@ function deployAsSoldier(suppressBanner = false, soldierCostAlreadyPaid = false)
         window.updateTerrainChunks(respawnPos.x, respawnPos.z, false);
     }
 
-    const sName = sType === 'mortar' ? 'Mortar Crew' : (sType === 'smg' ? 'Submachine Gunner' : 'Rifleman');
+    const sName = sType === 'mortar' ? 'Mortar Crew' : (sType === 'bazooka' ? 'Bazooka Soldier' : (sType === 'smg' ? 'Submachine Gunner' : 'Rifleman'));
     if (!suppressBanner && typeof window.showKillFeedBanner === 'function') {
         const priceLabel = soldierPrice > 0 ? `(-$${soldierPrice})` : '(FREE)';
         window.showKillFeedBanner(`🚶 Deployed as ${sName} ${priceLabel}`, '#38bdf8');

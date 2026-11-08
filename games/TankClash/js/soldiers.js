@@ -859,6 +859,115 @@
                 const albedoTex = new THREE.CanvasTexture(c); albedoTex.encoding = THREE.sRGBEncoding;
                 const normalObj = this.heightToNormalMap(h, 1.4);
                 return { map: albedoTex, normalMap: normalObj.texture };
+            },
+
+            // 256x256 Realistic Military Scratched Metal Texture & Gouge Normal Map for Rocket Launcher (Bazooka / Panzerschreck)
+            createRocketLauncherMaps(baseHex = 0x3d4336, faction = 'us') {
+                const size = 256;
+                const albedoC = document.createElement('canvas');
+                const heightC = document.createElement('canvas');
+                albedoC.width = albedoC.height = size;
+                heightC.width = heightC.height = size;
+
+                const aCtx = albedoC.getContext('2d');
+                const hCtx = heightC.getContext('2d');
+
+                // Ordnance Olive Drab / Field Grey steel base
+                const baseColor = new THREE.Color(baseHex);
+                aCtx.fillStyle = `#${baseColor.getHexString()}`;
+                aCtx.fillRect(0, 0, size, size);
+
+                hCtx.fillStyle = '#808080';
+                hCtx.fillRect(0, 0, size, size);
+
+                // 1. Rolled ordnance steel micro-stippling & metal speckle
+                for (let i = 0; i < 3500; i++) {
+                    const x = Math.random() * size;
+                    const y = Math.random() * size;
+                    const v = (Math.random() - 0.5) * 0.08;
+                    const c = baseColor.clone().offsetHSL(0, 0, v);
+                    aCtx.fillStyle = `#${c.getHexString()}`;
+                    aCtx.fillRect(x, y, 1.2, 1.2);
+
+                    const hv = Math.floor(128 + v * 500);
+                    hCtx.fillStyle = `rgb(${hv},${hv},${hv})`;
+                    hCtx.fillRect(x, y, 1.2, 1.2);
+                }
+
+                // 2. Longitudinal lathe marks & barrel weld seams
+                aCtx.lineWidth = 0.8;
+                hCtx.lineWidth = 0.8;
+                for (let y = 0; y < size; y += 4) {
+                    if (Math.random() > 0.45) continue;
+                    const alpha = 0.04 + Math.random() * 0.06;
+                    aCtx.strokeStyle = `rgba(20, 24, 20, ${alpha})`;
+                    aCtx.beginPath(); aCtx.moveTo(0, y); aCtx.lineTo(size, y); aCtx.stroke();
+                    hCtx.strokeStyle = 'rgb(115,115,115)';
+                    hCtx.beginPath(); hCtx.moveTo(0, y); hCtx.lineTo(size, y); hCtx.stroke();
+                }
+
+                // 3. Dense Realistic Scratches & Deep Bare-Steel Scrapes
+                // Authentic combat wear: bare steel exposed through scratched olive/grey paint
+                const scratchCount = 95;
+                for (let i = 0; i < scratchCount; i++) {
+                    const x0 = Math.random() * size;
+                    const y0 = Math.random() * size;
+                    const angle = (Math.random() - 0.5) * 0.65 + (Math.random() > 0.5 ? 0 : Math.PI);
+                    const len = 8 + Math.random() * 26;
+                    const x1 = x0 + Math.cos(angle) * len;
+                    const y1 = y0 + Math.sin(angle) * len;
+
+                    // Dark gouge shadow / oxidized primer border underneath
+                    aCtx.strokeStyle = 'rgba(18, 22, 16, 0.75)';
+                    aCtx.lineWidth = 1.6;
+                    aCtx.beginPath();
+                    aCtx.moveTo(x0 + 0.6, y0 + 0.6);
+                    aCtx.lineTo(x1 + 0.6, y1 + 0.6);
+                    aCtx.stroke();
+
+                    // Incandescent/bright bare steel core reflection
+                    const steelBright = 210 + Math.floor(Math.random() * 45);
+                    aCtx.strokeStyle = `rgba(${steelBright}, ${steelBright + 4}, ${steelBright + 8}, 0.88)`;
+                    aCtx.lineWidth = 0.9;
+                    aCtx.beginPath();
+                    aCtx.moveTo(x0, y0);
+                    aCtx.lineTo(x1, y1);
+                    aCtx.stroke();
+
+                    // Sharp depth groove in height map
+                    hCtx.strokeStyle = 'rgb(42, 42, 42)';
+                    hCtx.lineWidth = 1.4;
+                    hCtx.beginPath();
+                    hCtx.moveTo(x0, y0);
+                    hCtx.lineTo(x1, y1);
+                    hCtx.stroke();
+
+                    // Highlight rim on one side of groove
+                    hCtx.strokeStyle = 'rgb(225, 225, 225)';
+                    hCtx.lineWidth = 0.6;
+                    hCtx.beginPath();
+                    hCtx.moveTo(x0 + 0.8, y0 + 0.8);
+                    hCtx.lineTo(x1 + 0.8, y1 + 0.8);
+                    hCtx.stroke();
+                }
+
+                // 4. Muzzle & Breech Rim Abrasions (Circular scuffs from loading rockets)
+                for (let s = 0; s < 40; s++) {
+                    const cx = (s % 2 === 0) ? Math.random() * 30 : size - Math.random() * 30;
+                    const cy = Math.random() * size;
+                    const r = 2 + Math.random() * 5;
+                    aCtx.fillStyle = 'rgba(215, 220, 225, 0.65)';
+                    aCtx.beginPath(); aCtx.arc(cx, cy, r * 0.4, 0, Math.PI * 2); aCtx.fill();
+                    hCtx.fillStyle = 'rgb(55,55,55)';
+                    hCtx.beginPath(); hCtx.arc(cx, cy, r * 0.4, 0, Math.PI * 2); hCtx.fill();
+                }
+
+                const albedoTex = new THREE.CanvasTexture(albedoC);
+                albedoTex.encoding = THREE.sRGBEncoding;
+                albedoTex.wrapS = albedoTex.wrapT = THREE.RepeatWrapping;
+                const normalObj = this.heightToNormalMap(heightC, 2.2);
+                normalObj.texture.wrapS = normalObj.texture.wrapT = THREE.RepeatWrapping;
+                return { map: albedoTex, normalMap: normalObj.texture };
             }
         };
 
@@ -885,6 +994,7 @@
             const webCanvasMaps  = TextureFactory.createFabricMaps(0x7a6e4a, "Web Gear", 2, 0.18);
             const faceMaps       = TextureFactory.createFaceMaps();
             const hairTexture    = TextureFactory.createHairTexture();
+            const bazookaMaps    = TextureFactory.createRocketLauncherMaps(0x3d4336, "us");
 
             const registerMat = (mat) => {
                 return mat;
@@ -949,6 +1059,13 @@
             }));
             MATS.brass = registerMat(new THREE.MeshStandardMaterial({
                 color: 0xb59449, roughness: 0.38, metalness: 0.78
+            }));
+            MATS.bazookaMetal = registerMat(new THREE.MeshStandardMaterial({
+                map: bazookaMaps.map,
+                normalMap: bazookaMaps.normalMap,
+                normalScale: new THREE.Vector2(1.25, 1.25),
+                roughness: 0.40,
+                metalness: 0.82
             }));
             // Realistic Human Skin with subtle dermal sheen & pore normal map (no plastic gloss)
             MATS.skin = registerMat(new THREE.MeshStandardMaterial({
@@ -1286,6 +1403,127 @@
             }
 
             return smg;
+        }
+
+        // ============================================================================
+        // 5c. ACCURATE WWII ROCKET LAUNCHER BUILDER (M9A1 BAZOOKA & PANZERSCHRECK RPzB 54)
+        // With realistic scratched ordnance steel texture, blast bell, dual grips & rocket
+        // ============================================================================
+        function buildRocketLauncher(faction) {
+            const launcher = new THREE.Group();
+            const isGerman = faction === 'german';
+
+            // 1. Long Cylindrical Launch Tube (M9A1 Bazooka: ~1.4m steel tube, Panzerschreck: ~1.64m tube)
+            const tubeLen = isGerman ? 1.55 : 1.38;
+            const tubeRadius = isGerman ? 0.044 : 0.038;
+            const tubeGeo = new THREE.CylinderGeometry(tubeRadius, tubeRadius, tubeLen, 16);
+            tubeGeo.rotateX(Math.PI / 2);
+            const tube = new THREE.Mesh(tubeGeo, MATS.bazookaMetal);
+            tube.position.set(0, 0, 0);
+            launcher.add(tube);
+
+            // Dark inner barrel bore cap (hollow illusion)
+            const innerBoreMat = MATS.gunMetal;
+            const frontBore = new THREE.Mesh(new THREE.CircleGeometry(tubeRadius * 0.88, 12), innerBoreMat);
+            frontBore.position.set(0, 0, tubeLen * 0.5 + 0.001);
+            launcher.add(frontBore);
+
+            const rearBore = new THREE.Mesh(new THREE.CircleGeometry(tubeRadius * 0.95, 12), innerBoreMat);
+            rearBore.rotation.y = Math.PI;
+            rearBore.position.set(0, 0, -tubeLen * 0.5 - 0.001);
+            launcher.add(rearBore);
+
+            // 2. Flared Front Muzzle Ring / Blast Deflector
+            const muzzleRingLen = 0.05;
+            const muzzleRingGeo = new THREE.CylinderGeometry(tubeRadius * 1.22, tubeRadius * 1.05, muzzleRingLen, 16);
+            muzzleRingGeo.rotateX(Math.PI / 2);
+            const muzzleRing = new THREE.Mesh(muzzleRingGeo, MATS.bazookaMetal);
+            muzzleRing.position.set(0, 0, tubeLen * 0.5 - muzzleRingLen * 0.5);
+            launcher.add(muzzleRing);
+
+            // 3. Flared Rear Exhaust Bell & Wire Cage Ring
+            const bellLen = 0.09;
+            const rearBellGeo = new THREE.CylinderGeometry(tubeRadius * 1.05, tubeRadius * 1.35, bellLen, 16);
+            rearBellGeo.rotateX(Math.PI / 2);
+            const rearBell = new THREE.Mesh(rearBellGeo, MATS.bazookaMetal);
+            rearBell.position.set(0, 0, -tubeLen * 0.5 + bellLen * 0.5);
+            launcher.add(rearBell);
+
+            // Wire contact ring / tail guard loop
+            const tailRing = new THREE.Mesh(new THREE.TorusGeometry(tubeRadius * 1.40, 0.004, 6, 16), MATS.gunMetal);
+            tailRing.position.set(0, 0, -tubeLen * 0.5 - 0.01);
+            launcher.add(tailRing);
+
+            // 4. Ergonomic Shoulder Rest / Cheek Rest
+            const restGeo = new THREE.BoxGeometry(tubeRadius * 1.5, 0.035, 0.22);
+            const shoulderRest = new THREE.Mesh(restGeo, MATS.wood || MATS.bazookaMetal);
+            shoulderRest.position.set(0, -tubeRadius - 0.015, -0.20);
+            launcher.add(shoulderRest);
+
+            // 5. Dual Grips: Pistol Grip (Rear) and Forward Handgrip (Front)
+            const gripGeo = new THREE.BoxGeometry(0.026, 0.085, 0.032);
+            const pistolGrip = new THREE.Mesh(gripGeo, MATS.wood || MATS.brownLeather);
+            pistolGrip.position.set(0, -tubeRadius - 0.045, -0.05);
+            pistolGrip.rotation.x = -0.18;
+            launcher.add(pistolGrip);
+
+            // Trigger guard
+            const trigGuard = new THREE.Mesh(new THREE.TorusGeometry(0.018, 0.003, 6, 10), MATS.gunMetal);
+            trigGuard.rotation.y = Math.PI / 2;
+            trigGuard.position.set(0, -tubeRadius - 0.032, -0.035);
+            launcher.add(trigGuard);
+
+            // Forward handgrip for left hand
+            const fwdGrip = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.08, 10), MATS.wood || MATS.bazookaMetal);
+            fwdGrip.position.set(0, -tubeRadius - 0.042, 0.18);
+            launcher.add(fwdGrip);
+
+            // 6. Sight Assembly (Mounted on left side of tube)
+            const sightBracket = new THREE.Mesh(new THREE.BoxGeometry(0.012, 0.065, 0.09), MATS.gunMetal);
+            sightBracket.position.set(-tubeRadius - 0.01, 0.025, 0.12);
+            launcher.add(sightBracket);
+
+            const sightLadder = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.05, 0.006), MATS.gunMetal);
+            sightLadder.position.set(-tubeRadius - 0.016, 0.055, 0.12);
+            launcher.add(sightLadder);
+
+            // 7. Magneto / Battery Box & Conduit Wire
+            const batteryBox = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.032, 0.08), MATS.gunMetal);
+            batteryBox.position.set(tubeRadius + 0.01, -0.01, -0.05);
+            launcher.add(batteryBox);
+
+            const conduit = new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, 0.45, 6), MATS.gunMetal);
+            conduit.rotateX(Math.PI / 2);
+            conduit.position.set(tubeRadius + 0.008, 0.015, -0.28);
+            launcher.add(conduit);
+
+            // 8. Panzerschreck Face Shield (German)
+            if (isGerman) {
+                const shieldGeo = new THREE.BoxGeometry(0.20, 0.22, 0.008);
+                const shield = new THREE.Mesh(shieldGeo, MATS.bazookaMetal);
+                shield.position.set(-0.03, 0.06, 0.05);
+                launcher.add(shield);
+
+                const glassFrame = new THREE.Mesh(new THREE.BoxGeometry(0.055, 0.028, 0.012), MATS.gunMetal);
+                glassFrame.position.set(-0.06, 0.10, 0.05);
+                launcher.add(glassFrame);
+            }
+
+            // 9. Loaded Rocket Warhead (Peeking from muzzle)
+            const warheadGroup = new THREE.Group();
+            const warheadNose = new THREE.Mesh(new THREE.ConeGeometry(tubeRadius * 0.92, 0.10, 12), MATS.bazookaMetal);
+            warheadNose.rotateX(Math.PI / 2);
+            warheadNose.position.set(0, 0, tubeLen * 0.5 + 0.05);
+            warheadGroup.add(warheadNose);
+
+            const warheadBody = new THREE.Mesh(new THREE.CylinderGeometry(tubeRadius * 0.92, tubeRadius * 0.92, 0.08, 12), MATS.gunMetal);
+            warheadBody.rotateX(Math.PI / 2);
+            warheadBody.position.set(0, 0, tubeLen * 0.5 - 0.02);
+            warheadGroup.add(warheadBody);
+            launcher.add(warheadGroup);
+
+            launcher.userData.muzzleOffset = new THREE.Vector3(0, 0, tubeLen * 0.5 + 0.12);
+            return launcher;
         }
 
         // ============================================================================
@@ -1725,20 +1963,28 @@
             const rightArm = createArm(true);
             const leftArm  = createArm(false);
 
-            // Attach Faction Weapon to Right Wrist (Service Rifle or Submachine Gun)
+            // Attach Faction Weapon to Right Wrist (Service Rifle, Submachine Gun, or Rocket Launcher)
+            const isBazooka = (soldierType === 'bazooka' || soldierType === 'bazooka_soldier');
             const isSMG = (soldierType === 'smg' || soldierType === 'submachine_gunner');
             let weapon;
             let weaponType;
-            if (isSMG) {
+            if (isBazooka) {
+                weapon = buildRocketLauncher(faction);
+                weaponType = faction === 'german' ? 'panzerschreck' : 'bazooka';
+                weapon.position.set(0.02, -0.04, 0.04);
+                weapon.rotation.set(-0.88, -0.46, -0.42);
+            } else if (isSMG) {
                 weapon = buildSubmachineGun(faction);
                 weaponType = faction === 'us' ? 'thompson' : (faction === 'soviet' ? 'ppsh41' : 'mp40');
+                weapon.position.set(0.05, -0.04, 0.06);
+                weapon.rotation.set(-0.88, -0.46, -0.42);
             } else {
                 const rifleType = faction === 'us' ? 'garand' : (faction === 'soviet' ? 'mosin' : 'kar98k');
                 weapon = buildRifle(rifleType);
                 weaponType = rifleType;
+                weapon.position.set(0.05, -0.04, 0.06);
+                weapon.rotation.set(-0.88, -0.46, -0.42);
             }
-            weapon.position.set(0.05, -0.04, 0.06);
-            weapon.rotation.set(-0.88, -0.46, -0.42);
             rightArm.wrist.add(weapon);
 
             // --- 6. SCULPTED TROUSERS, BREECHES BLOUSING & COMBAT BOOTS ---
@@ -1800,7 +2046,7 @@
 
             const rig = {
                 faction,
-                soldierType: isSMG ? 'smg' : 'rifle',
+                soldierType: isBazooka ? 'bazooka' : (isSMG ? 'smg' : 'rifle'),
                 root,
                 hips,
                 torso,
@@ -1884,7 +2130,8 @@
         }
 
         function buildTemplate(faction, soldierType = 'rifle') {
-            const sType = (soldierType === 'smg' || soldierType === 'submachine_gunner') ? 'smg' : 'rifle';
+            const isBaz = (soldierType === 'bazooka' || soldierType === 'bazooka_soldier');
+            const sType = isBaz ? 'bazooka' : ((soldierType === 'smg' || soldierType === 'submachine_gunner') ? 'smg' : 'rifle');
             const rig = buildSoldierRaw(faction, sType);
             const named = {
                 hips: rig.hips, torso: rig.torso, neck: rig.neck, head: rig.head,
@@ -1907,8 +2154,9 @@
 
         function buildSoldier(faction, soldierType = 'rifle') {
             initMaterials();
+            const isBaz = soldierType === 'bazooka' || soldierType === 'bazooka_soldier';
             const isSMG = soldierType === 'smg' || soldierType === 'submachine_gunner';
-            const sType = isSMG ? 'smg' : (soldierType === 'mortar' ? 'mortar' : 'rifle');
+            const sType = isBaz ? 'bazooka' : (isSMG ? 'smg' : (soldierType === 'mortar' ? 'mortar' : 'rifle'));
             const templateType = sType === 'mortar' ? 'rifle' : sType;
             const key = `${faction}_${templateType}`;
             if (!SOLDIER_TEMPLATES[key]) SOLDIER_TEMPLATES[key] = buildTemplate(faction, templateType);
@@ -2055,6 +2303,12 @@
             this.recoilKick = 0;
 
             this.rig = buildSoldier(this.faction, this.soldierType);
+            if (this.soldierType === 'mortar') {
+                if (this.rig.rifle) this.rig.rifle.visible = false;
+                if (typeof window.createCarriedMortar === 'function') {
+                    window.createCarriedMortar(this.rig);
+                }
+            }
             this.rig.root.position.set(this.x, this.y, this.z);
             this.rig.root.rotation.y = this.heading;
             this.rig.root.userData.soldier = this;
@@ -2084,6 +2338,11 @@
             this.animTime += dt;
             this.fireCooldown = Math.max(0, this.fireCooldown - dt);
             this.recoilKick = Math.max(0, this.recoilKick - dt * 5.0);
+
+            if (this.soldierType === 'mortar' && !this.rig.carriedMortar && typeof window.createCarriedMortar === 'function') {
+                if (this.rig.rifle) this.rig.rifle.visible = false;
+                window.createCarriedMortar(this.rig);
+            }
 
             // Animate red target cursor (slow spin & gentle bob)
             if (this.targetCursor) {
@@ -2364,11 +2623,79 @@
         handleCombat(dt, distToPlayer) {
             const tgt = this.currentTarget;
             if (!tgt || typeof tgt.x !== 'number' || typeof tgt.z !== 'number') return;
+            const isBazooka = (this.soldierType === 'bazooka' || this.soldierType === 'bazooka_soldier');
             const isSMG = (this.soldierType === 'smg' || this.soldierType === 'submachine_gunner');
+            const isMortar = (this.soldierType === 'mortar');
             const dx = tgt.x - this.x;
             const dz = tgt.z - this.z;
             const targetDist = Math.hypot(dx, dz);
             const targetHeading = Math.atan2(dx, dz);
+
+            // Mortar Artillery Positioning
+            if (isMortar) {
+                this.combatManeuverTimer = (this.combatManeuverTimer || 0) - dt;
+                if (targetDist > 140) {
+                    this.combatManeuver = 'ADVANCE';
+                    this.speed = THREE.MathUtils.lerp(this.speed, 2.6, dt * 3.0);
+                    let angleDiff = targetHeading - this.heading;
+                    angleDiff = Math.atan2(Math.sin(angleDiff), Math.cos(angleDiff));
+                    this.heading += THREE.MathUtils.clamp(angleDiff, -4.0 * dt, 4.0 * dt);
+                    this.heading = Math.atan2(Math.sin(this.heading), Math.cos(this.heading));
+                    if (this.deployedMortar) this.deployedMortar.visible = false;
+                    if (this.rig && this.rig.carriedMortar) this.rig.carriedMortar.visible = true;
+                } else if (targetDist < 20) {
+                    this.combatManeuver = 'RETREAT';
+                    this.speed = THREE.MathUtils.lerp(this.speed, -1.8, dt * 3.0);
+                    let angleDiff = targetHeading - this.heading;
+                    angleDiff = Math.atan2(Math.sin(angleDiff), Math.cos(angleDiff));
+                    this.heading += THREE.MathUtils.clamp(angleDiff, -3.0 * dt, 3.0 * dt);
+                    this.heading = Math.atan2(Math.sin(this.heading), Math.cos(this.heading));
+                    if (this.deployedMortar) this.deployedMortar.visible = false;
+                    if (this.rig && this.rig.carriedMortar) this.rig.carriedMortar.visible = true;
+                } else {
+                    this.speed = THREE.MathUtils.lerp(this.speed, 0, dt * 6.0);
+                    let angleDiff = targetHeading - this.heading;
+                    angleDiff = Math.atan2(Math.sin(angleDiff), Math.cos(angleDiff));
+                    this.heading += THREE.MathUtils.clamp(angleDiff, -4.5 * dt, 4.5 * dt);
+                    this.heading = Math.atan2(Math.sin(this.heading), Math.cos(this.heading));
+
+                    if (!this.deployedMortar && typeof window.createMortarEmplacement === 'function') {
+                        this.deployedMortar = window.createMortarEmplacement();
+                        if (window.scene) window.scene.add(this.deployedMortar);
+                    }
+                    if (this.deployedMortar) {
+                        this.deployedMortar.visible = true;
+                        if (this.rig && this.rig.carriedMortar) this.rig.carriedMortar.visible = false;
+                        const mX = this.x + Math.sin(this.heading) * 0.85;
+                        const mZ = this.z + Math.cos(this.heading) * 0.85;
+                        const mY = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(mX, mZ) : this.y;
+                        this.deployedMortar.position.set(mX, mY, mZ);
+                        this.deployedMortar.rotation.y = this.heading;
+
+                        const v = 38.36;
+                        const g = 9.81;
+                        const dX = tgt.x - mX;
+                        const dZ = tgt.z - mZ;
+                        const R = Math.hypot(dX, dZ);
+                        const h = (typeof tgt.y === 'number' ? tgt.y : mY) - mY;
+                        const disc = Math.pow(v, 4) - g * (g * R * R + 2 * h * v * v);
+                        let elevAngle = Math.PI / 4;
+                        if (disc >= 0 && R > 0.001) {
+                            elevAngle = Math.atan((v * v + Math.sqrt(disc)) / (g * R));
+                            elevAngle = THREE.MathUtils.clamp(elevAngle, Math.PI / 6, 1.48);
+                        }
+                        if (this.deployedMortar.userData && this.deployedMortar.userData.barrelPivot) {
+                            this.deployedMortar.userData.barrelPivot.rotation.x = -elevAngle;
+                        }
+                        this.mortarElevation = elevAngle;
+                    }
+
+                    if (this.fireCooldown <= 0 && Math.abs(angleDiff) < 0.45) {
+                        this.shoot(tgt, distToPlayer);
+                    }
+                }
+                return;
+            }
 
             // 1. Dynamic Combat Run-and-Gun Tactics
             this.combatManeuverTimer = (this.combatManeuverTimer || 0) - dt;
@@ -2436,8 +2763,77 @@
         }
 
         shoot(target, distToPlayer) {
+            const isBazooka = (this.soldierType === 'bazooka' || this.soldierType === 'bazooka_soldier');
             const isSMG = (this.soldierType === 'smg' || this.soldierType === 'submachine_gunner');
-            if (isSMG) {
+            const isMortar = (this.soldierType === 'mortar');
+
+            if (isMortar) {
+                this.fireCooldown = 4.5 + Math.random() * 1.5;
+                this.recoilKick = 0.4;
+
+                let muzzlePos;
+                const mX = this.x + Math.sin(this.heading) * 0.85;
+                const mZ = this.z + Math.cos(this.heading) * 0.85;
+                const mY = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(mX, mZ) : this.y;
+
+                if (this.deployedMortar && this.deployedMortar.userData && this.deployedMortar.userData.muzzle) {
+                    this.deployedMortar.updateMatrixWorld(true);
+                    muzzlePos = new THREE.Vector3();
+                    this.deployedMortar.userData.muzzle.getWorldPosition(muzzlePos);
+                } else {
+                    muzzlePos = new THREE.Vector3(mX, mY + 0.6, mZ);
+                }
+
+                const v = 38.36;
+                const g = 9.81;
+                const dX = target.x - muzzlePos.x;
+                const dZ = target.z - muzzlePos.z;
+                const R = Math.hypot(dX, dZ);
+                const h = (typeof target.y === 'number' ? target.y : mY) - muzzlePos.y;
+                const disc = Math.pow(v, 4) - g * (g * R * R + 2 * h * v * v);
+                let elevAngle = Math.PI / 4;
+                if (disc >= 0 && R > 0.001) {
+                    elevAngle = Math.atan((v * v + Math.sqrt(disc)) / (g * R));
+                    elevAngle = THREE.MathUtils.clamp(elevAngle, Math.PI / 6, 1.48);
+                }
+
+                const horizLen = Math.hypot(dX, dZ);
+                const hX = horizLen > 0.001 ? dX / horizLen : Math.sin(this.heading);
+                const hZ = horizLen > 0.001 ? dZ / horizLen : Math.cos(this.heading);
+                const mortarFireDir = new THREE.Vector3(
+                    hX * Math.cos(elevAngle),
+                    Math.sin(elevAngle),
+                    hZ * Math.cos(elevAngle)
+                ).normalize();
+
+                mortarFireDir.x += (Math.random() - 0.5) * 0.035;
+                mortarFireDir.z += (Math.random() - 0.5) * 0.035;
+                mortarFireDir.normalize();
+
+                if (typeof window.spawnParticle === 'function') {
+                    const flashVel = mortarFireDir.clone().multiplyScalar(5.0);
+                    window.spawnParticle(muzzlePos, flashVel, 0xffcc44, 0.22, 0.45, 0.08, true, 'fire');
+                    const smokeVel = new THREE.Vector3((Math.random() - 0.5) * 0.4, 0.8 + Math.random() * 0.4, (Math.random() - 0.5) * 0.4);
+                    window.spawnParticle(muzzlePos, smokeVel, 0xbbbbbb, 0.25, 0.6, 0.8, false, 'smoke');
+                }
+                if (window.soundFX && typeof window.soundFX.playMainCannon === 'function') {
+                    window.soundFX.playMainCannon('mortar');
+                }
+
+                if (typeof window.spawnPlayerMortarShell === 'function') {
+                    window.spawnPlayerMortarShell(muzzlePos, mortarFireDir, this);
+                }
+                return;
+            }
+
+            if (isBazooka) {
+                this.fireCooldown = 6.0;
+                this.recoilKick = 0.55;
+                if (window.soundFX && typeof window.soundFX.playRocketLaunch === 'function') {
+                    const soundPos = (typeof distToPlayer === 'number') ? distToPlayer : { x: this.x, y: this.y, z: this.z };
+                    window.soundFX.playRocketLaunch(soundPos);
+                }
+            } else if (isSMG) {
                 if ((this.smgHeat || 0) >= 100) return;
                 this.smgHeat = Math.min(100, (this.smgHeat || 0) + 3.6);
                 this.fireCooldown = 0.08;
@@ -2471,6 +2867,31 @@
             } else {
                 muzzleWorldPos.set(this.x, this.y + 1.2, this.z);
                 shootDir.set(target.x - muzzleWorldPos.x, target.y - muzzleWorldPos.y, target.z - muzzleWorldPos.z).normalize();
+            }
+
+            if (isBazooka) {
+                // Ballistic compensation for rocket gravity drop (g = 3.5 m/s^2, initial speed = 48.0 m/s)
+                const dH = Math.hypot(target.x - muzzleWorldPos.x, target.z - muzzleWorldPos.z);
+                const tFlight = dH / 48.0;
+                const compY = (typeof target.y === 'number' ? target.y : muzzleWorldPos.y) + 0.5 * 3.5 * tFlight * tFlight;
+                shootDir.set(target.x - muzzleWorldPos.x, compY - muzzleWorldPos.y, target.z - muzzleWorldPos.z).normalize();
+                if (this.isEnemy) {
+                    const right = new THREE.Vector3(shootDir.z, 0, -shootDir.x).normalize();
+                    const up = new THREE.Vector3().crossVectors(shootDir, right).normalize();
+                    shootDir.addScaledVector(right, (Math.random() - 0.5) * 0.045);
+                    shootDir.addScaledVector(up, (Math.random() - 0.5) * 0.035);
+                    shootDir.normalize();
+                }
+                if (typeof window.spawnParticle === 'function') {
+                    const flashVel = shootDir.clone().multiplyScalar(4.0);
+                    window.spawnParticle(muzzleWorldPos, flashVel, 0xffe066, 0.16, 0.35, 0.08, true, 'fire');
+                    const smokeVel = new THREE.Vector3((Math.random() - 0.5) * 0.4, 0.3 + Math.random() * 0.3, (Math.random() - 0.5) * 0.4);
+                    window.spawnParticle(muzzleWorldPos, smokeVel, 0xd0d0d0, 0.18, 0.45, 0.6, false, 'smoke');
+                }
+                if (typeof window.spawnPlayerRocket === 'function') {
+                    window.spawnPlayerRocket(muzzleWorldPos, shootDir, this);
+                }
+                return;
             }
 
             if (this.isEnemy) {
@@ -2552,11 +2973,19 @@
             this.speed = 0;
             this.currentTarget = null;
             if (this.targetCursor) this.targetCursor.visible = false;
+            if (this.deployedMortar) {
+                if (window.scene) window.scene.remove(this.deployedMortar);
+                this.deployedMortar = null;
+            }
 
             if (this.isEnemy && !this.rewardAwarded) {
                 this.rewardAwarded = true;
                 const sTypeLabel = (this.soldierType === 'smg' || this.soldierType === 'submachine_gunner')
                     ? 'Infantry (SMG)'
+                    : (this.soldierType === 'bazooka' || this.soldierType === 'bazooka_soldier')
+                    ? 'Bazooka Soldier'
+                    : (this.soldierType === 'mortar')
+                    ? 'Mortar Crew'
                     : 'Infantry';
                 const reward = window.UNIT_KILL_REWARDS.soldier;
                 if (typeof window.addPlayerMoney === 'function') {
@@ -2597,6 +3026,11 @@
             if (this.escortTank && !this.escortTank.isDestroyed) {
                 this.homeX = this.escortTank.x;
                 this.homeZ = this.escortTank.z;
+            }
+
+            if (this.soldierType === 'mortar') {
+                if (this.deployedMortar) this.deployedMortar.visible = false;
+                if (this.rig && this.rig.carriedMortar) this.rig.carriedMortar.visible = true;
             }
 
             this.aimWeight = THREE.MathUtils.lerp(this.aimWeight, 0, dt * 3.0);
@@ -2643,8 +3077,29 @@
         animateJoints(isFar, dt) {
             const rig = this.rig;
             const w = this.aimWeight;
-            const walk = this.animTime * 3.8 + this.phaseOffset;
             const isMoving = Math.abs(this.speed) > 0.15;
+
+            // Mortar kneeling / tending stance when deployed
+            if (this.soldierType === 'mortar' && this.deployedMortar && this.deployedMortar.visible) {
+                rig.rightLeg.hipJoint.rotation.x = THREE.MathUtils.lerp(rig.rightLeg.hipJoint.rotation.x, -1.0, 0.2);
+                rig.leftLeg.hipJoint.rotation.x  = THREE.MathUtils.lerp(rig.leftLeg.hipJoint.rotation.x, -0.12, 0.2);
+                rig.rightLeg.kneeJoint.rotation.x = THREE.MathUtils.lerp(rig.rightLeg.kneeJoint.rotation.x, 1.82, 0.2);
+                rig.leftLeg.kneeJoint.rotation.x  = THREE.MathUtils.lerp(rig.leftLeg.kneeJoint.rotation.x, 1.42, 0.2);
+                rig.hips.position.y = THREE.MathUtils.lerp(rig.hips.position.y, 0.78, 0.2);
+
+                if (isFar) return;
+                rig.torso.rotation.x = 0.18;
+                rig.torso.rotation.y = -0.15;
+                if (rig.rightArm && rig.rightArm.shoulder) {
+                    rig.rightArm.shoulder.rotation.set(-0.25, 0.08, 0.4);
+                    rig.rightArm.elbow.rotation.set(-1.0, 0, 0);
+                }
+                if (rig.leftArm && rig.leftArm.shoulder) {
+                    rig.leftArm.shoulder.rotation.set(-0.35, -0.08, -0.35);
+                    rig.leftArm.elbow.rotation.set(-0.75, 0, 0);
+                }
+                return;
+            }
 
             // 1. Leg Walk/Run Cycle
             if (isMoving) {
@@ -2672,6 +3127,22 @@
 
             if (isFar) return; // Skip upper-body micro-rotations at distant ranges on mobile
 
+            if (this.soldierType === 'mortar') {
+                rig.torso.rotation.x = 0;
+                rig.torso.rotation.y = 0;
+                if (rig.rightArm && rig.rightArm.shoulder) {
+                    const armSwing = isMoving ? Math.sin(this.animTime * 3.8 + this.phaseOffset) * 0.35 : 0;
+                    rig.rightArm.shoulder.rotation.set(-armSwing, 0, 0.12);
+                    rig.rightArm.elbow.rotation.set(-0.25, 0, 0);
+                }
+                if (rig.leftArm && rig.leftArm.shoulder) {
+                    const armSwing = isMoving ? Math.sin(this.animTime * 3.8 + this.phaseOffset) * 0.35 : 0;
+                    rig.leftArm.shoulder.rotation.set(armSwing, 0, -0.12);
+                    rig.leftArm.elbow.rotation.set(-0.25, 0, 0);
+                }
+                return;
+            }
+
             // 2. Torso, head and shared two-handed weapon pose
             if (rig.rifle && rig.rightArm && rig.rightArm.wrist && rig.leftArm && rig.leftArm.shoulder) {
                 // Determine aiming direction
@@ -2682,7 +3153,12 @@
 
                 let adsDir = null;
                 if (this.currentTarget && typeof this.currentTarget.x === 'number' && typeof this.currentTarget.z === 'number') {
-                    const tgtY = (typeof this.currentTarget.y === 'number') ? this.currentTarget.y : (this.y + 1.25);
+                    let tgtY = (typeof this.currentTarget.y === 'number') ? this.currentTarget.y : (this.y + 1.25);
+                    const dH = Math.hypot(this.currentTarget.x - this.x, this.currentTarget.z - this.z);
+                    if (this.soldierType === 'bazooka' || this.soldierType === 'bazooka_soldier') {
+                        const tFlight = dH / 48.0;
+                        tgtY += 0.5 * 3.5 * tFlight * tFlight;
+                    }
                     adsDir = new THREE.Vector3(this.currentTarget.x - this.x, tgtY - (this.y + 1.25), this.currentTarget.z - this.z).normalize();
                 }
 
@@ -2699,6 +3175,10 @@
         }
 
         dispose() {
+            if (this.deployedMortar) {
+                if (window.scene) window.scene.remove(this.deployedMortar);
+                this.deployedMortar = null;
+            }
             if (this.rig && this.rig.root) {
                 const targetScene = window.scene || null;
                 if (targetScene) targetScene.remove(this.rig.root);
@@ -2760,7 +3240,8 @@
         const sx = tankX + Math.cos(ejectAngle) * 2.5;
         const sz = tankZ - Math.sin(ejectAngle) * 2.5;
         const sId = `ejected_driver_${Date.now()}`;
-        const driverType = Math.random() < 0.5 ? 'smg' : 'rifle';
+        const driverTypes = ['smg', 'rifle', 'bazooka', 'mortar'];
+        const driverType = driverTypes[Math.floor(Math.random() * driverTypes.length)];
 
         const driver = new SoldierAI(sId, f, sx, sz, {
             isEnemy: true,
@@ -2790,14 +3271,14 @@
 
     // 8 tactical infantry escort offsets relative to an armored vehicle
     const TACTICAL_ESCORT_OFFSETS = [
-        { dx:  6.5, dz:  4.5, heading:  0.20, type: 'rifle' }, // Forward Right Flanker
-        { dx: -6.5, dz:  4.5, heading: -0.20, type: 'smg'   }, // Forward Left Flanker
-        { dx:  7.5, dz: -0.5, heading:  0.10, type: 'smg'   }, // Mid Right Escort
-        { dx: -7.5, dz: -0.5, heading: -0.10, type: 'rifle' }, // Mid Left Escort
-        { dx:  5.5, dz: -5.5, heading:  0.05, type: 'rifle' }, // Rear Right Guard
-        { dx: -5.5, dz: -5.5, heading: -0.05, type: 'smg'   }, // Rear Left Guard
-        { dx:  0.0, dz:  8.5, heading:  0.00, type: 'rifle' }, // Vanguard Point Scout
-        { dx:  0.0, dz: -7.5, heading:  3.14, type: 'smg'   }  // Rear Anchor Scout
+        { dx:  6.5, dz:  4.5, heading:  0.20, type: 'rifle' },   // Forward Right Flanker
+        { dx: -6.5, dz:  4.5, heading: -0.20, type: 'smg'   },   // Forward Left Flanker
+        { dx:  7.5, dz: -0.5, heading:  0.10, type: 'bazooka' }, // Mid Right Anti-Tank
+        { dx: -7.5, dz: -0.5, heading: -0.10, type: 'rifle' },   // Mid Left Escort
+        { dx:  5.5, dz: -5.5, heading:  0.05, type: 'mortar' },  // Rear Right Artillery Support
+        { dx: -5.5, dz: -5.5, heading: -0.05, type: 'bazooka' }, // Rear Left Anti-Tank
+        { dx:  0.0, dz:  8.5, heading:  0.00, type: 'rifle' },   // Vanguard Point Scout
+        { dx:  0.0, dz: -7.5, heading:  3.14, type: 'mortar' }   // Rear Mortar Crew
     ];
 
     function spawnSoldierEscortForGroup(tankGroup, enemyFaction, requestedCount = null) {

@@ -1612,13 +1612,24 @@ terrainMat.onBeforeCompile = (shader) => {
             // Anti-tiling rotation matrix (~36.87 degrees) to decorrelate macro from micro UVs
             mat2 rotNorm = mat2(0.80, 0.60, -0.60, 0.80);
 
+            // Low-frequency non-periodic domain warp to break Cartesian grid alignment
+            vec2 groundNormWarp = vec2(
+                sin(vTerrainWorldPos.z * 0.048 + vTerrainWorldPos.x * 0.029),
+                cos(vTerrainWorldPos.x * 0.043 - vTerrainWorldPos.z * 0.035)
+            ) * 3.4 + vec2(
+                sin(vTerrainWorldPos.x * 0.089 - vTerrainWorldPos.z * 0.071),
+                cos(vTerrainWorldPos.z * 0.078 + vTerrainWorldPos.x * 0.063)
+            ) * 1.2;
+            vec2 posGroundWarped = vTerrainWorldPos.xz + groundNormWarp;
+
             // Q0: Ground / Soil / Loam Turf [UV 0.0..0.5, 0.0..0.5]
-            // Micro layer (period ~7.1m) + Macro rotated layer (period ~16.4m, offset) eliminates grid repetition
-            vec2 uvGroundNorm1 = fract(vTerrainWorldPos.xz * 0.14) * 0.495 + vec2(0.002, 0.002);
-            vec2 uvGroundNorm2 = fract((rotNorm * vTerrainWorldPos.xz) * 0.061 + vec2(0.31, 0.77)) * 0.495 + vec2(0.002, 0.002);
+            // Multi-scale decorrelated layers with smooth domain warping eliminate tiling repetition
+            vec2 uvGroundNorm1 = fract(posGroundWarped * 0.054) * 0.495 + vec2(0.002, 0.002);
+            vec2 uvGroundNorm2 = fract((rotNorm * posGroundWarped) * 0.023 + vec2(0.31, 0.77)) * 0.495 + vec2(0.002, 0.002);
             vec3 nGround1 = texture2D(uTerrainNormalAtlas, uvGroundNorm1).xyz * 2.0 - 1.0;
             vec3 nGround2 = texture2D(uTerrainNormalAtlas, uvGroundNorm2).xyz * 2.0 - 1.0;
-            vec3 nGroundSample = normalize(nGround1 + vec3(nGround2.xy * 0.55, 0.0));
+            float groundBlendMask = 0.5 + 0.45 * sin(vTerrainWorldPos.x * 0.032 + vTerrainWorldPos.z * 0.025 + cos(vTerrainWorldPos.z * 0.039));
+            vec3 nGroundSample = normalize(nGround1 + vec3(nGround2.xy * (0.50 + 0.35 * groundBlendMask), 0.0));
 
             // Q1: Road with directional vehicle tire/track tread & gravel [UV 0.5..1.0, 0.0..0.5]
             float roadDistForNorm = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
@@ -1626,8 +1637,9 @@ terrainMat.onBeforeCompile = (shader) => {
             vec3 nRoadSample = texture2D(uTerrainNormalAtlas, uvRoadNorm).xyz * 2.0 - 1.0;
 
             // Q2: Sand with wind ripple dunes [UV 0.0..0.5, 0.5..1.0]
-            vec2 uvSandNorm1 = fract(vTerrainWorldPos.xz * 0.16) * 0.495 + vec2(0.002, 0.502);
-            vec2 uvSandNorm2 = fract((rotNorm * vTerrainWorldPos.xz) * 0.068 + vec2(0.48, 0.22)) * 0.495 + vec2(0.002, 0.502);
+            vec2 posSandWarped = vTerrainWorldPos.xz + groundNormWarp * 0.7;
+            vec2 uvSandNorm1 = fract(posSandWarped * 0.075) * 0.495 + vec2(0.002, 0.502);
+            vec2 uvSandNorm2 = fract((rotNorm * posSandWarped) * 0.032 + vec2(0.48, 0.22)) * 0.495 + vec2(0.002, 0.502);
             vec3 nSand1 = texture2D(uTerrainNormalAtlas, uvSandNorm1).xyz * 2.0 - 1.0;
             vec3 nSand2 = texture2D(uTerrainNormalAtlas, uvSandNorm2).xyz * 2.0 - 1.0;
             vec3 nSandSample = normalize(nSand1 + vec3(nSand2.xy * 0.50, 0.0));
@@ -1756,7 +1768,7 @@ terrainMat.onBeforeCompile = (shader) => {
                 float oasisMask = 1.0 - smoothstep(-2.55, -0.45, vTerrainWorldPos.y);
                 if (oasisMask > 0.001) {
                     float wetZone = 1.0 - smoothstep(-2.65, -1.95, vTerrainWorldPos.y);
-                    vec3 oasisMoss = mix(vec3(0.05, 0.11, 0.025), vec3(0.18, 0.14, 0.08), microNoise * 0.45);
+                    vec3 oasisMoss = mix(vec3(0.12, 0.24, 0.06), vec3(0.26, 0.22, 0.12), microNoise * 0.45);
                     vec3 wetOasisSand = vec3(0.09, 0.07, 0.04);
                     diffuseColor.rgb = mix(diffuseColor.rgb, mix(oasisMoss, wetOasisSand, wetZone), oasisMask * (1.0 - roadMask * 0.7));
                 }
@@ -8766,7 +8778,7 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             float oasisF = 1.0 - smoothstep(-2.0, -0.3, vGrassWorldPos.y);
             float heatherH = smoothstep(9.5, 17.5, vGrassWorldPos.y);
             vec3 groundRootCol = vec3(0.028, 0.070, 0.014) * vGrassZoneWeights.x
-                + mix(vec3(0.46, 0.31, 0.15), vec3(0.055, 0.115, 0.028), oasisF) * vGrassZoneWeights.y
+                + mix(vec3(0.62, 0.52, 0.35), vec3(0.10, 0.22, 0.04), oasisF) * vGrassZoneWeights.y
                 + vec3(0.024, 0.060, 0.015) * vGrassZoneWeights.z
                 + mix(vec3(0.028, 0.068, 0.014), vec3(0.068, 0.052, 0.015), heatherH * 0.78) * vGrassZoneWeights.w
                 + vec3(0.72, 0.78, 0.88) * vGrassZoneWeightsExt.x
@@ -8779,8 +8791,15 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
                 + vec3(0.06, 0.10, 0.03) * vGrassZoneWeightsExt2.w;
             float bladeLuma = clamp(dot(bladeLinear, vec3(0.299, 0.587, 0.114)) * 2.35, 0.32, 1.45);
             float aridScrubFactor = vGrassZoneWeights.y + vGrassZoneWeightsExt.z + vGrassZoneWeightsExt.w + vGrassZoneWeightsExt2.x;
-            vec3 dryDesertScrub = mix(vec3(0.38, 0.31, 0.16), vec3(0.28, 0.22, 0.10), vGrassHeightFrac) * bladeLuma;
+            vec3 dryDesertScrub = mix(vec3(0.55, 0.48, 0.30), vec3(0.48, 0.40, 0.22), vGrassHeightFrac) * bladeLuma;
             bladeLinear = mix(bladeLinear, mix(dryDesertScrub, bladeLinear, oasisF), clamp(aridScrubFactor, 0.0, 1.0));
+            if (vGrassZoneWeights.y > 0.02) {
+                // Desert zone lighter grass: sunlit pale golden straw dune scrub and fresh light oasis grass
+                vec3 lightDesertGrass = mix(vec3(0.68, 0.60, 0.38), vec3(0.85, 0.78, 0.52), vGrassHeightFrac) * bladeLuma;
+                vec3 lightOasisGrass = mix(vec3(0.14, 0.30, 0.08), vec3(0.28, 0.50, 0.15), vGrassHeightFrac) * bladeLuma;
+                vec3 desertZoneGrass = mix(lightDesertGrass, lightOasisGrass, oasisF);
+                bladeLinear = mix(bladeLinear, desertZoneGrass, vGrassZoneWeights.y * 0.95);
+            }
             if (vGrassZoneWeightsExt.x > 0.05) {
                 vec3 winterFrosted = mix(vec3(0.24, 0.22, 0.18), vec3(0.85, 0.90, 0.95), smoothstep(0.40, 0.95, vGrassHeightFrac)) * bladeLuma;
                 bladeLinear = mix(bladeLinear, winterFrosted, vGrassZoneWeightsExt.x * 0.85);
@@ -8901,6 +8920,7 @@ class TerrainChunk {
         const colDesertSand = new THREE.Color(0xc4a88c);
         const colDesertDune = new THREE.Color(0xd8c3ab);
         const colSandstone  = new THREE.Color(0x9a745c);
+        const colDesertOasisGrass = new THREE.Color(0x567e32);
         const colAlpineSnow = new THREE.Color(0xeaf2fa);
         const colHeather    = new THREE.Color(0x644c22);
         const tempCol = new THREE.Color();
@@ -8937,7 +8957,7 @@ class TerrainChunk {
                     tempCol.copy(colDesertSand).lerp(colDesertDune, smoothstep(0.20, 0.80, fieldNoise));
                     if (wy < -0.3) {
                         const oasisGreenery = 1.0 - smoothstep(-1.9, -0.3, wy);
-                        tempCol.lerp(colLushGrass, oasisGreenery * 0.85);
+                        tempCol.lerp(colDesertOasisGrass, oasisGreenery * 0.85);
                     }
                     if (roadF > 0.01) {
                         tempDirtCol.setHex(0x8c6239);

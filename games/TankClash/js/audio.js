@@ -241,6 +241,61 @@ const soundFX = {
         osc.stop(now + 0.38);
     },
 
+    playRocketLaunch(posOrDist = 0) {
+        this.init();
+        if (!this.enabled || !this.ctx) return;
+        const spatial = this.createSpatialGain(posOrDist, 35.0, 1.3, 0.05, 8000);
+        const now = this.ctx.currentTime + (spatial.delay || 0);
+
+        // 1. Initial Launch Ignition Pop
+        const popOsc = this.ctx.createOscillator();
+        const popGain = this.ctx.createGain();
+        popOsc.type = 'triangle';
+        popOsc.frequency.setValueAtTime(260, now);
+        popOsc.frequency.exponentialRampToValueAtTime(45, now + 0.12);
+        popGain.gain.setValueAtTime(0.55, now);
+        popGain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+        popOsc.connect(popGain);
+        popGain.connect(spatial.input);
+        popOsc.start(now);
+        popOsc.stop(now + 0.15);
+
+        // 2. High-Velocity Rocket Motor Exhaust Whoosh (bandpass noise sweep)
+        const dur = 0.95;
+        const bufferSize = Math.floor(this.ctx.sampleRate * dur);
+        const noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+        const data = noiseBuffer.getChannelData(0);
+        for (let i = 0; i < bufferSize; i++) {
+            data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (this.ctx.sampleRate * 0.45));
+        }
+        const noise = this.ctx.createBufferSource();
+        noise.buffer = noiseBuffer;
+
+        const bp = this.ctx.createBiquadFilter();
+        bp.type = 'bandpass';
+        bp.frequency.setValueAtTime(450, now);
+        bp.frequency.exponentialRampToValueAtTime(1400, now + 0.18);
+        bp.frequency.exponentialRampToValueAtTime(220, now + dur);
+        bp.Q.value = 1.8;
+
+        const gain = this.ctx.createGain();
+        gain.gain.setValueAtTime(0.05, now);
+        gain.gain.linearRampToValueAtTime(0.68, now + 0.08);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + dur);
+
+        noise.connect(bp);
+        bp.connect(gain);
+        gain.connect(spatial.input);
+        noise.start(now);
+    },
+
+    playRocketReload(posOrDist = 0) {
+        // Tank cannon stage 2 reload sound (shell slide into breech)
+        if (typeof this.playShellSlide === 'function') {
+            this.playShellSlide();
+        }
+    },
+
     playT34Cannon(posOrDist = 0) {
         this.init();
         if (!this.enabled || !this.ctx) return;

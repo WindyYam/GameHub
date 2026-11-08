@@ -435,6 +435,7 @@
             <span class="text-slate-600">|</span>
             <span class="flex items-center gap-1">💵 <strong id="hud-money" class="text-emerald-400 font-extrabold">$500</strong></span>
             <span id="hud-soldier-heat-container" class="hidden items-center gap-1"><span class="text-slate-600">|</span> 🔥 <strong id="hud-soldier-heat" class="text-emerald-400 font-bold">0%</strong></span>
+            <span id="hud-soldier-reload-container" class="hidden items-center gap-1"><span class="text-slate-600">|</span> ⏳ <strong id="hud-soldier-reload" class="text-emerald-400 font-bold">--</strong></span>
         </div>
 
         <!-- Mode & Camera Switchers (Right) -->
@@ -679,9 +680,25 @@
                                 <div class="flex items-center gap-2">
                                     <span class="text-xs font-bold text-white">Mortar Crew</span>
                                     <span class="text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30">INDIRECT FIRE</span>
-                                    <span class="soldier-price-tag text-xs font-extrabold text-emerald-400 mono">$200</span>
+                                    <span class="soldier-price-tag text-xs font-extrabold text-emerald-400 mono">$250</span>
                                 </div>
                                 <p class="text-[10px] text-slate-400 mt-0.5">Deployable mortar • Explosive shells • 150 m maximum range</p>
+                            </div>
+                        </div>
+                        <span class="soldier-select-radio text-base text-slate-500">⚪</span>
+                    </button>
+
+                    <!-- Option D: Bazooka Soldier -->
+                    <button type="button" data-soldier-type="bazooka" id="btn-soldier-type-bazooka" onclick="selectSoldierType('bazooka')" class="soldier-type-card hud-btn p-3 rounded-xl text-left flex items-center justify-between border border-white/10 bg-slate-800/60 hover:bg-slate-800 hover:border-amber-400/50 transition-all cursor-pointer">
+                        <div class="flex items-center gap-3">
+                            <span class="text-2xl">🚀</span>
+                            <div>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs font-bold text-white">Bazooka Soldier</span>
+                                    <span class="text-[9px] font-extrabold px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-300 border border-orange-500/30">ROCKET LAUNCHER</span>
+                                    <span class="soldier-price-tag text-xs font-extrabold text-emerald-400 mono">$350</span>
+                                </div>
+                                <p class="text-[10px] text-slate-400 mt-0.5">M9A1 Bazooka / Panzerschreck • High explosive rocket • Blast radius • 6s reload</p>
                             </div>
                         </div>
                         <span class="soldier-select-radio text-base text-slate-500">⚪</span>

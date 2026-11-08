@@ -335,6 +335,73 @@ function createShellObject() {
     return group;
 }
 
+const rocketPool = [];
+
+function createRocketObject() {
+    const group = new THREE.Group();
+    group.renderOrder = 35;
+
+    // 1. Aerodynamic Shaped-Charge Warhead (Ogive nose cone + cylindrical body)
+    const warheadMat = new THREE.MeshBasicMaterial({ color: 0x48523b });
+    const noseGeo = new THREE.ConeGeometry(0.065, 0.16, 12);
+    noseGeo.rotateX(Math.PI / 2);
+    const nose = new THREE.Mesh(noseGeo, warheadMat);
+    nose.position.z = 0.28;
+    nose.renderOrder = 35;
+    group.add(nose);
+
+    const warheadGeo = new THREE.CylinderGeometry(0.065, 0.065, 0.12, 12);
+    warheadGeo.rotateX(Math.PI / 2);
+    const warheadBody = new THREE.Mesh(warheadGeo, warheadMat);
+    warheadBody.position.z = 0.14;
+    warheadBody.renderOrder = 35;
+    group.add(warheadBody);
+
+    // Yellow ordnance stencil identification ring
+    const ringMat = new THREE.MeshBasicMaterial({ color: 0xfbbf24 });
+    const ringGeo = new THREE.CylinderGeometry(0.067, 0.067, 0.02, 12);
+    ringGeo.rotateX(Math.PI / 2);
+    const ring = new THREE.Mesh(ringGeo, ringMat);
+    ring.position.z = 0.12;
+    ring.renderOrder = 35;
+    group.add(ring);
+
+    // 2. Rocket Motor Body Tube
+    const motorMat = new THREE.MeshBasicMaterial({ color: 0x222622 });
+    const motorGeo = new THREE.CylinderGeometry(0.038, 0.038, 0.38, 10);
+    motorGeo.rotateX(Math.PI / 2);
+    const motor = new THREE.Mesh(motorGeo, motorMat);
+    motor.position.z = -0.12;
+    motor.renderOrder = 35;
+    group.add(motor);
+
+    // 3. Four Stabilizer Tail Fins (Cruciform)
+    const finMat = new THREE.MeshBasicMaterial({ color: 0x333b30 });
+    const finHGeo = new THREE.BoxGeometry(0.18, 0.004, 0.12);
+    const finH = new THREE.Mesh(finHGeo, finMat);
+    finH.position.z = -0.25;
+    finH.renderOrder = 35;
+    group.add(finH);
+
+    const finVGeo = new THREE.BoxGeometry(0.004, 0.18, 0.12);
+    const finV = new THREE.Mesh(finVGeo, finMat);
+    finV.position.z = -0.25;
+    finV.renderOrder = 35;
+    group.add(finV);
+
+    // 4. Rear Rocket Motor Thruster Flame Core
+    const flameMat = new THREE.MeshBasicMaterial({ color: 0xffaa33 });
+    const flameGeo = new THREE.ConeGeometry(0.045, 0.22, 8);
+    flameGeo.rotateX(-Math.PI / 2);
+    const flame = new THREE.Mesh(flameGeo, flameMat);
+    flame.position.z = -0.42;
+    flame.renderOrder = 35;
+    group.add(flame);
+
+    if (window.excludeFromSSAO) window.excludeFromSSAO(group);
+    return group;
+}
+
 function createTracerObject() {
     const group = new THREE.Group();
     group.renderOrder = 35;
@@ -1198,12 +1265,14 @@ function spawnPlayerMortarShell(muzzlePos, fireDir, owner) {
         ? window.TANK_SPECS.t34.blastRadius
         : 16.5;
 
+    const isEnemyProjectile = owner ? !!owner.isEnemy : false;
+
     shells.push({
         mesh: shellGroup,
         pos: muzzlePos.clone(),
         vel: velocity,
         life: 8.0,
-        isEnemy: false,
+        isEnemy: isEnemyProjectile,
         isMortar: true,
         sourceSoldier: owner,
         soundHandle,
@@ -1215,6 +1284,56 @@ function spawnPlayerMortarShell(muzzlePos, fireDir, owner) {
 }
 window.spawnPlayerMortarShell = spawnPlayerMortarShell;
 
+function spawnPlayerRocket(muzzlePos, fireDir, owner) {
+    // Precision: calibrated to be a little worse than T-34 (T-34 spread = 0.006; rocket spread ~0.0081)
+    const t34Spread = (typeof window !== 'undefined' && window.TANK_SPECS && window.TANK_SPECS.t34 && typeof window.TANK_SPECS.t34.spread === 'number')
+        ? window.TANK_SPECS.t34.spread
+        : 0.006;
+    const spreadAngle = t34Spread * 1.35; // a little worse than T-34 cannon
+    const spreadRad = Math.sqrt(-2.0 * Math.log(Math.max(0.0001, 1.0 - Math.random()))) * spreadAngle;
+    const spreadTheta = Math.random() * Math.PI * 2.0;
+
+    const launchDir = fireDir.clone().normalize();
+    const up = Math.abs(launchDir.y) > 0.95 ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 1, 0);
+    const right = new THREE.Vector3().crossVectors(launchDir, up).normalize();
+    const realUp = new THREE.Vector3().crossVectors(right, launchDir).normalize();
+    launchDir.addScaledVector(right, Math.cos(spreadTheta) * spreadRad);
+    launchDir.addScaledVector(realUp, Math.sin(spreadTheta) * spreadRad);
+    launchDir.normalize();
+
+    // Slow projectile speed: 42 m/s (visible rocket flight across battlefield)
+    const rocketSpeed = 42.0;
+    const velocity = launchDir.clone().multiplyScalar(rocketSpeed);
+
+    const rocketGroup = (rocketPool.pop()) || createRocketObject();
+    rocketGroup.visible = true;
+    rocketGroup.position.copy(muzzlePos);
+    rocketGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), launchDir);
+    if (rocketGroup.parent !== window.scene && window.scene) window.scene.add(rocketGroup);
+
+    const rocketBlastRadius = 11.5; // Blast radius
+    const rocketBlastDamage = 135;
+    const isEnemyProjectile = owner ? !!owner.isEnemy : false;
+
+    shells.push({
+        mesh: rocketGroup,
+        pos: muzzlePos.clone(),
+        startPos: muzzlePos.clone(),
+        distanceTraveled: 0,
+        vel: velocity,
+        life: 7.0,
+        isEnemy: isEnemyProjectile,
+        isRocket: true,
+        sourceSoldier: owner,
+        blastRadius: rocketBlastRadius,
+        blastDamage: rocketBlastDamage,
+        cannonDamage: 3,
+        tankType: 'bazooka',
+        traceTimer: 0
+    });
+}
+window.spawnPlayerRocket = spawnPlayerRocket;
+
 // Continuous Collision Detection (CCD) and Ballistic Trajectory Updates
 function updateProjectiles(dt) {
     // 1. Update Cannon Shells (Player shells and Enemy combat shells)
@@ -1222,11 +1341,63 @@ function updateProjectiles(dt) {
         const s = shells[i];
         const prevPos = s.pos.clone();
 
-        s.vel.y -= 9.81 * dt;
+        const grav = s.isRocket ? 3.5 : 9.81;
+        s.vel.y -= grav * dt;
+
+        // Rocket erratic aerodynamic drift after 80 meters
+        if (s.isRocket) {
+            const stepDist = s.vel.length() * dt;
+            s.distanceTraveled = (s.distanceTraveled || 0) + stepDist;
+
+            if (s.distanceTraveled > 80.0) {
+                // Beyond 80 meters, rocket motor exhaust asymmetry & fin wobble induce random transverse drift
+                const excessDist = s.distanceTraveled - 80.0;
+                const driftIntensity = Math.min(26.0, 9.0 + excessDist * 0.24);
+
+                const fwd = s.vel.clone().normalize();
+                const tempUp = Math.abs(fwd.y) > 0.92 ? new THREE.Vector3(0, 0, 1) : new THREE.Vector3(0, 1, 0);
+                const rVec = new THREE.Vector3().crossVectors(fwd, tempUp).normalize();
+                const uVec = new THREE.Vector3().crossVectors(rVec, fwd).normalize();
+
+                const theta = Math.random() * Math.PI * 2.0;
+                const mag = (0.35 + Math.random() * 0.65) * driftIntensity;
+                const driftImpulse = rVec.multiplyScalar(Math.cos(theta) * mag).addScaledVector(uVec, Math.sin(theta) * mag);
+
+                const curSpeed = s.vel.length();
+                s.vel.addScaledVector(driftImpulse, dt);
+                s.vel.normalize().multiplyScalar(curSpeed);
+            }
+        }
+
         s.pos.addScaledVector(s.vel, dt);
         s.mesh.position.copy(s.pos);
         if (s.soundHandle && typeof s.soundHandle.setPosition === 'function') {
             s.soundHandle.setPosition(s.pos);
+        }
+
+        // Rocket trace exhaust trail (smoke and fiery thrust glow)
+        if (s.isRocket) {
+            s.traceTimer = (s.traceTimer || 0) + dt;
+            if (s.traceTimer >= 0.02) {
+                s.traceTimer = 0;
+                const backDir = s.vel.clone().normalize().multiplyScalar(-1);
+                const tailPos = s.pos.clone().addScaledVector(backDir, 0.35);
+                if (typeof window.spawnParticle === 'function') {
+                    // Thick billowing rocket exhaust smoke
+                    const smokeVel = backDir.clone().multiplyScalar(3.5).add(
+                        new THREE.Vector3((Math.random() - 0.5) * 1.5, (Math.random() - 0.5) * 1.5, (Math.random() - 0.5) * 1.5)
+                    );
+                    window.spawnParticle(tailPos, smokeVel, 0xd4d4d8, 0.18, 0.95, 0.70, false, 'smoke', {
+                        maxOpacity: 0.85,
+                        drag: 0.92
+                    });
+                    // Fiery incandescent exhaust jet
+                    const fireVel = backDir.clone().multiplyScalar(6.5).add(
+                        new THREE.Vector3((Math.random() - 0.5) * 1.8, (Math.random() - 0.5) * 1.8, (Math.random() - 0.5) * 1.8)
+                    );
+                    window.spawnParticle(tailPos, fireVel, (Math.random() > 0.4 ? 0xfbbf24 : 0xf97316), 0.14, 0.04, 0.16, true, 'fire');
+                }
+            }
         }
 
         const velDir = s.vel.clone().normalize();
@@ -1534,37 +1705,39 @@ function updateProjectiles(dt) {
                 const bRad = (typeof s.blastRadius === 'number') ? s.blastRadius : 8.5;
                 const bDmg = (typeof s.blastDamage === 'number') ? s.blastDamage : 100;
 
+                const ignorePlayer = !s.isEnemy && !!(s.isMortar || s.isRocket);
+
                 if (closestHit.type === 'enemyTank') {
                     if (typeof closestHit.targetObj.onHit === 'function') {
                         closestHit.targetObj.onHit(imp, velDir, s.cannonDamage || 1);
                     }
-                    triggerHeavyDetonation(imp, !!s.isMortar, bRad, bDmg);
+                    triggerHeavyDetonation(imp, ignorePlayer, bRad, bDmg);
                 } else if (closestHit.type === 'playerTank') {
                     if (typeof window.onPlayerHit === 'function') {
                         window.onPlayerHit(imp, velDir, s.cannonDamage || 1);
                     }
-                    triggerHeavyDetonation(imp, !!s.isMortar, bRad, bDmg);
+                    triggerHeavyDetonation(imp, false, bRad, bDmg);
                 } else if (closestHit.type === 'tree') {
                     if (window.hitTree) window.hitTree(closestHit.targetObj, s.vel.clone().normalize(), 7.5);
-                    triggerHeavyDetonation(imp, !!s.isMortar, bRad, bDmg);
+                    triggerHeavyDetonation(imp, ignorePlayer, bRad, bDmg);
                 } else if (closestHit.type === 'soldier') {
                     if (typeof closestHit.targetObj.takeDamage === 'function') {
                         closestHit.targetObj.takeDamage(bDmg);
                     }
-                    triggerHeavyDetonation(imp, !!s.isMortar, bRad, bDmg);
+                    triggerHeavyDetonation(imp, ignorePlayer, bRad, bDmg);
                 } else if (closestHit.type === 'wreck') {
                     if (window.soundFX && typeof window.soundFX.playArmorRicochet === 'function') {
                         window.soundFX.playArmorRicochet(imp);
                     }
-                    triggerHeavyDetonation(imp, !!s.isMortar, bRad, bDmg);
+                    triggerHeavyDetonation(imp, ignorePlayer, bRad, bDmg);
                 } else if (closestHit.type === 'target') {
                     closestHit.targetObj.hitAngle = -Math.PI * 0.46;
                     closestHit.targetObj.recoverTimer = 4.5;
                     closestHit.targetObj.plateMat.color.setHex(0xf59e0b);
                     tankState.hitsCount++;
-                    triggerHeavyDetonation(imp, !!s.isMortar, bRad, bDmg);
+                    triggerHeavyDetonation(imp, ignorePlayer, bRad, bDmg);
                 } else if (closestHit.type === 'obstacle' || closestHit.type === 'terrain') {
-                    triggerHeavyDetonation(imp, !!s.isMortar, bRad, bDmg);
+                    triggerHeavyDetonation(imp, ignorePlayer, bRad, bDmg);
                 }
 
                 // Explosive Splash Wave Damage to nearby Tanks
@@ -1596,8 +1769,13 @@ function updateProjectiles(dt) {
             }
 
             s.mesh.visible = false;
-            if (shellPool.length < PROJECTILE_POOL_LIMIT) shellPool.push(s.mesh);
-            else window.scene.remove(s.mesh);
+            if (s.isRocket) {
+                if (rocketPool.length < PROJECTILE_POOL_LIMIT) rocketPool.push(s.mesh);
+                else if (window.scene) window.scene.remove(s.mesh);
+            } else {
+                if (shellPool.length < PROJECTILE_POOL_LIMIT) shellPool.push(s.mesh);
+                else if (window.scene) window.scene.remove(s.mesh);
+            }
             shells.splice(i, 1);
         }
     }

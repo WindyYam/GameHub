@@ -234,7 +234,8 @@ window.currentTankId = 'tiger';
 
 const TANK_PRICES = {
     bicycle: 400,
-    mortar: 200,
+    mortar: 250,
+    bazooka: 350,
     tiger: 800,
     sherman: 500,
     t34: 500,

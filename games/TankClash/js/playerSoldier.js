@@ -602,20 +602,28 @@
             }
         }
 
-        // 4. Update Main Fire button label/icon & SMG heat gauge
+        // 4. Update Main Fire button label/icon & SMG heat gauge / Bazooka reload
         const isSMG = (playerSoldier && (playerSoldier.soldierType === 'smg' || playerSoldier.soldierType === 'submachine_gunner')) || (!playerSoldier && window.selectedSoldierType === 'smg');
         const isMortar = (playerSoldier && playerSoldier.soldierType === 'mortar') || (!playerSoldier && window.selectedSoldierType === 'mortar');
+        const isBazooka = (playerSoldier && (playerSoldier.soldierType === 'bazooka' || playerSoldier.soldierType === 'bazooka_soldier')) || (!playerSoldier && window.selectedSoldierType === 'bazooka');
         const heatContainer = document.getElementById('hud-soldier-heat-container');
         if (heatContainer) {
             heatContainer.classList.toggle('hidden', !(isInfantry && isSMG));
             heatContainer.classList.toggle('flex', !!(isInfantry && isSMG));
         }
+        const reloadContainer = document.getElementById('hud-soldier-reload-container');
+        if (reloadContainer) {
+            reloadContainer.classList.toggle('hidden', !(isInfantry && isBazooka));
+            reloadContainer.classList.toggle('flex', !!(isInfantry && isBazooka));
+        }
         const mobFireIcon = document.getElementById('mob-fire-icon');
         const mobFireCaliber = document.getElementById('mob-fire-caliber');
-        if (mobFireIcon) mobFireIcon.textContent = isInfantry ? (isMortar ? '💣' : (isSMG ? '⚡' : '🎯')) : '💥';
+        if (mobFireIcon) mobFireIcon.textContent = isInfantry ? (isBazooka ? '🚀' : (isMortar ? '💣' : (isSMG ? '⚡' : '🎯'))) : '💥';
         if (mobFireCaliber) {
             if (isInfantry) {
-                mobFireCaliber.textContent = isMortar ? (playerSoldier && playerSoldier.mortarDeployed ? 'MORTAR' : 'DEPLOY') : (isSMG ? 'SMG MG' : 'RIFLE');
+                mobFireCaliber.textContent = isBazooka
+                    ? (playerSoldier && playerSoldier.fireCooldown > 0 ? `${playerSoldier.fireCooldown.toFixed(1)}s` : 'BAZOOKA')
+                    : (isMortar ? (playerSoldier && playerSoldier.mortarDeployed ? 'MORTAR' : 'DEPLOY') : (isSMG ? 'SMG MG' : 'RIFLE'));
             } else {
                 const type = (window.tankState && window.tankState.type) || 'tiger';
                 const cal = (window.TANK_SPECS && window.TANK_SPECS[type]) ? window.TANK_SPECS[type].caliber : '8.8cm';
@@ -1585,8 +1593,74 @@
     }
     window.firePlayerSMGRound = firePlayerSMGRound;
 
+    function firePlayerBazooka() {
+        if (playerMode !== 'soldier' || !playerSoldier || playerSoldier.isDead) return;
+        const s = playerSoldier;
+        if (s.isMountedBicycle) {
+            if (typeof window.showKillFeedBanner === 'function') window.showKillFeedBanner('DISMOUNT TO FIRE BAZOOKA', '#f59e0b');
+            return;
+        }
+        if (s.fireCooldown > 0) return;
+
+        // 6 sec reload time
+        s.fireCooldown = 6.0;
+        s.recoilKick = 0.65;
+        s.lastFireTime = (window.performance && window.performance.now) ? window.performance.now() * 0.001 : Date.now() * 0.001;
+        s.rocketReloadStage1 = false;
+        s.rocketReloadStage2 = false;
+
+        if (window.soundFX && typeof window.soundFX.playRocketLaunch === 'function') {
+            window.soundFX.playRocketLaunch(0);
+        } else if (window.soundFX && typeof window.soundFX.playMainCannon === 'function') {
+            window.soundFX.playMainCannon('sherman');
+        }
+
+        const rig = s.rig;
+        if (!rig || !rig.rifle) return;
+
+        rig.rifle.updateWorldMatrix(true, false);
+        const muzzleWorldPos = new THREE.Vector3();
+        rig.rifle.localToWorld(muzzleWorldPos.copy(rig.rifle.userData.muzzleOffset || new THREE.Vector3(0, 0.04, 0.8)));
+
+        const shootDir = new THREE.Vector3();
+        const rQuat = new THREE.Quaternion();
+        rig.rifle.getWorldQuaternion(rQuat);
+        shootDir.set(0, 0, 1).applyQuaternion(rQuat).normalize();
+
+        // 1. Muzzle Flash & Backblast VFX
+        if (typeof window.spawnParticle === 'function') {
+            const flashVel = shootDir.clone().multiplyScalar(5.0);
+            window.spawnParticle(muzzleWorldPos, flashVel, 0xffaa33, 0.22, 0.55, 0.10, true, 'fire');
+            const smokeVel = new THREE.Vector3((Math.random() - 0.5) * 0.4, 0.3 + Math.random() * 0.4, (Math.random() - 0.5) * 0.4);
+            window.spawnParticle(muzzleWorldPos, smokeVel, 0xbbbbbb, 0.18, 0.70, 0.55, false, 'smoke');
+
+            // Realistic Backblast Plume behind shooter
+            const backPos = new THREE.Vector3();
+            rig.rifle.localToWorld(backPos.set(0, 0.02, -0.65));
+            const backDir = shootDir.clone().multiplyScalar(-1);
+            for (let b = 0; b < 6; b++) {
+                const bVel = backDir.clone().multiplyScalar(6.0 + Math.random() * 4.0).add(
+                    new THREE.Vector3((Math.random() - 0.5) * 2.5, (Math.random() - 0.5) * 1.5, (Math.random() - 0.5) * 2.5)
+                );
+                window.spawnParticle(backPos, bVel, 0xff7722, 0.32, 1.05, 0.22, true, 'fire');
+                window.spawnParticle(backPos, bVel.clone().multiplyScalar(0.55), 0x555555, 0.35, 1.65, 0.65, false, 'smoke');
+            }
+        }
+
+        // 2. Spawn Slow Rocket with Trace and Blast Radius
+        if (typeof window.spawnPlayerRocket === 'function') {
+            window.spawnPlayerRocket(muzzleWorldPos, shootDir, s);
+        }
+        if (typeof window.notifyPlayerFired === 'function') window.notifyPlayerFired();
+    }
+    window.firePlayerBazooka = firePlayerBazooka;
+
     function firePlayerRifle() {
         if (playerMode !== 'soldier' || !playerSoldier || playerSoldier.isDead) return;
+        if (playerSoldier.soldierType === 'bazooka' || playerSoldier.soldierType === 'bazooka_soldier') {
+            firePlayerBazooka();
+            return;
+        }
         if (playerSoldier.soldierType === 'mortar') {
             const s = playerSoldier;
             if (s.isMountedBicycle) {
@@ -1722,6 +1796,46 @@
                     mobFireCaliber.className = 'text-[10px] mono font-extrabold text-red-400 uppercase tracking-wider animate-pulse';
                 } else {
                     mobFireCaliber.textContent = 'SMG MG';
+                    mobFireCaliber.className = 'text-[10px] mono font-extrabold text-white uppercase tracking-wider';
+                }
+            }
+        }
+
+        // Bazooka Soldier 6-second reload sequence & HUD synchronization
+        const isBazooka = (s.soldierType === 'bazooka' || s.soldierType === 'bazooka_soldier');
+        if (isBazooka && !s.isDead) {
+            if (s.fireCooldown > 0) {
+                if (s.fireCooldown <= 3.8 && !s.rocketReloadStage1) {
+                    s.rocketReloadStage1 = true;
+                    if (window.soundFX && typeof window.soundFX.playRocketReload === 'function') {
+                        window.soundFX.playRocketReload(0);
+                    }
+                }
+                if (s.fireCooldown <= 1.0 && !s.rocketReloadStage2) {
+                    s.rocketReloadStage2 = true;
+                }
+            } else {
+                s.rocketReloadStage1 = false;
+                s.rocketReloadStage2 = false;
+            }
+
+            const reloadEl = document.getElementById('hud-soldier-reload');
+            if (reloadEl) {
+                if (s.fireCooldown > 0) {
+                    reloadEl.textContent = `RELOAD ${s.fireCooldown.toFixed(1)}s`;
+                    reloadEl.className = 'text-amber-400 font-bold';
+                } else {
+                    reloadEl.textContent = 'READY';
+                    reloadEl.className = 'text-emerald-400 font-bold';
+                }
+            }
+            const mobFireCaliber = document.getElementById('mob-fire-caliber');
+            if (mobFireCaliber) {
+                if (s.fireCooldown > 0) {
+                    mobFireCaliber.textContent = `${s.fireCooldown.toFixed(1)}s`;
+                    mobFireCaliber.className = 'text-[10px] mono font-extrabold text-amber-300 uppercase tracking-wider';
+                } else {
+                    mobFireCaliber.textContent = 'BAZOOKA';
                     mobFireCaliber.className = 'text-[10px] mono font-extrabold text-white uppercase tracking-wider';
                 }
             }
@@ -2413,6 +2527,8 @@
     window.healPlayerSoldier = healPlayerSoldier;
     window.triggerInteract = triggerInteract;
     window.initPlayerSoldierUI = initPlayerSoldierUI;
+    window.createCarriedMortar = createCarriedMortar;
+    window.createMortarEmplacement = createMortarEmplacement;
 
     window.addEventListener('DOMContentLoaded', () => {
         setTimeout(initPlayerSoldierUI, 400);

@@ -3155,15 +3155,15 @@ function createTerrainNormalAtlas() {
         return val;
     }
 
-    // Q0: Ground / Soil / Loam Turf
+    // Q0: Ground / Soil / Loam Turf (multi-octave aperiodic fractal with mutually-prime noise frequencies)
     for (let y = 0; y < half; y++) {
         const yRow = y * size;
         const v = y / half;
         for (let x = 0; x < half; x++) {
             const u = x / half;
-            let h = fbmWrap(u * 16.0, v * 16.0, 16, 4) * 0.55;
-            h += noiseWrap(u * 48.0, v * 48.0, 48) * 0.28;
-            h += noiseWrap(u * 96.0, v * 96.0, 96) * 0.17;
+            let h = fbmWrap(u * 8.0, v * 8.0, 8, 5) * 0.55;
+            h += noiseWrap(u * 37.0, v * 37.0, 37) * 0.25;
+            h += noiseWrap(u * 73.0, v * 73.0, 73) * 0.15;
             heightMap[yRow + x] = h;
         }
     }
@@ -3242,7 +3242,7 @@ function createTerrainNormalAtlas() {
 
     // Compute Sobel Filter Normal Map (Calibrated soft bump scale for organic ground shading)
     const imgData = ctx.createImageData(size, size);
-    const bumpScale = 2.2;
+    const bumpScale = 1.7;
 
     for (let y = 0; y < size; y++) {
         const ym = (y + size - 1) % size;

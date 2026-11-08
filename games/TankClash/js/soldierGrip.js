@@ -1,8 +1,9 @@
 (function () {
     function placeSoldierWeaponInHand(rig, localWeaponQuat) {
-        const pistolGrip = rig.rifleType === 'thompson' || rig.rifleType === 'mp40';
-        const gripY = pistolGrip ? -0.065 : -0.035;
-        const gripZ = pistolGrip ? -0.05 : -0.10;
+        const isBazooka = rig.rifleType === 'bazooka' || rig.rifleType === 'panzerschreck';
+        const pistolGrip = isBazooka || rig.rifleType === 'thompson' || rig.rifleType === 'mp40';
+        const gripY = isBazooka ? -0.06 : (pistolGrip ? -0.065 : -0.035);
+        const gripZ = isBazooka ? -0.05 : (pistolGrip ? -0.05 : -0.10);
         const rightGrip = new THREE.Vector3(0.025, gripY, gripZ).applyQuaternion(localWeaponQuat);
         rig.rifle.position.set(0, -0.036, 0.004).sub(rightGrip);
     }
@@ -71,7 +72,9 @@
         placeSoldierWeaponInHand(rig, localRifleQuat);
         rig.rifle.updateMatrixWorld(true);
 
-        const gripWorld = rig.rifle.localToWorld(new THREE.Vector3(-0.025, -0.024, 0.064));
+        const isBazooka = rig.rifleType === 'bazooka' || rig.rifleType === 'panzerschreck';
+        const gripLocal = isBazooka ? new THREE.Vector3(0, -0.05, 0.18) : new THREE.Vector3(-0.025, -0.024, 0.064);
+        const gripWorld = rig.rifle.localToWorld(gripLocal);
         const leftShoulderPos = rig.leftArm.shoulder.position;
         const gripTorso = rig.torso.worldToLocal(gripWorld.clone());
         const direction = gripTorso.clone().sub(leftShoulderPos);
