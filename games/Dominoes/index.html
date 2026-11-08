@@ -233,14 +233,33 @@
             </div>
 
             <!-- Action Buttons -->
-            <div class="flex items-center justify-end gap-2 pt-1 border-t border-slate-800/80">
+            <div class="flex items-center justify-between gap-2 pt-1 border-t border-slate-800/80">
                 <button id="btn-cancel-mosaic" class="px-3 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white bg-slate-800/80 hover:bg-slate-700 transition">Cancel</button>
-                <button id="btn-generate-mosaic" class="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 shadow-lg shadow-purple-500/25 active:scale-95 transition">
-                    <i data-lucide="sparkles" class="w-4 h-4 text-purple-200"></i>
-                    <span id="btn-generate-mosaic-text">Build Domino Matrix</span>
-                </button>
+                <div class="flex items-center gap-2">
+                    <button id="btn-place-mosaic-center" class="px-3 py-2 rounded-xl text-xs font-semibold text-purple-300 hover:text-white bg-purple-900/40 hover:bg-purple-800/60 border border-purple-500/30 transition shadow" title="Add directly to center of stage (0,0) without clearing existing dominoes">
+                        Add to Center
+                    </button>
+                    <button id="btn-generate-mosaic" class="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 shadow-lg shadow-purple-500/25 active:scale-95 transition" title="Click and drag an arrow anywhere on the stage floor to place and rotate">
+                        <i data-lucide="navigation" class="w-4 h-4 text-purple-200 rotate-45"></i>
+                        <span id="btn-generate-mosaic-text">Place with Arrow</span>
+                    </button>
+                </div>
             </div>
         </div>
+    </div>
+
+    <!-- Matrix Placement Guidance Floating Banner -->
+    <div id="matrix-placement-banner" class="fixed top-16 left-1/2 -translate-x-1/2 z-40 hidden items-center gap-3 px-4 py-2.5 rounded-2xl glass-panel border border-purple-500/50 shadow-2xl shadow-purple-500/25 pointer-events-auto transition-all">
+        <div class="w-7 h-7 rounded-xl bg-gradient-to-tr from-purple-500 to-indigo-600 flex items-center justify-center shrink-0 shadow">
+            <i data-lucide="navigation" class="w-4 h-4 text-white rotate-45"></i>
+        </div>
+        <div class="flex flex-col">
+            <span id="matrix-banner-title" class="text-xs font-bold text-white">Click & Drag Arrow to Place Matrix</span>
+            <span id="matrix-banner-desc" class="text-[11px] text-purple-200">Drag an arrow on the floor to orient, release to place</span>
+        </div>
+        <button id="btn-cancel-matrix-placement" class="ml-2 px-3 py-1 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-semibold border border-slate-600 transition">
+            Cancel
+        </button>
     </div>
 
     <!-- AR Active Top Notification Banner -->
@@ -2336,6 +2355,7 @@
         // 5. INTERACTIVE TOOLS, GHOST PREVIEW & RAYCASTING
         // ==========================================
         const state = {
+            matrixPlacementActive: false,
             isPlaceActive: false,   // Default to 1-finger camera rotate mode when place button is not on!
             placeFunction: 'draw',  // Function of place button decided by radio buttons: 'draw', 'place', 'push', 'move', 'delete'
             get mode() {
@@ -2507,7 +2527,101 @@
         const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
 
-        // Ghost preview mesh for 'place' and 'draw' modes
+        // Interactive Matrix Placement 3D Arrow & Boundary Helper
+        let pendingMatrixConfig = null;
+        let isDraggingMatrixArrow = false;
+        const matrixDragStart = new THREE.Vector3();
+        const matrixDragCurrent = new THREE.Vector3();
+
+        const matrixPlacementHelper = new THREE.Group();
+        matrixPlacementHelper.name = 'matrixPlacementHelper';
+        matrixPlacementHelper.visible = false;
+        arWorldGroup.add(matrixPlacementHelper);
+
+        // Bounding box outline for matrix
+        const _boxGeo = new THREE.BufferGeometry();
+        const _halfW = 0.5, _halfD = 0.5;
+        const _boxVertices = new Float32Array([
+            -_halfW, 0.02, -_halfD,   _halfW, 0.02, -_halfD,
+             _halfW, 0.02, -_halfD,   _halfW, 0.02,  _halfD,
+             _halfW, 0.02,  _halfD,  -_halfW, 0.02,  _halfD,
+            -_halfW, 0.02,  _halfD,  -_halfW, 0.02, -_halfD,
+            // Forward pointer chevron at front (+Z)
+            -0.15, 0.02, _halfD - 0.25,  0.0, 0.02, _halfD,
+             0.15, 0.02, _halfD - 0.25,  0.0, 0.02, _halfD
+        ]);
+        _boxGeo.setAttribute('position', new THREE.BufferAttribute(_boxVertices, 3));
+        const matrixOutlineMesh = new THREE.LineSegments(
+            _boxGeo,
+            new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.9, linewidth: 2 })
+        );
+        matrixPlacementHelper.add(matrixOutlineMesh);
+
+        // Translucent fill plane showing floor footprint
+        const _fillGeo = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+        const matrixFillMesh = new THREE.Mesh(
+            _fillGeo,
+            new THREE.MeshBasicMaterial({ color: 0x6366f1, transparent: true, opacity: 0.16, depthWrite: false })
+        );
+        matrixFillMesh.position.y = 0.01;
+        matrixPlacementHelper.add(matrixFillMesh);
+
+        // Arrow Group
+        const matrixArrowGroup = new THREE.Group();
+        matrixPlacementHelper.add(matrixArrowGroup);
+
+        // Compass origin ring
+        const _ringGeo = new THREE.RingGeometry(0.55, 0.80, 32).rotateX(-Math.PI / 2);
+        const _ringMesh = new THREE.Mesh(
+            _ringGeo,
+            new THREE.MeshBasicMaterial({ color: 0xa855f7, side: THREE.DoubleSide, transparent: true, opacity: 0.85 })
+        );
+        _ringMesh.position.y = 0.03;
+        matrixArrowGroup.add(_ringMesh);
+
+        // Arrow Shaft (Cylinder along local +Z)
+        const _shaftGeo = new THREE.CylinderGeometry(0.14, 0.14, 1, 16).rotateX(Math.PI / 2);
+        const matrixArrowShaft = new THREE.Mesh(
+            _shaftGeo,
+            new THREE.MeshBasicMaterial({ color: 0xc084fc, transparent: true, opacity: 0.95 })
+        );
+        matrixArrowShaft.position.y = 0.05;
+        matrixArrowGroup.add(matrixArrowShaft);
+
+        // Arrow Head (Cone pointing along local +Z)
+        const _headGeo = new THREE.ConeGeometry(0.48, 1.25, 16).rotateX(Math.PI / 2);
+        const matrixArrowHead = new THREE.Mesh(
+            _headGeo,
+            new THREE.MeshBasicMaterial({ color: 0xec4899, transparent: true, opacity: 0.95 })
+        );
+        matrixArrowHead.position.y = 0.05;
+        matrixArrowGroup.add(matrixArrowHead);
+
+        function updateMatrixPlacementVisuals(dist = 0) {
+            if (!pendingMatrixConfig) return;
+            const res = pendingMatrixConfig.res || 28;
+            const spacingX = 0.88;
+            const spacingZ = 0.80;
+            const totalW = res * spacingX;
+            const totalD = res * spacingZ;
+
+            matrixOutlineMesh.scale.set(totalW, 1, totalD);
+            matrixFillMesh.scale.set(totalW, 1, totalD);
+
+            if (dist > 0.4) {
+                const headLen = 1.25;
+                const shaftLen = Math.max(0.15, dist - headLen);
+                matrixArrowShaft.scale.set(1, 1, shaftLen);
+                matrixArrowShaft.position.set(0, 0.05, shaftLen / 2);
+                matrixArrowHead.position.set(0, 0.05, dist - headLen / 2);
+            } else {
+                matrixArrowShaft.scale.set(1, 1, 1.4);
+                matrixArrowShaft.position.set(0, 0.05, 0.7);
+                matrixArrowHead.position.set(0, 0.05, 1.4 + 0.6);
+            }
+        }
+
+        // Ghost Placement Indicator
         let ghostMesh = null;
         const ghostMat = new THREE.MeshStandardMaterial({
             color: 0x60a5fa,
@@ -2710,6 +2824,23 @@
 
             // On mouse, only handle left-click (button 0) for tools
             if (e.pointerType === 'mouse' && e.button !== 0) return;
+
+            // Handle Matrix Placement Mode (Click and Drag Arrow)
+            if (state.matrixPlacementActive) {
+                state.isPointerDown = true;
+                const targetY = getTouchOffsetClientY(e);
+                const hit = getSurfaceIntersection(e.clientX, targetY, false);
+                if (hit) {
+                    isDraggingMatrixArrow = true;
+                    matrixDragStart.copy(hit.point);
+                    matrixDragCurrent.copy(hit.point);
+                    matrixPlacementHelper.position.set(hit.point.x, 0.04, hit.point.z);
+                    matrixPlacementHelper.visible = true;
+                    updateMatrixPlacementVisuals(0.5);
+                }
+                return;
+            }
+
             if (state.mode === 'camera') return;
 
 
@@ -2772,6 +2903,38 @@
             if (multiTouchGestureActive || activePointers.size >= 2) return;
 
             const targetY = getTouchOffsetClientY(e);
+
+            // Matrix Placement Mode (Click & Drag Arrow) Hover and Dragging
+            if (state.matrixPlacementActive) {
+                const hit = getSurfaceIntersection(e.clientX, targetY, false);
+                if (hit) {
+                    if (!isDraggingMatrixArrow) {
+                        matrixPlacementHelper.position.set(hit.point.x, 0.04, hit.point.z);
+                        matrixPlacementHelper.visible = true;
+                        const camDir = new THREE.Vector3();
+                        camera.getWorldDirection(camDir);
+                        const defaultAngle = Math.atan2(camDir.x, camDir.z);
+                        matrixPlacementHelper.rotation.y = defaultAngle;
+                        updateMatrixPlacementVisuals(0);
+                    } else {
+                        matrixDragCurrent.copy(hit.point);
+                        const dx = matrixDragCurrent.x - matrixDragStart.x;
+                        const dz = matrixDragCurrent.z - matrixDragStart.z;
+                        const dist = Math.hypot(dx, dz);
+                        const angle = Math.atan2(dx, dz);
+                        matrixPlacementHelper.position.set(matrixDragStart.x, 0.04, matrixDragStart.z);
+                        matrixPlacementHelper.rotation.y = angle;
+                        updateMatrixPlacementVisuals(dist);
+
+                        const descEl = document.getElementById('matrix-banner-desc');
+                        if (descEl) {
+                            const deg = Math.round((angle * 180 / Math.PI + 360) % 360);
+                            descEl.textContent = `Arrow Direction: ${deg}° | Distance: ${dist.toFixed(1)}m (Release to place)`;
+                        }
+                    }
+                }
+                return;
+            }
 
             if (state.mode === 'place' || state.mode === 'draw') {
                 const hit = getSurfaceIntersection(e.clientX, targetY, false);
@@ -2856,6 +3019,28 @@
 
         function handlePointerEnd(e) {
             activePointers.delete(e.pointerId);
+
+            if (state.matrixPlacementActive && isDraggingMatrixArrow) {
+                isDraggingMatrixArrow = false;
+                state.isPointerDown = false;
+                const dx = matrixDragCurrent.x - matrixDragStart.x;
+                const dz = matrixDragCurrent.z - matrixDragStart.z;
+                const dist = Math.hypot(dx, dz);
+                let angle = 0;
+                if (dist >= 0.35) {
+                    angle = Math.atan2(dx, dz);
+                } else {
+                    const camDir = new THREE.Vector3();
+                    camera.getWorldDirection(camDir);
+                    angle = Math.atan2(camDir.x, camDir.z);
+                }
+
+                if (pendingMatrixConfig) {
+                    generateDominoMatrixAt(matrixDragStart, angle, pendingMatrixConfig);
+                }
+                exitMatrixPlacementMode();
+                return;
+            }
 
             if (activePointers.size === 0) {
                 if (!multiTouchGestureActive && state.isPointerDown) {
@@ -3577,10 +3762,11 @@
             document.getElementById('btn-generate-mosaic-text').textContent = `Build Domino Matrix (${total.toLocaleString()} pcs)`;
         }
 
-        function generateDominoMatrixFromImage(imgSource, res = 28, layout = 'wave', addStarter = true) {
+        // Generate Domino Matrix at specific Center Position & Orientation Angle (Added to existing scene!)
+        function generateDominoMatrixAt(centerPos, angleY, config) {
             sound.init();
-            clearAllObjects();
-
+            // NOTICE: Does NOT call clearAllObjects()! Retains all existing items in scene.
+            const { imgSource, res, layout, addStarter } = config;
             const cols = res;
             const rows = res;
             const tempC = document.createElement('canvas');
@@ -3597,10 +3783,23 @@
             const startX = -totalW / 2;
             const startZ = -totalD / 2;
 
+            const cosA = Math.cos(angleY);
+            const sinA = Math.sin(angleY);
+
+            function toWorldPos(lx, lz) {
+                return new THREE.Vector3(
+                    centerPos.x + (lx * cosA + lz * sinA),
+                    centerPos.y,
+                    centerPos.z + (-lx * sinA + lz * cosA)
+                );
+            }
+
+            let spawnedCount = 0;
+
             if (layout === 'wave' || layout === 'gallery') {
-                // Cascading Wave / Gallery: Every row faces forward
+                // Cascading Wave / Gallery: Every row faces along arrow angle
                 for (let r = 0; r < rows; r++) {
-                    const z = startZ + r * spacingZ;
+                    const lz = startZ + r * spacingZ;
                     for (let c = 0; c < cols; c++) {
                         const idx = (r * cols + c) * 4;
                         const a = imgData[idx + 3];
@@ -3611,22 +3810,27 @@
                         const bVal = imgData[idx + 2];
                         const hex = '#' + ((1 << 24) + (rVal << 16) + (gVal << 8) + bVal).toString(16).slice(1);
 
-                        const x = startX + c * spacingX;
-                        spawnObject('domino', new THREE.Vector3(x, 0, z), 0, hex);
+                        const lx = startX + c * spacingX;
+                        const worldP = toWorldPos(lx, lz);
+                        spawnObject('domino', worldP, angleY, hex);
+                        spawnedCount++;
                     }
                 }
 
-                // Add starter push trigger domino in front of the center
+                // Add starter push trigger dominoes in front of center
                 if (addStarter && layout === 'wave') {
                     const midCol = Math.floor(cols / 2);
-                    const triggerX = startX + midCol * spacingX;
-                    spawnObject('domino', new THREE.Vector3(triggerX, 0, startZ - 0.78), 0, '#ffffff');
-                    spawnObject('domino', new THREE.Vector3(triggerX, 0, startZ - 1.55), 0, '#ef4444');
+                    const triggerLx = startX + midCol * spacingX;
+                    const p1 = toWorldPos(triggerLx, startZ - 0.78);
+                    const p2 = toWorldPos(triggerLx, startZ - 1.55);
+                    spawnObject('domino', p1, angleY, '#ffffff');
+                    spawnObject('domino', p2, angleY, '#ef4444');
+                    spawnedCount += 2;
                 }
             } else if (layout === 'snake') {
                 // Serpentine Snake: Rows alternate direction linked by connector pieces
                 for (let r = 0; r < rows; r++) {
-                    const z = startZ + r * spacingZ;
+                    const lz = startZ + r * spacingZ;
                     const isReverse = (r % 2 === 1);
 
                     for (let i = 0; i < cols; i++) {
@@ -3640,36 +3844,78 @@
                         const bVal = imgData[idx + 2];
                         const hex = '#' + ((1 << 24) + (rVal << 16) + (gVal << 8) + bVal).toString(16).slice(1);
 
-                        const x = startX + c * spacingX;
-                        const rot = isReverse ? -Math.PI / 2 : Math.PI / 2;
-                        spawnObject('domino', new THREE.Vector3(x, 0, z), rot, hex);
+                        const lx = startX + c * spacingX;
+                        const localRot = isReverse ? -Math.PI / 2 : Math.PI / 2;
+                        const worldP = toWorldPos(lx, lz);
+                        spawnObject('domino', worldP, localRot + angleY, hex);
+                        spawnedCount++;
                     }
 
                     // Turn connector piece to next row
                     if (r < rows - 1) {
                         const nextZ = startZ + (r + 1) * spacingZ;
-                        const turnX = isReverse ? (startX - 0.45) : (startX + totalW + 0.45);
-                        const midZ = (z + nextZ) / 2;
+                        const turnLx = isReverse ? (startX - 0.45) : (startX + totalW + 0.45);
+                        const midLz = (lz + nextZ) / 2;
                         const turnAngle = isReverse ? Math.PI : 0;
-                        spawnObject('domino', new THREE.Vector3(turnX, 0, midZ), turnAngle, '#f59e0b');
+                        const turnWorldP = toWorldPos(turnLx, midLz);
+                        spawnObject('domino', turnWorldP, turnAngle + angleY, '#f59e0b');
+                        spawnedCount++;
                     }
                 }
 
                 // Starter domino at snake entry
                 if (addStarter) {
-                    spawnObject('domino', new THREE.Vector3(startX - 0.82, 0, startZ), Math.PI / 2, '#ef4444');
+                    const starterWorldP = toWorldPos(startX - 0.82, startZ);
+                    spawnObject('domino', starterWorldP, Math.PI / 2 + angleY, '#ef4444');
+                    spawnedCount++;
                 }
             }
 
             saveCurrentStateAsInitial();
             updateItemCounter();
 
-            // Frame camera nicely over the completed artwork
-            camera.position.set(0, Math.max(24, totalD * 0.95), Math.max(32, totalD * 1.25));
-            controls.target.set(0, 0, 0);
-            controls.update();
+            showToast(`Domino Matrix Added! ${spawnedCount.toLocaleString()} dominoes added to scene.`);
+        }
 
-            showToast(`Domino Matrix Built! ${objects.length.toLocaleString()} dominoes ready. Tap Push!`);
+        // Enter Interactive Matrix Placement Mode
+        function enterMatrixPlacementMode(config) {
+            pendingMatrixConfig = config;
+            state.matrixPlacementActive = true;
+            isDraggingMatrixArrow = false;
+
+            // Show Placement Guidance Banner
+            const banner = document.getElementById('matrix-placement-banner');
+            if (banner) {
+                banner.classList.remove('hidden');
+                banner.classList.add('flex');
+            }
+
+            // Disable OrbitControls left-click so dragging draws the placement arrow
+            controls.mouseButtons.LEFT = -1;
+            controls.touches.ONE = -1;
+
+            updateMatrixPlacementVisuals(0);
+            showToast('Click and drag an arrow on the floor to position and orient matrix!');
+        }
+
+        // Exit Interactive Matrix Placement Mode
+        function exitMatrixPlacementMode() {
+            state.matrixPlacementActive = false;
+            isDraggingMatrixArrow = false;
+            pendingMatrixConfig = null;
+
+            if (matrixPlacementHelper) {
+                matrixPlacementHelper.visible = false;
+            }
+
+            const banner = document.getElementById('matrix-placement-banner');
+            if (banner) {
+                banner.classList.add('hidden');
+                banner.classList.remove('flex');
+            }
+
+            // Restore camera controls according to active mode
+            updateCameraControlsForMode(state.mode);
         }
 
         // Modal Open / Close Listeners
@@ -3736,7 +3982,7 @@
             });
         }
 
-        // Build Domino Matrix Button Click
+        // Place Domino Matrix with Interactive Arrow Dragging
         const btnGenerateMosaic = document.getElementById('btn-generate-mosaic');
         if (btnGenerateMosaic) {
             btnGenerateMosaic.addEventListener('click', () => {
@@ -3748,9 +3994,46 @@
                     currentMosaicSource = createSamplePresetImage('smiley');
                 }
 
-                generateDominoMatrixFromImage(currentMosaicSource, res, layout, addStarter);
+                const config = {
+                    imgSource: currentMosaicSource,
+                    res,
+                    layout,
+                    addStarter
+                };
+
                 closeMosaicModal();
+                enterMatrixPlacementMode(config);
             });
+        }
+
+        // Place Directly at Center (0,0) without Dragging
+        const btnPlaceMosaicCenter = document.getElementById('btn-place-mosaic-center');
+        if (btnPlaceMosaicCenter) {
+            btnPlaceMosaicCenter.addEventListener('click', () => {
+                const res = parseInt(document.getElementById('mosaic-slider-res').value) || 28;
+                const layout = document.getElementById('mosaic-layout-mode').value || 'wave';
+                const addStarter = document.getElementById('mosaic-chk-starter').checked;
+
+                if (!currentMosaicSource) {
+                    currentMosaicSource = createSamplePresetImage('smiley');
+                }
+
+                const config = {
+                    imgSource: currentMosaicSource,
+                    res,
+                    layout,
+                    addStarter
+                };
+
+                closeMosaicModal();
+                generateDominoMatrixAt(new THREE.Vector3(0, 0, 0), 0, config);
+            });
+        }
+
+        // Cancel Matrix Placement Mode button
+        const btnCancelMatrixPlacement = document.getElementById('btn-cancel-matrix-placement');
+        if (btnCancelMatrixPlacement) {
+            btnCancelMatrixPlacement.addEventListener('click', exitMatrixPlacementMode);
         }
 
         // Sliders
@@ -3822,7 +4105,13 @@
 
         // Keyboard Shortcuts
         window.addEventListener('keydown', (e) => {
-            if (e.code === 'KeyR') {
+            if (e.code === 'Escape') {
+                if (state.matrixPlacementActive) {
+                    exitMatrixPlacementMode();
+                    showToast('Matrix placement cancelled');
+                    return;
+                }
+            } else if (e.code === 'KeyR') {
                 rotateActiveItem();
             } else if ((e.ctrlKey || e.metaKey) && e.code === 'KeyZ') {
                 e.preventDefault();
