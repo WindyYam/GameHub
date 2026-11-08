@@ -158,6 +158,91 @@
     <!-- 3D Canvas Container -->
     <div id="canvas-container"></div>
 
+    <!-- Image to Dominoes Matrix Studio Modal -->
+    <div id="mosaic-modal" class="fixed inset-0 z-50 hidden items-center justify-center p-3 sm:p-4 bg-slate-950/80 backdrop-blur-md">
+        <div class="glass-panel w-full max-w-lg rounded-2xl border border-slate-700/80 shadow-2xl p-4 sm:p-5 flex flex-col gap-3.5 max-h-[92vh] overflow-y-auto no-scrollbar">
+            <!-- Modal Header -->
+            <div class="flex items-center justify-between border-b border-slate-700/80 pb-3">
+                <div class="flex items-center gap-2.5">
+                    <div class="w-8 h-8 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-purple-500/30">
+                        <i data-lucide="grid" class="w-4 h-4 text-white"></i>
+                    </div>
+                    <div>
+                        <h2 class="font-bold text-sm text-white">Image to Domino Matrix</h2>
+                        <span class="text-[11px] text-purple-300 font-medium">Convert photos into colorful toppling domino mosaics</span>
+                    </div>
+                </div>
+                <button id="btn-close-mosaic" class="w-7 h-7 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
+            </div>
+
+            <!-- Upload Custom Photo or Select Preset -->
+            <div>
+                <label class="block text-xs font-semibold text-slate-300 mb-1.5">1. Choose Photo or Preset</label>
+                <div class="flex flex-col sm:flex-row gap-2">
+                    <label class="flex-1 flex items-center justify-center gap-2 p-2.5 rounded-xl border-2 border-dashed border-purple-500/40 hover:border-purple-400/80 bg-slate-900/60 hover:bg-slate-900/90 cursor-pointer transition text-xs font-medium text-purple-200">
+                        <i data-lucide="upload" class="w-4 h-4 text-purple-400"></i>
+                        <span>Upload Any Photo/Image</span>
+                        <input type="file" id="mosaic-file-input" accept="image/*" class="hidden">
+                    </label>
+                </div>
+                <!-- Sample Quick Presets -->
+                <div class="flex items-center gap-1.5 mt-2 overflow-x-auto pb-1 no-scrollbar text-xs">
+                    <span class="text-[11px] text-slate-400 shrink-0">Sample Art:</span>
+                    <button class="mosaic-preset-btn px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 shrink-0 active:scale-95 transition" data-preset="smiley">😊 Smiley</button>
+                    <button class="mosaic-preset-btn px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 shrink-0 active:scale-95 transition" data-preset="heart">❤️ Heart</button>
+                    <button class="mosaic-preset-btn px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 shrink-0 active:scale-95 transition" data-preset="sunset">🌅 Sunset</button>
+                    <button class="mosaic-preset-btn px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 shrink-0 active:scale-95 transition" data-preset="mushroom">🍄 Mushroom</button>
+                    <button class="mosaic-preset-btn px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 shrink-0 active:scale-95 transition" data-preset="spiral">🌀 Spiral</button>
+                </div>
+            </div>
+
+            <!-- Preview & Parameters -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 items-center bg-slate-900/70 p-3 rounded-xl border border-slate-800">
+                <!-- Live Pixel Preview -->
+                <div class="flex flex-col items-center justify-center">
+                    <canvas id="mosaic-preview-canvas" width="128" height="128" class="rounded-lg shadow-lg border border-slate-700 bg-slate-950 aspect-square object-contain max-h-[135px]"></canvas>
+                    <span id="mosaic-info-text" class="text-[11px] text-slate-400 mt-1 font-mono">28 × 28 (784 pieces)</span>
+                </div>
+
+                <!-- Parameters Controls -->
+                <div class="flex flex-col gap-2.5">
+                    <div>
+                        <div class="flex justify-between text-[11px] text-slate-300 mb-1">
+                            <span>Grid Resolution</span>
+                            <span id="mosaic-val-res" class="text-purple-300 font-mono font-bold">28 × 28</span>
+                        </div>
+                        <input type="range" id="mosaic-slider-res" min="16" max="48" step="2" value="28" class="w-full accent-purple-500 h-1.5 bg-slate-800 rounded-lg cursor-pointer">
+                    </div>
+
+                    <div>
+                        <label class="block text-[11px] text-slate-300 mb-1">Toppling Layout</label>
+                        <select id="mosaic-layout-mode" class="w-full bg-slate-800 text-xs text-slate-200 rounded-xl px-2.5 py-1.5 border border-slate-700 focus:outline-none focus:border-purple-400 cursor-pointer">
+                            <option value="wave" selected>Cascading Wave (Sweeping Wall)</option>
+                            <option value="snake">Serpentine Chain (Winding Path)</option>
+                            <option value="gallery">3D Standing Gallery (Portrait)</option>
+                        </select>
+                    </div>
+
+                    <label class="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                        <input type="checkbox" id="mosaic-chk-starter" checked class="rounded bg-slate-800 border-slate-600 text-purple-600 focus:ring-0">
+                        <span>Place Starter Trigger Domino</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="flex items-center justify-end gap-2 pt-1 border-t border-slate-800/80">
+                <button id="btn-cancel-mosaic" class="px-3 py-2 rounded-xl text-xs font-semibold text-slate-400 hover:text-white bg-slate-800/80 hover:bg-slate-700 transition">Cancel</button>
+                <button id="btn-generate-mosaic" class="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 shadow-lg shadow-purple-500/25 active:scale-95 transition">
+                    <i data-lucide="sparkles" class="w-4 h-4 text-purple-200"></i>
+                    <span id="btn-generate-mosaic-text">Build Domino Matrix</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- AR Active Top Notification Banner -->
     <div id="ar-banner" class="fixed top-3 sm:top-4 left-1/2 -translate-x-1/2 z-40 hidden items-center gap-2 px-3.5 py-2 rounded-full glass-panel shadow-2xl text-xs font-medium text-purple-200 border border-purple-500/40 pointer-events-auto max-w-[92vw]">
         <span class="w-2 h-2 rounded-full bg-purple-400 animate-pulse shrink-0"></span>
@@ -537,25 +622,50 @@
                 </button>
             </div>
 
-            <!-- Domino Color Palette -->
+            <!-- Domino Color Palette & Image Matrix Button -->
             <div class="pt-2 border-t border-slate-700/80 flex flex-col gap-2">
                 <div class="flex items-center justify-between">
-                    <span class="text-[11px] font-semibold text-slate-300">Domino Color Palette</span>
+                    <span class="text-[11px] font-semibold text-slate-300">Color Palette (16 Colors)</span>
                     <label class="flex items-center gap-1.5 text-[11px] text-slate-400 cursor-pointer">
                         <input type="checkbox" id="chk-rainbow" checked class="rounded bg-slate-800 border-slate-600 text-blue-500 focus:ring-0">
                         <span>Auto-Rainbow</span>
                     </label>
                 </div>
-                <div id="color-palette" class="flex items-center justify-between px-1 py-1">
-                    <button data-color="#cbd5e1" class="color-swatch active w-6 h-6 rounded-full bg-slate-300 border border-slate-500 transition" title="Classic Ivory"></button>
-                    <button data-color="#dc2626" class="color-swatch w-6 h-6 rounded-full bg-red-600 transition" title="Crimson Red"></button>
-                    <button data-color="#d97706" class="color-swatch w-6 h-6 rounded-full bg-amber-600 transition" title="Amber Gold"></button>
-                    <button data-color="#059669" class="color-swatch w-6 h-6 rounded-full bg-emerald-600 transition" title="Emerald Green"></button>
-                    <button data-color="#2563eb" class="color-swatch w-6 h-6 rounded-full bg-blue-600 transition" title="Cobalt Blue"></button>
-                    <button data-color="#7c3aed" class="color-swatch w-6 h-6 rounded-full bg-violet-600 transition" title="Royal Violet"></button>
-                    <button data-color="#db2777" class="color-swatch w-6 h-6 rounded-full bg-pink-600 transition" title="Magenta Pink"></button>
-                    <button data-color="#0f172a" class="color-swatch w-6 h-6 rounded-full bg-slate-900 border border-slate-600 transition" title="Obsidian Black"></button>
+                <!-- 16 Curated Vibrant Color Blocks in 2 Rows of 8 -->
+                <div id="color-palette" class="grid grid-cols-8 gap-1.5 px-0.5 py-1">
+                    <button data-color="#f8fafc" class="color-swatch active w-6 h-6 rounded-full bg-slate-100 border border-slate-400 shadow-sm transition" title="Pure Ivory"></button>
+                    <button data-color="#94a3b8" class="color-swatch w-6 h-6 rounded-full bg-slate-400 border border-slate-500 shadow-sm transition" title="Silver Slate"></button>
+                    <button data-color="#ef4444" class="color-swatch w-6 h-6 rounded-full bg-red-500 transition" title="Crimson Red"></button>
+                    <button data-color="#f97316" class="color-swatch w-6 h-6 rounded-full bg-orange-500 transition" title="Sunset Orange"></button>
+                    <button data-color="#f59e0b" class="color-swatch w-6 h-6 rounded-full bg-amber-500 transition" title="Amber Gold"></button>
+                    <button data-color="#eab308" class="color-swatch w-6 h-6 rounded-full bg-yellow-500 transition" title="Lemon Yellow"></button>
+                    <button data-color="#84cc16" class="color-swatch w-6 h-6 rounded-full bg-lime-500 transition" title="Lime Neon"></button>
+                    <button data-color="#10b981" class="color-swatch w-6 h-6 rounded-full bg-emerald-500 transition" title="Emerald Green"></button>
+                    
+                    <button data-color="#06b6d4" class="color-swatch w-6 h-6 rounded-full bg-cyan-500 transition" title="Turquoise Cyan"></button>
+                    <button data-color="#0ea5e9" class="color-swatch w-6 h-6 rounded-full bg-sky-500 transition" title="Sky Blue"></button>
+                    <button data-color="#3b82f6" class="color-swatch w-6 h-6 rounded-full bg-blue-600 transition" title="Cobalt Blue"></button>
+                    <button data-color="#6366f1" class="color-swatch w-6 h-6 rounded-full bg-indigo-500 transition" title="Indigo Purple"></button>
+                    <button data-color="#8b5cf6" class="color-swatch w-6 h-6 rounded-full bg-violet-500 transition" title="Royal Violet"></button>
+                    <button data-color="#ec4899" class="color-swatch w-6 h-6 rounded-full bg-pink-500 transition" title="Hot Pink"></button>
+                    <button data-color="#78350f" class="color-swatch w-6 h-6 rounded-full bg-amber-900 border border-amber-950 transition" title="Cedar Bronze"></button>
+                    <button data-color="#0f172a" class="color-swatch w-6 h-6 rounded-full bg-slate-950 border border-slate-700 transition" title="Obsidian Black"></button>
                 </div>
+                <!-- Custom Hex Color Picker Bar -->
+                <div class="flex items-center justify-between px-2.5 py-1.5 rounded-xl bg-slate-800/80 border border-slate-700/80">
+                    <span class="text-[11px] text-slate-300 font-medium">Custom Color Picker:</span>
+                    <label class="color-picker-label relative flex items-center justify-center w-7 h-7 rounded-xl bg-gradient-to-tr from-pink-500 via-amber-400 to-cyan-400 cursor-pointer shadow border border-slate-500/80 hover:scale-105 active:scale-95 transition shrink-0" title="Pick Any Hex Color (16 Million Colors)">
+                        <input type="color" id="input-custom-color" value="#0ea5e9" class="absolute inset-0 opacity-0 cursor-pointer w-full h-full">
+                        <i data-lucide="pipette" class="w-3.5 h-3.5 text-white drop-shadow pointer-events-none"></i>
+                    </label>
+                </div>
+
+                <!-- Launch Image to Dominoes Matrix Studio Modal -->
+                <button id="btn-open-mosaic" class="mt-1 w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:from-purple-500 hover:via-indigo-500 hover:to-blue-500 text-white font-bold text-xs shadow-lg shadow-purple-500/25 active:scale-95 transition" title="Convert any image or photo into a toppling domino mosaic">
+                    <i data-lucide="image" class="w-4 h-4 text-purple-200"></i>
+                    <span>Image to Dominoes Matrix</span>
+                    <span class="text-[9px] px-1.5 py-0.2 rounded-full bg-white/20 text-white font-semibold">NEW</span>
+                </button>
             </div>
 
             <!-- Dynamic Parameters -->
@@ -780,7 +890,7 @@
             const tex = new THREE.CanvasTexture(canvas);
             tex.wrapS = THREE.RepeatWrapping;
             tex.wrapT = THREE.RepeatWrapping;
-            tex.repeat.set(8, 8);
+            tex.repeat.set(20, 20);
             tex.anisotropy = 16;
             return tex;
         }
@@ -842,7 +952,7 @@
             const tex = new THREE.CanvasTexture(canvas);
             tex.wrapS = THREE.RepeatWrapping;
             tex.wrapT = THREE.RepeatWrapping;
-            tex.repeat.set(6, 6);
+            tex.repeat.set(16, 16);
             tex.anisotropy = 16;
             return tex;
         }
@@ -1091,7 +1201,7 @@
         scene.background = new THREE.Color(0x7dd3fc);
         scene.fog = new THREE.FogExp2(0xb8e6fe, 0.0028);
 
-        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.25, 420);
+        const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.25, 1400);
         camera.position.set(0, 18, 28);
 
         const renderer = new THREE.WebGLRenderer({
@@ -1116,7 +1226,7 @@
         const envMapRT = pmremGenerator.fromEquirectangular(skyEquirectTex);
         scene.environment = envMapRT.texture;
 
-        const skyGeo = new THREE.SphereGeometry(280, 32, 32);
+        const skyGeo = new THREE.SphereGeometry(650, 32, 32);
         const skyMat = new THREE.MeshBasicMaterial({
             map: skyEquirectTex,
             side: THREE.BackSide,
@@ -1130,7 +1240,7 @@
         const sunGeo = new THREE.SphereGeometry(9, 24, 24);
         const sunMat = new THREE.MeshBasicMaterial({ color: 0xfffbeb, fog: false });
         const sunMesh = new THREE.Mesh(sunGeo, sunMat);
-        sunMesh.position.set(75, 95, -90);
+        sunMesh.position.set(160, 220, -180);
         scene.add(sunMesh);
 
         // High-Performance Instanced 3D Volumetric-Style Fluffy Clouds (Far Horizon Background Only)
@@ -1175,20 +1285,20 @@
 
         // Spawn far-background clouds in majestic outer rings strictly far from platform (dist 145 to 235)
         // With platform radius ~58, the clouds remain at least 70+ units away at all times!
-        for (let i = 0; i < 34; i++) {
-            const angle = (i / 34) * Math.PI * 2 + Math.random() * 0.15;
-            const dist = 145 + Math.random() * 85;
-            const y = -8 + Math.random() * 36;
-            const scale = 1.8 + Math.random() * 1.8;
-            const angularSpeed = (0.004 + Math.random() * 0.008) * (Math.random() < 0.5 ? 1 : -1);
+        for (let i = 0; i < 18; i++) {
+            const angle = (i / 18) * Math.PI * 2 + Math.random() * 0.25;
+            const dist = 220 + Math.random() * 120;
+            const y = -8 + Math.random() * 42;
+            const scale = 2.2 + Math.random() * 2.4;
+            const angularSpeed = (0.003 + Math.random() * 0.006) * (Math.random() < 0.5 ? 1 : -1);
             registerCloudCluster(angle, dist, y, scale, angularSpeed);
         }
         for (let i = 0; i < 12; i++) {
             const angle = (i / 12) * Math.PI * 2 + Math.random() * 0.25;
-            const dist = 185 + Math.random() * 45;
-            const y = 30 + Math.random() * 28;
-            const scale = 2.4 + Math.random() * 2.0;
-            const angularSpeed = (0.003 + Math.random() * 0.006) * (Math.random() < 0.5 ? 1 : -1);
+            const dist = 290 + Math.random() * 90;
+            const y = 35 + Math.random() * 32;
+            const scale = 3.0 + Math.random() * 2.5;
+            const angularSpeed = (0.002 + Math.random() * 0.005) * (Math.random() < 0.5 ? 1 : -1);
             registerCloudCluster(angle, dist, y, scale, angularSpeed);
         }
 
@@ -1252,8 +1362,8 @@
         controls.enableDamping = true;
         controls.dampingFactor = 0.06;
         controls.maxPolarAngle = Math.PI / 2 + 0.08;
-        controls.minDistance = 4;
-        controls.maxDistance = 140;
+        controls.minDistance = 2;
+        controls.maxDistance = 500;
         controls.target.set(0, 2, 0);
 
         // Configure mouse & touch controls so:
@@ -1293,13 +1403,13 @@
         scene.add(hemiLight);
 
         const dirLight = new THREE.DirectionalLight(0xfffbeb, 1.32);
-        dirLight.position.set(24, 42, 22);
+        dirLight.position.set(45, 95, 45);
         dirLight.castShadow = true;
-        dirLight.shadow.mapSize.width = isMobileDevice ? 1536 : 2048;
-        dirLight.shadow.mapSize.height = isMobileDevice ? 1536 : 2048;
+        dirLight.shadow.mapSize.width = isMobileDevice ? 2048 : 4096;
+        dirLight.shadow.mapSize.height = isMobileDevice ? 2048 : 4096;
         dirLight.shadow.camera.near = 8;
-        dirLight.shadow.camera.far = 110;
-        const d = 36; // Shadow frustum expanded to cover the enlarged platform
+        dirLight.shadow.camera.far = 300;
+        const d = 115; // Shadow frustum covering the expanded 150m platform
         dirLight.shadow.camera.left = -d;
         dirLight.shadow.camera.right = d;
         dirLight.shadow.camera.top = d;
@@ -1319,7 +1429,7 @@
         // 1. Real-Time Contact AO Instanced Decals:
         // Renders soft dark ambient occlusion footprints directly beneath every domino, block,
         // table leg, and chair leg, dynamically scaling/fading as pieces tilt or lift!
-        const MAX_AO_INSTANCES = 1600;
+        const MAX_AO_INSTANCES = 6000;
         const contactAOGeo = new THREE.PlaneGeometry(1, 1);
         contactAOGeo.rotateX(-Math.PI / 2);
         const contactAOMat = new THREE.MeshBasicMaterial({
@@ -1644,9 +1754,9 @@
             restitution: 0.08
         }));
 
-        // Floating Sky Platform (Configurable Dark Premium Surfaces)
-        const platformRadius = 58;
-        const deckGeo = new THREE.CylinderGeometry(platformRadius, platformRadius, 0.7, 96);
+        // Floating Sky Platform (Vastly Expanded Arena: Radius 150m for giant creations & matrices!)
+        const platformRadius = 150;
+        const deckGeo = new THREE.CylinderGeometry(platformRadius, platformRadius, 0.8, 128);
         const deckTopMat = new THREE.MeshStandardMaterial({
             roughness: 0.35,
             metalness: 0.05,
@@ -1658,24 +1768,24 @@
             metalness: 0.25
         });
         const floorMesh = new THREE.Mesh(deckGeo, [deckRimMat, deckTopMat, deckRimMat]);
-        floorMesh.position.y = -0.35;
+        floorMesh.position.y = -0.40;
         floorMesh.receiveShadow = true;
         floorMesh.name = 'ground';
         scene.add(floorMesh);
 
         // Decorative Beveled Sky Island Under-Pedestal
-        const baseGeo = new THREE.CylinderGeometry(platformRadius * 0.95, platformRadius * 0.55, 6.0, 64);
+        const baseGeo = new THREE.CylinderGeometry(platformRadius * 0.96, platformRadius * 0.58, 12.0, 96);
         const baseMat = new THREE.MeshStandardMaterial({
             color: 0x101318,
             roughness: 0.70,
             metalness: 0.12
         });
         const baseMesh = new THREE.Mesh(baseGeo, baseMat);
-        baseMesh.position.y = -3.7;
+        baseMesh.position.y = -6.7;
         scene.add(baseMesh);
 
-        // Subtle circular studio grid overlay
-        const gridHelper = new THREE.PolarGridHelper(platformRadius - 1, 24, 16, 64, 0x475569, 0x334155);
+        // Circular studio polar grid overlay covering expanded area
+        const gridHelper = new THREE.PolarGridHelper(platformRadius - 2, 48, 24, 96, 0x475569, 0x334155);
         gridHelper.position.y = 0.01;
         gridHelper.material.opacity = 0.16;
         gridHelper.material.transparent = true;
@@ -1796,8 +1906,10 @@
         };
 
         const RAINBOW_COLORS = [
-            '#dc2626', '#ea580c', '#d97706', '#059669',
-            '#0891b2', '#2563eb', '#7c3aed', '#db2777'
+            '#ef4444', '#f97316', '#f59e0b', '#eab308',
+            '#84cc16', '#10b981', '#06b6d4', '#0ea5e9',
+            '#3b82f6', '#6366f1', '#8b5cf6', '#ec4899',
+            '#f43f5e', '#a855f7', '#14b8a6', '#f8fafc'
         ];
         let rainbowIndex = 0;
 
@@ -3324,8 +3436,322 @@
                 state.selectedColor = swatch.dataset.color;
                 document.getElementById('chk-rainbow').checked = false;
                 document.querySelectorAll('.color-swatch').forEach(s => s.classList.toggle('active', s === swatch));
+                document.querySelector('.color-picker-label')?.classList.remove('ring-2', 'ring-white');
             });
         });
+
+        // Custom Hex Color Picker Listener
+        const inputCustomColor = document.getElementById('input-custom-color');
+        if (inputCustomColor) {
+            inputCustomColor.addEventListener('input', (e) => {
+                state.selectedColor = e.target.value;
+                document.getElementById('chk-rainbow').checked = false;
+                document.querySelectorAll('.color-swatch').forEach(s => s.classList.remove('active'));
+                document.querySelector('.color-picker-label')?.classList.add('ring-2', 'ring-white');
+            });
+        }
+
+        // ==========================================
+        // IMAGE TO DOMINOES MATRIX MOSAIC GENERATOR
+        // ==========================================
+        let currentMosaicSource = null;
+
+        function createSamplePresetImage(type) {
+            const c = document.createElement('canvas');
+            c.width = 64;
+            c.height = 64;
+            const ctx = c.getContext('2d');
+
+            if (type === 'smiley') {
+                // Golden Yellow Face
+                ctx.fillStyle = '#facc15';
+                ctx.beginPath();
+                ctx.arc(32, 32, 28, 0, Math.PI * 2);
+                ctx.fill();
+                // Eyes
+                ctx.fillStyle = '#0f172a';
+                ctx.beginPath();
+                ctx.arc(22, 24, 4, 0, Math.PI * 2);
+                ctx.arc(42, 24, 4, 0, Math.PI * 2);
+                ctx.fill();
+                // Big Smile
+                ctx.strokeStyle = '#0f172a';
+                ctx.lineWidth = 4;
+                ctx.lineCap = 'round';
+                ctx.beginPath();
+                ctx.arc(32, 32, 16, 0.25 * Math.PI, 0.75 * Math.PI);
+                ctx.stroke();
+            } else if (type === 'heart') {
+                // Crimson Red Pixel Heart on Ivory background
+                ctx.fillStyle = '#0f172a';
+                ctx.fillRect(0, 0, 64, 64);
+                ctx.fillStyle = '#ef4444';
+                ctx.beginPath();
+                ctx.moveTo(32, 54);
+                ctx.bezierCurveTo(8, 38, 8, 14, 32, 22);
+                ctx.bezierCurveTo(56, 14, 56, 38, 32, 54);
+                ctx.fill();
+            } else if (type === 'sunset') {
+                // Vibrant Horizon Gradient
+                const grad = ctx.createLinearGradient(0, 0, 0, 64);
+                grad.addColorStop(0.0, '#3b0764');
+                grad.addColorStop(0.25, '#c026d3');
+                grad.addColorStop(0.55, '#f97316');
+                grad.addColorStop(0.70, '#facc15');
+                grad.addColorStop(0.72, '#0369a1');
+                grad.addColorStop(1.0, '#0c4a6e');
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, 64, 64);
+                // Sun disc
+                ctx.fillStyle = '#fffbeb';
+                ctx.beginPath();
+                ctx.arc(32, 42, 10, 0, Math.PI * 2);
+                ctx.fill();
+            } else if (type === 'mushroom') {
+                // Retro 8-bit Mushroom
+                ctx.fillStyle = '#0f172a';
+                ctx.fillRect(0, 0, 64, 64);
+                // Red Cap
+                ctx.fillStyle = '#ef4444';
+                ctx.beginPath();
+                ctx.arc(32, 28, 22, Math.PI, 0);
+                ctx.fill();
+                // White spots
+                ctx.fillStyle = '#f8fafc';
+                ctx.beginPath();
+                ctx.arc(32, 16, 5, 0, Math.PI * 2);
+                ctx.arc(18, 24, 4, 0, Math.PI * 2);
+                ctx.arc(46, 24, 4, 0, Math.PI * 2);
+                ctx.fill();
+                // Stem
+                ctx.fillStyle = '#fef08a';
+                ctx.fillRect(20, 28, 24, 20);
+                // Eyes
+                ctx.fillStyle = '#0f172a';
+                ctx.fillRect(25, 32, 3, 8);
+                ctx.fillRect(36, 32, 3, 8);
+            } else if (type === 'spiral') {
+                // Rainbow Spiral Pattern
+                ctx.fillStyle = '#020617';
+                ctx.fillRect(0, 0, 64, 64);
+                const colors = ['#ef4444', '#f97316', '#eab308', '#10b981', '#06b6d4', '#6366f1', '#ec4899'];
+                for (let a = 0; a < Math.PI * 8; a += 0.15) {
+                    const r = a * 2.8;
+                    const x = 32 + Math.cos(a) * r;
+                    const y = 32 + Math.sin(a) * r;
+                    ctx.fillStyle = colors[Math.floor(a * 1.5) % colors.length];
+                    ctx.beginPath();
+                    ctx.arc(x, y, 3.5, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+            return c;
+        }
+
+        function renderMosaicPreview() {
+            const previewCanvas = document.getElementById('mosaic-preview-canvas');
+            if (!previewCanvas) return;
+            const res = parseInt(document.getElementById('mosaic-slider-res').value) || 28;
+            document.getElementById('mosaic-val-res').textContent = `${res} × ${res}`;
+
+            if (!currentMosaicSource) {
+                currentMosaicSource = createSamplePresetImage('smiley');
+            }
+
+            const pCtx = previewCanvas.getContext('2d');
+            pCtx.imageSmoothingEnabled = false;
+
+            // Draw to temp canvas downscaled to res x res
+            const tempC = document.createElement('canvas');
+            tempC.width = res;
+            tempC.height = res;
+            const tCtx = tempC.getContext('2d');
+            tCtx.drawImage(currentMosaicSource, 0, 0, res, res);
+
+            // Blit scaled up with crisp pixels to preview
+            pCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+            pCtx.drawImage(tempC, 0, 0, previewCanvas.width, previewCanvas.height);
+
+            const total = res * res;
+            document.getElementById('mosaic-info-text').textContent = `${res} × ${res} (${total.toLocaleString()} dominoes)`;
+            document.getElementById('btn-generate-mosaic-text').textContent = `Build Domino Matrix (${total.toLocaleString()} pcs)`;
+        }
+
+        function generateDominoMatrixFromImage(imgSource, res = 28, layout = 'wave', addStarter = true) {
+            sound.init();
+            clearAllObjects();
+
+            const cols = res;
+            const rows = res;
+            const tempC = document.createElement('canvas');
+            tempC.width = cols;
+            tempC.height = rows;
+            const tCtx = tempC.getContext('2d');
+            tCtx.drawImage(imgSource, 0, 0, cols, rows);
+            const imgData = tCtx.getImageData(0, 0, cols, rows).data;
+
+            const spacingX = 0.88; // Slightly wider than 0.80m domino width
+            const spacingZ = 0.80; // Within forward tip reach of 1.65m height
+            const totalW = (cols - 1) * spacingX;
+            const totalD = (rows - 1) * spacingZ;
+            const startX = -totalW / 2;
+            const startZ = -totalD / 2;
+
+            if (layout === 'wave' || layout === 'gallery') {
+                // Cascading Wave / Gallery: Every row faces forward
+                for (let r = 0; r < rows; r++) {
+                    const z = startZ + r * spacingZ;
+                    for (let c = 0; c < cols; c++) {
+                        const idx = (r * cols + c) * 4;
+                        const a = imgData[idx + 3];
+                        if (a < 32) continue; // Transparency cutout
+
+                        const rVal = imgData[idx];
+                        const gVal = imgData[idx + 1];
+                        const bVal = imgData[idx + 2];
+                        const hex = '#' + ((1 << 24) + (rVal << 16) + (gVal << 8) + bVal).toString(16).slice(1);
+
+                        const x = startX + c * spacingX;
+                        spawnObject('domino', new THREE.Vector3(x, 0, z), 0, hex);
+                    }
+                }
+
+                // Add starter push trigger domino in front of the center
+                if (addStarter && layout === 'wave') {
+                    const midCol = Math.floor(cols / 2);
+                    const triggerX = startX + midCol * spacingX;
+                    spawnObject('domino', new THREE.Vector3(triggerX, 0, startZ - 0.78), 0, '#ffffff');
+                    spawnObject('domino', new THREE.Vector3(triggerX, 0, startZ - 1.55), 0, '#ef4444');
+                }
+            } else if (layout === 'snake') {
+                // Serpentine Snake: Rows alternate direction linked by connector pieces
+                for (let r = 0; r < rows; r++) {
+                    const z = startZ + r * spacingZ;
+                    const isReverse = (r % 2 === 1);
+
+                    for (let i = 0; i < cols; i++) {
+                        const c = isReverse ? (cols - 1 - i) : i;
+                        const idx = (r * cols + c) * 4;
+                        const a = imgData[idx + 3];
+                        if (a < 32) continue;
+
+                        const rVal = imgData[idx];
+                        const gVal = imgData[idx + 1];
+                        const bVal = imgData[idx + 2];
+                        const hex = '#' + ((1 << 24) + (rVal << 16) + (gVal << 8) + bVal).toString(16).slice(1);
+
+                        const x = startX + c * spacingX;
+                        const rot = isReverse ? -Math.PI / 2 : Math.PI / 2;
+                        spawnObject('domino', new THREE.Vector3(x, 0, z), rot, hex);
+                    }
+
+                    // Turn connector piece to next row
+                    if (r < rows - 1) {
+                        const nextZ = startZ + (r + 1) * spacingZ;
+                        const turnX = isReverse ? (startX - 0.45) : (startX + totalW + 0.45);
+                        const midZ = (z + nextZ) / 2;
+                        const turnAngle = isReverse ? Math.PI : 0;
+                        spawnObject('domino', new THREE.Vector3(turnX, 0, midZ), turnAngle, '#f59e0b');
+                    }
+                }
+
+                // Starter domino at snake entry
+                if (addStarter) {
+                    spawnObject('domino', new THREE.Vector3(startX - 0.82, 0, startZ), Math.PI / 2, '#ef4444');
+                }
+            }
+
+            saveCurrentStateAsInitial();
+            updateItemCounter();
+
+            // Frame camera nicely over the completed artwork
+            camera.position.set(0, Math.max(24, totalD * 0.95), Math.max(32, totalD * 1.25));
+            controls.target.set(0, 0, 0);
+            controls.update();
+
+            showToast(`Domino Matrix Built! ${objects.length.toLocaleString()} dominoes ready. Tap Push!`);
+        }
+
+        // Modal Open / Close Listeners
+        const btnOpenMosaic = document.getElementById('btn-open-mosaic');
+        const mosaicModal = document.getElementById('mosaic-modal');
+        const btnCloseMosaic = document.getElementById('btn-close-mosaic');
+        const btnCancelMosaic = document.getElementById('btn-cancel-mosaic');
+
+        function openMosaicModal() {
+            if (mosaicModal) {
+                mosaicModal.classList.remove('hidden');
+                mosaicModal.classList.add('flex');
+                if (!currentMosaicSource) {
+                    currentMosaicSource = createSamplePresetImage('smiley');
+                }
+                renderMosaicPreview();
+            }
+        }
+
+        function closeMosaicModal() {
+            if (mosaicModal) {
+                mosaicModal.classList.add('hidden');
+                mosaicModal.classList.remove('flex');
+            }
+        }
+
+        if (btnOpenMosaic) btnOpenMosaic.addEventListener('click', openMosaicModal);
+        if (btnCloseMosaic) btnCloseMosaic.addEventListener('click', closeMosaicModal);
+        if (btnCancelMosaic) btnCancelMosaic.addEventListener('click', closeMosaicModal);
+
+        // Resolution slider listener
+        const mosaicSliderRes = document.getElementById('mosaic-slider-res');
+        if (mosaicSliderRes) {
+            mosaicSliderRes.addEventListener('input', renderMosaicPreview);
+        }
+
+        // Preset buttons in modal
+        document.querySelectorAll('.mosaic-preset-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const presetKey = btn.dataset.preset;
+                currentMosaicSource = createSamplePresetImage(presetKey);
+                renderMosaicPreview();
+                showToast(`Loaded ${btn.textContent} art preset`);
+            });
+        });
+
+        // File upload input listener
+        const mosaicFileInput = document.getElementById('mosaic-file-input');
+        if (mosaicFileInput) {
+            mosaicFileInput.addEventListener('change', (e) => {
+                const file = e.target.files && e.target.files[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    const img = new Image();
+                    img.onload = () => {
+                        currentMosaicSource = img;
+                        renderMosaicPreview();
+                        showToast(`Uploaded ${file.name}`);
+                    };
+                    img.src = evt.target.result;
+                };
+                reader.readAsDataURL(file);
+            });
+        }
+
+        // Build Domino Matrix Button Click
+        const btnGenerateMosaic = document.getElementById('btn-generate-mosaic');
+        if (btnGenerateMosaic) {
+            btnGenerateMosaic.addEventListener('click', () => {
+                const res = parseInt(document.getElementById('mosaic-slider-res').value) || 28;
+                const layout = document.getElementById('mosaic-layout-mode').value || 'wave';
+                const addStarter = document.getElementById('mosaic-chk-starter').checked;
+
+                if (!currentMosaicSource) {
+                    currentMosaicSource = createSamplePresetImage('smiley');
+                }
+
+                generateDominoMatrixFromImage(currentMosaicSource, res, layout, addStarter);
+                closeMosaicModal();
+            });
+        }
 
         // Sliders
         const sliderSpacing = document.getElementById('slider-spacing');
