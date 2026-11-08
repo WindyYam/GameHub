@@ -116,6 +116,19 @@
             bottom: calc(var(--safe-bottom) + var(--mobile-bottom-offset) + 60px);
             transition: bottom 0.2s ease;
         }
+        body.ar-mode {
+            background: transparent !important;
+            background-color: transparent !important;
+        }
+        body.ar-mode #canvas-container {
+            background: transparent !important;
+        }
+        body.ar-mode #canvas-container canvas {
+            background: transparent !important;
+        }
+        :xr-overlay {
+            user-select: none;
+        }
         .no-scrollbar::-webkit-scrollbar {
             display: none;
         }
@@ -139,8 +152,18 @@
 </head>
 <body class="text-slate-100 antialiased">
 
+    <!-- Camera Pass-Through Background for non-WebXR AR fallback (iOS Safari / devices) -->
+    <video id="ar-video-bg" class="fixed inset-0 w-full h-full object-cover z-0 hidden pointer-events-none" autoplay playsinline muted></video>
+
     <!-- 3D Canvas Container -->
     <div id="canvas-container"></div>
+
+    <!-- AR Active Top Notification Banner -->
+    <div id="ar-banner" class="fixed top-3 sm:top-4 left-1/2 -translate-x-1/2 z-40 hidden items-center gap-2 px-3.5 py-2 rounded-full glass-panel shadow-2xl text-xs font-medium text-purple-200 border border-purple-500/40 pointer-events-auto">
+        <span class="w-2 h-2 rounded-full bg-purple-400 animate-pulse shrink-0"></span>
+        <span id="ar-banner-text"><strong>AR Active:</strong> Point camera at floor/table to place dominoes</span>
+        <button id="btn-ar-exit-banner" class="ml-1 px-2 py-0.5 rounded-lg bg-rose-900/80 hover:bg-rose-800 text-white text-[11px] font-bold shadow active:scale-95 transition">Exit AR</button>
+    </div>
 
     <!-- Bottom Simulation & Preset Bar -->
     <div id="bottom-bar" class="fixed left-2 sm:left-4 right-2 sm:right-4 z-20 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-1.5 sm:gap-2 pointer-events-none max-h-[85vh] overflow-visible">
@@ -202,6 +225,13 @@
                     <span>Clear</span>
                 </button>
 
+                <!-- Enter AR Button -->
+                <button id="btn-enter-ar" class="flex items-center gap-1 sm:gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl font-bold text-xs bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white transition shadow-lg shadow-purple-500/25 active:scale-95 shrink-0" title="View in Real Life with Augmented Reality (AR)">
+                    <i data-lucide="view" id="icon-ar" class="w-3.5 h-3.5 text-white"></i>
+                    <span id="text-ar">AR</span>
+                    <span id="badge-ar" class="hidden xs:inline text-[9px] px-1 py-0.2 rounded-full bg-white/20 text-purple-200 font-semibold">3D</span>
+                </button>
+
                 <!-- Mobile More / Settings Toggle Button -->
                 <button id="btn-toggle-options" class="flex md:hidden items-center justify-center w-8 h-8 rounded-xl bg-slate-800/90 hover:bg-slate-700 text-sky-300 border border-slate-700 transition shadow shrink-0" title="Presets, Floor & Graphics Options">
                     <i data-lucide="sliders-horizontal" id="icon-toggle-options" class="w-4 h-4"></i>
@@ -244,6 +274,16 @@
                     <option value="balanced" selected>Clean Studio</option>
                     <option value="high">Experimental SSAO</option>
                     <option value="mobile">Mobile Fast</option>
+                </select>
+            </div>
+
+            <!-- AR Scale Selector (Active in AR Mode) -->
+            <div id="ar-scale-container" class="hidden items-center gap-1.5" title="AR World Scale">
+                <i data-lucide="scan" class="w-3.5 h-3.5 text-purple-400 hidden sm:inline"></i>
+                <select id="ar-scale-select" class="bg-slate-800/90 text-xs font-medium text-purple-300 rounded-xl px-2 py-1.5 border border-slate-700 focus:outline-none focus:border-purple-400 cursor-pointer">
+                    <option value="0.08" selected>AR: Tabletop (Desk)</option>
+                    <option value="0.25">AR: Medium (Floor)</option>
+                    <option value="1.0">AR: 1:1 Life Size</option>
                 </select>
             </div>
 
@@ -299,6 +339,11 @@
             <i data-lucide="pause" id="icon-pill-play" class="w-3.5 h-3.5"></i>
         </button>
 
+        <button id="btn-pill-ar" class="flex items-center gap-1 px-2.5 py-1.5 rounded-xl font-bold text-xs bg-purple-600 hover:bg-purple-500 text-white transition shadow active:scale-95" title="Toggle AR View">
+            <i data-lucide="view" class="w-3.5 h-3.5"></i>
+            <span>AR</span>
+        </button>
+
         <button id="btn-expand-bottom" class="flex items-center gap-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold text-sky-300 hover:text-white bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/80 transition shadow" title="Expand Bottom Menu">
             <span>Menu</span>
             <i data-lucide="chevron-up" class="w-3.5 h-3.5"></i>
@@ -329,6 +374,12 @@
         <button id="btn-quick-clear" class="flex items-center justify-center gap-1 px-2.5 py-2 sm:px-3 sm:py-2.5 rounded-2xl glass-panel hover:bg-rose-950/80 text-rose-400 hover:text-rose-300 font-semibold text-xs shadow-xl active:scale-95 transition border border-rose-900/50" title="Clear All Pieces">
             <i data-lucide="trash-2" class="w-4 h-4"></i>
             <span class="hidden sm:inline">Clear</span>
+        </button>
+
+        <!-- Quick AR Button -->
+        <button id="btn-quick-ar" class="flex items-center justify-center gap-1 px-2.5 py-2 sm:px-3 sm:py-2.5 rounded-2xl glass-panel hover:bg-slate-800/90 text-purple-300 font-semibold text-xs shadow-xl active:scale-95 transition" title="Augmented Reality Mode">
+            <i data-lucide="view" class="w-4 h-4 text-purple-400"></i>
+            <span class="hidden sm:inline">AR</span>
         </button>
     </div>
 
@@ -1042,8 +1093,10 @@
 
         const renderer = new THREE.WebGLRenderer({
             antialias: !isMobileDevice,
-            powerPreference: 'high-performance'
+            powerPreference: 'high-performance',
+            alpha: true
         });
+        renderer.xr.enabled = true;
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.setPixelRatio(Math.min(window.devicePixelRatio, isMobileDevice ? 1.5 : 2));
         renderer.shadowMap.enabled = true;
@@ -1164,6 +1217,28 @@
             cloudInstancedMesh.instanceMatrix.needsUpdate = true;
         }
         updateInstancedClouds(0, 0);
+
+        // AR Floor Shadow Receiver (Invisible plane that catches dynamic domino shadows onto real surfaces)
+        const arShadowGeo = new THREE.PlaneGeometry(120, 120);
+        const arShadowMat = new THREE.ShadowMaterial({ opacity: 0.38 });
+        const arShadowPlane = new THREE.Mesh(arShadowGeo, arShadowMat);
+        arShadowPlane.rotation.x = -Math.PI / 2;
+        arShadowPlane.position.y = 0;
+        arShadowPlane.receiveShadow = true;
+        arShadowPlane.visible = false;
+        scene.add(arShadowPlane);
+
+        // Real-World Surface Detection Reticle (WebXR Hit-Test)
+        const reticleRingGeo = new THREE.RingGeometry(0.09, 0.12, 32).rotateX(-Math.PI / 2);
+        const reticleDotGeo = new THREE.CircleGeometry(0.022, 16).rotateX(-Math.PI / 2);
+        const reticleMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8, opacity: 0.85, transparent: true });
+        const arReticle = new THREE.Group();
+        arReticle.add(new THREE.Mesh(reticleRingGeo, reticleMat));
+        arReticle.add(new THREE.Mesh(reticleDotGeo, reticleMat));
+        arReticle.matrixAutoUpdate = false;
+        arReticle.visible = false;
+        scene.add(arReticle);
+        const arReticlePos = new THREE.Vector3();
 
         const controls = new THREE.OrbitControls(camera, renderer.domElement);
         controls.enableDamping = true;
@@ -2368,13 +2443,19 @@
          * so you can place or draw domino trails ON TOP of tables, bridges, and chairs!
          */
         function getSurfaceIntersection(clientX, clientY, includeDominoes = false) {
+            // When in WebXR AR mode and surface reticle is active, place directly on real table/floor!
+            if (isARActive && arReticle.visible) {
+                return { point: arReticlePos.clone() };
+            }
+
             const rect = renderer.domElement.getBoundingClientRect();
             mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
             mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
 
             raycaster.setFromCamera(mouse, camera);
 
-            const targets = [floorMesh];
+            const activeFloor = isARActive ? arShadowPlane : floorMesh;
+            const targets = [activeFloor];
             if (includeDominoes && dominoInstancedMesh.count > 0) {
                 targets.push(dominoInstancedMesh);
             }
@@ -3094,6 +3175,28 @@
         }
 
         // Place Button Listeners (Bottom Bar & Floating Pill)
+        // AR Button Event Listeners
+        const btnEnterAR = document.getElementById('btn-enter-ar');
+        if (btnEnterAR) btnEnterAR.addEventListener('click', toggleAR);
+
+        const btnPillAR = document.getElementById('btn-pill-ar');
+        if (btnPillAR) btnPillAR.addEventListener('click', toggleAR);
+
+        const btnQuickAR = document.getElementById('btn-quick-ar');
+        if (btnQuickAR) btnQuickAR.addEventListener('click', toggleAR);
+
+        const btnARExitBanner = document.getElementById('btn-ar-exit-banner');
+        if (btnARExitBanner) btnARExitBanner.addEventListener('click', () => exitAR(true));
+
+        const arScaleSelect = document.getElementById('ar-scale-select');
+        if (arScaleSelect) {
+            arScaleSelect.addEventListener('change', (e) => {
+                const sc = parseFloat(e.target.value) || 0.08;
+                // Scale entire scene or domino dimensions in AR
+                showToast(`AR Scale: ${e.target.options[e.target.selectedIndex].text}`);
+            });
+        }
+
         const btnBottomPlace = document.getElementById('btn-bottom-place') || document.getElementById('btn-top-place');
         if (btnBottomPlace) {
             btnBottomPlace.addEventListener('click', () => togglePlace());
@@ -3299,6 +3402,213 @@
         syncViewportMetrics();
 
         // ==========================================
+                // ==========================================
+        // 7. AUGMENTED REALITY (WEBXR & CAMERA PASS-THROUGH)
+        // ==========================================
+        let isARActive = false;
+        let arSession = null;
+        let arRefSpace = null;
+        let arHitTestSource = null;
+        let arHitTestSourceRequested = false;
+        let arStream = null;
+        let arModeType = 'none'; // 'webxr', 'camera', 'preview'
+        let isWebXRSupported = false;
+
+        // Check WebXR AR support
+        if ('xr' in navigator) {
+            navigator.xr.isSessionSupported('immersive-ar').then(supported => {
+                isWebXRSupported = supported;
+                const badge = document.getElementById('badge-ar');
+                if (badge && supported) {
+                    badge.textContent = 'XR';
+                    badge.classList.remove('hidden');
+                }
+            }).catch(() => {
+                isWebXRSupported = false;
+            });
+        }
+
+        async function enterAR() {
+            if (isARActive) return;
+            sound.init();
+
+            if (isWebXRSupported && 'xr' in navigator) {
+                try {
+                    const sessionInit = {
+                        requiredFeatures: ['hit-test'],
+                        optionalFeatures: ['dom-overlay', 'local-floor', 'bounded-floor'],
+                        domOverlay: { root: document.body }
+                    };
+                    const session = await navigator.xr.requestSession('immersive-ar', sessionInit);
+                    arSession = session;
+                    session.addEventListener('end', () => exitAR(false));
+
+                    renderer.xr.setReferenceSpaceType('local');
+                    await renderer.xr.setSession(session);
+
+                    session.requestReferenceSpace('local').then(space => {
+                        arRefSpace = space;
+                    });
+                    arHitTestSourceRequested = false;
+                    arHitTestSource = null;
+
+                    applyARSceneState(true, 'webxr');
+                    showToast('Entered WebXR AR! Move camera to detect floor/table');
+                    return;
+                } catch (err) {
+                    console.warn('WebXR AR request failed, trying camera fallback:', err);
+                }
+            }
+
+            // Fallback: Camera Pass-Through AR (For iOS Safari or devices without WebXR flags)
+            try {
+                const videoEl = document.getElementById('ar-video-bg');
+                if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                    const cameraPromise = navigator.mediaDevices.getUserMedia({
+                        video: { facingMode: { ideal: 'environment' } },
+                        audio: false
+                    });
+                    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Camera timeout')), 2500));
+                    arStream = await Promise.race([cameraPromise, timeoutPromise]);
+                    if (videoEl) {
+                        videoEl.srcObject = arStream;
+                        videoEl.classList.remove('hidden');
+                        try { await videoEl.play(); } catch (_) {}
+                    }
+                    applyARSceneState(true, 'camera');
+                    showToast('Camera AR Active! Menu stays floating over real camera feed');
+                    return;
+                }
+            } catch (err) {
+                console.warn('Camera stream failed or timed out:', err);
+            }
+
+            // If camera access not permitted or timed out, transparent AR preview
+            applyARSceneState(true, 'preview');
+            showToast('AR View Active! Menu visible over real environment');
+        }
+
+        async function exitAR(endSession = true) {
+            if (!isARActive) return;
+
+            if (endSession && arSession) {
+                try {
+                    await arSession.end();
+                } catch (_) {}
+            }
+            arSession = null;
+            arRefSpace = null;
+            arHitTestSource = null;
+            arHitTestSourceRequested = false;
+
+            if (arStream) {
+                arStream.getTracks().forEach(t => t.stop());
+                arStream = null;
+            }
+            const videoEl = document.getElementById('ar-video-bg');
+            if (videoEl) {
+                videoEl.classList.add('hidden');
+                videoEl.srcObject = null;
+            }
+
+            applyARSceneState(false);
+            showToast('Exited AR. Returned to 3D Sky Studio');
+        }
+
+        function toggleAR() {
+            if (isARActive) {
+                exitAR(true);
+            } else {
+                enterAR();
+            }
+        }
+
+        function applyARSceneState(active, mode = 'none') {
+            isARActive = active;
+            arModeType = active ? mode : 'none';
+
+            const btnAR = document.getElementById('btn-enter-ar');
+            const iconAR = document.getElementById('icon-ar');
+            const textAR = document.getElementById('text-ar');
+            const arBanner = document.getElementById('ar-banner');
+            const arScaleContainer = document.getElementById('ar-scale-container');
+
+            if (active) {
+                document.body.classList.add('ar-mode');
+                scene.background = null;
+                scene.fog = null;
+
+                // Hide studio geometry
+                if (typeof floorMesh !== 'undefined' && floorMesh) floorMesh.visible = false;
+                if (typeof baseMesh !== 'undefined' && baseMesh) baseMesh.visible = false;
+                if (typeof gridHelper !== 'undefined' && gridHelper) gridHelper.visible = false;
+                if (typeof skyDome !== 'undefined' && skyDome) skyDome.visible = false;
+                if (typeof cloudInstancedMesh !== 'undefined' && cloudInstancedMesh) cloudInstancedMesh.visible = false;
+
+                // Show AR helpers
+                arShadowPlane.visible = true;
+                arReticle.visible = mode === 'webxr';
+
+                if (btnAR) {
+                    btnAR.className = 'flex items-center gap-1 sm:gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl font-bold text-xs bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white transition shadow-lg shadow-rose-500/25 active:scale-95 shrink-0';
+                }
+                const btnPillAR = document.getElementById('btn-pill-ar');
+                if (btnPillAR) btnPillAR.className = 'flex items-center gap-1 px-2.5 py-1.5 rounded-xl font-bold text-xs bg-rose-600 hover:bg-rose-500 text-white transition shadow active:scale-95';
+                const btnQuickAR = document.getElementById('btn-quick-ar');
+                if (btnQuickAR) btnQuickAR.className = 'flex items-center justify-center w-10 h-10 rounded-2xl bg-rose-600/90 text-white border border-rose-500/50 shadow-xl active:scale-95 transition';
+                if (iconAR) iconAR.setAttribute('data-lucide', 'x');
+                if (textAR) textAR.textContent = 'Exit AR';
+
+                if (arBanner) {
+                    arBanner.classList.remove('hidden');
+                    arBanner.classList.add('flex');
+                }
+                if (arScaleContainer) {
+                    arScaleContainer.classList.remove('hidden');
+                    arScaleContainer.classList.add('flex');
+                }
+
+                if (mode === 'webxr') {
+                    controls.enabled = false;
+                }
+            } else {
+                document.body.classList.remove('ar-mode');
+                scene.background = new THREE.Color(0x7dd3fc);
+                scene.fog = new THREE.FogExp2(0xb8e6fe, 0.0028);
+
+                if (typeof floorMesh !== 'undefined' && floorMesh) floorMesh.visible = true;
+                if (typeof baseMesh !== 'undefined' && baseMesh) baseMesh.visible = true;
+                if (typeof gridHelper !== 'undefined' && gridHelper) gridHelper.visible = true;
+                if (typeof skyDome !== 'undefined' && skyDome) skyDome.visible = true;
+                if (typeof cloudInstancedMesh !== 'undefined' && cloudInstancedMesh) cloudInstancedMesh.visible = true;
+
+                arShadowPlane.visible = false;
+                arReticle.visible = false;
+
+                if (btnAR) {
+                    btnAR.className = 'flex items-center gap-1 sm:gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl font-bold text-xs bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white transition shadow-lg shadow-purple-500/25 active:scale-95 shrink-0';
+                }
+                const btnPillAR = document.getElementById('btn-pill-ar');
+                if (btnPillAR) btnPillAR.className = 'flex items-center gap-1 px-2.5 py-1.5 rounded-xl font-bold text-xs bg-purple-600 hover:bg-purple-500 text-white transition shadow active:scale-95';
+                const btnQuickAR = document.getElementById('btn-quick-ar');
+                if (btnQuickAR) btnQuickAR.className = 'flex items-center justify-center w-10 h-10 rounded-2xl bg-purple-600/90 text-white border border-purple-500/50 shadow-xl active:scale-95 transition';
+                if (iconAR) iconAR.setAttribute('data-lucide', 'view');
+                if (textAR) textAR.textContent = 'AR';
+
+                if (arBanner) {
+                    arBanner.classList.add('hidden');
+                    arBanner.classList.remove('flex');
+                }
+                if (arScaleContainer) {
+                    arScaleContainer.classList.add('hidden');
+                    arScaleContainer.classList.remove('flex');
+                }
+
+                controls.enabled = true;
+            }
+            lucide.createIcons();
+        }
+
         // 8. MAIN ANIMATION, AO & PHYSICS LOOP
         // ==========================================
         let lastTime = performance.now();
@@ -3307,8 +3617,34 @@
         const fpsEl = document.getElementById('stat-fps');
         let aoFrameThrottle = 0;
 
-        function animate(now) {
-            requestAnimationFrame(animate);
+        function animate(now, xrFrame) {
+            // WebXR Hit Testing for Real-World Surface Detection in AR Mode
+            if (isARActive && xrFrame && arSession) {
+                if (!arHitTestSourceRequested) {
+                    arSession.requestReferenceSpace('viewer').then(referenceSpace => {
+                        arSession.requestHitTestSource({ space: referenceSpace }).then(source => {
+                            arHitTestSource = source;
+                        });
+                    });
+                    arHitTestSourceRequested = true;
+                }
+
+                if (arHitTestSource && arRefSpace) {
+                    const hitTestResults = xrFrame.getHitTestResults(arHitTestSource);
+                    if (hitTestResults.length > 0) {
+                        const hit = hitTestResults[0];
+                        const pose = hit.getPose(arRefSpace);
+                        if (pose) {
+                            arReticle.visible = true;
+                            arReticle.matrix.fromArray(pose.transform.matrix);
+                            arReticlePos.setFromMatrixPosition(arReticle.matrix);
+                            arShadowPlane.position.y = arReticlePos.y;
+                        }
+                    } else {
+                        arReticle.visible = false;
+                    }
+                }
+            }
 
             const dt = Math.min((now - lastTime) / 1000, 0.1);
             lastTime = now;
@@ -3382,7 +3718,7 @@
             applyGraphicsQuality(graphicsQuality);
             updatePlaceButtonUI();
             loadPreset('cascade');
-            animate(performance.now());
+            renderer.setAnimationLoop(animate);
         };
     </script>
 </body>
