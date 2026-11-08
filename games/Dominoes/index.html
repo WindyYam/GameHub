@@ -2134,6 +2134,8 @@
                 color,
                 soundCount: 0,
                 lastSoundTime: 0,
+                isFrozen: false,
+                settleTimer: 0,
                 initialState: {
                     position: body.position.clone(),
                     quaternion: body.quaternion.clone()
@@ -2154,6 +2156,13 @@
 
             // Collision Audio Listener with anti-chatter filtering for fallen/resting dominoes
             body.addEventListener('collide', (e) => {
+                // Instantly unfreeze if hit by an actively moving body (> 1.0 m/s impact)
+                if (objRecord.isFrozen || body.type === CANNON.Body.STATIC) {
+                    const other = e.body;
+                    if (other && other.velocity && other.velocity.lengthSquared() > 1.0) {
+                        unfreezeObject(objRecord);
+                    }
+                }
                 const now = performance.now();
                 // Per-body cooldown (95ms minimum between sounds from the same piece)
                 if (now - objRecord.lastSoundTime < 95) return;
@@ -2267,6 +2276,7 @@
 
         function resetToStanding() {
             for (const obj of objects) {
+                unfreezeObject(obj);
                 obj.body.position.copy(obj.initialState.position);
                 obj.body.quaternion.copy(obj.initialState.quaternion);
                 obj.body.velocity.set(0, 0, 0);
@@ -2354,6 +2364,45 @@
             pulseAnim = 1.0;
         }
 
+        // ==========================================
+        // AUTO-FREEZE ENGINE: DETACH RESTING DOMINOES FROM PHYSICS FOR 60 FPS
+        // ==========================================
+        // When dominoes settle with little/no movement, they are detached from the active solver (made STATIC).
+        // Static bodies generate zero contact pairs against each other or the ground plane, eliminating all lag!
+        // When hit by another moving domino or pushed by user Force, they instantly unfreeze back to DYNAMIC.
+        function freezeObject(obj) {
+            if (!obj || !obj.body || obj.body.type === CANNON.Body.STATIC) return;
+            obj.body.type = CANNON.Body.STATIC;
+            obj.body.velocity.set(0, 0, 0);
+            obj.body.angularVelocity.set(0, 0, 0);
+            obj.body.updateMassProperties();
+            obj.isFrozen = true;
+            obj.settleTimer = 0;
+
+            // Commit final exact resting transform to instanced buffer
+            if (obj.type === 'domino') {
+                _dominoDummy.position.copy(obj.body.position);
+                _dominoDummy.quaternion.copy(obj.body.quaternion);
+                _dominoDummy.updateMatrix();
+                dominoInstancedMesh.setMatrixAt(obj.instanceId, _dominoDummy.matrix);
+                dominoInstancedMesh.instanceMatrix.needsUpdate = true;
+            } else if (obj.mesh) {
+                obj.mesh.position.copy(obj.body.position);
+                obj.mesh.quaternion.copy(obj.body.quaternion);
+            }
+        }
+
+        function unfreezeObject(obj) {
+            if (!obj || !obj.body || (obj.body.type === CANNON.Body.DYNAMIC && !obj.isFrozen)) return;
+            const defMass = DIMENSIONS[obj.type] ? (DIMENSIONS[obj.type].mass || 0.35) : 0.35;
+            obj.body.type = CANNON.Body.DYNAMIC;
+            obj.body.mass = defMass;
+            obj.body.updateMassProperties();
+            obj.isFrozen = false;
+            obj.settleTimer = 0;
+            obj.body.wakeUp();
+        }
+
         /**
          * Applies a gentle fingertip tap near the top edge of a domino or object,
          * just enough to tip it past its center of gravity so gravity naturally topples it!
@@ -2365,10 +2414,12 @@
                 toggleSimulation();
             }
 
-            // Wake up the targeted body and reset its sound count so chain reaction begins crisply!
+            // Unfreeze and wake up the targeted body
+            unfreezeObject(objRecord);
             objRecord.body.wakeUp();
             objRecord.soundCount = 0;
-            // Also wake immediate neighbors within strike distance
+
+            // Also unfreeze & wake immediate neighbors within strike distance
             const px = objRecord.body.position.x;
             const pz = objRecord.body.position.z;
             for (let i = 0; i < objects.length; i++) {
@@ -2376,6 +2427,7 @@
                 if (o.id === objRecord.id) continue;
                 const distSq = (o.body.position.x - px) ** 2 + (o.body.position.z - pz) ** 2;
                 if (distSq < 9.0) {
+                    unfreezeObject(o);
                     o.body.wakeUp();
                     o.soundCount = 0;
                 }
@@ -2847,6 +2899,7 @@
                 const res = getObjectIntersection(e.clientX, e.clientY);
                 if (res) {
                     state.draggedObject = res.objRecord;
+                    unfreezeObject(res.objRecord);
                     state.dragPlaneHeight = res.objRecord.body.position.y;
                     state.dragOffset.copy(res.objRecord.body.position).sub(res.hit.point);
                     state.draggedObject.body.sleep();
@@ -4608,7 +4661,27 @@
                 for (let i = 0; i < objects.length; i++) {
                     const obj = objects[i];
                     if (state.draggedObject && obj.id === state.draggedObject.id) continue;
-                    if (obj.body.sleepState === CANNON.Body.SLEEPING) continue; // Skip thousands of stationary sleeping blocks!
+
+                    // Automatically decouple resting bodies with low movement to eliminate physics lag!
+                    if (!obj.isFrozen && obj.body.type === CANNON.Body.DYNAMIC) {
+                        if (obj.body.sleepState === CANNON.Body.SLEEPING) {
+                            freezeObject(obj);
+                            continue;
+                        }
+                        const vSq = obj.body.velocity.lengthSquared();
+                        const wSq = obj.body.angularVelocity.lengthSquared();
+                        if (vSq < 1.2 && wSq < 1.5) {
+                            obj.settleTimer = (obj.settleTimer || 0) + dt;
+                            if (obj.settleTimer > 0.18) {
+                                freezeObject(obj);
+                                continue;
+                            }
+                        } else {
+                            obj.settleTimer = Math.max(0, (obj.settleTimer || 0) - dt * 2.0);
+                        }
+                    }
+
+                    if (obj.isFrozen) continue; // Decoupled from simulation: zero CPU cost!
 
                     if (obj.type === 'domino') {
                         _dominoDummy.position.copy(obj.body.position);
