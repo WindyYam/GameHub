@@ -1124,83 +1124,35 @@
             canvas.height = 512;
             const ctx = canvas.getContext('2d');
 
-            // Apply darkening multiplier so dominoes have a deeper, richer, non-washed-out tone
-            const baseColor = new THREE.Color(hexColor).multiplyScalar(0.85);
-            const dominoTone = '#' + baseColor.getHexString();
-
-            // Base color fill
-            ctx.fillStyle = dominoTone;
+            // Pure solid white base fill for 100% exact color reproduction
+            ctx.fillStyle = '#ffffff';
             ctx.fillRect(0, 0, 256, 512);
 
-            // Soft baked bevel & bottom-edge cavity AO gradient on domino face
-            const aoGrad = ctx.createLinearGradient(0, 0, 0, 512);
-            aoGrad.addColorStop(0.0, 'rgba(0,0,0,0.08)');
-            aoGrad.addColorStop(0.12, 'rgba(0,0,0,0.02)');
-            aoGrad.addColorStop(0.80, 'rgba(0,0,0,0.04)');
-            aoGrad.addColorStop(1.0, 'rgba(0,0,0,0.28)');
-            ctx.fillStyle = aoGrad;
-            ctx.fillRect(0, 0, 256, 512);
-
-            const lum = 0.299 * baseColor.r + 0.587 * baseColor.g + 0.114 * baseColor.b;
-            const isLight = lum > 0.42;
-            const pipColor = isLight ? '#0f172a' : '#f8fafc';
-
-            // Subtle rounded border inset with recessed cavity shadow
-            ctx.strokeStyle = isLight ? 'rgba(15,23,42,0.22)' : 'rgba(0,0,0,0.36)';
-            ctx.lineWidth = 8;
-            ctx.strokeRect(14, 14, 228, 484);
-
-            // Center divider bar with recessed groove AO
-            ctx.fillStyle = 'rgba(0,0,0,0.32)';
-            ctx.fillRect(34, 250, 188, 12);
-            ctx.fillStyle = pipColor;
-            ctx.fillRect(36, 252, 184, 8);
-
-            // Draw classic pips (Top: 5, Bottom: 6) with concave cavity AO shading
-            const drawPip = (x, y) => {
-                // Concave rim AO shadow
-                const pGrad = ctx.createRadialGradient(x - 3, y - 3, 2, x, y, 18);
-                pGrad.addColorStop(0, pipColor);
-                pGrad.addColorStop(0.78, pipColor);
-                pGrad.addColorStop(1, 'rgba(0,0,0,0.40)');
-                ctx.fillStyle = pGrad;
-                ctx.beginPath();
-                ctx.arc(x, y, 16.5, 0, Math.PI * 2);
-                ctx.fill();
-            };
-
-            // Top half (5 pips)
-            drawPip(72, 72);
-            drawPip(184, 72);
-            drawPip(128, 128);
-            drawPip(72, 184);
-            drawPip(184, 184);
-
-            // Bottom half (6 pips)
-            drawPip(72, 315);
-            drawPip(184, 315);
-            drawPip(72, 380);
-            drawPip(184, 380);
-            drawPip(72, 445);
-            drawPip(184, 445);
+            // Subtle crisp border bevel inset so domino blocks in mosaics stay individually distinct without color contamination
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.08)';
+            ctx.lineWidth = 10;
+            ctx.strokeRect(5, 5, 246, 502);
 
             const faceTex = new THREE.CanvasTexture(canvas);
             faceTex.anisotropy = 4;
+            faceTex.encoding = THREE.sRGBEncoding;
 
+            // Pure white 1.0 material with vertexColors disabled to prevent darkening from vertex AO
             const sideMat = new THREE.MeshStandardMaterial({
-                color: baseColor,
-                roughness: 0.28,
-                metalness: 0.04,
-                envMapIntensity: 0.58,
-                vertexColors: true
+                color: 0xffffff,
+                roughness: 0.36,
+                metalness: 0.02,
+                envMapIntensity: 0.45,
+                vertexColors: false
             });
 
             const faceMat = new THREE.MeshStandardMaterial({
                 map: faceTex,
-                roughness: 0.25,
-                metalness: 0.04,
-                envMapIntensity: 0.60,
-                vertexColors: true
+                color: 0xffffff,
+                roughness: 0.34,
+                metalness: 0.02,
+                envMapIntensity: 0.48,
+                vertexColors: false
             });
 
             const mats = [sideMat, sideMat, sideMat, sideMat, faceMat, faceMat];
@@ -1992,7 +1944,9 @@
                 _dominoDummy.quaternion.copy(q);
                 _dominoDummy.updateMatrix();
                 dominoInstancedMesh.setMatrixAt(instanceId, _dominoDummy.matrix);
-                dominoInstancedMesh.setColorAt(instanceId, new THREE.Color(color));
+                const dominoColor = new THREE.Color(color);
+                dominoColor.convertSRGBToLinear();
+                dominoInstancedMesh.setColorAt(instanceId, dominoColor);
                 dominoInstancedMesh.instanceMatrix.needsUpdate = true;
                 if (dominoInstancedMesh.instanceColor) dominoInstancedMesh.instanceColor.needsUpdate = true;
 
@@ -2514,7 +2468,10 @@
             });
 
             if (standingDominoes.length > 0) {
-                toppleObject(standingDominoes[0]);
+                // If a red starter trigger domino (#ef4444) exists, push it first!
+                const redStarter = standingDominoes.find(o => o.color === '#ef4444');
+                const targetDomino = redStarter || standingDominoes[0];
+                toppleObject(targetDomino);
                 showToast('Pushed starting domino! Watch the cascade!');
             } else {
                 state.placeFunction = 'push';
@@ -2868,14 +2825,16 @@
                 const res = getObjectIntersection(e.clientX, e.clientY);
                 if (res) {
                     const { objRecord } = res;
-                    if (objRecord.type === 'domino') {
-                        toppleObject(objRecord);
-                    } else {
-                        const pushDir = raycaster.ray.direction.clone();
-                        pushDir.y = 0.15;
-                        pushDir.normalize();
-                        toppleObject(objRecord, pushDir);
+                    // Force Tool: Push EXACTLY in the horizontal direction the camera is facing!
+                    const pushDir = new THREE.Vector3();
+                    camera.getWorldDirection(pushDir);
+                    pushDir.y = 0;
+                    if (pushDir.lengthSq() < 0.0001) {
+                        pushDir.copy(raycaster.ray.direction);
+                        pushDir.y = 0;
                     }
+                    pushDir.normalize();
+                    toppleObject(objRecord, pushDir);
                 }
 
             } else if (state.mode === 'delete') {
@@ -3797,7 +3756,53 @@
             let spawnedCount = 0;
 
             if (layout === 'wave' || layout === 'gallery') {
-                // Cascading Wave / Gallery: Every row faces along arrow angle
+                // Find first non-transparent row for each column so trigger connects directly even if image has transparent margins
+                const firstRowForCol = new Array(cols).fill(-1);
+                for (let c = 0; c < cols; c++) {
+                    for (let r = 0; r < rows; r++) {
+                        const idx = (r * cols + c) * 4;
+                        if (imgData[idx + 3] >= 32) {
+                            firstRowForCol[c] = r;
+                            break;
+                        }
+                    }
+                }
+
+                // 1. Waterfall Starter Trigger Line across ALL active columns
+                if (addStarter) {
+                    const runnerZ = startZ - 0.95;
+                    // Red Primary Starter Trigger Domino on the far left entry
+                    const entryX = startX - 0.90;
+                    spawnObject('domino', toWorldPos(entryX - 0.85, runnerZ), angleY + Math.PI / 2, '#ef4444');
+                    spawnObject('domino', toWorldPos(entryX, runnerZ), angleY + Math.PI / 2, '#ffffff');
+                    spawnedCount += 2;
+
+                    // Clean, non-overlapping runner dominoes spaced at 0.88m along X
+                    for (let c = 0; c < cols; c++) {
+                        const colX = startX + c * spacingX;
+                        // Runner piece facing right along +X
+                        spawnObject('domino', toWorldPos(colX, runnerZ), angleY + Math.PI / 2, '#38bdf8');
+                        spawnedCount++;
+
+                        // 45° Transfer kicker domino to launch column c forward along +Z
+                        if (firstRowForCol[c] !== -1) {
+                            const transferX = colX + 0.18;
+                            const transferZ = runnerZ + 0.44;
+                            spawnObject('domino', toWorldPos(transferX, transferZ), angleY + Math.PI / 4, '#818cf8');
+                            spawnedCount++;
+
+                            // If this column's image pixels start further down (e.g. row 2 or 3 due to transparent margins),
+                            // bridge seamlessly from row 0 to firstRow so the wave never drops!
+                            for (let br = 0; br < firstRowForCol[c]; br++) {
+                                const bridgeZ = startZ + br * spacingZ;
+                                spawnObject('domino', toWorldPos(colX, bridgeZ), angleY, '#cbd5e1');
+                                spawnedCount++;
+                            }
+                        }
+                    }
+                }
+
+                // 2. Cascading Wave Image Matrix Rows: Every row faces forward along arrow angle
                 for (let r = 0; r < rows; r++) {
                     const lz = startZ + r * spacingZ;
                     for (let c = 0; c < cols; c++) {
@@ -3816,19 +3821,17 @@
                         spawnedCount++;
                     }
                 }
-
-                // Add starter push trigger dominoes in front of center
-                if (addStarter && layout === 'wave') {
-                    const midCol = Math.floor(cols / 2);
-                    const triggerLx = startX + midCol * spacingX;
-                    const p1 = toWorldPos(triggerLx, startZ - 0.78);
-                    const p2 = toWorldPos(triggerLx, startZ - 1.55);
-                    spawnObject('domino', p1, angleY, '#ffffff');
-                    spawnObject('domino', p2, angleY, '#ef4444');
+            } else if (layout === 'snake') {
+                // Starter Domino at Snake Entry
+                if (addStarter) {
+                    const s2 = toWorldPos(startX - 1.70, startZ);
+                    const s1 = toWorldPos(startX - 0.85, startZ);
+                    spawnObject('domino', s2, angleY + Math.PI / 2, '#ef4444');
+                    spawnObject('domino', s1, angleY + Math.PI / 2, '#ffffff');
                     spawnedCount += 2;
                 }
-            } else if (layout === 'snake') {
-                // Serpentine Snake: Rows alternate direction linked by connector pieces
+
+                // Serpentine Snake: Rows alternate direction with continuous momentum
                 for (let r = 0; r < rows; r++) {
                     const lz = startZ + r * spacingZ;
                     const isReverse = (r % 2 === 1);
@@ -3837,37 +3840,48 @@
                         const c = isReverse ? (cols - 1 - i) : i;
                         const idx = (r * cols + c) * 4;
                         const a = imgData[idx + 3];
-                        if (a < 32) continue;
-
-                        const rVal = imgData[idx];
-                        const gVal = imgData[idx + 1];
-                        const bVal = imgData[idx + 2];
-                        const hex = '#' + ((1 << 24) + (rVal << 16) + (gVal << 8) + bVal).toString(16).slice(1);
-
                         const lx = startX + c * spacingX;
                         const localRot = isReverse ? -Math.PI / 2 : Math.PI / 2;
+
+                        // In snake mode, fill transparent margin pixels with subtle slate path dominoes to ensure 100% chain continuity!
+                        let hex = '#334155';
+                        if (a >= 32) {
+                            const rVal = imgData[idx];
+                            const gVal = imgData[idx + 1];
+                            const bVal = imgData[idx + 2];
+                            hex = '#' + ((1 << 24) + (rVal << 16) + (gVal << 8) + bVal).toString(16).slice(1);
+                        }
+
                         const worldP = toWorldPos(lx, lz);
                         spawnObject('domino', worldP, localRot + angleY, hex);
                         spawnedCount++;
                     }
 
-                    // Turn connector piece to next row
+                    // Smooth 3-Piece Curved U-Turn Corner transferring 100% momentum into next row
                     if (r < rows - 1) {
                         const nextZ = startZ + (r + 1) * spacingZ;
-                        const turnLx = isReverse ? (startX - 0.45) : (startX + totalW + 0.45);
-                        const midLz = (lz + nextZ) / 2;
-                        const turnAngle = isReverse ? Math.PI : 0;
-                        const turnWorldP = toWorldPos(turnLx, midLz);
-                        spawnObject('domino', turnWorldP, turnAngle + angleY, '#f59e0b');
-                        spawnedCount++;
-                    }
-                }
+                        const dir = isReverse ? -1 : 1;
+                        const turnEdgeX = isReverse ? (startX - 0.35) : (startX + totalW + 0.35);
 
-                // Starter domino at snake entry
-                if (addStarter) {
-                    const starterWorldP = toWorldPos(startX - 0.82, startZ);
-                    spawnObject('domino', starterWorldP, Math.PI / 2 + angleY, '#ef4444');
-                    spawnedCount++;
+                        // Piece 1: 45° off-ramp
+                        const p1X = turnEdgeX + dir * 0.25;
+                        const p1Z = lz + spacingZ * 0.22;
+                        const a1 = dir > 0 ? (Math.PI / 4) : (-Math.PI / 4);
+                        spawnObject('domino', toWorldPos(p1X, p1Z), a1 + angleY, '#f59e0b');
+
+                        // Piece 2: Lateral bridge facing forward (+Z)
+                        const p2X = turnEdgeX + dir * 0.45;
+                        const p2Z = (lz + nextZ) / 2;
+                        spawnObject('domino', toWorldPos(p2X, p2Z), angleY, '#f59e0b');
+
+                        // Piece 3: 45° on-ramp entering next row
+                        const p3X = turnEdgeX + dir * 0.25;
+                        const p3Z = nextZ - spacingZ * 0.22;
+                        const a3 = dir > 0 ? (3 * Math.PI / 4) : (-3 * Math.PI / 4);
+                        spawnObject('domino', toWorldPos(p3X, p3Z), a3 + angleY, '#f59e0b');
+
+                        spawnedCount += 3;
+                    }
                 }
             }
 
