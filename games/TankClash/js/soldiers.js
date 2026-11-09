@@ -2668,7 +2668,7 @@
                         if (this.rig && this.rig.carriedMortar) this.rig.carriedMortar.visible = false;
                         const mX = this.x + Math.sin(this.heading) * 0.85;
                         const mZ = this.z + Math.cos(this.heading) * 0.85;
-                        const mY = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(mX, mZ) : this.y;
+                        const mY = (typeof this.y === 'number') ? this.y : ((typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(mX, mZ) : 0);
                         this.deployedMortar.position.set(mX, mY, mZ);
                         this.deployedMortar.rotation.y = this.heading;
 

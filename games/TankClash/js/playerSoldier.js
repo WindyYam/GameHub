@@ -424,11 +424,14 @@
 
     function getMortarPosition(s) {
         const heading = s.heading || 0;
+        const sy = (s && typeof s.y === 'number') ? s.y : 0;
         return {
             x: s.x + Math.sin(heading) * 0.15 - Math.cos(heading) * 0.72,
+            y: sy,
             z: s.z + Math.cos(heading) * 0.15 + Math.sin(heading) * 0.72
         };
     }
+    window.getMortarPosition = getMortarPosition;
 
     function packPlayerMortar() {
         const s = playerSoldier || window.playerSoldier;
@@ -457,6 +460,11 @@
         s.mortarElevation = Math.PI / 4;
         s.speed = 0;
         s.rig.deployedMortar = createMortarEmplacement();
+        const heading = s.heading || 0;
+        const mortarPos = getMortarPosition(s);
+        s.rig.deployedMortar.position.set(mortarPos.x, mortarPos.y, mortarPos.z);
+        s.rig.deployedMortar.rotation.y = heading;
+        applyMortarElevationPose(s.rig.deployedMortar, s.mortarElevation);
         if (s.rig.carriedMortar) s.rig.carriedMortar.visible = false;
         if (s.rig.rifle) s.rig.rifle.visible = false;
         if (window.scene) window.scene.add(s.rig.deployedMortar);
@@ -1738,6 +1746,139 @@
         }
     }
 
+    // Third-person camera obstacle obstruction resolution: pushes camera closer to anchor
+    // when an obstacle (building, wall, rock, ruin, temple, monument, or tank wreck) blocks the line of sight
+    function resolveCameraObstacleCollision(anchor, camPos, options = {}) {
+        if (!anchor || !camPos) return camPos;
+        const pad = (typeof options.pad === 'number') ? options.pad : 0.22;
+        const marginT = (typeof options.marginT === 'number') ? options.marginT : 0.08;
+        const minSafeT = (typeof options.minSafeT === 'number') ? options.minSafeT : 0.20;
+        const soldier = options.soldier || (typeof window !== 'undefined' && window.playerSoldier && window.playerMode === 'soldier' ? window.playerSoldier : null);
+        const anchorYOffset = (typeof options.anchorYOffset === 'number') ? options.anchorYOffset : 0.15;
+
+        const ax = anchor.x, ay = anchor.y, az = anchor.z;
+        const cx = camPos.x, cy = camPos.y, cz = camPos.z;
+        const segDx = cx - ax;
+        const segDy = cy - ay;
+        const segDz = cz - az;
+        const segLenSq = segDx * segDx + segDz * segDz;
+        if (segLenSq < 0.001) return camPos;
+
+        const camHorizDist = Math.sqrt(segLenSq);
+        let minT = 1.0;
+        let insideObs = null;
+
+        // 1. Check worldObstacles (buildings, walls, rocks, ruins, temples, monuments, trees)
+        const obstacles = (typeof window !== 'undefined' && Array.isArray(window.worldObstacles))
+            ? window.worldObstacles
+            : (typeof worldObstacles !== 'undefined' && Array.isArray(worldObstacles) ? worldObstacles : []);
+        const segEntryFn = (typeof window !== 'undefined' && typeof window.obstacleSegmentEntry === 'function')
+            ? window.obstacleSegmentEntry
+            : (typeof obstacleSegmentEntry === 'function' ? obstacleSegmentEntry : null);
+
+        if (typeof segEntryFn === 'function' && Array.isArray(obstacles)) {
+            for (let i = 0; i < obstacles.length; i++) {
+                const obs = obstacles[i];
+                if (!obs) continue;
+
+                const ox = (typeof obs.x === 'number') ? obs.x : 0;
+                const oz = (typeof obs.z === 'number') ? obs.z : 0;
+                const r = (typeof obs.radius === 'number') ? obs.radius : 5.0;
+
+                // Broadphase: circle test against segment from anchor to camPos
+                const maxReach = camHorizDist + r + pad + 2.0;
+                const dAnchorX = ax - ox;
+                const dAnchorZ = az - oz;
+                if (dAnchorX * dAnchorX + dAnchorZ * dAnchorZ > maxReach * maxReach) continue;
+
+                // Check if player soldier is inside an enterable house
+                const locFn = (typeof window !== 'undefined' && typeof window.obstacleLocalCoords === 'function')
+                    ? window.obstacleLocalCoords
+                    : (typeof obstacleLocalCoords === 'function' ? obstacleLocalCoords : null);
+                if (soldier && obs.enterable && obs.enterableSpec && typeof locFn === 'function') {
+                    const loc = locFn(obs, soldier.x, soldier.z);
+                    const sc = obs.scale || 1.0;
+                    if (Math.abs(loc.x) < obs.enterableSpec.w * 0.5 * sc && Math.abs(loc.z) < obs.enterableSpec.l * 0.5 * sc) {
+                        insideObs = obs;
+                    }
+                }
+
+                const t = segEntryFn(obs, ax, az, cx, cz, pad);
+                if (t >= 0 && t < minT) {
+                    // Vertical clearance check: does the line segment at parameter t actually intersect the height of the obstacle?
+                    const hitY = ay + t * segDy;
+                    const obsBaseY = (typeof obs.y === 'number') ? obs.y : 0;
+                    const obsHeight = (typeof obs.height === 'number') ? obs.height : (r * 2.0);
+                    const obsTopY = obsBaseY + obsHeight;
+
+                    // If hitY is below the obstacle top and above its base (with small padding), it obstructs the view!
+                    if (hitY <= obsTopY + 0.15 && hitY >= obsBaseY - 1.0) {
+                        minT = t;
+                    }
+                }
+            }
+        }
+
+        // 2. Check tank wrecks and knocked-out tanks
+        const wrecks = [];
+        if (typeof window !== 'undefined') {
+            if (Array.isArray(window.activeEnemyTanks)) {
+                for (let i = 0; i < window.activeEnemyTanks.length; i++) {
+                    const et = window.activeEnemyTanks[i];
+                    if (et && et.isDestroyed && typeof et.x === 'number') wrecks.push(et);
+                }
+            }
+            if (window.tankState && window.tankState.isKnockedOut && window.playerMode === 'soldier') {
+                wrecks.push(window.tankState);
+            }
+        }
+        for (let i = 0; i < wrecks.length; i++) {
+            const wreck = wrecks[i];
+            const wx = wreck.x, wz = wreck.z;
+            const wy = (typeof wreck.y === 'number') ? wreck.y : 0;
+            const wRadius = 2.4 + pad;
+
+            const fx = ax - wx, fz = az - wz;
+            const c = fx * fx + fz * fz - wRadius * wRadius;
+            if (c <= 0) {
+                minT = Math.min(minT, minSafeT);
+                continue;
+            }
+            const bq = 2 * (fx * segDx + fz * segDz);
+            const a = segLenSq;
+            const disc = bq * bq - 4 * a * c;
+            if (disc >= 0) {
+                const t = (-bq - Math.sqrt(disc)) / (2 * a);
+                if (t >= 0 && t < minT) {
+                    const hitY = ay + t * segDy;
+                    if (hitY <= wy + 2.8 && hitY >= wy - 0.5) {
+                        minT = t;
+                    }
+                }
+            }
+        }
+
+        // Apply camera push forward if obstructed
+        if (minT < 1.0) {
+            const safeT = Math.max(minSafeT, minT - marginT);
+            const lerpFn = (typeof THREE !== 'undefined' && THREE.MathUtils && THREE.MathUtils.lerp)
+                ? THREE.MathUtils.lerp
+                : (v0, v1, val) => v0 + (v1 - v0) * val;
+            camPos.x = lerpFn(ax, cx, safeT);
+            camPos.z = lerpFn(az, cz, safeT);
+            camPos.y = lerpFn(ay + anchorYOffset, cy, safeT);
+        }
+
+        // If inside an enterable house, keep camera below ceiling
+        if (insideObs) {
+            const maxCeilY = insideObs.y + (insideObs.floorHeight || 0.16) + (insideObs.ceilingHeight || 3.2) - 0.32;
+            if (camPos.y > maxCeilY) camPos.y = maxCeilY;
+        }
+
+        return camPos;
+    }
+    window.resolveCameraObstacleCollision = window.resolveCameraObstacleCollision || resolveCameraObstacleCollision;
+
     // ------------------------------------------------------------------------
     // 5. UPDATE PLAYER SOLDIER (Simulation Frame)
     // ------------------------------------------------------------------------
@@ -1927,6 +2068,12 @@
                 }
 
                 const camPos = anchor.clone().addScaledVector(lookDir, -effectiveDist).add(rightOffset).add(new THREE.Vector3(0, 0.35, 0));
+
+                const resolveCamObs = (typeof window !== 'undefined' && typeof window.resolveCameraObstacleCollision === 'function')
+                    ? window.resolveCameraObstacleCollision
+                    : resolveCameraObstacleCollision;
+                resolveCamObs(anchor, camPos, { pad: 0.18, marginT: 0.08, minSafeT: 0.22, soldier: s, anchorYOffset: 0.15 });
+
                 const terrainUnderCam = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(camPos.x, camPos.z) + 0.30 : 0.8;
                 if (camPos.y < terrainUnderCam) camPos.y = terrainUnderCam;
 
@@ -2176,10 +2323,7 @@
         if (s.mortarDeployed && rig.deployedMortar) {
             const heading = s.heading || 0;
             const mortarPosition = getMortarPosition(s);
-            const mortarX = mortarPosition.x;
-            const mortarZ = mortarPosition.z;
-            const groundY = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(mortarX, mortarZ) : s.y;
-            rig.deployedMortar.position.set(mortarX, groundY, mortarZ);
+            rig.deployedMortar.position.set(mortarPosition.x, mortarPosition.y, mortarPosition.z);
             rig.deployedMortar.rotation.y = heading;
             applyMortarElevationPose(rig.deployedMortar, s.mortarElevation);
         }
@@ -2215,39 +2359,12 @@
 
             const camPos = anchor.clone().addScaledVector(lookDir, -effectiveDist).add(rightOffset).add(new THREE.Vector3(0, 0.35, 0));
 
-            // Pull camera forward if an enterable house wall blocks the line from player to camera,
-            // and keep camera below ceiling when inside a house
-            if (typeof window.obstacleSegmentEntry === 'function' && Array.isArray(window.worldObstacles)) {
-                let minWallT = 1.0;
-                let insideObs = null;
-                for (let i = 0; i < window.worldObstacles.length; i++) {
-                    const obs = window.worldObstacles[i];
-                    if (!obs || !obs.enterable || !obs.box) continue;
-                    const dx = s.x - obs.x, dz = s.z - obs.z;
-                    if (dx * dx + dz * dz > (obs.radius + 5.0) * (obs.radius + 5.0)) continue;
-                    const t = window.obstacleSegmentEntry(obs, anchor.x, anchor.z, camPos.x, camPos.z, 0.18);
-                    if (t >= 0 && t < minWallT) {
-                        minWallT = t;
-                    }
-                    if (typeof window.obstacleLocalCoords === 'function' && obs.enterableSpec) {
-                        const loc = window.obstacleLocalCoords(obs, s.x, s.z);
-                        const sc = obs.scale || 1.0;
-                        if (Math.abs(loc.x) < obs.enterableSpec.w * 0.5 * sc && Math.abs(loc.z) < obs.enterableSpec.l * 0.5 * sc) {
-                            insideObs = obs;
-                        }
-                    }
-                }
-                if (minWallT < 1.0) {
-                    const safeT = Math.max(0.22, minWallT - 0.08);
-                    camPos.x = THREE.MathUtils.lerp(anchor.x, camPos.x, safeT);
-                    camPos.z = THREE.MathUtils.lerp(anchor.z, camPos.z, safeT);
-                    camPos.y = THREE.MathUtils.lerp(anchor.y + 0.15, camPos.y, safeT);
-                }
-                if (insideObs) {
-                    const maxCeilY = insideObs.y + (insideObs.floorHeight || 0.16) + (insideObs.ceilingHeight || 3.2) - 0.32;
-                    if (camPos.y > maxCeilY) camPos.y = maxCeilY;
-                }
-            }
+            // Push camera forward if any obstacle (building, wall, rock, ruin, temple, monument, or tank wreck)
+            // blocks the line from player to camera, and keep camera below ceiling when inside a house
+            const resolveCamObs = (typeof window !== 'undefined' && typeof window.resolveCameraObstacleCollision === 'function')
+                ? window.resolveCameraObstacleCollision
+                : resolveCameraObstacleCollision;
+            resolveCamObs(anchor, camPos, { pad: 0.18, marginT: 0.08, minSafeT: 0.22, soldier: s, anchorYOffset: 0.15 });
 
             // Terrain & water safety clearance
             const terrainUnderCam = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(camPos.x, camPos.z) + 0.30 : 0.8;

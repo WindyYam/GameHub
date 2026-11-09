@@ -727,6 +727,11 @@ function updateSimulation(dt) {
             .addScaledVector(lookDir, -camDist)
             .add(new THREE.Vector3(0, 1.65, 0));
 
+        // Push camera closer if an obstacle is between tank and camera
+        if (typeof window.resolveCameraObstacleCollision === 'function') {
+            window.resolveCameraObstacleCollision(tankAnchor, camPos, { pad: 0.35, marginT: 0.08, minSafeT: 0.15, anchorYOffset: 0.8 });
+        }
+
         // Terrain collision clearance
         const minCamY = getTerrainHeight(camPos.x, camPos.z) + 0.55;
         if (camPos.y < minCamY) camPos.y = minCamY;
@@ -741,7 +746,11 @@ function updateSimulation(dt) {
         const cz = lookPivot.z + camOrbit.distance * Math.sin(camOrbit.phi) * Math.cos(camOrbit.theta);
         const minCamY = getTerrainHeight(cx, cz) + 0.45;
         const cy = Math.max(minCamY, lookPivot.y + camOrbit.distance * Math.cos(camOrbit.phi));
-        currentActiveCam.position.set(cx, cy, cz);
+        const camPos = new THREE.Vector3(cx, cy, cz);
+        if (typeof window.resolveCameraObstacleCollision === 'function') {
+            window.resolveCameraObstacleCollision(lookPivot, camPos, { pad: 0.35, marginT: 0.08, minSafeT: 0.15, anchorYOffset: 0.8 });
+        }
+        currentActiveCam.position.copy(camPos);
         currentActiveCam.lookAt(lookPivot);
         currentActiveCam.updateMatrixWorld();
     } else if (cameraMode === 'fpv') {
