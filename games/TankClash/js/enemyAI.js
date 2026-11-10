@@ -417,6 +417,9 @@
                     if (typeof window.addPlayerMoney === 'function') {
                         window.addPlayerMoney(tankReward, `TANK KILL (+$$${tankReward})`);
                     }
+                    if (window.networkManager && typeof window.networkManager.broadcastBotKilled === 'function') {
+                        window.networkManager.broadcastBotKilled(this.id, tankReward);
+                    }
                 }
                 showKillFeedBanner(`TARGET DESTROYED: ${this.spec.shortName} (+$${tankReward})`);
             },

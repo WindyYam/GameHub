@@ -375,6 +375,11 @@ function updateSimulation(dt) {
     const nowSec = performance.now() * 0.001;
     const currentActiveCam = window.activeCamera || activeCamera;
 
+    // Multiplayer Network State Interpolation & Position Sync
+    if (window.networkManager && typeof window.networkManager.update === 'function') {
+        window.networkManager.update(dt);
+    }
+
     // --- 1. DRIVING & TRACTOR FORCE DYNAMICS (Mass, Engine Power, Slope Gravity, Rolling Resistance) ---
     const isKO = !!tankState.isKnockedOut || (window.playerMode === 'soldier');
     const forwardInput = isKO ? 0 : (((keys['w'] ? 1 : 0) - (keys['s'] ? 1 : 0)) || touchDrive.forward);

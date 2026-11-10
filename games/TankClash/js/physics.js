@@ -862,9 +862,24 @@ function fireMainCannon(tankModel) {
         cannonDamage: cDmg,
         tankType: currentId
     });
+
+    if (window.networkManager && typeof window.networkManager.sendFireCannon === 'function') {
+        window.networkManager.sendFireCannon(
+            muzzlePos,
+            finalShootDir,
+            shellSpeed,
+            (typeof tankState.BLAST_RADIUS === 'number') ? tankState.BLAST_RADIUS : 8.0,
+            (typeof tankState.BLAST_DAMAGE === 'number') ? tankState.BLAST_DAMAGE : 100,
+            cDmg,
+            currentId
+        );
+    }
 }
 
 function spawnTracerRound(pos, dir, quat, isEnemy = false, options = {}) {
+    if (!isEnemy && window.networkManager && typeof window.networkManager.sendFireMG === 'function') {
+        window.networkManager.sendFireMG(pos, dir);
+    }
     spawnParticle(pos, dir.clone().multiplyScalar(6), 0xfde047, 0.12, 0.30, 0.06, true, 'fire');
 
     const wrap = tracerPool.pop() || createTracerObject();
@@ -1281,6 +1296,10 @@ function spawnPlayerMortarShell(muzzlePos, fireDir, owner) {
         cannonDamage: 1,
         tankType: 'mortar'
     });
+
+    if (!isEnemyProjectile && window.networkManager && typeof window.networkManager.sendFireMortar === 'function') {
+        window.networkManager.sendFireMortar(muzzlePos, fireDir);
+    }
 }
 window.spawnPlayerMortarShell = spawnPlayerMortarShell;
 
@@ -1331,6 +1350,10 @@ function spawnPlayerRocket(muzzlePos, fireDir, owner) {
         tankType: 'bazooka',
         traceTimer: 0
     });
+
+    if (!isEnemyProjectile && window.networkManager && typeof window.networkManager.sendFireRocket === 'function') {
+        window.networkManager.sendFireRocket(muzzlePos, fireDir);
+    }
 }
 window.spawnPlayerRocket = spawnPlayerRocket;
 
@@ -1435,6 +1458,31 @@ function updateProjectiles(dt) {
                         impactPos: hitResult.impact,
                         targetObj: enemy
                     };
+                }
+            }
+            // Player shell vs Remote Players (in PvP mode)
+            if (window.multiplayerState && window.multiplayerState.isActive && window.multiplayerState.gameMode === 'pvp') {
+                const remotes = window.multiplayerState.remotePlayers;
+                if (remotes) {
+                    remotes.forEach(rp => {
+                        if (!rp || rp.isDead || rp.isKnockedOut) return;
+                        const midX = (prevPos.x + s.pos.x) * 0.5;
+                        const midZ = (prevPos.z + s.pos.z) * 0.5;
+                        const dCenterSq = (midX - rp.x) ** 2 + (midZ - rp.z) ** 2;
+                        const maxRange = 5.5 + segLen * 0.5;
+                        if (dCenterSq > maxRange * maxRange) return;
+
+                        const dims = getTankHitboxDims(rp.tankType || 'tiger');
+                        const hitResult = testSegmentVsTank(prevPos, s.pos, rp.x, rp.y, rp.z, rp.heading || 0, dims.halfW, dims.halfH, dims.halfL);
+                        if (hitResult && (!closestHit || hitResult.tHit < closestHit.t)) {
+                            closestHit = {
+                                t: hitResult.tHit,
+                                type: 'remotePlayer',
+                                impactPos: hitResult.impact,
+                                targetObj: rp
+                            };
+                        }
+                    });
                 }
             }
             // Player shell vs Player Tank Wreck (if bailed out / destroyed)
@@ -1710,6 +1758,11 @@ function updateProjectiles(dt) {
                 if (closestHit.type === 'enemyTank') {
                     if (typeof closestHit.targetObj.onHit === 'function') {
                         closestHit.targetObj.onHit(imp, velDir, s.cannonDamage || 1);
+                    }
+                    triggerHeavyDetonation(imp, ignorePlayer, bRad, bDmg);
+                } else if (closestHit.type === 'remotePlayer') {
+                    if (window.networkManager && typeof window.networkManager.sendDamageToPlayer === 'function') {
+                        window.networkManager.sendDamageToPlayer(closestHit.targetObj.id, s.cannonDamage || 1, imp);
                     }
                     triggerHeavyDetonation(imp, ignorePlayer, bRad, bDmg);
                 } else if (closestHit.type === 'playerTank') {
