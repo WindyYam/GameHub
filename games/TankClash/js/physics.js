@@ -219,7 +219,8 @@ function createDirtClodGeometry() {
     return geo;
 }
 
-const PARTICLE_POOL_LIMIT = 128;
+const PARTICLE_POOL_LIMIT = 256;
+const MAX_SCENE_PARTICLES = 360;
 let particlePoolsPrewarmed = false;
 
 function getParticlePoolKey(type, isAdditive) {
@@ -273,7 +274,7 @@ function prewarmParticlePools() {
         ? window.createVolumetricSmokeGeometry()
         : sphereParticleGeo;
     const baseSmokeMat = (window.createHaltonSmokeMaterial || window.createMaldiveSmokeMaterial)(0x94a3b8);
-    for (let i = 0; i < 32; i++) {
+    for (let i = 0; i < 64; i++) {
         const mat = i === 0 ? baseSmokeMat : baseSmokeMat.clone();
         const mesh = new THREE.Mesh(smokeGeometry, mat);
         mesh.renderOrder = 20;
@@ -293,10 +294,10 @@ function prewarmParticlePools() {
         reusableParticlePools.set(poolKey, pool);
     };
 
-    warmParticleType('fire', true, 24);
-    warmParticleType('spark', true, 32);
-        warmParticleType('spark', false, 8);
-    warmParticleType('dirt', false, 16);
+    warmParticleType('fire', true, 48);
+    warmParticleType('spark', true, 64);
+    warmParticleType('spark', false, 16);
+    warmParticleType('dirt', false, 32);
 
     const dustGeometry = window.createVolumetricDustGeometry
         ? window.createVolumetricDustGeometry()
@@ -306,7 +307,7 @@ function prewarmParticlePools() {
         : ((window.createHaltonSmokeMaterial || window.createMaldiveSmokeMaterial)
             ? (window.createHaltonSmokeMaterial || window.createMaldiveSmokeMaterial)(0x5c4d3c)
             : createParticleObject('dirt', false, 0x5c4d3c).mat);
-    for (let i = 0; i < 32; i++) {
+    for (let i = 0; i < 64; i++) {
         const mat = i === 0 ? baseDustMat : baseDustMat.clone();
         const mesh = new THREE.Mesh(dustGeometry, mat);
         mesh.renderOrder = 15;
@@ -552,8 +553,8 @@ function spawnParticle(pos, vel, colorHex, startSize, endSize, life, isAdditive 
     const currentScene = window.scene;
     if (!currentScene) return;
 
-    // Hard particle cap: prevents CPU/GPU stalling during intense firefights
-    if (particles.length >= 180) {
+    // Hard particle cap: doubled limit (360) prevents CPU/GPU stalling while accommodating intense firefights
+    if (particles.length >= MAX_SCENE_PARTICLES) {
         if (type === 'dust' || type === 'smoke') return;
         const oldP = particles.shift();
         if (oldP && oldP.mesh) {
@@ -1352,17 +1353,17 @@ function updateProjectiles(dt) {
         const s = shells[i];
         const prevPos = s.pos.clone();
 
-        const grav = s.isRocket ? 3.5 : 9.81;
-        s.vel.y -= grav * dt;
+        const grav = s.isRocket ? 0.0 : 9.81;
+        if (grav > 0.0) s.vel.y -= grav * dt;
 
-        // Rocket erratic aerodynamic drift after 80 meters
+        // Rocket erratic aerodynamic drift after 64 meters (80% of original 80m threshold)
         if (s.isRocket) {
             const stepDist = s.vel.length() * dt;
             s.distanceTraveled = (s.distanceTraveled || 0) + stepDist;
 
-            if (s.distanceTraveled > 80.0) {
-                // Beyond 80 meters, rocket motor exhaust asymmetry & fin wobble induce random transverse drift
-                const excessDist = s.distanceTraveled - 80.0;
+            if (s.distanceTraveled > 64.0) {
+                // Beyond 64 meters, rocket motor exhaust asymmetry & fin wobble induce random transverse drift
+                const excessDist = s.distanceTraveled - 64.0;
                 const driftIntensity = Math.min(26.0, 9.0 + excessDist * 0.24);
 
                 const fwd = s.vel.clone().normalize();
@@ -2296,7 +2297,7 @@ function updateParticles(dt) {
         sw.age += dt;
         if (sw.age >= sw.life) {
             sw.mesh.visible = false;
-            if (shockwavePool.length < 16) shockwavePool.push({ mesh: sw.mesh, mat: sw.mat });
+            if (shockwavePool.length < 32) shockwavePool.push({ mesh: sw.mesh, mat: sw.mat });
             else {
                 window.scene.remove(sw.mesh);
                 sw.mat.dispose();
@@ -2361,7 +2362,7 @@ function clearParticles() {
         const sw = shockwaves[i];
         if (sw && sw.mesh) {
             sw.mesh.visible = false;
-            if (shockwavePool.length < 16) shockwavePool.push({ mesh: sw.mesh, mat: sw.mat });
+            if (shockwavePool.length < 32) shockwavePool.push({ mesh: sw.mesh, mat: sw.mat });
             else {
                 if (window.scene) window.scene.remove(sw.mesh);
                 if (sw.mat && sw.mat.dispose) sw.mat.dispose();

@@ -1118,25 +1118,16 @@ function getSmokeNormalTexture() {
     return _smokeNormalTex || createSmokeNormalTexture();
 }
 
-// Tileable value-noise texture (R: fbm cloud masses, G: billowy detail) for cloud sampling transparency
-let _sharedCloudNoiseTexture = null;
-function getCloudNoiseTexture() {
-    if (_sharedCloudNoiseTexture) return _sharedCloudNoiseTexture;
-    _sharedCloudNoiseTexture = createCloudNoiseTexture();
-    return _sharedCloudNoiseTexture;
-}
-
 // ============================================================================
-// Fast Cloud-Noise Sampled Volumetric Smoke Material
-// Zero Expensive Alpha-Blending Overhead: Uses Cloud Texture Noise Sampling & Early-Z Depth Write
-// R: FBM large cloud masses, G: billowy cauliflower details, with screen-space dither
+// Band-Limited 64x64 Void-and-Cluster Blue Noise Volumetric Smoke Material
+// Solid Opaque Core (Zero Grain) + Feathered Blue Noise Perimeter (Zero Hard Edge)
+// Enhanced with Procedural Normal Map & Diffuse Mottling for Noisy Billowing
 // ============================================================================
 
 function createHaltonSmokeMaterial(colorHex = 0x94a3b8) {
     const blueNoiseTex = createBlueNoiseTexture();
     const diffuseTex = getSmokeDiffuseTexture();
     const normalTex = getSmokeNormalTexture();
-    const cloudNoiseTex = getCloudNoiseTexture();
     const color = (colorHex && colorHex.isColor) ? colorHex.clone() : new THREE.Color(colorHex);
 
     const mat = new THREE.ShaderMaterial({
@@ -1147,7 +1138,6 @@ function createHaltonSmokeMaterial(colorHex = 0x94a3b8) {
             ditherOffset:       { value: new THREE.Vector2(0, 0) },
             blueNoiseMap:       { value: blueNoiseTex },
             haltonMap:          { value: blueNoiseTex },
-            uCloudTex:          { value: cloudNoiseTex },
             smokeDiffuseMap:    { value: diffuseTex },
             smokeNormalMap:     { value: normalTex },
             uNormalScale:       { value: 0.95 },
@@ -1200,7 +1190,6 @@ function createHaltonSmokeMaterial(colorHex = 0x94a3b8) {
             uniform float uAgeProgress;
             uniform vec2 ditherOffset;
             uniform sampler2D blueNoiseMap;
-            uniform sampler2D uCloudTex;
             uniform sampler2D smokeDiffuseMap;
             uniform sampler2D smokeNormalMap;
             uniform float uNormalScale;
@@ -1220,20 +1209,42 @@ function createHaltonSmokeMaterial(colorHex = 0x94a3b8) {
             varying float vLobeDisplacement;
             varying vec2 vUv;
 
-            float hash(vec2 p) {
-                p = fract(p * vec2(123.34, 456.21));
-                p += dot(p, p + 45.32);
-                return fract(p.x * p.y);
+            float hash(vec3 p) {
+                p = fract(p * 0.1031);
+                p += dot(p, p.yzx + 33.33);
+                return fract((p.x + p.y) * p.z);
             }
 
-            // Cloud effect noise sampling method (matches sampleCloudDensity in sky shader)
-            float sampleSmokeCloudDensity(vec2 uv) {
-                vec2 wind = vec2(uTime * 0.022, uTime * 0.045 + uAgeProgress * 0.35);
-                float masses = texture2D(uCloudTex, uv * 0.45 + wind).r;
-                float billow = texture2D(uCloudTex, uv * 1.25 - wind * 1.3 + vec2(0.37, 0.61)).g;
-                float wisp   = texture2D(uCloudTex, uv * 2.80 + wind * 2.0 + vec2(0.73, 0.19)).g;
-                float composite = masses * 0.62 + billow * 0.26 + wisp * 0.12;
-                return composite;
+            float noise(vec3 p) {
+                vec3 i = floor(p);
+                vec3 f = fract(p);
+                f = f * f * (3.0 - 2.0 * f);
+                float n000 = hash(i);
+                float n100 = hash(i + vec3(1.0, 0.0, 0.0));
+                float n010 = hash(i + vec3(0.0, 1.0, 0.0));
+                float n110 = hash(i + vec3(1.0, 1.0, 0.0));
+                float n001 = hash(i + vec3(0.0, 0.0, 1.0));
+                float n101 = hash(i + vec3(1.0, 0.0, 1.0));
+                float n011 = hash(i + vec3(0.0, 1.0, 1.0));
+                float n111 = hash(i + vec3(1.0, 1.0, 1.0));
+                float nx00 = mix(n000, n100, f.x);
+                float nx10 = mix(n010, n110, f.x);
+                float nx01 = mix(n001, n101, f.x);
+                float nx11 = mix(n011, n111, f.x);
+                float nxy0 = mix(nx00, nx10, f.y);
+                float nxy1 = mix(nx01, nx11, f.y);
+                return mix(nxy0, nxy1, f.z);
+            }
+
+            float fbmSmoke(vec3 p) {
+                float v = 0.0;
+                float a = 0.55;
+                for (int i = 0; i < 2; i++) {
+                    v += a * noise(p);
+                    p = p * 2.12 + vec3(2.3, 1.7, 5.1);
+                    a *= 0.48;
+                }
+                return v;
             }
 
             void main() {
@@ -1264,41 +1275,26 @@ function createHaltonSmokeMaterial(colorHex = 0x94a3b8) {
                 vec3 finalLocalNormal = normalize(mix(vLocalNormal, perturbedLocal, clamp(uNormalScale, 0.0, 1.0)));
                 vec3 worldNormal = normalize(vLocalToWorld * finalLocalNormal);
 
-                // 2. Volumetric Ray Path Thickness modulated by Cloud Texture Noise Sampling
+                // 2. True Volumetric Ray Path Thickness (Eliminates the "solid object" look)
                 float r = length(vLocalPos);
                 float NdotV = clamp(dot(worldNormal, vWorldViewDir), 0.0, 1.0);
                 
-                // Path length through volume: thickest in center, fading towards perimeter
+                // Path length through the cloud volume: thickest in center, fading smoothly to 0 at perimeter
                 float pathThickness = sqrt(clamp(1.0 - pow(r / 1.72, 2.0), 0.0, 1.0)) * pow(NdotV, 0.55);
 
-                // Fast Cloud Noise Sampling (Triplanar blend of 2D cloud texture lookups)
-                float cloudDensityX = sampleSmokeCloudDensity(uvX);
-                float cloudDensityY = sampleSmokeCloudDensity(uvY);
-                float cloudDensityZ = sampleSmokeCloudDensity(uvZ);
-                float cloudNoise = cloudDensityX * blendWeights.x + cloudDensityY * blendWeights.y + cloudDensityZ * blendWeights.z;
+                // Multi-scale 3D fractal noise (convective billowing turbulence)
+                float billowNoise = fbmSmoke(vLocalPos * 2.0 + vec3(0.0, uTime * 0.12, 0.0));
 
                 // Modulate density by the diffuse texture's micro-density porosity channel (Channel A)
                 float microPorosity = mix(0.55, 1.45, smokeDiff.a);
-                float turbulentDensity = pathThickness * (0.55 + cloudNoise * 0.65) * microPorosity;
+                float turbulentDensity = pathThickness * (0.60 + billowNoise * 0.50) * microPorosity;
 
                 // Dissipation decay as smoke ages over its lifecycle
-                float lifeFactor = 1.0 - smoothstep(0.42, 1.0, uAgeProgress);
-                float fadeIn = min(1.0, uAgeProgress * 8.0);
-                float finalDensity = clamp(turbulentDensity * opacity * lifeFactor * fadeIn * 1.55, 0.0, 1.0);
+                float lifeFactor = 1.0 - smoothstep(0.45, 1.0, uAgeProgress);
+                float finalDensity = clamp(turbulentDensity * opacity * lifeFactor * 1.5, 0.0, 1.0);
 
-                // Cloud-effect smoothstep density thresholding
-                float cloudThreshold = mix(0.18, 0.52, uAgeProgress);
-                float shapeDensity = smoothstep(cloudThreshold - 0.12, cloudThreshold + 0.35, finalDensity);
-
-                // High-efficiency noise sampling for transparency (replaces expensive alpha blending)
-                vec2 screenCoord = gl_FragCoord.xy / 64.0;
-                float ditherThreshold = texture2D(blueNoiseMap, screenCoord).r;
-                if (ditherThreshold <= 0.001) {
-                    ditherThreshold = hash(floor(gl_FragCoord.xy));
-                }
-
-                // Noise-sampled discard: solid opaque core with noise-sampled feathered perimeter
-                if (shapeDensity < ditherThreshold * 0.88) discard;
+                // Smooth Volumetric Alpha Feathering (Zero stipple dots!)
+                if (finalDensity < 0.015) discard;
 
                 // 3. Maldive Henyey-Greenstein Dual-Lobe Scattering on Surviving Fragments
                 float cosTheta = dot(-vWorldViewDir, sunDirection);
@@ -1333,14 +1329,15 @@ function createHaltonSmokeMaterial(colorHex = 0x94a3b8) {
                 noisyDiffuse = mix(noisyDiffuse, noisyDiffuse * 0.75, smokeDiff.b * 0.4);
 
                 vec3 finalColor = noisyDiffuse * (directLight + ambientLight) + rimGlow;
+                float smoothAlpha = clamp(smoothstep(0.015, 0.65, finalDensity) * 0.85, 0.0, 0.88);
 
-                // Direct solid output with depth write (no alpha blending overhead!)
-                gl_FragColor = vec4(finalColor, 1.0);
+                gl_FragColor = vec4(finalColor, smoothAlpha);
             }
         `,
-        transparent: false,
-        depthWrite: true,
-        depthTest: true
+        transparent: true,
+        depthWrite: false,
+        depthTest: true,
+        blending: THREE.NormalBlending
     });
 
     Object.defineProperty(mat, 'opacity', {
@@ -1513,10 +1510,8 @@ function getDustNormalTexture() {
 // ============================================================================
 
 function createVolumetricDustMaterial(colorHex = 0x5c4d3c) {
-    const blueNoiseTex = createBlueNoiseTexture();
     const diffuseTex = getDustDiffuseTexture();
     const normalTex = getDustNormalTexture();
-    const cloudNoiseTex = getCloudNoiseTexture();
     const color = (colorHex && colorHex.isColor) ? colorHex.clone() : new THREE.Color(colorHex);
 
     const mat = new THREE.ShaderMaterial({
@@ -1524,8 +1519,6 @@ function createVolumetricDustMaterial(colorHex = 0x5c4d3c) {
             diffuse:            { value: color },
             opacity:            { value: 0.78 },
             uAgeProgress:       { value: 0.0 },
-            blueNoiseMap:       { value: blueNoiseTex },
-            uCloudTex:          { value: cloudNoiseTex },
             dustDiffuseMap:     { value: diffuseTex },
             dustNormalMap:      { value: normalTex },
             uNormalScale:       { value: 0.85 },
@@ -1574,8 +1567,6 @@ function createVolumetricDustMaterial(colorHex = 0x5c4d3c) {
             uniform vec3 diffuse;
             uniform float opacity;
             uniform float uAgeProgress;
-            uniform sampler2D blueNoiseMap;
-            uniform sampler2D uCloudTex;
             uniform sampler2D dustDiffuseMap;
             uniform sampler2D dustNormalMap;
             uniform float uNormalScale;
@@ -1594,19 +1585,42 @@ function createVolumetricDustMaterial(colorHex = 0x5c4d3c) {
             varying mat3 vLocalToWorld;
             varying vec2 vUv;
 
-            float hashDust(vec2 p) {
-                p = fract(p * vec2(123.34, 456.21));
-                p += dot(p, p + 45.32);
-                return fract(p.x * p.y);
+            float hashDust(vec3 p) {
+                p = fract(p * 0.1031);
+                p += dot(p, p.yzx + 33.33);
+                return fract((p.x + p.y) * p.z);
             }
 
-            // Cloud effect noise sampling method (matches sampleCloudDensity in sky shader)
-            float sampleDustCloudDensity(vec2 uv) {
-                vec2 wind = vec2(uTime * 0.020, uTime * 0.015 + uAgeProgress * 0.20);
-                float masses = texture2D(uCloudTex, uv * 0.45 + wind).r;
-                float billow = texture2D(uCloudTex, uv * 1.35 - wind * 1.2 + vec2(0.37, 0.61)).g;
-                float wisp   = texture2D(uCloudTex, uv * 2.90 + wind * 1.8 + vec2(0.73, 0.19)).g;
-                return masses * 0.60 + billow * 0.28 + wisp * 0.12;
+            float noiseDust(vec3 p) {
+                vec3 i = floor(p);
+                vec3 f = fract(p);
+                f = f * f * (3.0 - 2.0 * f);
+                float n000 = hashDust(i);
+                float n100 = hashDust(i + vec3(1.0, 0.0, 0.0));
+                float n010 = hashDust(i + vec3(0.0, 1.0, 0.0));
+                float n110 = hashDust(i + vec3(1.0, 1.0, 0.0));
+                float n001 = hashDust(i + vec3(0.0, 0.0, 1.0));
+                float n101 = hashDust(i + vec3(1.0, 0.0, 1.0));
+                float n011 = hashDust(i + vec3(0.0, 1.0, 1.0));
+                float n111 = hashDust(i + vec3(1.0, 1.0, 1.0));
+                float nx00 = mix(n000, n100, f.x);
+                float nx10 = mix(n010, n110, f.x);
+                float nx01 = mix(n001, n101, f.x);
+                float nx11 = mix(n011, n111, f.x);
+                float nxy0 = mix(nx00, nx10, f.y);
+                float nxy1 = mix(nx01, nx11, f.y);
+                return mix(nxy0, nxy1, f.z);
+            }
+
+            float fbmDust(vec3 p) {
+                float v = 0.0;
+                float a = 0.55;
+                for (int i = 0; i < 2; i++) {
+                    v += a * noiseDust(p);
+                    p = p * 2.15 + vec3(1.7, 3.1, 2.4);
+                    a *= 0.45;
+                }
+                return v;
             }
 
             void main() {
@@ -1616,18 +1630,14 @@ function createVolumetricDustMaterial(colorHex = 0x5c4d3c) {
                 blendWeights = max(blendWeights, vec3(0.001));
                 blendWeights /= (blendWeights.x + blendWeights.y + blendWeights.z);
 
-                vec2 uvX = dustCoord.yz;
-                vec2 uvY = dustCoord.zx;
-                vec2 uvZ = dustCoord.xy;
-
-                vec4 diffSampleX = texture2D(dustDiffuseMap, uvX);
-                vec4 diffSampleY = texture2D(dustDiffuseMap, uvY);
-                vec4 diffSampleZ = texture2D(dustDiffuseMap, uvZ);
+                vec4 diffSampleX = texture2D(dustDiffuseMap, dustCoord.yz);
+                vec4 diffSampleY = texture2D(dustDiffuseMap, dustCoord.zx);
+                vec4 diffSampleZ = texture2D(dustDiffuseMap, dustCoord.xy);
                 vec4 dustDiff = diffSampleX * blendWeights.x + diffSampleY * blendWeights.y + diffSampleZ * blendWeights.z;
 
-                vec3 normSampleX = texture2D(dustNormalMap, uvX).xyz * 2.0 - 1.0;
-                vec3 normSampleY = texture2D(dustNormalMap, uvY).xyz * 2.0 - 1.0;
-                vec3 normSampleZ = texture2D(dustNormalMap, uvZ).xyz * 2.0 - 1.0;
+                vec3 normSampleX = texture2D(dustNormalMap, dustCoord.yz).xyz * 2.0 - 1.0;
+                vec3 normSampleY = texture2D(dustNormalMap, dustCoord.zx).xyz * 2.0 - 1.0;
+                vec3 normSampleZ = texture2D(dustNormalMap, dustCoord.xy).xyz * 2.0 - 1.0;
 
                 vec3 localNormX = vec3(normSampleX.z * sign(vLocalNormal.x), normSampleX.y, -normSampleX.x * sign(vLocalNormal.x));
                 vec3 localNormY = vec3(normSampleY.x, normSampleY.z * sign(vLocalNormal.y), -normSampleY.y * sign(vLocalNormal.y));
@@ -1644,34 +1654,20 @@ function createVolumetricDustMaterial(colorHex = 0x5c4d3c) {
                 // Smooth core-to-perimeter decay: fades smoothly towards edges
                 float pathThickness = smoothstep(1.42, 0.15, r) * pow(NdotV, 0.45);
 
-                // Fast Cloud Noise Sampling (Triplanar blend of 2D cloud texture lookups)
-                float cloudDensityX = sampleDustCloudDensity(uvX);
-                float cloudDensityY = sampleDustCloudDensity(uvY);
-                float cloudDensityZ = sampleDustCloudDensity(uvZ);
-                float cloudNoise = cloudDensityX * blendWeights.x + cloudDensityY * blendWeights.y + cloudDensityZ * blendWeights.z;
+                // 3D fractal billowing turbulence for organic wisps & powder puffs
+                float billowNoise = fbmDust(vLocalPos * 2.2 + vec3(0.0, uTime * 0.08, 0.0));
 
                 // Porosity modulation from diffuse texture alpha
                 float microPorosity = mix(0.60, 1.40, dustDiff.a);
-                float turbulentDensity = pathThickness * (0.55 + cloudNoise * 0.65) * microPorosity;
+                float turbulentDensity = pathThickness * (0.60 + billowNoise * 0.50) * microPorosity;
 
                 // Lifecycle dissipation curve: rapid puff onset, gentle lingering dissipation
                 float fadeIn = smoothstep(0.0, 0.10, uAgeProgress);
                 float fadeOut = 1.0 - smoothstep(0.35, 1.0, uAgeProgress);
                 float finalDensity = clamp(turbulentDensity * opacity * fadeIn * fadeOut * 1.7, 0.0, 1.0);
 
-                // Cloud-effect smoothstep density thresholding
-                float cloudThreshold = mix(0.12, 0.48, uAgeProgress);
-                float shapeDensity = smoothstep(cloudThreshold - 0.12, cloudThreshold + 0.32, finalDensity);
-
-                // High-efficiency noise sampling for transparency (replaces expensive alpha blending)
-                vec2 screenCoord = gl_FragCoord.xy / 64.0;
-                float ditherThreshold = texture2D(blueNoiseMap, screenCoord).r;
-                if (ditherThreshold <= 0.001) {
-                    ditherThreshold = hashDust(floor(gl_FragCoord.xy));
-                }
-
-                // Noise-sampled discard: solid opaque core with noise-sampled feathered perimeter
-                if (shapeDensity < ditherThreshold * 0.88) discard;
+                // Feathered edge threshold (smoothly discards near zero, no hard boundary)
+                if (finalDensity < 0.015) discard;
 
                 // 3. Forward Mie Scattering (Golden sunlit halo when backlit by sun)
                 float cosTheta = dot(-vWorldViewDir, sunDirection);
@@ -1696,13 +1692,16 @@ function createVolumetricDustMaterial(colorHex = 0x5c4d3c) {
 
                 vec3 finalColor = baseColor * (directLight * 0.75 + ambientLight);
 
-                // Direct solid output with depth write (no alpha blending overhead!)
-                gl_FragColor = vec4(finalColor, 1.0);
+                // Alpha blending with smooth falloff
+                float smoothAlpha = clamp(smoothstep(0.015, 0.60, finalDensity) * opacity * fadeOut, 0.0, 0.82);
+
+                gl_FragColor = vec4(finalColor, smoothAlpha);
             }
         `,
-        transparent: false,
-        depthWrite: true,
-        depthTest: true
+        transparent: true,
+        depthWrite: false,
+        depthTest: true,
+        blending: THREE.NormalBlending
     });
 
     Object.defineProperty(mat, 'opacity', {
@@ -1726,7 +1725,6 @@ function createVolumetricDustMaterial(colorHex = 0x5c4d3c) {
     return mat;
 }
 
-// ============================================================================
 const createMaldiveSmokeMaterial = createHaltonSmokeMaterial;
 const createOpaqueVolumetricSmokeMaterial = createHaltonSmokeMaterial;
 const createBlueNoiseSmokeMaterial = createHaltonSmokeMaterial;
@@ -2232,10 +2230,9 @@ function createBotanicalFoliageAtlas() {
     const size = 512;
     const half = 256;
     const canvas = document.createElement('canvas');
-    canvas.width = size * 2;
-    canvas.height = size * 2;
+    canvas.width = size;
+    canvas.height = size;
     const ctx = canvas.getContext('2d');
-    ctx.scale(2, 2);
     ctx.clearRect(0, 0, size, size);
 
     let bSeed = 4099;
@@ -2353,48 +2350,20 @@ function createBotanicalFoliageAtlas() {
         ctx.save();
         ctx.translate(cx, cy);
         ctx.rotate(angle);
-        // Slight per-leaf asymmetry for natural variation
-        const wL = 0.70 + bRand() * 0.22;
-        const wR = 0.70 + bRand() * 0.22;
-        const path = () => {
-            ctx.beginPath();
-            ctx.moveTo(0, -radius * 1.08); // acuminate tip
-            ctx.bezierCurveTo(radius * wR, -radius * 0.62, radius * (wR + 0.08), radius * 0.35, 0, radius);
-            ctx.bezierCurveTo(-radius * (wL + 0.08), radius * 0.35, -radius * wL, -radius * 0.62, 0, -radius * 1.08);
-            ctx.closePath();
-        };
-        // Dark contact rim for depth between overlapping leaves
-        ctx.strokeStyle = `rgba(${Math.floor(rCol * 0.35)}, ${Math.floor(gCol * 0.40)}, ${Math.floor(bCol * 0.35)}, 0.9)`;
-        ctx.lineWidth = 1.4;
-        // Two-tone lit/shaded gradient across the blade
-        const lg = ctx.createLinearGradient(-radius * 0.8, -radius * 0.4, radius * 0.8, radius * 0.5);
-        lg.addColorStop(0.0, `rgb(${Math.min(255, rCol + 34)}, ${Math.min(255, gCol + 40)}, ${Math.min(255, bCol + 12)})`);
-        lg.addColorStop(0.5, `rgb(${rCol}, ${gCol}, ${bCol})`);
-        lg.addColorStop(1.0, `rgb(${Math.floor(rCol * 0.70)}, ${Math.floor(gCol * 0.74)}, ${Math.floor(bCol * 0.70)})`);
-        ctx.fillStyle = lg;
-        path();
+        ctx.fillStyle = `rgba(${rCol}, ${gCol}, ${bCol}, 0.98)`;
+        ctx.beginPath();
+        ctx.moveTo(0, -radius);
+        ctx.bezierCurveTo(radius * 0.82, -radius * 0.55, radius * 0.88, radius * 0.45, 0, radius);
+        ctx.bezierCurveTo(-radius * 0.88, radius * 0.45, -radius * 0.82, -radius * 0.55, 0, -radius);
+        ctx.closePath();
         ctx.fill();
-        ctx.stroke();
 
-        // Pale midrib
-        ctx.strokeStyle = `rgba(${Math.min(255, rCol + 70)}, ${Math.min(255, gCol + 62)}, ${Math.min(255, bCol + 36)}, 0.75)`;
-        ctx.lineWidth = 0.9;
+        // Subtle leaf midrib vein highlight
+        ctx.strokeStyle = `rgba(${Math.min(255, rCol + 28)}, ${Math.min(255, gCol + 32)}, ${Math.min(255, bCol + 14)}, 0.55)`;
+        ctx.lineWidth = 1.0;
         ctx.beginPath();
-        ctx.moveTo(0, -radius * 0.92);
-        ctx.lineTo(0, radius * 1.0);
-        ctx.stroke();
-        // Lateral veins in herringbone pattern
-        ctx.strokeStyle = `rgba(${Math.floor(rCol * 0.62)}, ${Math.floor(gCol * 0.70)}, ${Math.floor(bCol * 0.55)}, 0.55)`;
-        ctx.lineWidth = 0.5;
-        ctx.beginPath();
-        for (let v = -3; v <= 3; v++) {
-            const vy = v * radius * 0.22 + radius * 0.1;
-            const reach = radius * (0.62 - Math.abs(v) * 0.07);
-            ctx.moveTo(0, vy);
-            ctx.lineTo(reach, vy - radius * 0.30);
-            ctx.moveTo(0, vy);
-            ctx.lineTo(-reach, vy - radius * 0.30);
-        }
+        ctx.moveTo(0, -radius * 0.75);
+        ctx.lineTo(0, radius * 0.85);
         ctx.stroke();
         ctx.restore();
     }
@@ -2546,18 +2515,16 @@ function createGrassTuftAtlasTexture() {
     const height = 256;
     const colW = 128;
     const canvas = document.createElement('canvas');
-    canvas.width = width * 2;
-    canvas.height = height * 2;
+    canvas.width = width;
+    canvas.height = height;
     const ctx = canvas.getContext('2d');
-    ctx.scale(2, 2);
     ctx.clearRect(0, 0, width, height);
 
     // Dedicated edge-mask canvas for blade edge subsurface scattering
     const edgeCanvas = document.createElement('canvas');
-    edgeCanvas.width = width * 2;
-    edgeCanvas.height = height * 2;
+    edgeCanvas.width = width;
+    edgeCanvas.height = height;
     const edgeCtx = edgeCanvas.getContext('2d');
-    edgeCtx.scale(2, 2);
     edgeCtx.clearRect(0, 0, width, height);
 
     let gSeed = 8191;
@@ -2610,30 +2577,6 @@ function createGrassTuftAtlasTexture() {
             grad.addColorStop(1.0, `rgb(${rTip}, ${gTip}, ${bTip})`);
 
             ctx.fillStyle = grad;
-            ctx.beginPath();
-            ctx.moveTo(rootX - baseHalfW, rootY);
-            ctx.quadraticCurveTo(ctrlX - baseHalfW * 0.48, ctrlY, tipX, tipY);
-            ctx.quadraticCurveTo(ctrlX + baseHalfW * 0.48, ctrlY, rootX + baseHalfW, rootY);
-            ctx.closePath();
-            ctx.fill();
-
-            // Central fold highlight + dark root occlusion for blade volume
-            ctx.strokeStyle = `rgba(${Math.min(255, rTip + 40)}, ${Math.min(255, gTip + 46)}, ${Math.min(255, bTip + 18)}, 0.38)`;
-            ctx.lineWidth = 0.8;
-            ctx.beginPath();
-            ctx.moveTo(rootX, rootY - 6);
-            ctx.quadraticCurveTo(ctrlX, ctrlY, tipX, tipY + 4);
-            ctx.stroke();
-            ctx.strokeStyle = 'rgba(8, 20, 6, 0.30)';
-            ctx.lineWidth = 0.7;
-            ctx.beginPath();
-            ctx.moveTo(rootX + baseHalfW * 0.7, rootY);
-            ctx.quadraticCurveTo(ctrlX + baseHalfW * 0.3, ctrlY, tipX, tipY);
-            ctx.stroke();
-            const rootAO = ctx.createLinearGradient(0, height, 0, height * 0.62);
-            rootAO.addColorStop(0, 'rgba(6, 16, 4, 0.55)');
-            rootAO.addColorStop(1, 'rgba(6, 16, 4, 0)');
-            ctx.fillStyle = rootAO;
             ctx.beginPath();
             ctx.moveTo(rootX - baseHalfW, rootY);
             ctx.quadraticCurveTo(ctrlX - baseHalfW * 0.48, ctrlY, tipX, tipY);

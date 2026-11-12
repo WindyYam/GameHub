@@ -2870,11 +2870,8 @@
             }
 
             if (isBazooka) {
-                // Ballistic compensation for rocket gravity drop (g = 3.5 m/s^2, initial speed = 48.0 m/s)
-                const dH = Math.hypot(target.x - muzzleWorldPos.x, target.z - muzzleWorldPos.z);
-                const tFlight = dH / 48.0;
-                const compY = (typeof target.y === 'number' ? target.y : muzzleWorldPos.y) + 0.5 * 3.5 * tFlight * tFlight;
-                shootDir.set(target.x - muzzleWorldPos.x, compY - muzzleWorldPos.y, target.z - muzzleWorldPos.z).normalize();
+                // Direct line-of-sight trajectory (rocket is propelled and not affected by gravity)
+                shootDir.set(target.x - muzzleWorldPos.x, (typeof target.y === 'number' ? target.y : muzzleWorldPos.y) - muzzleWorldPos.y, target.z - muzzleWorldPos.z).normalize();
                 if (this.isEnemy) {
                     const right = new THREE.Vector3(shootDir.z, 0, -shootDir.x).normalize();
                     const up = new THREE.Vector3().crossVectors(shootDir, right).normalize();
@@ -3153,12 +3150,7 @@
 
                 let adsDir = null;
                 if (this.currentTarget && typeof this.currentTarget.x === 'number' && typeof this.currentTarget.z === 'number') {
-                    let tgtY = (typeof this.currentTarget.y === 'number') ? this.currentTarget.y : (this.y + 1.25);
-                    const dH = Math.hypot(this.currentTarget.x - this.x, this.currentTarget.z - this.z);
-                    if (this.soldierType === 'bazooka' || this.soldierType === 'bazooka_soldier') {
-                        const tFlight = dH / 48.0;
-                        tgtY += 0.5 * 3.5 * tFlight * tFlight;
-                    }
+                    const tgtY = (typeof this.currentTarget.y === 'number') ? this.currentTarget.y : (this.y + 1.25);
                     adsDir = new THREE.Vector3(this.currentTarget.x - this.x, tgtY - (this.y + 1.25), this.currentTarget.z - this.z).normalize();
                 }
 
