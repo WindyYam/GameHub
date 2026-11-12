@@ -1353,12 +1353,20 @@
             const tEl = document.getElementById('knockout-modal-title');
             if (tEl) tEl.textContent = titleText || 'GAME OVER — KILLED IN ACTION';
         }
+        if (typeof window.releaseGamePointerLock === 'function') {
+            window.releaseGamePointerLock();
+        } else if (document.pointerLockElement) {
+            document.exitPointerLock();
+        }
         modal.style.display = 'flex';
     }
 
     function hideKnockoutModal() {
         const modal = document.getElementById('knockout-modal');
         if (modal) modal.style.display = 'none';
+        if (typeof window.requestGamePointerLock === 'function') {
+            window.requestGamePointerLock();
+        }
     }
 
     // ========================================================================

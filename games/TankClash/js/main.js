@@ -1679,7 +1679,9 @@ function initSettingsUI() {
 
     function openModal() {
         if (modal) modal.classList.remove('hidden');
-        if (document.pointerLockElement) {
+        if (typeof window.releaseGamePointerLock === 'function') {
+            window.releaseGamePointerLock();
+        } else if (document.pointerLockElement) {
             document.exitPointerLock();
         }
         updateResolutionUI();
@@ -1689,6 +1691,9 @@ function initSettingsUI() {
     }
     function closeModal() {
         if (modal) modal.classList.add('hidden');
+        if (typeof window.requestGamePointerLock === 'function') {
+            window.requestGamePointerLock();
+        }
     }
 
     if (btnSettings) {
@@ -1853,7 +1858,9 @@ function updateSpawnBudgetUI() {
 function showSpawnSelectionModal() {
     const modal = document.getElementById('spawn-modal');
     if (!modal) return;
-    if (document.pointerLockElement) {
+    if (typeof window.releaseGamePointerLock === 'function') {
+        window.releaseGamePointerLock();
+    } else if (document.pointerLockElement) {
         document.exitPointerLock();
     }
     setSpawnModalStage('soldier');
@@ -1868,6 +1875,9 @@ window.showSpawnSelectionModal = showSpawnSelectionModal;
 function hideSpawnSelectionModal() {
     const modal = document.getElementById('spawn-modal');
     if (modal) modal.classList.add('hidden');
+    if (typeof window.requestGamePointerLock === 'function') {
+        window.requestGamePointerLock();
+    }
 }
 window.hideSpawnSelectionModal = hideSpawnSelectionModal;
 

@@ -167,7 +167,7 @@ const soundFX = {
     updateEngine(speedRatio, isDriving) {
         if (!this.initialized || !this.ctx) return;
         this.updateListenerPosition();
-        if (!this.enabled) {
+        if (!this.enabled || window.playerMode === 'soldier' || (window.tankState && window.tankState.hasTank === false)) {
             this.engineGain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.08);
             return;
         }

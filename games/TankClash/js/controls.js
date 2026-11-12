@@ -35,6 +35,44 @@ function isMobileDevice() {
 }
 window.isMobileDevice = isMobileDevice;
 
+// Check if any interactive menu / overlay modal is currently open
+function isAnyModalOpen() {
+    const ids = ['spawn-modal', 'settings-modal', 'multiplayer-modal', 'scoreboard-overlay', 'knockout-modal'];
+    for (let i = 0; i < ids.length; i++) {
+        const el = document.getElementById(ids[i]);
+        if (el) {
+            if (!el.classList.contains('hidden') && el.style.display !== 'none' && window.getComputedStyle(el).display !== 'none') {
+                return true;
+            }
+        }
+    }
+    const screen = document.getElementById('loading-screen');
+    if (screen && !screen.classList.contains('loading-hidden') && screen.style.display !== 'none' && window.getComputedStyle(screen).display !== 'none') {
+        return true;
+    }
+    return false;
+}
+window.isAnyModalOpen = isAnyModalOpen;
+
+// Request pointer lock to fully control view / looking and hide mouse cursor
+function requestGamePointerLock() {
+    if (isMobileBrowser()) return;
+    if (isAnyModalOpen()) return;
+    const canvas = (window.renderer && window.renderer.domElement) || document.querySelector('canvas');
+    if (canvas && document.pointerLockElement !== canvas && canvas.requestPointerLock) {
+        canvas.requestPointerLock();
+    }
+}
+window.requestGamePointerLock = requestGamePointerLock;
+
+// Release pointer lock so mouse cursor reappears to interact with menus
+function releaseGamePointerLock() {
+    if (document.pointerLockElement && document.exitPointerLock) {
+        document.exitPointerLock();
+    }
+}
+window.releaseGamePointerLock = releaseGamePointerLock;
+
 function setCameraMode(mode) {
     if (window.playerMode === 'soldier' && mode === 'fpv') return;
     cameraMode = mode;
@@ -217,9 +255,7 @@ function initControls(renderer) {
                 fireMainCannon();
             }
             // Also acquire pointer lock if available so mouse doesn't leave window
-            if (document.pointerLockElement !== renderer.domElement && renderer.domElement.requestPointerLock) {
-                renderer.domElement.requestPointerLock();
-            }
+            requestGamePointerLock();
         } else if (e.button === 2) {
             e.preventDefault();
             if (window.playerMode === 'soldier') {
@@ -251,6 +287,12 @@ function initControls(renderer) {
     });
 
     window.addEventListener('mousemove', (e) => {
+        if (isAnyModalOpen()) {
+            lastMouseX = e.clientX;
+            lastMouseY = e.clientY;
+            return;
+        }
+
         const locked = (document.pointerLockElement === renderer.domElement);
         let dx = 0;
         let dy = 0;
@@ -696,6 +738,15 @@ function initControls(renderer) {
             mobWrapper.classList.add('hidden');
         }
     }
+
+    // Pointer lock change listener to track lock status and keep view aligned
+    document.addEventListener('pointerlockchange', () => {
+        const locked = (document.pointerLockElement === renderer.domElement);
+        if (locked) {
+            lastMouseX = null;
+            lastMouseY = null;
+        }
+    });
 
     // Initialize Draggable Scrolling for Scrollable UI containers
     initDraggableScrollUI();

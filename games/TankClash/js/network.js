@@ -1113,9 +1113,17 @@
             const next = (forceState !== undefined) ? forceState : overlay.classList.contains('hidden');
             if (next) {
                 overlay.classList.remove('hidden');
+                if (typeof window.releaseGamePointerLock === 'function') {
+                    window.releaseGamePointerLock();
+                } else if (document.pointerLockElement) {
+                    document.exitPointerLock();
+                }
                 this.updateScoreboardUI();
             } else {
                 overlay.classList.add('hidden');
+                if (typeof window.requestGamePointerLock === 'function') {
+                    window.requestGamePointerLock();
+                }
             }
         },
 
@@ -1270,7 +1278,9 @@
         openModal(id) {
             const modal = document.getElementById(id);
             if (modal) modal.classList.remove('hidden');
-            if (document.pointerLockElement) {
+            if (typeof window.releaseGamePointerLock === 'function') {
+                window.releaseGamePointerLock();
+            } else if (document.pointerLockElement) {
                 document.exitPointerLock();
             }
         },
@@ -1278,6 +1288,9 @@
         closeModal(id) {
             const modal = document.getElementById(id);
             if (modal) modal.classList.add('hidden');
+            if (typeof window.requestGamePointerLock === 'function') {
+                window.requestGamePointerLock();
+            }
         }
     };
 
