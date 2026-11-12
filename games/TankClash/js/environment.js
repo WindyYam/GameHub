@@ -7829,7 +7829,6 @@ function createGreekStoaGeometry(w = 18.0, l = 8.4) {
     addStoaPart(entab, 0.95, 0.92, 0.85);
 
     const roof = createPitchedRoofGeometry(w + 0.6, l + 0.6, 1.85);
-    roof.rotateY(Math.PI * 0.5);
     roof.translate(0, baseH + colH + 1.13, 0);
     addStoaPart(roof, 0.82, 0.46, 0.32);
 
