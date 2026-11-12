@@ -1023,19 +1023,7 @@ function triggerHeavyDetonation(pos, ignorePlayer = false, customBlastRadius = 8
         spawnParticle(pos, fireVel, col, 0.85 * fireScale, 4.6 * fireScale, (0.35 + Math.random() * 0.25) * fireScale, true, 'fire');
     }
 
-    // 4. Giant Billowing Charcoal/Black Smoke Plume that rises into sky
-    const smokeCount = isLargeBlast ? 14 : 8;
-    for (let i = 0; i < smokeCount; i++) {
-        const smokeVel = new THREE.Vector3(
-            (Math.random() - 0.5) * (9.5 * fireScale),
-            (2.5 + Math.random() * 7.5) * fireScale,
-            (Math.random() - 0.5) * (9.5 * fireScale)
-        );
-        const col = (i % 2 === 0) ? 0x1e242b : 0x475569;
-                spawnParticle(pos, smokeVel, col, 0.65 * fireScale, 4.2 * fireScale, 0.50 * fireScale, false, 'smoke');
-    }
-
-    // 4b. Expanding Ground Dust Crater Eruption Plume
+    // 4. Expanding Ground Dust Crater Eruption Plume
     const blastDustCount = isLargeBlast ? 14 : 8;
     const blastDustCol = (window.currentZoneConfig && window.currentZoneConfig.trackDustColor)
         ? window.currentZoneConfig.trackDustColor : 0x6e5843;
