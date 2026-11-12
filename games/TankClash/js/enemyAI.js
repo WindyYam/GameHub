@@ -546,9 +546,9 @@
             spawnSingleFarEnemy(targetX, targetZ);
         }
 
-        // Player tank wreck smoke: Dense dark billowing smoke plume sourced directly on top of turret
+        // Player tank wreck smoke: Billowing smoke plume sourced directly on top of turret
         // Only emit if player actually had a tank that was destroyed and the tank wreck mesh is visible in the world
-        if (pState.isKnockedOut && pState.hasTank !== false && window.tankRoot && window.tankRoot.visible && typeof window.spawnParticle === 'function' && Math.random() < dt * 4.2) {
+        if (pState.isKnockedOut && pState.hasTank !== false && window.tankRoot && window.tankRoot.visible && typeof window.spawnParticle === 'function' && Math.random() < dt * 1.8) {
             let pSpawnX = pState.x;
             let pSpawnY = (pState.y || 0) + 2.65;
             let pSpawnZ = pState.z;
@@ -570,11 +570,11 @@
                 (Math.random() - 0.5) * 0.45
             );
             const col = (Math.random() > 0.4) ? 0x22262c : 0x2e353f; // Dense dark charcoal smoke
-            const life = 9.0 + Math.random() * 2.5;
-            window.spawnParticle(pTankPos, pSmokeVel, col, 0.35, 5.2 + Math.random() * 1.8, life, false, 'smoke', {
+            const life = 6.5 + Math.random() * 1.8;
+            window.spawnParticle(pTankPos, pSmokeVel, col, 0.4, 4.6 + Math.random() * 1.4, life, false, 'smoke', {
                 drag: 0.988,
                 buoyancy: 3.0,
-                maxOpacity: 0.78 // Opaque, dense billowing smoke
+                maxOpacity: 0.72
             });
         }
 
@@ -600,11 +600,11 @@
             }
 
             // ----------------------------------------------------------------
-            // Destroyed wreck state: Dense dark billowing smoke plume sourced on top of turret (NO fire)
+            // Destroyed wreck state: Billowing smoke plume sourced on top of turret (NO fire)
             // ----------------------------------------------------------------
             if (e.isDestroyed) {
                 e.burningSmokeTimer += dt;
-                if (Math.random() < dt * 4.2 && typeof window.spawnParticle === 'function') {
+                if (Math.random() < dt * 1.8 && typeof window.spawnParticle === 'function') {
                     let spawnX = e.x;
                     let spawnY = (e.y || 0) + 2.65;
                     let spawnZ = e.z;
@@ -626,13 +626,13 @@
                         (Math.random() - 0.5) * 0.45
                     );
                     const col = (Math.random() > 0.4) ? 0x22262c : 0x2e353f; // Dense dark charcoal smoke
-                    const life = 9.0 + Math.random() * 2.5; // Floats up high into the sky
-                    const startSize = 0.35;
-                    const endSize = 5.2 + Math.random() * 1.8;
+                    const life = 6.5 + Math.random() * 1.8;
+                    const startSize = 0.4;
+                    const endSize = 4.6 + Math.random() * 1.4;
                     window.spawnParticle(turretTopPos, smokeVel, col, startSize, endSize, life, false, 'smoke', {
                         drag: 0.988,
                         buoyancy: 3.0,
-                        maxOpacity: 0.78 // Opaque, dense billowing smoke
+                        maxOpacity: 0.72
                     });
                 }
                 continue;
