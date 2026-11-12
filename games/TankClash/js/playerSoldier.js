@@ -173,6 +173,13 @@
         playerSoldier.isDead = true;
         playerSoldier.speed = 0;
 
+        if (typeof window.releaseGamePointerLock === 'function') {
+            window.releaseGamePointerLock();
+        } else if (document.pointerLockElement) {
+            document.exitPointerLock();
+        }
+        document.body.style.cursor = 'default';
+
         if (typeof window.onPlayerDeath === 'function') {
             window.onPlayerDeath();
         }

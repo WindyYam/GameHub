@@ -35,8 +35,17 @@ function isMobileDevice() {
 }
 window.isMobileDevice = isMobileDevice;
 
+function isPlayerDead() {
+    if (window.playerIsDead) return true;
+    if (window.playerMode === 'soldier' && window.playerSoldier && window.playerSoldier.isDead) return true;
+    if (window.tankState && window.tankState.isKnockedOut) return true;
+    return false;
+}
+window.isPlayerDead = isPlayerDead;
+
 // Check if any interactive menu / overlay modal is currently open
 function isAnyModalOpen() {
+    if (isPlayerDead()) return true;
     const ids = ['spawn-modal', 'settings-modal', 'multiplayer-modal', 'scoreboard-overlay', 'knockout-modal'];
     for (let i = 0; i < ids.length; i++) {
         const el = document.getElementById(ids[i]);
@@ -246,6 +255,10 @@ function initControls(renderer) {
 
     renderer.domElement.addEventListener('mousedown', (e) => {
         soundFX.init();
+        if (isAnyModalOpen() || isPlayerDead()) {
+            releaseGamePointerLock();
+            return;
+        }
         if (e.button === 0) {
             // Left click: Fire player rifle/SMG in soldier mode or main cannon in tank mode
             if (window.playerMode === 'soldier') {

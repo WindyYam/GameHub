@@ -2339,6 +2339,16 @@
             this.fireCooldown = Math.max(0, this.fireCooldown - dt);
             this.recoilKick = Math.max(0, this.recoilKick - dt * 5.0);
 
+            if (typeof this.pendingProvokeTimer === 'number' && this.pendingProvokeTimer > 0) {
+                this.pendingProvokeTimer -= dt;
+                if (this.pendingProvokeTimer <= 0) {
+                    this.pendingProvokeTimer = 0;
+                    this.alertOnHitTimer = Math.max(this.alertOnHitTimer || 0, 8.0);
+                    this.provokedTimer = Math.max(this.provokedTimer || 0, 5.0);
+                    this.losTimer = 0;
+                }
+            }
+
             if (this.soldierType === 'mortar' && !this.rig.carriedMortar && typeof window.createCarriedMortar === 'function') {
                 if (this.rig.rifle) this.rig.rifle.visible = false;
                 window.createCarriedMortar(this.rig);

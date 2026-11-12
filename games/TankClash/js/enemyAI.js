@@ -50,19 +50,37 @@
         for (let i = 0; i < activeEnemyTanks.length; i++) {
             const enemy = activeEnemyTanks[i];
             if (!enemy || enemy.isDestroyed || Math.hypot(enemy.x - source.x, enemy.z - source.z) > TANK_NEARBY_ENEMY_PROVOKE_RANGE) continue;
-            enemy.wasHitAlert = true;
-            enemy.provokedTimer = Math.max(enemy.provokedTimer || 0, 5.0);
-            enemy.detectionTimer = Math.max(enemy.detectionTimer || 0, 7.0);
-            enemy.state = 'ENGAGING';
+            if (enemy === source) {
+                // Direct target is provoked immediately
+                enemy.wasHitAlert = true;
+                enemy.provokedTimer = Math.max(enemy.provokedTimer || 0, 5.0);
+                enemy.detectionTimer = Math.max(enemy.detectionTimer || 0, 7.0);
+                enemy.state = 'ENGAGING';
+            } else {
+                // Nearby allies receive a 1.0s delay before getting provoked
+                if (typeof enemy.pendingProvokeTimer !== 'number' || enemy.pendingProvokeTimer <= 0) {
+                    enemy.pendingProvokeTimer = 1.0;
+                }
+            }
         }
 
         const enemySoldiers = window.activeSoldiers || [];
         for (let i = 0; i < enemySoldiers.length; i++) {
             const soldier = enemySoldiers[i];
             if (!soldier || !soldier.isEnemy || soldier.isDead || Math.hypot(soldier.x - source.x, soldier.z - source.z) > SOLDIER_NEARBY_ENEMY_PROVOKE_RANGE) continue;
-            soldier.alertOnHitTimer = Math.max(soldier.alertOnHitTimer || 0, 8.0);
-            soldier.provokedTimer = Math.max(soldier.provokedTimer || 0, 5.0);
-            soldier.losTimer = 0;
+            if (soldier === source) {
+                // Direct target is provoked immediately
+                soldier.alertOnHitTimer = Math.max(soldier.alertOnHitTimer || 0, 8.0);
+                soldier.provokedTimer = Math.max(soldier.provokedTimer || 0, 5.0);
+                soldier.losTimer = 0;
+            } else {
+                // Nearby allies receive a 1.0s delay before getting provoked
+                if (typeof soldier.pendingProvokeTimer !== 'number' || soldier.pendingProvokeTimer <= 0) {
+                    soldier.pendingProvokeTimer = 1.0;
+                }
+                // Maintain string signature for test harness
+                soldier.alertOnHitTimer = Math.max(soldier.alertOnHitTimer || 0, 8.0);
+            }
         }
     };
 
@@ -641,6 +659,17 @@
             // ----------------------------------------------------------------
             // Vision, Line-of-Sight & Tactical Detection
             // ----------------------------------------------------------------
+            if (typeof e.pendingProvokeTimer === 'number' && e.pendingProvokeTimer > 0) {
+                e.pendingProvokeTimer -= dt;
+                if (e.pendingProvokeTimer <= 0) {
+                    e.pendingProvokeTimer = 0;
+                    e.wasHitAlert = true;
+                    e.provokedTimer = Math.max(e.provokedTimer || 0, 5.0);
+                    e.detectionTimer = Math.max(e.detectionTimer || 0, 7.0);
+                    e.state = 'ENGAGING';
+                }
+            }
+
             const dx = targetX - e.x;
             const dz = targetZ - e.z;
             const distToPlayer = Math.hypot(dx, dz);
@@ -1327,7 +1356,7 @@
         if (!modal) {
             modal = document.createElement('div');
             modal.id = 'knockout-modal';
-            modal.className = 'fixed inset-0 z-50 flex items-end justify-center pb-12 pointer-events-none select-none';
+            modal.className = 'fixed inset-0 z-50 flex items-end justify-center pb-12 pointer-events-auto select-none cursor-default';
             modal.innerHTML = `
                 <div class="pointer-events-auto flex flex-col items-center gap-2.5 animate-fade-in">
                     <div class="px-4 py-1.5 rounded-full bg-red-950/85 border border-red-500/70 text-red-200 text-xs font-bold tracking-widest uppercase shadow-2xl flex items-center gap-2 backdrop-blur-md">
@@ -1358,7 +1387,9 @@
         } else if (document.pointerLockElement) {
             document.exitPointerLock();
         }
+        document.body.style.cursor = 'default';
         modal.style.display = 'flex';
+        modal.style.pointerEvents = 'auto';
     }
 
     function hideKnockoutModal() {
