@@ -1327,11 +1327,18 @@
         playerMode = 'soldier';
         window.playerMode = 'soldier';
         window.playerSoldier = playerSoldier;
+        window.playerIsDead = false;
 
-        // Setup over-the-shoulder third-person camera
+        // Ensure third-person orbit camera & pointer lock when bailing out or dismounting
+        if (window.cameraMode === 'fpv' && typeof window.setCameraMode === 'function') {
+            window.setCameraMode('orbit');
+        }
         if (window.camOrbit) {
             window.camOrbit.distance = 3.2;
             window.camOrbit.phi = 1.40;
+        }
+        if (typeof window.requestGamePointerLock === 'function') {
+            window.requestGamePointerLock();
         }
 
         if (crosshairEl) crosshairEl.classList.remove('hidden');

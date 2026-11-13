@@ -54,25 +54,35 @@ function generateSteelEnvironmentMap() {
     envCanvas.height = 256;
     const ctx = envCanvas.getContext('2d');
 
-    // Realistic coastal atmospheric reflection gradient
-    // Cold zenith sky, soft hazy horizon, neutral ground plane
+    // Multi-stop atmospheric reflection gradient for 3A PBR rolled armor & gunmetal
     const grad = ctx.createLinearGradient(0, 0, 0, 256);
-    grad.addColorStop(0.00, '#3a5f8a'); // Cold sky reflection
-    grad.addColorStop(0.35, '#6a8ea8'); 
-    grad.addColorStop(0.48, '#a2bace'); // Specular horizon glint
-    grad.addColorStop(0.52, '#6d7870'); // Countryside ground transition
-    grad.addColorStop(0.75, '#485244'); // Grassy earth bounce
-    grad.addColorStop(1.00, '#2e352b'); // Undercarriage occlusion
+    grad.addColorStop(0.00, '#2a4d7a'); // Deep zenith sky
+    grad.addColorStop(0.28, '#557ea6'); // Mid sky
+    grad.addColorStop(0.45, '#9ab8d4'); // Atmospheric horizon haze
+    grad.addColorStop(0.49, '#d8e4ee'); // Crisp horizon specular band
+    grad.addColorStop(0.52, '#6f7465'); // Distant terrain horizon
+    grad.addColorStop(0.72, '#474e3d'); // Earth / foliage bounce
+    grad.addColorStop(1.00, '#232820'); // Ground occlusion
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, 512, 256);
 
-    // Add soft directional sun glade onto the equirectangular map
-    const sunGrad = ctx.createRadialGradient(256, 110, 2, 256, 110, 85);
-    sunGrad.addColorStop(0, 'rgba(255, 250, 240, 0.95)');
-    sunGrad.addColorStop(0.3, 'rgba(255, 235, 205, 0.45)');
+    // Subtle procedural cloud wisps in upper hemisphere for natural specular breakup
+    ctx.fillStyle = 'rgba(235, 242, 250, 0.14)';
+    for (let i = 0; i < 14; i++) {
+        const cx = ((i * 73) % 480) + 16;
+        const cy = 22 + ((i * 31) % 68);
+        ctx.beginPath();
+        ctx.ellipse(cx, cy, 38 + (i % 3) * 18, 9 + (i % 2) * 5, 0, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    // Soft directional sun glade onto the equirectangular map
+    const sunGrad = ctx.createRadialGradient(256, 108, 3, 256, 108, 92);
+    sunGrad.addColorStop(0, 'rgba(255, 252, 242, 0.98)');
+    sunGrad.addColorStop(0.25, 'rgba(255, 236, 204, 0.50)');
     sunGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
     ctx.fillStyle = sunGrad;
-    ctx.fillRect(170, 25, 172, 170);
+    ctx.fillRect(164, 16, 184, 184);
 
     const envTex = new THREE.CanvasTexture(envCanvas);
     const rt = pmremGenerator.fromEquirectangular(envTex);

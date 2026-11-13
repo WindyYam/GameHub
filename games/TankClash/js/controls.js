@@ -37,7 +37,9 @@ window.isMobileDevice = isMobileDevice;
 
 function isPlayerDead() {
     if (window.playerIsDead) return true;
-    if (window.playerMode === 'soldier' && window.playerSoldier && window.playerSoldier.isDead) return true;
+    if (window.playerMode === 'soldier') {
+        return Boolean(window.playerSoldier && window.playerSoldier.isDead);
+    }
     if (window.tankState && window.tankState.isKnockedOut) return true;
     return false;
 }

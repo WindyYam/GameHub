@@ -66,15 +66,41 @@ function generateTankPBRMaps() {
 
     const heightField = new Float32Array(size * size);
 
-    // 1. Generate Heavy Rolled Steel Micro-Pitting & Rolled Grain
+    // Deterministic tileable 2D value noise + FBM for authentic Rolled Homogeneous Armor (RHA)
+    function rhaHash(ix, iy, period) {
+        const x = ((ix % period) + period) % period;
+        const y = ((iy % period) + period) % period;
+        let n = ((x * 374761393) ^ (y * 668265263)) | 0;
+        n = Math.imul(n ^ (n >>> 13), 1274126177);
+        return ((n ^ (n >>> 16)) >>> 0) * 2.3283064365386963e-10;
+    }
+    function rhaNoise(u, v, period) {
+        const x = u * period;
+        const y = v * period;
+        const xi = Math.floor(x);
+        const yi = Math.floor(y);
+        const fx = x - xi;
+        const fy = y - yi;
+        const sx = fx * fx * (3.0 - 2.0 * fx);
+        const sy = fy * fy * (3.0 - 2.0 * fy);
+        const n00 = rhaHash(xi, yi, period);
+        const n10 = rhaHash(xi + 1, yi, period);
+        const n01 = rhaHash(xi, yi + 1, period);
+        const n11 = rhaHash(xi + 1, yi + 1, period);
+        return (n00 * (1.0 - sx) + n10 * sx) * (1.0 - sy) + (n01 * (1.0 - sx) + n11 * sx) * sy;
+    }
+
+    // 1. Generate Heavy Rolled Steel Mill Scale, Subtle Plate Waviness & Fine Grain
     for (let y = 0; y < size; y++) {
+        const v = y / size;
         for (let x = 0; x < size; x++) {
+            const u = x / size;
             const idx = y * size + x;
-            // High frequency rolled steel grain + low frequency plate waviness
-            const wave = Math.sin(x * 0.08) * Math.cos(y * 0.08) * 0.08;
-            const grain = (Math.sin(x * 0.45 + y * 0.2) * Math.cos(y * 0.5 - x * 0.15) * 0.18);
-            const noise = (Math.random() - 0.5) * 0.14;
-            heightField[idx] = 0.5 + wave + grain + noise;
+            // Broad rolled-plate undulation + subtle anisotropic rolling mill grain + micro-pitting
+            const macroWave = rhaNoise(u, v, 6) * 0.16 + rhaNoise(u, v, 13) * 0.10;
+            const millGrain = rhaNoise(u * 1.0, v * 2.5, 29) * 0.12 + rhaNoise(u, v, 61) * 0.07;
+            const microPit = rhaNoise(u, v, 127) * 0.05;
+            heightField[idx] = 0.28 + macroWave + millGrain + microPit;
         }
     }
 
@@ -163,22 +189,23 @@ function generateTankPBRMaps() {
             const pIndex = i * 4;
 
             // Pure neutral cold steel grey (r ≈ g ≈ b) - genuine Krupp rolled armor steel
-            let r = 122 + (h - 0.5) * 26 - verticalGrime * 0.4;
-            let g = 125 + (h - 0.5) * 26 - verticalGrime * 0.4;
-            let b = 130 + (h - 0.5) * 28 - verticalGrime * 0.3;
+            const millMottle = (h - 0.5) * 34;
+            let r = 128 + millMottle - verticalGrime * 0.35;
+            let g = 131 + millMottle - verticalGrime * 0.35;
+            let b = 136 + millMottle * 1.05 - verticalGrime * 0.25;
 
             // Edge chipping & exposed burnished steel where welds / edges protrude
             if (h > 0.68) {
-                // Burnished steel edge / micro heat-tint
-                r = 100 + Math.random() * 16;
-                g = 103 + Math.random() * 16;
-                b = 108 + Math.random() * 18;
+                const burnish = 148 + (h - 0.68) * 90;
+                r = burnish;
+                g = burnish + 2;
+                b = burnish + 6;
             }
 
             // Subtle vertical steel weathering / oil drainage
-            const streak = Math.sin(x * 0.6) * Math.sin(x * 1.8 + y * 0.05);
-            if (streak > 0.85) {
-                const darkening = (streak - 0.85) * 25;
+            const streak = Math.sin(x * 0.19) * Math.sin(x * 0.65 + y * 0.035);
+            if (streak > 0.78) {
+                const darkening = (streak - 0.78) * 32;
                 r = Math.max(40, r - darkening);
                 g = Math.max(42, g - darkening);
                 b = Math.max(48, b - darkening);
@@ -189,9 +216,10 @@ function generateTankPBRMaps() {
             aImg.data[pIndex + 2] = Math.min(255, Math.max(0, Math.floor(b)));
             aImg.data[pIndex + 3] = 255;
 
-            // Roughness Map (Machined rolled steel: smooth specular plates with micro-pitting)
-            let rough = 110 + Math.floor((1.0 - h) * 45);
-            if (h > 0.68) rough = 80; // burnished steel edge is smoother/shinier
+            // Calibrated PBR Roughness Map (satin-matte painted RHA ~145-185, burnished weld/edge ~78)
+            let rough = 145 + Math.floor((0.68 - Math.min(0.68, h)) * 95);
+            if (streak > 0.78) rough = Math.min(230, rough + 24);
+            if (h > 0.68) rough = 78;
             rImg.data[pIndex + 0] = rough;
             rImg.data[pIndex + 1] = rough;
             rImg.data[pIndex + 2] = rough;
@@ -1278,9 +1306,13 @@ function createHaltonSmokeMaterial(colorHex = 0x94a3b8) {
                 // 2. True Volumetric Ray Path Thickness (Eliminates the "solid object" look)
                 float r = length(vLocalPos);
                 float NdotV = clamp(dot(worldNormal, vWorldViewDir), 0.0, 1.0);
+                vec3 smoothWorldNorm = normalize(vLocalToWorld * vLocalNormal);
+                float smoothNdotV = clamp(dot(smoothWorldNorm, vWorldViewDir), 0.0, 1.0);
+                float edgeFeather = smoothstep(0.06, 0.54, smoothNdotV);
+                edgeFeather *= edgeFeather;
                 
                 // Path length through the cloud volume: thickest in center, fading smoothly to 0 at perimeter
-                float pathThickness = sqrt(clamp(1.0 - pow(r / 1.72, 2.0), 0.0, 1.0)) * pow(NdotV, 0.55);
+                float pathThickness = sqrt(clamp(1.0 - pow(r / 1.72, 2.0), 0.0, 1.0)) * edgeFeather;
 
                 // Multi-scale 3D fractal noise (convective billowing turbulence)
                 float billowNoise = fbmSmoke(vLocalPos * 2.0 + vec3(0.0, uTime * 0.12, 0.0));
@@ -1647,12 +1679,16 @@ function createVolumetricDustMaterial(colorHex = 0x5c4d3c) {
                 vec3 finalLocalNormal = normalize(mix(vLocalNormal, perturbedLocal, clamp(uNormalScale, 0.0, 1.0)));
                 vec3 worldNormal = normalize(vLocalToWorld * finalLocalNormal);
 
-                // 2. Volumetric Ray Thickness & Soft Feathered Perimeter (Zero Hard Circles)
+                // 2. Volumetric Ray Thickness & Soft Feathered Perimeter (Zero Hard Circles / Faceted Silhouettes)
                 float r = length(vLocalPos);
                 float NdotV = clamp(dot(worldNormal, vWorldViewDir), 0.0, 1.0);
+                vec3 smoothWorldNorm = normalize(vLocalToWorld * vLocalNormal);
+                float smoothNdotV = clamp(dot(smoothWorldNorm, vWorldViewDir), 0.0, 1.0);
+                float edgeFeather = smoothstep(0.08, 0.62, smoothNdotV);
+                edgeFeather *= edgeFeather;
 
                 // Smooth core-to-perimeter decay: fades smoothly towards edges
-                float pathThickness = smoothstep(1.42, 0.15, r) * pow(NdotV, 0.45);
+                float pathThickness = smoothstep(1.42, 0.15, r) * edgeFeather;
 
                 // 3D fractal billowing turbulence for organic wisps & powder puffs
                 float billowNoise = fbmDust(vLocalPos * 2.2 + vec3(0.0, uTime * 0.08, 0.0));
@@ -2545,21 +2581,21 @@ function createGrassTuftAtlasTexture() {
         edgeCtx.rect(xOffset + 2, 0, colW - 4, height);
         edgeCtx.clip();
 
-        // Draw 52 dense overlapping grass blades spanning full column width
-        const numBlades = 52;
+        // Draw 28 slender, well-separated grass blades with varied heights & negative-space gaps
+        const numBlades = 28;
         for (let b = 0; b < numBlades; b++) {
             const depthFrac = b / (numBlades - 1);
-            const rootX = xOffset + 6 + (b / (numBlades - 1)) * (colW - 12) + (gRand() - 0.5) * 6;
+            const rootX = xOffset + 7 + (b / (numBlades - 1)) * (colW - 14) + (gRand() - 0.5) * 4.5;
             const rootY = height + 4;
-            const edgeFactor = 1.0 - Math.pow(Math.abs((b / (numBlades - 1)) - 0.5) * 1.85, 2.0) * 0.25;
-            // Higher grass blades reaching 80% to 98% of the tuft height
-            const bladeH = height * (0.80 + gRand() * 0.18) * edgeFactor;
-            const lean = ((rootX - (xOffset + colW * 0.5)) / (colW * 0.5)) * 16 + (gRand() - 0.5) * 18;
+            const edgeFactor = 1.0 - Math.pow(Math.abs((b / (numBlades - 1)) - 0.5) * 1.85, 2.0) * 0.28;
+            // Varied natural heights (52% to 98%) so silhouette is organic and airy
+            const bladeH = height * (0.52 + gRand() * 0.46) * edgeFactor;
+            const lean = ((rootX - (xOffset + colW * 0.5)) / (colW * 0.5)) * 18 + (gRand() - 0.5) * 20;
             const tipX = Math.max(xOffset + 4, Math.min(xOffset + colW - 4, rootX + lean));
             const tipY = height - bladeH;
-            const ctrlX = (rootX + tipX) * 0.5 + (gRand() - 0.5) * 5;
-            const ctrlY = height - bladeH * 0.55;
-            const baseHalfW = 3.0 + gRand() * 1.8;
+            const ctrlX = (rootX + tipX) * 0.5 + (gRand() - 0.5) * 6;
+            const ctrlY = height - bladeH * 0.52;
+            const baseHalfW = 1.7 + gRand() * 1.1;
 
             const grad = ctx.createLinearGradient(rootX, rootY, tipX, tipY);
             const brightness = 0.52 + depthFrac * 0.52;
@@ -3168,7 +3204,7 @@ function createTerrainNormalAtlas() {
         }
     }
 
-    // Q1: Road Surface
+    // Q1: Road Surface (Compacted earth, subtle tire ruts & organic gravel/pebbles — no repetitive stripes)
     for (let y = 0; y < half; y++) {
         const yRow = y * size;
         const v = y / half;
@@ -3176,19 +3212,17 @@ function createTerrainNormalAtlas() {
             const gx = half + x;
             const u = x / half;
 
-            const crown = 1.0 - Math.pow((u - 0.5) * 2.0, 2.0) * 0.35;
-            let h = crown * 0.35;
+            const crown = 1.0 - Math.pow((u - 0.5) * 2.0, 2.0) * 0.25;
+            let h = crown * 0.24;
 
-            const rut1 = Math.exp(-Math.pow((u - 0.28) / 0.10, 2.0)) * 0.40;
-            const rut2 = Math.exp(-Math.pow((u - 0.72) / 0.10, 2.0)) * 0.40;
+            const rut1 = Math.exp(-Math.pow((u - 0.28) / 0.11, 2.0)) * 0.22;
+            const rut2 = Math.exp(-Math.pow((u - 0.72) / 0.11, 2.0)) * 0.22;
             h -= (rut1 + rut2);
 
-            const cleatPattern = Math.sin((v * 36.0 + Math.abs(u - 0.5) * 8.0) * Math.PI * 2.0);
-            const inTrackLane = (rut1 > 0.12 || rut2 > 0.12) ? 1.0 : 0.0;
-            h += cleatPattern * 0.16 * inTrackLane;
-
-            h += noiseWrap(u * 64.0, v * 64.0, 64) * 0.22;
-            h += noiseWrap(u * 128.0, v * 128.0, 128) * 0.14;
+            // Organic compacted gravel & stone aggregate (aperiodic multi-scale FBM)
+            const gravelMacro = fbmWrap(u * 11.0, v * 11.0, 11, 4) * 0.36;
+            const gravelMicro = noiseWrap(u * 47.0, v * 47.0, 47) * 0.24 + noiseWrap(u * 97.0, v * 97.0, 97) * 0.16;
+            h += gravelMacro + gravelMicro;
 
             heightMap[yRow + gx] = h;
         }
@@ -3242,7 +3276,7 @@ function createTerrainNormalAtlas() {
 
     // Compute Sobel Filter Normal Map (Calibrated soft bump scale for organic ground shading)
     const imgData = ctx.createImageData(size, size);
-    const bumpScale = 1.7;
+    const bumpScale = 1.35;
 
     for (let y = 0; y < size; y++) {
         const ym = (y + size - 1) % size;
@@ -3982,10 +4016,10 @@ function createMaterials(pbrMaps, decal3818Tex, grilleTex) {
             color: new THREE.Color(0xa6afba).convertSRGBToLinear(),
             map: pbrMaps.albedo,
             normalMap: pbrMaps.normal,
-            normalScale: new THREE.Vector2(0.75, 0.75),
+            normalScale: new THREE.Vector2(0.42, 0.42),
             roughnessMap: pbrMaps.roughness,
-            roughness: 0.46,
-            metalness: 0.22,
+            roughness: 0.52,
+            metalness: 0.26,
             aoMap: pbrMaps.ao,
             aoMapIntensity: 0.55
         }),
@@ -3993,9 +4027,10 @@ function createMaterials(pbrMaps, decal3818Tex, grilleTex) {
             color: new THREE.Color(0x8a94a0).convertSRGBToLinear(),
             map: pbrMaps.albedoFine,
             normalMap: pbrMaps.normalFine,
-            normalScale: new THREE.Vector2(0.80, 0.80),
-            roughness: 0.50,
-            metalness: 0.25,
+            normalScale: new THREE.Vector2(0.46, 0.46),
+            roughnessMap: pbrMaps.roughness,
+            roughness: 0.56,
+            metalness: 0.28,
             aoMap: pbrMaps.ao,
             aoMapIntensity: 0.58
         }),

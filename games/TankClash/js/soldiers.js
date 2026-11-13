@@ -1000,46 +1000,46 @@
                 return mat;
             };
 
-            // Matte Wool & Cotton Uniforms (High roughness + zero metalness so they never look like plastic toys)
+            // Matte Wool & Cotton Uniforms (High roughness + subtle fabric weave normalScale)
             MATS.usJacket = registerMat(new THREE.MeshStandardMaterial({
                 map: usJacketMaps.map, normalMap: usJacketMaps.normalMap,
-                normalScale: new THREE.Vector2(1.1, 1.1), roughness: 0.92, metalness: 0.0
+                normalScale: new THREE.Vector2(0.32, 0.32), roughness: 0.92, metalness: 0.0
             }));
             MATS.usPants = registerMat(new THREE.MeshStandardMaterial({
                 map: usPantsMaps.map, normalMap: usPantsMaps.normalMap,
-                normalScale: new THREE.Vector2(1.1, 1.1), roughness: 0.93, metalness: 0.0
+                normalScale: new THREE.Vector2(0.32, 0.32), roughness: 0.93, metalness: 0.0
             }));
             MATS.sovietTunic = registerMat(new THREE.MeshStandardMaterial({
                 map: sovTunicMaps.map, normalMap: sovTunicMaps.normalMap,
-                normalScale: new THREE.Vector2(1.1, 1.1), roughness: 0.92, metalness: 0.0
+                normalScale: new THREE.Vector2(0.32, 0.32), roughness: 0.92, metalness: 0.0
             }));
             MATS.germanTunic = registerMat(new THREE.MeshStandardMaterial({
                 map: gerTunicMaps.map, normalMap: gerTunicMaps.normalMap,
-                normalScale: new THREE.Vector2(1.2, 1.2), roughness: 0.90, metalness: 0.0
+                normalScale: new THREE.Vector2(0.34, 0.34), roughness: 0.90, metalness: 0.0
             }));
             MATS.germanPants = registerMat(new THREE.MeshStandardMaterial({
                 map: gerPantsMaps.map, normalMap: gerPantsMaps.normalMap,
-                normalScale: new THREE.Vector2(1.1, 1.1), roughness: 0.91, metalness: 0.0
+                normalScale: new THREE.Vector2(0.32, 0.32), roughness: 0.91, metalness: 0.0
             }));
 
             // Weathered Combat Steel Helmets
             MATS.usHelmet = registerMat(new THREE.MeshStandardMaterial({
                 map: usHelmetMaps.map, normalMap: usHelmetMaps.normalMap,
-                normalScale: new THREE.Vector2(0.65, 0.65), roughness: 0.72, metalness: 0.22
+                normalScale: new THREE.Vector2(0.42, 0.42), roughness: 0.68, metalness: 0.25
             }));
             MATS.sovietHelmet = registerMat(new THREE.MeshStandardMaterial({
                 map: sovHelmetMaps.map, normalMap: sovHelmetMaps.normalMap,
-                normalScale: new THREE.Vector2(0.9, 0.9), roughness: 0.58, metalness: 0.32
+                normalScale: new THREE.Vector2(0.45, 0.45), roughness: 0.56, metalness: 0.32
             }));
             MATS.germanHelmet = registerMat(new THREE.MeshStandardMaterial({
                 map: gerHelmetMaps.map, normalMap: gerHelmetMaps.normalMap,
-                normalScale: new THREE.Vector2(0.9, 0.9), roughness: 0.50, metalness: 0.38
+                normalScale: new THREE.Vector2(0.45, 0.45), roughness: 0.48, metalness: 0.38
             }));
 
             // Equipment, Leather, Skin, Weapons
             MATS.webGear = registerMat(new THREE.MeshStandardMaterial({
                 map: webCanvasMaps.map, normalMap: webCanvasMaps.normalMap,
-                normalScale: new THREE.Vector2(1.2, 1.2), roughness: 0.94, metalness: 0.0
+                normalScale: new THREE.Vector2(0.38, 0.38), roughness: 0.94, metalness: 0.0
             }));
             MATS.blackLeather = registerMat(new THREE.MeshStandardMaterial({
                 map: blackLeather.map, normalMap: blackLeather.normalMap,

@@ -1540,12 +1540,12 @@ function getTerrainNormalAtlas() {
 }
 
 // Non-metal ground & vegetation: reduced static steel IBL fill for stronger sun/shade contrast
-const GROUND_ENV_MAP_INTENSITY = 0.4;
+const GROUND_ENV_MAP_INTENSITY = 0.25;
 
 const terrainMat = new THREE.MeshStandardMaterial({
     vertexColors: true,
-    roughness: 0.88,
-    metalness: 0.04,
+    roughness: 0.94,
+    metalness: 0.0,
     envMapIntensity: GROUND_ENV_MAP_INTENSITY
 });
 
@@ -1661,21 +1661,21 @@ terrainMat.onBeforeCompile = (shader) => {
             float rockCliffWeight = clamp(wZoneNorm[6] * 0.85 + wZoneNorm[7] * 0.92 + wZoneNorm[10] * 0.65 + wZoneNorm[11] * 0.55, 0.0, 1.0);
             rockFactorNorm = clamp(rockFactorNorm + rockCliffWeight * smoothstep(0.12, 0.28, vTerrainSlope) * 0.75, 0.0, 1.0);
 
-            // Calibrated normal strength: soft, natural ground relief (reduced from 0.65 to 0.26)
+            // Calibrated normal strength: soft, natural ground relief (no plastic sheen)
             vec2 deltaSurfN = nGroundSample.xy * 0.26;
-            deltaSurfN = mix(deltaSurfN, nSandSample.xy * 0.35, sandBlendFactor);
-            deltaSurfN = mix(deltaSurfN, nRockSample.xy * 0.42, rockFactorNorm);
-            deltaSurfN = mix(deltaSurfN, nRoadSample.xy * 0.40, smoothstep(0.04, 0.38, roadFactorNorm));
+            deltaSurfN = mix(deltaSurfN, nSandSample.xy * 0.26, sandBlendFactor);
+            deltaSurfN = mix(deltaSurfN, nRockSample.xy * 0.36, rockFactorNorm);
+            deltaSurfN = mix(deltaSurfN, nRoadSample.xy * 0.20, smoothstep(0.04, 0.38, roadFactorNorm));
 
             if (roadFactorNorm > 0.05) {
                 float rutOffset = roadDistForNorm - 1.35;
-                float rutSlope = (rutOffset / 0.28) * exp(-pow(rutOffset, 2.0) / 0.28) * roadFactorNorm * 0.38;
-                deltaSurfN += vec2(rutSlope * 0.35);
+                float rutSlope = (rutOffset / 0.28) * exp(-pow(rutOffset, 2.0) / 0.28) * roadFactorNorm * 0.16;
+                deltaSurfN += vec2(rutSlope * 0.28);
             }
 
             if (sandBlendFactor > 0.05) {
-                float ripplePhase = (vTerrainWorldPos.x * 0.82 + vTerrainWorldPos.z * 0.57) * 3.4;
-                vec2 rippleGrad = vec2(0.82, 0.57) * cos(ripplePhase) * 0.18 * sandBlendFactor;
+                float ripplePhase = (vTerrainWorldPos.x * 0.82 + vTerrainWorldPos.z * 0.57 + sin(vTerrainWorldPos.z * 0.35) * 0.9) * 2.6;
+                vec2 rippleGrad = vec2(0.82, 0.57) * cos(ripplePhase) * 0.06 * sandBlendFactor;
                 deltaSurfN += rippleGrad;
             }
 
@@ -1700,6 +1700,21 @@ terrainMat.onBeforeCompile = (shader) => {
             float invDet = (det == 0.0) ? 0.0 : inversesqrt(det);
             normal = normalize(T * (deltaSurfN.x * invDet) + B * (deltaSurfN.y * invDet) + N);
         }
+        `
+    );
+
+    // Dynamic PBR roughness modulation: wet riverbanks/beaches are damp & specular, dry soil/grass/sand is matte
+    shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <roughnessmap_fragment>',
+        `
+        #include <roughnessmap_fragment>
+        float wRoughZ[12];
+        getZoneWeights12_gpu(vTerrainWorldPos.xz, wRoughZ);
+        float aridRoughMask = clamp(wRoughZ[1] + wRoughZ[6] + wRoughZ[7] + wRoughZ[8], 0.0, 1.0);
+        float wetShoreRough = (1.0 - smoothstep(-2.4, -1.25, vTerrainWorldPos.y)) * (1.0 - aridRoughMask * 0.95);
+        float roadRoughMask = getRoadFactor_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
+        roughnessFactor = mix(0.95, 0.88, smoothstep(0.1, 0.6, roadRoughMask));
+        roughnessFactor = mix(roughnessFactor, 0.44, wetShoreRough * 0.80);
         `
     );
 
@@ -8514,9 +8529,9 @@ function createCrossedTuftGeometry() {
         { ang: 1.05, tilt: -0.08 },
         { ang: 2.10, tilt: 0.08 }
     ];
-    // Optimized wider, lush WW2 meadow grass geometry
-    const w = 1.85;
-    const h = 1.18;
+    // Optimized lush WW2 meadow grass geometry (natural knee/track height)
+    const w = 1.45;
+    const h = 0.78;
     const hw = w * 0.5;
 
     const positions = [];
@@ -8564,9 +8579,9 @@ function createCrossedTuftGeometry() {
 
 // Single camera-facing billboard quad for distant grass (2 triangles per instance)
 function createBillboardTuftGeometry() {
-    // Optimized wider distant billboard grass geometry
-    const w = 2.45;
-    const h = 1.30;
+    // Optimized distant billboard grass geometry
+    const w = 1.85;
+    const h = 0.88;
     const hw = w * 0.5;
 
     const positions = [
@@ -8901,7 +8916,7 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             '#include <map_fragment>',
             `
             vec4 texelColor = texture2D(uGrassAtlas, vGrassAtlasUv);
-            if (texelColor.a < 0.36) discard;
+            if (texelColor.a < 0.42) discard;
 
             // Convert grass atlas from sRGB to linear space
             vec3 bladeLinear = pow(max(texelColor.rgb, vec3(0.001)), vec3(2.2));
@@ -8982,8 +8997,9 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
 
             vec3 sssColor = mix(bladeLinear * 2.0, uSunColor * 1.5, 0.40);
             vec3 sss = sssColor * backLight * edgeAndTip * sssVariety * 0.90;
+            float grassAO = mix(0.45, 1.0, smoothstep(0.0, 0.58, vGrassHeightFrac));
 
-            diffuseColor.rgb = bladeLinear + sss;
+            diffuseColor.rgb = bladeLinear * grassAO + sss;
             `
         );
     };
@@ -9258,6 +9274,8 @@ class TerrainChunk {
         this.terrainMesh = new THREE.Mesh(geo, terrainMat);
         this.terrainMesh.position.set(xMin + CHUNK_SIZE * 0.5, 0, zMin + CHUNK_SIZE * 0.5);
         this.terrainMesh.receiveShadow = true;
+        this.terrainMesh.updateMatrix();
+        this.terrainMesh.matrixAutoUpdate = false;
         this.group.add(this.terrainMesh);
         this.raycastMeshes.push(this.terrainMesh);
         aimRaycastMeshes.push(this.terrainMesh);
