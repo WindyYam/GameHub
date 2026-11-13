@@ -2267,6 +2267,14 @@
     const activeSoldiers = [];
     window.activeSoldiers = activeSoldiers;
 
+    function isMultiplayerClient() {
+        return !!(window.multiplayerState && window.multiplayerState.isActive && !window.multiplayerState.isHost);
+    }
+
+    function isMultiplayerHost() {
+        return !!(window.multiplayerState && window.multiplayerState.isActive && window.multiplayerState.isHost);
+    }
+
     class SoldierAI {
         constructor(id, faction, x, z, options = {}) {
             this.id = id;
@@ -2932,7 +2940,14 @@
             }
         }
 
-        takeDamage(amount) {
+        takeDamage(amount, isRemote = false) {
+            if (this.isDead) return;
+            if (isMultiplayerClient() && !isRemote) {
+                if (window.networkManager && typeof window.networkManager.sendSoldierHit === 'function') {
+                    window.networkManager.sendSoldierHit(this.id, amount);
+                }
+                return;
+            }
             this.health -= amount;
             // Flinch effect
             this.speed = -0.6;
@@ -2943,7 +2958,7 @@
                 window.spawnParticle(puffPos, puffVel, 0x882222, 0.12, 0.35, 0.45, false, 'smoke');
             }
             if (this.health <= 0) {
-                this.die();
+                this.die(isRemote);
             } else if (this.isEnemy) {
                 // When enemy soldier is hit: immediately detect player and track until losing track.
                 // Standard AI logic governs firing cadence (fireCooldown) and facing alignment.
@@ -2973,9 +2988,12 @@
             }
         }
 
-        die() {
+        die(isRemote = false) {
             if (this.isDead) return;
             this.isDead = true;
+            if (isMultiplayerHost() && !isRemote && window.networkManager && typeof window.networkManager.sendSoldierKill === 'function') {
+                window.networkManager.sendSoldierKill(this.id);
+            }
             this.deathTime = (window.performance && window.performance.now) ? window.performance.now() * 0.001 : Date.now() * 0.001;
             this.speed = 0;
             this.currentTarget = null;
@@ -3210,6 +3228,7 @@
 
     function spawnBattlefieldInfantry() {
         clearSoldiers();
+        if (isMultiplayerClient()) return;
 
         // Spawn soldiers clustered around enemy tanks (Panzergrenadiers / Infantry escorts)
         const tanks = window.activeEnemyTanks || [];
@@ -3363,6 +3382,7 @@
         const playerX = isInfantry ? window.playerSoldier.x : (pState.x || 0);
         const playerZ = isInfantry ? window.playerSoldier.z : (pState.z || 0);
         const nowSec = (window.performance && window.performance.now) ? window.performance.now() * 0.001 : Date.now() * 0.001;
+        const remoteClient = isMultiplayerClient();
 
         for (let i = activeSoldiers.length - 1; i >= 0; i--) {
             const s = activeSoldiers[i];
@@ -3370,16 +3390,93 @@
 
             // Degenerate soldiers / corpses when player is away (> 260m)
             // or degenerate dead bodies after 15s or when > 75m away
-            const shouldDegenerate = (dist > 260) || (s.isDead && (dist > 75 || (nowSec - (s.deathTime || 0) > 15.0)));
+            const shouldDegenerate = remoteClient
+                ? (s.isDead && (nowSec - (s.deathTime || 0) > 15.0))
+                : ((dist > 260) || (s.isDead && (dist > 75 || (nowSec - (s.deathTime || 0) > 15.0))));
             if (shouldDegenerate) {
                 s.dispose();
                 activeSoldiers.splice(i, 1);
                 continue;
             }
 
+            if (remoteClient) {
+                if (!s.isDead && s.netTarget) {
+                    const lf = Math.min(1.0, dt * 10.0);
+                    s.x += (s.netTarget.x - s.x) * lf;
+                    s.y += (s.netTarget.y - s.y) * lf;
+                    s.z += (s.netTarget.z - s.z) * lf;
+                    let diff = (s.netTarget.h - s.heading) % (Math.PI * 2);
+                    if (diff < -Math.PI) diff += Math.PI * 2;
+                    if (diff > Math.PI) diff -= Math.PI * 2;
+                    s.heading += diff * lf;
+                }
+                if (s.rig && s.rig.root) {
+                    s.rig.root.position.set(s.x, s.y, s.z);
+                    s.rig.root.rotation.y = s.heading;
+                }
+                continue;
+            }
+
             s.update(dt, playerX, playerZ, nowSec);
         }
     }
+
+    window.spawnRemoteSoldier = function (id, faction, x, z, heading, soldierType, escortTankId) {
+        if (!id) return null;
+        for (let i = 0; i < activeSoldiers.length; i++) {
+            if (activeSoldiers[i] && activeSoldiers[i].id === id) return activeSoldiers[i];
+        }
+        let escortTank = null;
+        if (escortTankId && Array.isArray(window.activeEnemyTanks)) {
+            escortTank = window.activeEnemyTanks.find(t => t && t.id === escortTankId) || null;
+        }
+        const soldier = new SoldierAI(id, faction || 'german', x, z, {
+            isEnemy: true,
+            heading: heading || 0,
+            patrolRadius: 18,
+            escortTank,
+            soldierType: soldierType || 'rifle'
+        });
+        activeSoldiers.push(soldier);
+        return soldier;
+    };
+
+    window.applyRemoteSoldierSync = function (list) {
+        if (!Array.isArray(list)) return;
+        for (let i = 0; i < list.length; i++) {
+            const item = list[i];
+            if (!item || item.length < 5) continue;
+            const [id, x, y, z, h] = item;
+            for (let j = 0; j < activeSoldiers.length; j++) {
+                const s = activeSoldiers[j];
+                if (s && s.id === id && !s.isDead) {
+                    s.netTarget = { x, y, z, h };
+                    break;
+                }
+            }
+        }
+    };
+
+    window.applyRemoteSoldierHit = function (id, amount) {
+        for (let i = 0; i < activeSoldiers.length; i++) {
+            const s = activeSoldiers[i];
+            if (s && s.id === id && !s.isDead) {
+                s.takeDamage(amount, false);
+                break;
+            }
+        }
+    };
+
+    window.applyRemoteSoldierKill = function (id) {
+        for (let i = 0; i < activeSoldiers.length; i++) {
+            const s = activeSoldiers[i];
+            if (s && s.id === id && !s.isDead) {
+                s.health = 0;
+                s.die(true);
+                break;
+            }
+        }
+    };
 
     function prewarmSoldierAssets() {
         initMaterials();

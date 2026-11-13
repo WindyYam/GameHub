@@ -8,7 +8,7 @@
 (function () {
     'use strict';
 
-    // 1. Google Free STUN Servers Configuration for NAT Traversal
+    // 1. Google Free STUN Servers + PeerJS Default TURN Fallback for NAT Traversal
     const GOOGLE_STUN_CONFIG = {
         config: {
             iceServers: [
@@ -16,7 +16,12 @@
                 { urls: 'stun:stun1.l.google.com:19302' },
                 { urls: 'stun:stun2.l.google.com:19302' },
                 { urls: 'stun:stun3.l.google.com:19302' },
-                { urls: 'stun:stun4.l.google.com:19302' }
+                { urls: 'stun:stun4.l.google.com:19302' },
+                {
+                    urls: ['turn:eu-0.turn.peerjs.com:3478', 'turn:us-0.turn.peerjs.com:3478'],
+                    username: 'peerjs',
+                    credential: 'peerjsp'
+                }
             ]
         }
     };
@@ -86,6 +91,10 @@
         scoreboardOpen: false,
         lastStateSendTime: 0,
         lastPingSendTime: 0,
+        lastEnemySyncTime: 0,
+        lastSoldierSyncTime: 0,
+        lastEnemySyncSnapshot: new Map(),
+        lastSoldierSyncSnapshot: new Map(),
         scoreboardData: []
     };
 
@@ -392,6 +401,9 @@
         }
     }
 
+    function q1(v) { return Math.round((v || 0) * 10) / 10; }
+    function q2(v) { return Math.round((v || 0) * 100) / 100; }
+
     function lerpAngle(a, b, t) {
         let diff = (b - a) % (Math.PI * 2);
         if (diff < -Math.PI) diff += Math.PI * 2;
@@ -548,10 +560,27 @@
             conn.on('open', () => {
                 netState.clientConns.set(conn.peer, conn);
 
-                // Send Welcome packet with game mode, room configuration, and world seed/zone
+                // Send Welcome packet with game mode, room configuration, world seed/zone, and active world state
                 const hostZone = (window.ALL_ZONES && typeof window.spawnZoneIndex === 'number' && window.ALL_ZONES[window.spawnZoneIndex])
                     ? window.ALL_ZONES[window.spawnZoneIndex]
                     : (window.currentZone || 'meadow');
+                const fallenTrees = [];
+                if (window.sessionFallenTrees && typeof window.sessionFallenTrees.forEach === 'function') {
+                    window.sessionFallenTrees.forEach((tid) => {
+                        const meta = window.sessionFallenTreesMeta && window.sessionFallenTreesMeta.get(tid);
+                        fallenTrees.push([tid, meta ? q2(meta.dx) : 0, meta ? q2(meta.dz) : 1]);
+                    });
+                }
+                const enemies = Array.isArray(window.activeEnemyTanks)
+                    ? window.activeEnemyTanks.filter(Boolean).map((e) => [
+                        e.id, e.tankType, q1(e.x), q1(e.y), q1(e.z), q2(e.heading), e.armor, !!e.isDestroyed
+                    ])
+                    : [];
+                const soldiers = Array.isArray(window.activeSoldiers)
+                    ? window.activeSoldiers.filter((s) => s && !s.isDead).map((s) => [
+                        s.id, s.faction, q1(s.x), q1(s.z), q2(s.heading), s.soldierType, s.escortTank ? s.escortTank.id : null
+                    ])
+                    : [];
                 conn.send({
                     type: 'welcome',
                     roomCode: netState.roomCode,
@@ -560,7 +589,10 @@
                     hostTank: window.currentTankId || 'tiger',
                     hostSoldier: window.currentSoldierType || 'rifle',
                     worldSeed: window.currentSeed,
-                    worldZone: hostZone
+                    worldZone: hostZone,
+                    fallenTrees,
+                    enemies,
+                    soldiers
                 });
 
                 this.refreshLobbyModal();
@@ -617,6 +649,27 @@
                     if (pkg.worldSeed !== undefined && pkg.worldSeed !== null && typeof window.restartGame === 'function') {
                         window.restartGame(pkg.worldSeed, pkg.worldZone);
                     }
+                    if (Array.isArray(pkg.fallenTrees) && typeof window.applyRemoteTreeHit === 'function') {
+                        pkg.fallenTrees.forEach((ft) => {
+                            if (ft && ft.length >= 3) window.applyRemoteTreeHit(ft[0], ft[1], ft[2], 3.5);
+                        });
+                    }
+                    if (Array.isArray(pkg.enemies) && typeof window.spawnRemoteEnemyTank === 'function') {
+                        if (typeof window.resetEnemyTanks === 'function') window.resetEnemyTanks();
+                        pkg.enemies.forEach((en) => {
+                            if (en && en.length >= 8) {
+                                window.spawnRemoteEnemyTank(en[0], en[1], en[2], en[3], en[4], en[5], en[6], en[7]);
+                            }
+                        });
+                    }
+                    if (Array.isArray(pkg.soldiers) && typeof window.spawnRemoteSoldier === 'function') {
+                        if (typeof window.clearSoldiers === 'function') window.clearSoldiers();
+                        pkg.soldiers.forEach((sl) => {
+                            if (sl && sl.length >= 6) {
+                                window.spawnRemoteSoldier(sl[0], sl[1], sl[2], sl[3], sl[4], sl[5], sl[6]);
+                            }
+                        });
+                    }
                     this.showNotice(`Mode: ${netState.gameMode.toUpperCase()} | Host: ${pkg.hostName}`);
                     this.updateScoreboardUI();
                     break;
@@ -659,6 +712,79 @@
 
                 case 'bot_killed':
                     this.onBotKilledEvent(pkg);
+                    break;
+
+                case 'env_tree_hit':
+                    if (typeof window.applyRemoteTreeHit === 'function') {
+                        window.applyRemoteTreeHit(pkg.id, pkg.dx, pkg.dz, pkg.f);
+                    }
+                    break;
+
+                case 'enemy_spawn':
+                    if (!netState.isHost) {
+                        if (Array.isArray(pkg.t) && typeof window.spawnRemoteEnemyTank === 'function') {
+                            pkg.t.forEach((en) => {
+                                if (en && en.length >= 6) {
+                                    window.spawnRemoteEnemyTank(en[0], en[1], en[2], en[3], en[4], en[5]);
+                                }
+                            });
+                        }
+                        if (Array.isArray(pkg.s) && typeof window.spawnRemoteSoldier === 'function') {
+                            pkg.s.forEach((sl) => {
+                                if (sl && sl.length >= 6) {
+                                    window.spawnRemoteSoldier(sl[0], sl[1], sl[2], sl[3], sl[4], sl[5], sl[6]);
+                                }
+                            });
+                        }
+                    }
+                    break;
+
+                case 'enemies_sync':
+                    if (!netState.isHost && typeof window.applyRemoteEnemySync === 'function') {
+                        window.applyRemoteEnemySync(pkg.e);
+                    }
+                    break;
+
+                case 'enemy_fire':
+                    if (!netState.isHost && typeof window.applyRemoteEnemyFire === 'function') {
+                        window.applyRemoteEnemyFire(pkg.id, pkg.pos, pkg.dir, pkg.spd);
+                    }
+                    break;
+
+                case 'enemy_hit':
+                    if (netState.isHost && typeof window.applyRemoteEnemyHit === 'function') {
+                        window.applyRemoteEnemyHit(pkg.id, pkg.dmg, pkg.imp, pkg.dir);
+                    }
+                    break;
+
+                case 'enemy_destroy':
+                    if (!netState.isHost && typeof window.applyRemoteEnemyDestroy === 'function') {
+                        window.applyRemoteEnemyDestroy(pkg.id, pkg.imp);
+                    }
+                    break;
+
+                case 'enemy_despawn':
+                    if (!netState.isHost && typeof window.applyRemoteEnemyDespawn === 'function') {
+                        window.applyRemoteEnemyDespawn(pkg.id);
+                    }
+                    break;
+
+                case 'soldiers_sync':
+                    if (!netState.isHost && typeof window.applyRemoteSoldierSync === 'function') {
+                        window.applyRemoteSoldierSync(pkg.s);
+                    }
+                    break;
+
+                case 'soldier_hit':
+                    if (netState.isHost && typeof window.applyRemoteSoldierHit === 'function') {
+                        window.applyRemoteSoldierHit(pkg.id, pkg.dmg);
+                    }
+                    break;
+
+                case 'soldier_kill':
+                    if (!netState.isHost && typeof window.applyRemoteSoldierKill === 'function') {
+                        window.applyRemoteSoldierKill(pkg.id);
+                    }
                     break;
 
                 case 'ping':
@@ -884,6 +1010,117 @@
             this.updateScoreboardUI();
         },
 
+        // --- Low-Traffic Environment & Host-Authoritative AI Sync ---
+        sendTreeHit(id, dx, dz, force) {
+            if (!netState.isActive || !id) return;
+            this.broadcast({
+                type: 'env_tree_hit',
+                id,
+                dx: q2(dx),
+                dz: q2(dz),
+                f: q1(force)
+            });
+        },
+
+        sendEnemyPlatoonSpawn(tanks, soldiers) {
+            if (!netState.isActive || !netState.isHost) return;
+            const t = Array.isArray(tanks) ? tanks.map((e) => [
+                e.id, e.tankType, q1(e.x), q1(e.y), q1(e.z), q2(e.heading)
+            ]) : [];
+            const s = Array.isArray(soldiers) ? soldiers.map((sl) => [
+                sl.id, sl.faction, q1(sl.x), q1(sl.z), q2(sl.heading), sl.soldierType, sl.escortTank ? sl.escortTank.id : null
+            ]) : [];
+            if (t.length === 0 && s.length === 0) return;
+            this.broadcast({ type: 'enemy_spawn', t, s });
+        },
+
+        sendEnemyFire(id, muzzlePos, fireDir, speed) {
+            if (!netState.isActive || !netState.isHost || !id) return;
+            this.broadcast({
+                type: 'enemy_fire',
+                id,
+                pos: { x: q2(muzzlePos.x), y: q2(muzzlePos.y), z: q2(muzzlePos.z) },
+                dir: { x: q2(fireDir.x), y: q2(fireDir.y), z: q2(fireDir.z) },
+                spd: Math.round(speed || 750)
+            });
+        },
+
+        sendEnemyHit(id, dmg, impactPos, hitDir) {
+            if (!netState.isActive || netState.isHost || !id) return;
+            this.broadcast({
+                type: 'enemy_hit',
+                id,
+                dmg,
+                imp: impactPos ? { x: q1(impactPos.x), y: q1(impactPos.y), z: q1(impactPos.z) } : null,
+                dir: hitDir ? { x: q2(hitDir.x), y: q2(hitDir.y), z: q2(hitDir.z) } : null
+            });
+        },
+
+        sendEnemyDestroy(id, impactPos) {
+            if (!netState.isActive || !netState.isHost || !id) return;
+            this.broadcast({
+                type: 'enemy_destroy',
+                id,
+                imp: impactPos ? { x: q1(impactPos.x), y: q1(impactPos.y), z: q1(impactPos.z) } : null
+            });
+        },
+
+        sendEnemyDespawn(id) {
+            if (!netState.isActive || !netState.isHost || !id) return;
+            netState.lastEnemySyncSnapshot.delete(id);
+            this.broadcast({ type: 'enemy_despawn', id });
+        },
+
+        sendSoldierHit(id, dmg) {
+            if (!netState.isActive || netState.isHost || !id) return;
+            this.broadcast({ type: 'soldier_hit', id, dmg });
+        },
+
+        sendSoldierKill(id) {
+            if (!netState.isActive || !netState.isHost || !id) return;
+            netState.lastSoldierSyncSnapshot.delete(id);
+            this.broadcast({ type: 'soldier_kill', id });
+        },
+
+        sendEnemyDeltaSync() {
+            const list = window.activeEnemyTanks;
+            if (!Array.isArray(list) || list.length === 0) return;
+            const changed = [];
+            for (let i = 0; i < list.length; i++) {
+                const e = list[i];
+                if (!e || e.isDestroyed) continue;
+                const row = [e.id, q1(e.x), q1(e.y), q1(e.z), q2(e.heading), q2(e.turretYaw), q2(e.gunElevation), e.armor];
+                const prev = netState.lastEnemySyncSnapshot.get(e.id);
+                if (!prev || prev[1] !== row[1] || prev[2] !== row[2] || prev[3] !== row[3] ||
+                    prev[4] !== row[4] || prev[5] !== row[5] || prev[6] !== row[6] || prev[7] !== row[7]) {
+                    netState.lastEnemySyncSnapshot.set(e.id, row);
+                    changed.push(row);
+                }
+            }
+            if (changed.length > 0) {
+                this.broadcast({ type: 'enemies_sync', e: changed });
+            }
+        },
+
+        sendSoldierDeltaSync() {
+            const list = window.activeSoldiers;
+            if (!Array.isArray(list) || list.length === 0) return;
+            const changed = [];
+            for (let i = 0; i < list.length; i++) {
+                const s = list[i];
+                if (!s || s.isDead) continue;
+                const row = [s.id, q1(s.x), q1(s.y), q1(s.z), q2(s.heading)];
+                const prev = netState.lastSoldierSyncSnapshot.get(s.id);
+                if (!prev || Math.abs(prev[1] - row[1]) >= 0.2 || Math.abs(prev[3] - row[3]) >= 0.2 || Math.abs(prev[4] - row[4]) >= 0.1) {
+                    netState.lastSoldierSyncSnapshot.set(s.id, row);
+                    changed.push(row);
+                }
+            }
+            if (changed.length > 0) {
+                this.broadcast({ type: 'soldiers_sync', s: changed });
+            }
+        },
+
         // --- Simulation Per-Frame Loop ---
         update(dt) {
             // Update remote player models
@@ -899,6 +1136,18 @@
             if (now - netState.lastStateSendTime >= 50) {
                 netState.lastStateSendTime = now;
                 this.sendLocalState();
+            }
+
+            // Host-authoritative low-rate delta sync for AI enemies (5 Hz) & AI soldiers (4 Hz)
+            if (netState.isHost) {
+                if (now - netState.lastEnemySyncTime >= 200) {
+                    netState.lastEnemySyncTime = now;
+                    this.sendEnemyDeltaSync();
+                }
+                if (now - netState.lastSoldierSyncTime >= 250) {
+                    netState.lastSoldierSyncTime = now;
+                    this.sendSoldierDeltaSync();
+                }
             }
 
             // Send ping packet every 2.5 seconds
@@ -985,6 +1234,8 @@
             netState.isActive = false;
             netState.isHost = false;
             netState.roomCode = null;
+            if (netState.lastEnemySyncSnapshot) netState.lastEnemySyncSnapshot.clear();
+            if (netState.lastSoldierSyncSnapshot) netState.lastSoldierSyncSnapshot.clear();
             this.updateStatusBanner('Multiplayer Disconnected.', '#94a3b8');
             this.refreshLobbyModal();
             this.updateScoreboardUI();

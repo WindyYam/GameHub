@@ -37,6 +37,7 @@ var activeChunks = new Map();
 var activeChunkCenterX = null;
 var activeChunkCenterZ = null;
 var sessionFallenTrees = new Set();
+var sessionFallenTreesMeta = new Map();
 var sessionDestroyedTargets = new Set();
 
 // Active smoke & fire plume instances for animation
@@ -344,6 +345,7 @@ function setWorldSeed(seed, targetSpawnZone) {
 
     setCurrentZone(spawnZoneIndex);
     sessionFallenTrees.clear();
+    sessionFallenTreesMeta.clear();
     sessionDestroyedTargets.clear();
 }
 
@@ -10431,18 +10433,23 @@ window.processChunkStreamingQueue = processChunkStreamingQueue;
 // ============================================================================
 // 9. TREE DESTRUCTION & PERSISTENCE
 // ============================================================================
-function hitTree(tree, hitDir, force = 3.5) {
+function hitTree(tree, hitDir, force = 3.5, isRemote = false) {
     if (!tree || tree.isFallen) return;
     tree.isFallen = true;
     // Gentle initial impulse so tree starts tipping slowly, not snapping down
     tree.angularVel = Math.min(0.35, Math.max(0.12, (force || 1.0) * 0.05));
 
-    if (tree.id) {
-        sessionFallenTrees.add(tree.id);
-    }
-
     const hDir = new THREE.Vector3(hitDir ? hitDir.x : 0, 0, hitDir ? hitDir.z : 1).normalize();
     if (hDir.lengthSq() < 0.001) hDir.set(0, 0, 1);
+
+    if (tree.id) {
+        sessionFallenTrees.add(tree.id);
+        sessionFallenTreesMeta.set(tree.id, { dx: hDir.x, dz: hDir.z });
+        if (!isRemote && window.networkManager && typeof window.networkManager.sendTreeHit === 'function') {
+            window.networkManager.sendTreeHit(tree.id, hDir.x, hDir.z, force);
+        }
+    }
+
     // Rotating around (hDir.z, 0, -hDir.x) tilts vector (0, 1, 0) directly towards (hDir.x, 0, hDir.z)
     tree.fallAxis = new THREE.Vector3(hDir.z, 0, -hDir.x).normalize();
     tree.fallDir = hDir.clone();
@@ -10478,6 +10485,19 @@ function hitTree(tree, hitDir, force = 3.5) {
     }
 }
 window.hitTree = hitTree;
+window.sessionFallenTrees = sessionFallenTrees;
+window.sessionFallenTreesMeta = sessionFallenTreesMeta;
+window.applyRemoteTreeHit = function (treeId, dx, dz, force = 3.5) {
+    if (!treeId) return;
+    sessionFallenTrees.add(treeId);
+    sessionFallenTreesMeta.set(treeId, { dx: dx || 0, dz: dz || 1 });
+    for (let i = 0; i < swayTrees.length; i++) {
+        if (swayTrees[i] && swayTrees[i].id === treeId) {
+            hitTree(swayTrees[i], { x: dx || 0, z: dz || 1 }, force, true);
+            break;
+        }
+    }
+};
 
 // ============================================================================
 // 10. SYSTEM INITIALIZATION & MAIN UPDATE LOOP

@@ -117,6 +117,14 @@
     window.getOpposingCampaignTankType = getOpposingCampaignTankType;
 
     // Normalize angle to [-PI, PI]
+    function isMultiplayerClient() {
+        return !!(window.multiplayerState && window.multiplayerState.isActive && !window.multiplayerState.isHost);
+    }
+
+    function isMultiplayerHost() {
+        return !!(window.multiplayerState && window.multiplayerState.isActive && window.multiplayerState.isHost);
+    }
+
     function normalizeAngle(a) {
         while (a > Math.PI) a -= Math.PI * 2;
         while (a < -Math.PI) a += Math.PI * 2;
@@ -337,8 +345,16 @@
             burningSmokeTimer: 0,
             plumePuffs: [],
 
-            onHit(impactPos, hitDir, damage = 1) {
+            onHit(impactPos, hitDir, damage = 1, isRemote = false) {
                 if (this.isDestroyed) return;
+
+                const dmg = (typeof damage === 'number') ? damage : 1;
+                if (isMultiplayerClient() && !isRemote) {
+                    if (dmg > 0 && window.networkManager && typeof window.networkManager.sendEnemyHit === 'function') {
+                        window.networkManager.sendEnemyHit(this.id, dmg, impactPos, hitDir);
+                    }
+                    return;
+                }
 
                 // Alert and detect player on hit until losing track
                 this.wasHitAlert = true;
@@ -347,7 +363,6 @@
                 this.state = 'ENGAGING';
                 if (typeof window.provokeNearbyEnemies === 'function') window.provokeNearbyEnemies(this);
 
-                const dmg = (typeof damage === 'number') ? damage : 1;
                 // Bullets do 0 damage: alert & sparks only, no smoke/damage
                 if (dmg <= 0) {
                     return;
@@ -438,6 +453,9 @@
                     if (window.networkManager && typeof window.networkManager.broadcastBotKilled === 'function') {
                         window.networkManager.broadcastBotKilled(this.id, tankReward);
                     }
+                }
+                if (isMultiplayerHost() && !isRemote && window.networkManager && typeof window.networkManager.sendEnemyDestroy === 'function') {
+                    window.networkManager.sendEnemyDestroy(this.id, impactPos);
                 }
                 showKillFeedBanner(`TARGET DESTROYED: ${this.spec.shortName} (+$${tankReward})`);
             },
@@ -544,24 +562,32 @@
             targetDead = true;
         }
 
+        const remoteClient = isMultiplayerClient();
+
         // 1. DEGENERATE DISTANT ENEMY TANKS AND WRECKS: Player is away (> 280m)
         // Releases GPU meshes, collision bounding boxes, and burning particle systems, allowing new enemies to spawn in the zone
-        for (let i = activeEnemyTanks.length - 1; i >= 0; i--) {
-            const e = activeEnemyTanks[i];
-            if (!e) continue;
+        if (!remoteClient) {
+            for (let i = activeEnemyTanks.length - 1; i >= 0; i--) {
+                const e = activeEnemyTanks[i];
+                if (!e) continue;
 
-            const distToPlayer = Math.hypot(e.x - targetX, e.z - targetZ);
-            if (distToPlayer > DESPAWN_DIST) {
-                e.dispose();
-                continue;
+                const distToPlayer = Math.hypot(e.x - targetX, e.z - targetZ);
+                if (distToPlayer > DESPAWN_DIST) {
+                    const eid = e.id;
+                    e.dispose();
+                    if (isMultiplayerHost() && window.networkManager && typeof window.networkManager.sendEnemyDespawn === 'function') {
+                        window.networkManager.sendEnemyDespawn(eid);
+                    }
+                    continue;
+                }
             }
-        }
 
-        // 2. GRADUAL ENEMY SPAWNER: Deploy 1 tank every ~2.5 seconds, ONLY far away (192m - 288m)
-        enemySpawnCooldown -= dt;
-        if (enemySpawnCooldown <= 0 && activeEnemyTanks.length < MAX_ZONE_ENEMIES) {
-            enemySpawnCooldown = SPAWN_INTERVAL_SEC;
-            spawnSingleFarEnemy(targetX, targetZ);
+            // 2. GRADUAL ENEMY SPAWNER: Deploy 1 tank every ~2.5 seconds, ONLY far away (192m - 288m)
+            enemySpawnCooldown -= dt;
+            if (enemySpawnCooldown <= 0 && activeEnemyTanks.length < MAX_ZONE_ENEMIES) {
+                enemySpawnCooldown = SPAWN_INTERVAL_SEC;
+                spawnSingleFarEnemy(targetX, targetZ);
+            }
         }
 
         // Player tank wreck smoke: Billowing smoke plume sourced directly on top of turret
@@ -652,6 +678,33 @@
                         buoyancy: 3.0,
                         maxOpacity: 0.72
                     });
+                }
+                continue;
+            }
+
+            if (remoteClient) {
+                if (e.netTarget) {
+                    const lf = Math.min(1.0, dt * 8.0);
+                    e.x += (e.netTarget.x - e.x) * lf;
+                    e.y += (e.netTarget.y - e.y) * lf;
+                    e.z += (e.netTarget.z - e.z) * lf;
+                    e.heading = normalizeAngle(e.heading + normalizeAngle(e.netTarget.h - e.heading) * lf);
+                    e.turretYaw = normalizeAngle(e.turretYaw + normalizeAngle(e.netTarget.ty - e.turretYaw) * lf);
+                    e.gunElevation += (e.netTarget.ge - e.gunElevation) * lf;
+                    if (e.enemyRoot) {
+                        e.enemyRoot.position.set(e.x, e.y, e.z);
+                        e.enemyRoot.rotation.y = e.heading;
+                    }
+                    if (e.model && e.model.turretGroup) {
+                        e.model.turretGroup.rotation.y = e.turretYaw;
+                    }
+                    if (e.model && e.model.gunElevationPivot) {
+                        e.model.gunElevationPivot.rotation.x = e.gunElevation;
+                    }
+                }
+                e.barrelRecoil = Math.max(0, (e.barrelRecoil || 0) - dt * 2.2);
+                if (e.model && e.model.barrelRecoilGroup) {
+                    e.model.barrelRecoilGroup.position.z = -e.barrelRecoil;
                 }
                 continue;
             }
@@ -1162,6 +1215,9 @@
                 if (typeof window.spawnEnemyShell === 'function') {
                     window.spawnEnemyShell(muzzlePos, fireDir, shellSpeed, e);
                 }
+                if (isMultiplayerHost() && window.networkManager && typeof window.networkManager.sendEnemyFire === 'function') {
+                    window.networkManager.sendEnemyFire(e.id, muzzlePos, fireDir, shellSpeed);
+                }
             }
         }
     }
@@ -1590,6 +1646,7 @@
         }
 
         // Spawn infantry escorts for the group: up to 8 soldiers
+        let spawnedSoldiers = [];
         if (spawnedTanks.length > 0) {
             let soldierCount = 4;
             if (spawnedTanks.length === 1) {
@@ -1604,11 +1661,16 @@
             soldierCount = Math.min(8, soldierCount);
 
             if (typeof window.spawnSoldierEscortForGroup === 'function') {
-                window.spawnSoldierEscortForGroup(spawnedTanks, platoonFaction, soldierCount);
+                spawnedSoldiers = window.spawnSoldierEscortForGroup(spawnedTanks, platoonFaction, soldierCount) || [];
             } else if (typeof window.spawnSoldierEscortForTank === 'function') {
                 for (let k = 0; k < spawnedTanks.length; k++) {
-                    window.spawnSoldierEscortForTank(spawnedTanks[k], platoonFaction);
+                    const res = window.spawnSoldierEscortForTank(spawnedTanks[k], platoonFaction) || [];
+                    spawnedSoldiers.push(...res);
                 }
+            }
+
+            if (isMultiplayerHost() && window.networkManager && typeof window.networkManager.sendEnemyPlatoonSpawn === 'function') {
+                window.networkManager.sendEnemyPlatoonSpawn(spawnedTanks, spawnedSoldiers);
             }
         }
 
@@ -1649,6 +1711,104 @@
     window.hideKnockoutModal = hideKnockoutModal;
     window.updateArmorHUD = updateArmorHUD;
     window.showKillFeedBanner = showKillFeedBanner;
+
+    window.spawnRemoteEnemyTank = function (id, tankType, x, y, z, heading, armor, isDestroyed) {
+        if (!id || sessionDestroyedEnemyTanks.has(id)) return null;
+        for (let i = 0; i < activeEnemyTanks.length; i++) {
+            if (activeEnemyTanks[i] && activeEnemyTanks[i].id === id) return activeEnemyTanks[i];
+        }
+        const enemy = spawnEnemyCombatTank(id, x, y, z, window.scene, tankType);
+        if (!enemy) return null;
+        enemy.heading = heading || 0;
+        if (enemy.enemyRoot) enemy.enemyRoot.rotation.y = enemy.heading;
+        if (typeof armor === 'number') enemy.armor = armor;
+        if (isDestroyed) {
+            enemy.armor = 0;
+            enemy.onHit(new THREE.Vector3(x, y + 1, z), new THREE.Vector3(0, 1, 0), 999, true);
+        }
+        return enemy;
+    };
+
+    window.applyRemoteEnemySync = function (list) {
+        if (!Array.isArray(list)) return;
+        for (let i = 0; i < list.length; i++) {
+            const item = list[i];
+            if (!item || item.length < 7) continue;
+            const [id, x, y, z, h, ty, ge, hp] = item;
+            let enemy = null;
+            for (let j = 0; j < activeEnemyTanks.length; j++) {
+                if (activeEnemyTanks[j] && activeEnemyTanks[j].id === id) {
+                    enemy = activeEnemyTanks[j];
+                    break;
+                }
+            }
+            if (!enemy || enemy.isDestroyed) continue;
+            enemy.netTarget = { x, y, z, h, ty, ge };
+            if (typeof hp === 'number') enemy.armor = hp;
+        }
+    };
+
+    window.applyRemoteEnemyDestroy = function (id, impactPos) {
+        for (let i = 0; i < activeEnemyTanks.length; i++) {
+            const e = activeEnemyTanks[i];
+            if (e && e.id === id) {
+                if (!e.isDestroyed) {
+                    const imp = impactPos ? new THREE.Vector3(impactPos.x, impactPos.y, impactPos.z) : new THREE.Vector3(e.x, e.y + 1, e.z);
+                    e.armor = 0;
+                    e.onHit(imp, new THREE.Vector3(0, 1, 0), 999, true);
+                }
+                break;
+            }
+        }
+    };
+
+    window.applyRemoteEnemyDespawn = function (id) {
+        for (let i = activeEnemyTanks.length - 1; i >= 0; i--) {
+            if (activeEnemyTanks[i] && activeEnemyTanks[i].id === id) {
+                activeEnemyTanks[i].dispose();
+                break;
+            }
+        }
+    };
+
+    window.applyRemoteEnemyHit = function (id, dmg, impactPos, hitDir) {
+        for (let i = 0; i < activeEnemyTanks.length; i++) {
+            const e = activeEnemyTanks[i];
+            if (e && e.id === id && !e.isDestroyed) {
+                const imp = impactPos ? new THREE.Vector3(impactPos.x, impactPos.y, impactPos.z) : new THREE.Vector3(e.x, e.y + 1, e.z);
+                const dir = hitDir ? new THREE.Vector3(hitDir.x, hitDir.y, hitDir.z) : new THREE.Vector3(0, 1, 0);
+                e.onHit(imp, dir, dmg, false);
+                break;
+            }
+        }
+    };
+
+    window.applyRemoteEnemyFire = function (id, muzzlePos, fireDir, speed) {
+        let enemy = null;
+        for (let i = 0; i < activeEnemyTanks.length; i++) {
+            if (activeEnemyTanks[i] && activeEnemyTanks[i].id === id) {
+                enemy = activeEnemyTanks[i];
+                break;
+            }
+        }
+        if (!enemy || enemy.isDestroyed) return;
+        const pos = new THREE.Vector3(muzzlePos.x, muzzlePos.y, muzzlePos.z);
+        const dir = new THREE.Vector3(fireDir.x, fireDir.y, fireDir.z).normalize();
+        enemy.barrelRecoil = (enemy.spec && enemy.spec.recoilOffset) || 0.45;
+        if (typeof window.spawnDynamicFlash === 'function') {
+            window.spawnDynamicFlash(pos, 0xfff3c4, 15.0, 36.0, 0.12);
+        }
+        if (typeof window.spawnParticle === 'function') {
+            window.spawnParticle(pos, dir.clone().multiplyScalar(14), 0xfffbeb, 0.6, 2.4, 0.12, true, 'fire');
+            window.spawnParticle(pos, dir.clone().multiplyScalar(6), 0x94a3b8, 0.45, 3.2, 0.50, false, 'smoke');
+        }
+        if (window.soundFX && typeof window.soundFX.playMainCannon === 'function') {
+            window.soundFX.playMainCannon(enemy.spec, pos);
+        }
+        if (typeof window.spawnEnemyShell === 'function') {
+            window.spawnEnemyShell(pos, dir, speed || (enemy.spec && enemy.spec.shellVel) || 750, enemy);
+        }
+    };
 
     // Auto-update Armor HUD on boot
     const initMax = getPlayerMaxArmor();
