@@ -11526,7 +11526,10 @@ function restartGame(customSeed, customZone) {
     // Preserve the same world seed and zone every time we respawn
     const seed = (customSeed !== undefined && customSeed !== null) ? customSeed : currentSeed;
     let nextZone = (customZone !== undefined && customZone !== null) ? customZone : currentZone;
-    const isSameWorld = (seed === currentSeed && nextZone === currentZone && activeChunks.size > 0);
+    const nextZoneIdx = (typeof nextZone === 'string' && ZONE_CONFIGS[nextZone])
+        ? ZONE_CONFIGS[nextZone].typeIndex
+        : ((typeof nextZone === 'number') ? nextZone : spawnZoneIndex);
+    const isSameWorld = (seed === currentSeed && nextZoneIdx === spawnZoneIndex && activeChunks.size > 0);
 
     if (!isSameWorld) {
         window.lastPlayerDeathPosition = null;

@@ -2928,7 +2928,7 @@
             // 2. High-speed Tracer Round
             if (typeof window.spawnTracerRound === 'function') {
                 const tracerQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), shootDir);
-                window.spawnTracerRound(muzzleWorldPos, shootDir, tracerQuat, this.isEnemy, { damage: isSMG ? 20 : 35 });
+                window.spawnTracerRound(muzzleWorldPos, shootDir, tracerQuat, this.isEnemy, { damage: isSMG ? 20 : 35, isAI: true });
             }
         }
 

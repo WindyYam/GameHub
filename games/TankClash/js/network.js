@@ -111,6 +111,7 @@
             this.speed = 0;
 
             // Targets for smooth interpolation
+            this.hasReceivedState = false;
             this.targetX = 0;
             this.targetY = 0;
             this.targetZ = 0;
@@ -318,6 +319,17 @@
             if (typeof pkg.turretYaw === 'number') this.targetTurretYaw = pkg.turretYaw;
             if (typeof pkg.gunElevation === 'number') this.targetGunElevation = pkg.gunElevation;
             if (typeof pkg.speed === 'number') this.speed = pkg.speed;
+
+            if (!this.hasReceivedState && pkg.pos) {
+                this.hasReceivedState = true;
+                this.x = this.targetX;
+                this.y = this.targetY;
+                this.z = this.targetZ;
+                this.heading = this.targetHeading;
+                this.turretYaw = this.targetTurretYaw;
+                this.gunElevation = this.targetGunElevation;
+                this.rootGroup.position.set(this.x, this.y, this.z);
+            }
 
             // Combat & stats
             const hpChanged = (pkg.armor !== this.armor || pkg.health !== this.health);
@@ -536,14 +548,19 @@
             conn.on('open', () => {
                 netState.clientConns.set(conn.peer, conn);
 
-                // Send Welcome packet with game mode and room configuration
+                // Send Welcome packet with game mode, room configuration, and world seed/zone
+                const hostZone = (window.ALL_ZONES && typeof window.spawnZoneIndex === 'number' && window.ALL_ZONES[window.spawnZoneIndex])
+                    ? window.ALL_ZONES[window.spawnZoneIndex]
+                    : (window.currentZone || 'meadow');
                 conn.send({
                     type: 'welcome',
                     roomCode: netState.roomCode,
                     gameMode: netState.gameMode,
                     hostName: netState.callsign,
                     hostTank: window.currentTankId || 'tiger',
-                    hostSoldier: window.currentSoldierType || 'rifle'
+                    hostSoldier: window.currentSoldierType || 'rifle',
+                    worldSeed: window.currentSeed,
+                    worldZone: hostZone
                 });
 
                 this.refreshLobbyModal();
@@ -597,6 +614,9 @@
                 case 'welcome':
                     netState.gameMode = pkg.gameMode || 'coop';
                     this.getOrCreateRemotePlayer(senderId, pkg.hostName, true);
+                    if (pkg.worldSeed !== undefined && pkg.worldSeed !== null && typeof window.restartGame === 'function') {
+                        window.restartGame(pkg.worldSeed, pkg.worldZone);
+                    }
                     this.showNotice(`Mode: ${netState.gameMode.toUpperCase()} | Host: ${pkg.hostName}`);
                     this.updateScoreboardUI();
                     break;
@@ -665,8 +685,16 @@
                 this.updateScoreboardUI();
             }
             const player = netState.remotePlayers.get(id);
+            let nameplateDirty = false;
+            if (isHost && !player.isHost) {
+                player.isHost = true;
+                nameplateDirty = true;
+            }
             if (name && player.name !== name) {
                 player.name = name;
+                nameplateDirty = true;
+            }
+            if (nameplateDirty) {
                 player.updateNameplate();
             }
             return player;
@@ -689,7 +717,7 @@
         },
 
         onRemoteFireCannon(pkg) {
-            if (!window.scene) return;
+            if (!window.scene || (pkg.shooterId && pkg.shooterId === netState.peerId)) return;
             const pos = new THREE.Vector3(pkg.pos.x, pkg.pos.y, pkg.pos.z);
             const dir = new THREE.Vector3(pkg.dir.x, pkg.dir.y, pkg.dir.z).normalize();
             const speed = pkg.shellVel || 810;
@@ -702,14 +730,17 @@
 
             // Spawn projectile locally
             if (typeof window.spawnEnemyShell === 'function') {
-                // If PvP, mark as hostile projectile
+                // If PvP, mark as hostile projectile; never re-broadcast remote fire
                 const isHostile = (netState.gameMode === 'pvp');
                 window.spawnEnemyShell(pos, dir, speed, {
-                    id: pkg.tankType,
-                    blastRadius: pkg.blastRadius || 8.0,
-                    blastDamage: pkg.blastDamage || 100,
-                    cannonDamage: pkg.cannonDamage || 2
-                }, null);
+                    tankType: pkg.tankType,
+                    spec: {
+                        id: pkg.tankType,
+                        blastRadius: pkg.blastRadius || 8.0,
+                        blastDamage: pkg.blastDamage || 100,
+                        cannonDamage: pkg.cannonDamage || 2
+                    }
+                }, { isEnemy: isHostile, isRemote: true });
             }
         },
 
@@ -723,6 +754,7 @@
         },
 
         onRemoteFireMG(pkg) {
+            if (pkg.shooterId && pkg.shooterId === netState.peerId) return;
             const pos = new THREE.Vector3(pkg.pos.x, pkg.pos.y, pkg.pos.z);
             const dir = new THREE.Vector3(pkg.dir.x, pkg.dir.y, pkg.dir.z).normalize();
 
@@ -732,7 +764,7 @@
 
             if (typeof window.spawnTracerRound === 'function') {
                 const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir);
-                window.spawnTracerRound(pos, dir, quat, netState.gameMode === 'pvp');
+                window.spawnTracerRound(pos, dir, quat, netState.gameMode === 'pvp', { isRemote: true });
             }
         },
 
@@ -746,10 +778,11 @@
         },
 
         onRemoteFireMortar(pkg) {
+            if (pkg.shooterId && pkg.shooterId === netState.peerId) return;
             const pos = new THREE.Vector3(pkg.pos.x, pkg.pos.y, pkg.pos.z);
             const dir = new THREE.Vector3(pkg.dir.x, pkg.dir.y, pkg.dir.z).normalize();
             if (typeof window.spawnPlayerMortarShell === 'function') {
-                window.spawnPlayerMortarShell(pos, dir, { isEnemy: netState.gameMode === 'pvp' });
+                window.spawnPlayerMortarShell(pos, dir, { isEnemy: netState.gameMode === 'pvp', isRemote: true });
             }
         },
 
@@ -763,10 +796,11 @@
         },
 
         onRemoteFireRocket(pkg) {
+            if (pkg.shooterId && pkg.shooterId === netState.peerId) return;
             const pos = new THREE.Vector3(pkg.pos.x, pkg.pos.y, pkg.pos.z);
             const dir = new THREE.Vector3(pkg.dir.x, pkg.dir.y, pkg.dir.z).normalize();
             if (typeof window.spawnPlayerRocket === 'function') {
-                window.spawnPlayerRocket(pos, dir, { isEnemy: netState.gameMode === 'pvp' });
+                window.spawnPlayerRocket(pos, dir, { isEnemy: netState.gameMode === 'pvp', isRemote: true });
             }
         },
 

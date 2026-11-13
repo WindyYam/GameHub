@@ -878,7 +878,7 @@ function fireMainCannon(tankModel) {
 }
 
 function spawnTracerRound(pos, dir, quat, isEnemy = false, options = {}) {
-    if (!isEnemy && window.networkManager && typeof window.networkManager.sendFireMG === 'function') {
+    if (!isEnemy && !(options && (options.isRemote || options.isAI)) && window.networkManager && typeof window.networkManager.sendFireMG === 'function') {
         window.networkManager.sendFireMG(pos, dir);
     }
     spawnParticle(pos, dir.clone().multiplyScalar(6), 0xfde047, 0.12, 0.30, 0.06, true, 'fire');
@@ -1218,7 +1218,7 @@ function testSegmentVsTank(prevPos, nextPos, tankX, tankY, tankZ, heading, halfW
 }
 
 // Spawns shell projectile from Enemy Tank toward Player
-function spawnEnemyShell(muzzlePos, fireDir, shellSpeed, enemyTank) {
+function spawnEnemyShell(muzzlePos, fireDir, shellSpeed, enemyTank, options = {}) {
     const spec = (enemyTank && enemyTank.spec) || {};
     const spd = shellSpeed || spec.shellVel || 750;
     const tankType = spec.id || (enemyTank && enemyTank.tankType) || 'tiger';
@@ -1236,7 +1236,7 @@ function spawnEnemyShell(muzzlePos, fireDir, shellSpeed, enemyTank) {
         pos: muzzlePos.clone(),
         vel: fireDir.clone().multiplyScalar(spd),
         life: 5.0,
-        isEnemy: true,
+        isEnemy: (options && options.isEnemy !== undefined) ? !!options.isEnemy : true,
         sourceTank: enemyTank,
         blastRadius: (typeof spec.blastRadius === 'number') ? spec.blastRadius : 8.0,
         blastDamage: (typeof spec.blastDamage === 'number') ? spec.blastDamage : 100,
@@ -1270,6 +1270,7 @@ function spawnPlayerMortarShell(muzzlePos, fireDir, owner) {
         : 16.5;
 
     const isEnemyProjectile = owner ? !!owner.isEnemy : false;
+    const isRemoteProjectile = owner ? !!owner.isRemote : false;
 
     shells.push({
         mesh: shellGroup,
@@ -1286,7 +1287,7 @@ function spawnPlayerMortarShell(muzzlePos, fireDir, owner) {
         tankType: 'mortar'
     });
 
-    if (!isEnemyProjectile && window.networkManager && typeof window.networkManager.sendFireMortar === 'function') {
+    if (!isEnemyProjectile && !isRemoteProjectile && window.networkManager && typeof window.networkManager.sendFireMortar === 'function') {
         window.networkManager.sendFireMortar(muzzlePos, fireDir);
     }
 }
@@ -1322,6 +1323,7 @@ function spawnPlayerRocket(muzzlePos, fireDir, owner) {
     const rocketBlastRadius = 11.5; // Blast radius
     const rocketBlastDamage = 135;
     const isEnemyProjectile = owner ? !!owner.isEnemy : false;
+    const isRemoteProjectile = owner ? !!owner.isRemote : false;
 
     shells.push({
         mesh: rocketGroup,
@@ -1340,7 +1342,7 @@ function spawnPlayerRocket(muzzlePos, fireDir, owner) {
         traceTimer: 0
     });
 
-    if (!isEnemyProjectile && window.networkManager && typeof window.networkManager.sendFireRocket === 'function') {
+    if (!isEnemyProjectile && !isRemoteProjectile && window.networkManager && typeof window.networkManager.sendFireRocket === 'function') {
         window.networkManager.sendFireRocket(muzzlePos, fireDir);
     }
 }
