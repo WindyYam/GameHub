@@ -3431,16 +3431,30 @@ const TIGER_SKY_FRAGMENT_SHADER = `
         return v;
     }
 
-    // Puffy cumulus density from a pre-baked tileable noise texture: 2 texture taps instead of ~20
-    // procedural noise octaves per call. R = large cloud masses, G = billowy cauliflower detail.
-    float sampleCloudDensity(vec2 uv) {
+    // Puffy cumulus density from a pre-baked 512x512 tileable noise texture:
+    // R = large cloud masses, G = smooth billowing lobes, B = fine feathery edge wisps.
+    float sampleCloudDensity(vec2 uv, float detailWeight) {
         vec2 wind = vec2(uTime * 0.018, uTime * 0.0065);
-        float masses = texture2D(uCloudTex, uv * 0.22 + wind).r;
-        float billow = texture2D(uCloudTex, uv * 0.85 - wind * 1.4 + vec2(0.37, 0.61)).g;
-        float wisp   = texture2D(uCloudTex, uv * 1.95 + wind * 2.1 + vec2(0.73, 0.19)).g;
-        float composite = masses * 0.66 + billow * 0.23 + wisp * 0.11;
-        float threshold = mix(0.68, 0.45, uCloudCoverage);
-        return smoothstep(threshold - 0.04, threshold + 0.24, composite);
+        mat2 rot1 = mat2(0.80, 0.60, -0.60, 0.80);
+        mat2 rot2 = mat2(0.60, -0.80, 0.80, 0.60);
+
+        vec2 baseUV = uv * 0.18 + wind;
+        float masses = texture2D(uCloudTex, baseUV).r;
+
+        // Subtle domain warp breaks up grid alignment
+        vec2 warp = vec2(masses - 0.5, texture2D(uCloudTex, baseUV * 0.7 + vec2(0.41, 0.23)).r - 0.5) * 0.14;
+        float billow = texture2D(uCloudTex, (rot1 * uv) * 0.42 - wind * 1.15 + warp + vec2(0.37, 0.61)).g;
+        float wisp   = texture2D(uCloudTex, (rot2 * uv) * 0.92 + wind * 1.65 + warp * 0.5 + vec2(0.73, 0.19)).b;
+
+        // Smoothly attenuate high-frequency wisps near the horizon to eliminate aliasing
+        float erosion = (1.0 - billow) * (0.26 * mix(0.35, 1.0, detailWeight))
+                      + (1.0 - wisp) * (0.14 * detailWeight);
+        float baseShape = masses * 0.86 + billow * 0.14;
+        float threshold = mix(0.64, 0.40, uCloudCoverage);
+        return smoothstep(threshold - 0.05, threshold + 0.22, baseShape - erosion * 0.55);
+    }
+    float sampleCloudDensity(vec2 uv) {
+        return sampleCloudDensity(uv, 1.0);
     }
 
     void main() {
@@ -3576,41 +3590,46 @@ const TIGER_SKY_FRAGMENT_SHADER = `
             skyCol += vec3(0.76, 0.86, 1.0) * (moonDisc * 3.5 + moonHalo) * nightFactor;
         }
 
-        // High-altitude cloud deck with Henyey-Greenstein scattering
+        // High-altitude cloud deck with curved atmosphere projection & Beer-Powder scattering
         if (dir.y > 0.015 && uCloudCoverage > 0.01) {
-            float planeDist = 1.9 / (pow(dir.y, 0.82) + 0.06);
-            vec2 cloudUV = dir.xz * planeDist * 0.32;
+            // Curved atmospheric shell intersection avoids extreme UV stretching near the horizon
+            float curveY = sqrt(dir.y * dir.y + 0.045);
+            float planeDist = 2.2 / curveY;
+            vec2 cloudUV = dir.xz * planeDist * 0.30;
+            float detailWeight = smoothstep(0.02, 0.24, dir.y);
 
-            float density = sampleCloudDensity(cloudUV);
+            float density = sampleCloudDensity(cloudUV, detailWeight);
 
             if (density > 0.004) {
                 vec3 primaryLightDir = sunAlt > 0.0 ? uSunDir : uMoonDir;
-                vec2 lightStep = primaryLightDir.xz * 0.085;
-                float s1 = sampleCloudDensity(cloudUV + lightStep * 0.5);
-                float s2 = sampleCloudDensity(cloudUV + lightStep * 1.2);
-                float opticalDepth = (s1 * 0.55 + s2 * 0.45) * 1.25;
-                float transmittance = exp(-opticalDepth * 1.65);
+                vec2 lightStep = primaryLightDir.xz * 0.11;
+                float s1 = sampleCloudDensity(cloudUV + lightStep * 0.45, detailWeight * 0.7);
+                float s2 = sampleCloudDensity(cloudUV + lightStep * 1.15, detailWeight * 0.5);
+                float opticalDepth = (s1 * 0.58 + s2 * 0.42) * 1.35;
+                float transmittance = exp(-opticalDepth * 1.55);
+                float powder = 1.0 - exp(-density * 2.6);
 
-                vec3 sunlitTop = mix(vec3(0.10, 0.16, 0.28), vec3(1.0, 1.0, 1.0), dayFactor);
+                vec3 sunlitTop = mix(vec3(0.10, 0.16, 0.28), vec3(1.0, 0.99, 0.97), dayFactor);
                 sunlitTop = mix(sunlitTop, vec3(1.0, 0.65, 0.35), twilightFactor * 0.94);
 
-                vec3 ambientBelly = mix(vec3(0.02, 0.035, 0.08), vec3(0.62, 0.72, 0.84), dayFactor);
+                vec3 ambientBelly = mix(vec3(0.02, 0.035, 0.08), vec3(0.58, 0.69, 0.82), dayFactor);
                 ambientBelly = mix(ambientBelly, vec3(0.30, 0.18, 0.30), twilightFactor * 0.92);
 
-                vec3 cloudCol = mix(ambientBelly, sunlitTop, clamp(transmittance * 0.92 + (1.0 - density) * 0.35, 0.0, 1.0));
+                float lightEnergy = clamp(transmittance * (0.55 + 0.55 * powder) + (1.0 - density) * 0.32, 0.0, 1.0);
+                vec3 cloudCol = mix(ambientBelly, sunlitTop, lightEnergy);
 
                 float hgPhase = pow(sunDot, 5.0) * smoothstep(-0.1, 0.4, sunAlt);
-                float silverLining = (1.0 - exp(-density * 2.8)) * exp(-opticalDepth * 0.85) * hgPhase;
+                float silverLining = powder * exp(-opticalDepth * 0.80) * hgPhase;
                 cloudCol += mieTint * silverLining * 1.15;
 
                 float moonDotCloud = max(dot(dir, uMoonDir), 0.0);
-                float lunarSilver = (1.0 - exp(-density * 2.2)) * exp(-opticalDepth * 0.8) * pow(moonDotCloud, 7.0) * nightFactor;
+                float lunarSilver = powder * exp(-opticalDepth * 0.8) * pow(moonDotCloud, 7.0) * nightFactor;
                 cloudCol += vec3(0.55, 0.72, 1.0) * lunarSilver * 0.55;
 
-                float horizonFade = smoothstep(0.012, 0.18, dir.y);
+                float horizonFade = smoothstep(0.015, 0.20, dir.y);
                 cloudCol = mix(horizonCol, cloudCol, horizonFade);
 
-                float cloudAlpha = smoothstep(0.01, 0.36, density) * smoothstep(0.012, 0.08, dir.y) * 0.96;
+                float cloudAlpha = smoothstep(0.01, 0.38, density) * smoothstep(0.015, 0.09, dir.y) * 0.96;
                 skyCol = mix(skyCol, cloudCol, cloudAlpha);
             }
         }
@@ -3619,9 +3638,9 @@ const TIGER_SKY_FRAGMENT_SHADER = `
     }
 `;
 
-// Tileable value-noise texture (R: fbm cloud masses, G: billowy detail) baked once on the CPU for the sky shader.
+// Tileable 512x512 quintic noise texture (R: cloud masses, G: smooth billows, B: fine wisps) baked once on CPU.
 function createCloudNoiseTexture() {
-    const size = 256;
+    const size = 512;
     const data = new Uint8Array(size * size * 4);
     const lattice = (ix, iy, seed) => {
         let h = Math.imul(ix, 374761393) ^ Math.imul(iy, 668265263) ^ Math.imul(seed, 1442695041);
@@ -3632,28 +3651,37 @@ function createCloudNoiseTexture() {
     const tileNoise = (u, v, period, seed) => {
         const x = u * period, y = v * period;
         const x0 = Math.floor(x), y0 = Math.floor(y);
-        let fx = x - x0, fy = y - y0;
-        fx = fx * fx * (3 - 2 * fx);
-        fy = fy * fy * (3 - 2 * fy);
+        const tx = x - x0, ty = y - y0;
+        // Quintic C2 interpolation eliminates bilinear/Hermite grid seams
+        const fx = tx * tx * tx * (tx * (tx * 6 - 15) + 10);
+        const fy = ty * ty * ty * (ty * (ty * 6 - 15) + 10);
         const xa = ((x0 % period) + period) % period, xb = (xa + 1) % period;
         const ya = ((y0 % period) + period) % period, yb = (ya + 1) % period;
         const a = lattice(xa, ya, seed), b = lattice(xb, ya, seed);
         const c = lattice(xa, yb, seed), d = lattice(xb, yb, seed);
         return (a + (b - a) * fx) + ((c + (d - c) * fx) - (a + (b - a) * fx)) * fy;
     };
+    const smoothBillow = (u, v, period, seed) => {
+        // Inverted smooth puff lobes (round tops, no sharp V-pinch artifacts)
+        const n = tileNoise(u, v, period, seed) * 2 - 1;
+        const r = 1.0 - Math.sqrt(n * n + 0.02);
+        return r * r;
+    };
     for (let y = 0; y < size; y++) {
         for (let x = 0; x < size; x++) {
             const u = x / size, v = y / size;
-            const masses = tileNoise(u, v, 4, 1) * 0.50 + tileNoise(u, v, 8, 2) * 0.27
-                + tileNoise(u, v, 16, 3) * 0.15 + tileNoise(u, v, 32, 4) * 0.08;
-            const billow = Math.abs(tileNoise(u, v, 8, 5) * 2 - 1) * 0.50 + Math.abs(tileNoise(u, v, 16, 6) * 2 - 1) * 0.28
-                + Math.abs(tileNoise(u, v, 32, 7) * 2 - 1) * 0.14 + Math.abs(tileNoise(u, v, 64, 8) * 2 - 1) * 0.08;
+            const masses = tileNoise(u, v, 4, 1) * 0.52 + tileNoise(u, v, 8, 2) * 0.28
+                + tileNoise(u, v, 16, 3) * 0.14 + tileNoise(u, v, 32, 4) * 0.06;
+            const billow = smoothBillow(u, v, 6, 5) * 0.52 + smoothBillow(u, v, 12, 6) * 0.30
+                + smoothBillow(u, v, 24, 7) * 0.18;
+            const wisp = tileNoise(u, v, 10, 8) * 0.50 + tileNoise(u, v, 20, 9) * 0.32
+                + tileNoise(u, v, 40, 10) * 0.18;
             // Contrast stretch so cloud masses have clear gaps of blue sky between them
-            const m = Math.min(1, Math.max(0, (masses - 0.5) * 1.55 + 0.5));
+            const m = Math.min(1, Math.max(0, (masses - 0.5) * 1.65 + 0.5));
             const i = (y * size + x) * 4;
             data[i] = Math.round(m * 255);
-            data[i + 1] = Math.round(Math.min(1, billow * 1.15) * 255);
-            data[i + 2] = 0;
+            data[i + 1] = Math.round(Math.min(1, Math.max(0, billow * 1.15)) * 255);
+            data[i + 2] = Math.round(Math.min(1, Math.max(0, wisp)) * 255);
             data[i + 3] = 255;
         }
     }
@@ -3662,6 +3690,7 @@ function createCloudNoiseTexture() {
     tex.wrapT = THREE.RepeatWrapping;
     tex.minFilter = THREE.LinearMipmapLinearFilter;
     tex.magFilter = THREE.LinearFilter;
+    tex.anisotropy = 4;
     tex.generateMipmaps = true;
     tex.needsUpdate = true;
     return tex;

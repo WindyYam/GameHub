@@ -3406,15 +3406,4 @@
     window.buildSoldier = buildSoldier;
     window.prewarmSoldierAssets = prewarmSoldierAssets;
 
-    // Listen for player tank changes to switch soldier factions automatically
-    const origSwitchTank = window.switchTank;
-    if (typeof origSwitchTank === 'function') {
-        window.switchTank = function (newTankId) {
-            origSwitchTank(newTankId);
-            setTimeout(() => {
-                spawnBattlefieldInfantry();
-            }, 100);
-        };
-    }
-
 })();

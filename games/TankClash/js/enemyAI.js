@@ -768,9 +768,11 @@
 
                 // Turret scanning during patrol
                 const scanAngle = Math.sin(nowSec * 0.45 + (e.x * 0.1)) * 0.52;
-                e.turretYaw = THREE.MathUtils.lerp(e.turretYaw, scanAngle, dt * 0.8);
+                const yawDelta = normalizeAngle(scanAngle - e.turretYaw);
+                e.turretYaw = normalizeAngle(e.turretYaw + yawDelta * Math.min(1, dt * 0.8));
+                e.gunElevation = THREE.MathUtils.lerp(e.gunElevation, 0.02, Math.min(1, dt * 1.5));
                 if (e.model.turretGroup) e.model.turretGroup.rotation.y = e.turretYaw;
-                if (e.model.gunElevationPivot) e.model.gunElevationPivot.rotation.x = 0.02;
+                if (e.model.gunElevationPivot) e.model.gunElevationPivot.rotation.x = -e.gunElevation;
 
                 // Hull steering and driving when in WANDER mode
                 let desiredHullHeading = e.heading;
@@ -899,11 +901,12 @@
             const rawDesiredLocalTurretYaw = normalizeAngle(worldAngleToPlayer - e.heading);
             const desiredLocalTurretYaw = normalizeAngle(rawDesiredLocalTurretYaw + (e.aimErrorYaw || 0));
 
-            // Slew turret towards target with authentic traverse speed
+            // Slew turret towards target with authentic traverse speed (shortest-angle wrap)
             const turretTurnSpeed = (e.spec && typeof e.spec.turretTurnSpeed === 'number')
                 ? e.spec.turretTurnSpeed
                 : ((e.tankType === 'sherman') ? 1.25 : (e.tankType === 't34' ? 1.00 : (e.tankType === 'kv2' ? 0.45 : 0.85)));
-            e.turretYaw = THREE.MathUtils.lerp(e.turretYaw, desiredLocalTurretYaw, dt * turretTurnSpeed * 1.5);
+            const turretDelta = normalizeAngle(desiredLocalTurretYaw - e.turretYaw);
+            e.turretYaw = normalizeAngle(e.turretYaw + turretDelta * Math.min(1, dt * turretTurnSpeed * 1.5));
             if (e.model.turretGroup) e.model.turretGroup.rotation.y = e.turretYaw;
 
             // 2. Ballistic Gun Pitch / Elevation with drop compensation and sight inaccuracy
@@ -1091,15 +1094,23 @@
                     muzzlePos.set(e.x, e.y + 1.8, e.z).add(new THREE.Vector3(Math.sin(worldAngleToPlayer), 0, Math.cos(worldAngleToPlayer)).multiplyScalar(4.0));
                 }
 
-                // Authentic gun barrel world direction with improved dispersion precision
-                const shotYaw = e.heading + e.turretYaw + (Math.random() - 0.5) * 0.06;
-                const shotElev = e.gunElevation + (Math.random() - 0.5) * 0.045;
-                const cosElev = Math.cos(shotElev);
-                const fireDir = new THREE.Vector3(
-                    Math.sin(shotYaw) * cosElev,
-                    Math.sin(shotElev),
-                    Math.cos(shotYaw) * cosElev
-                ).normalize();
+                // Authentic gun barrel world direction aligned directly with cannon bore
+                let fireDir;
+                if (e.model.gunElevationPivot) {
+                    if (e.model.tankRoot) e.model.tankRoot.updateMatrixWorld(true);
+                    const barrelQuat = new THREE.Quaternion();
+                    e.model.gunElevationPivot.getWorldQuaternion(barrelQuat);
+                    fireDir = new THREE.Vector3(0, 0, 1).applyQuaternion(barrelQuat).normalize();
+                } else {
+                    const shotYaw = e.heading + e.turretYaw + (Math.random() - 0.5) * 0.06;
+                    const shotElev = e.gunElevation + (Math.random() - 0.5) * 0.045;
+                    const cosElev = Math.cos(shotElev);
+                    fireDir = new THREE.Vector3(
+                        Math.sin(shotYaw) * cosElev,
+                        Math.sin(shotElev),
+                        Math.cos(shotYaw) * cosElev
+                    ).normalize();
+                }
 
                 // Re-randomize aim error for subsequent shots based on tank precision
                 const shotSpr = (e.spec && typeof e.spec.spread === 'number') ? e.spec.spread : 0.005;
