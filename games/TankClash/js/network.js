@@ -118,6 +118,12 @@
             this.turretYaw = 0;
             this.gunElevation = 0;
             this.speed = 0;
+            this.pitch = 0;
+            this.roll = 0;
+            this.pitchVel = 0;
+            this.rollVel = 0;
+            this.animTime = Math.random() * 10;
+            this.grenadeAnimTimer = 0;
 
             // Targets for smooth interpolation
             this.hasReceivedState = false;
@@ -377,6 +383,44 @@
                 if (this.tankModel.tankRoot) {
                     this.tankModel.tankRoot.rotation.y = this.heading;
                 }
+                // Infer tank hull pitch & roll locally from terrain height under road wheels
+                if (this.tankModel.hullGroup && this.tankModel.roadWheelStations && typeof window.getTerrainHeight === 'function') {
+                    const stations = this.tankModel.roadWheelStations;
+                    const leftStations = stations.left || [];
+                    const rightStations = stations.right || [];
+                    const stationCount = leftStations.length + rightStations.length;
+                    if (stationCount > 0) {
+                        const cosH = Math.cos(this.heading);
+                        const sinH = Math.sin(this.heading);
+                        let sumH = 0, sumX = 0, sumZ = 0, sumXX = 0, sumZZ = 0, sumXH = 0, sumZH = 0;
+                        for (const sideStations of [leftStations, rightStations]) {
+                            for (const st of sideStations) {
+                                const wx = this.x + st.x * cosH + st.z * sinH;
+                                const wz = this.z - st.x * sinH + st.z * cosH;
+                                const h = window.getTerrainHeight(wx, wz);
+                                sumH += h;
+                                sumX += st.x;
+                                sumZ += st.z;
+                                sumXX += st.x * st.x;
+                                sumZZ += st.z * st.z;
+                                sumXH += st.x * h;
+                                sumZH += st.z * h;
+                            }
+                        }
+                        const varX = sumXX - (sumX * sumX) / stationCount;
+                        const varZ = sumZZ - (sumZ * sumZ) / stationCount;
+                        const covXH = sumXH - (sumX * sumH) / stationCount;
+                        const covZH = sumZH - (sumZ * sumH) / stationCount;
+                        const targetRoll = Math.atan(varX > 0.001 ? covXH / varX : 0);
+                        const targetPitch = Math.atan(varZ > 0.001 ? covZH / varZ : 0);
+                        this.pitchVel += ((targetPitch - this.pitch) * 40 - this.pitchVel * 8.5) * dt;
+                        this.pitch += this.pitchVel * dt;
+                        this.rollVel += ((targetRoll - this.roll) * 44 - this.rollVel * 9) * dt;
+                        this.roll += this.rollVel * dt;
+                        this.tankModel.hullGroup.rotation.x = -this.pitch;
+                        this.tankModel.hullGroup.rotation.z = this.roll;
+                    }
+                }
                 if (this.tankModel.turretGroup) {
                     this.tankModel.turretGroup.rotation.y = this.turretYaw;
                 }
@@ -387,8 +431,84 @@
                     this.tankModel.updateTracksGeometry(this.speed * dt, this.speed * dt);
                 }
             } else if (this.mode === 'soldier' && this.soldierRig) {
-                if (this.soldierRig.root) {
-                    this.soldierRig.root.rotation.y = this.heading;
+                const rig = this.soldierRig;
+                if (rig.root) {
+                    rig.root.rotation.y = this.heading;
+                    rig.root.rotation.x = this.isDead ? -Math.PI * 0.48 : 0;
+                }
+                if (!this.isDead) {
+                    this.animTime += dt;
+                    const absSpeed = Math.abs(this.speed || 0);
+                    const isMoving = absSpeed > 0.15;
+                    const isSprinting = absSpeed > 5.2;
+                    const seaLvl = (typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5;
+                    const groundY = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(this.x, this.z) : this.y;
+                    const isSwimming = groundY < seaLvl - 0.5 && this.y <= seaLvl + 0.35;
+                    const isAirborne = !isSwimming && typeof window.getTerrainHeight === 'function' && (this.y - groundY) > 0.25;
+
+                    if (rig.rightLeg && rig.leftLeg && rig.hips) {
+                        const lerpVal = (a, b, t) => a + (b - a) * Math.min(1, t);
+                        if (isSwimming) {
+                            if (isMoving) {
+                                const swim = this.animTime * (isSprinting ? 9.5 : 6.5);
+                                const kick = Math.sin(swim);
+                                rig.rightLeg.hipJoint.rotation.x = lerpVal(rig.rightLeg.hipJoint.rotation.x, 0.45 + kick * 0.38, dt * 12);
+                                rig.leftLeg.hipJoint.rotation.x = lerpVal(rig.leftLeg.hipJoint.rotation.x, 0.45 - kick * 0.38, dt * 12);
+                                rig.rightLeg.kneeJoint.rotation.x = lerpVal(rig.rightLeg.kneeJoint.rotation.x, 0.25 + Math.max(0, -kick * 0.45), dt * 12);
+                                rig.leftLeg.kneeJoint.rotation.x = lerpVal(rig.leftLeg.kneeJoint.rotation.x, 0.25 + Math.max(0, kick * 0.45), dt * 12);
+                            } else {
+                                const tread = Math.sin(this.animTime * 2.8);
+                                rig.rightLeg.hipJoint.rotation.x = lerpVal(rig.rightLeg.hipJoint.rotation.x, 0.16 + tread * 0.16, dt * 8);
+                                rig.leftLeg.hipJoint.rotation.x = lerpVal(rig.leftLeg.hipJoint.rotation.x, 0.16 - tread * 0.16, dt * 8);
+                                rig.rightLeg.kneeJoint.rotation.x = lerpVal(rig.rightLeg.kneeJoint.rotation.x, 0.35 + Math.abs(tread) * 0.25, dt * 8);
+                                rig.leftLeg.kneeJoint.rotation.x = lerpVal(rig.leftLeg.kneeJoint.rotation.x, 0.35 + Math.abs(tread) * 0.25, dt * 8);
+                            }
+                            rig.hips.position.y = 0.95;
+                        } else if (isAirborne) {
+                            rig.rightLeg.hipJoint.rotation.x = lerpVal(rig.rightLeg.hipJoint.rotation.x, -0.42, dt * 12);
+                            rig.leftLeg.hipJoint.rotation.x = lerpVal(rig.leftLeg.hipJoint.rotation.x, -0.32, dt * 12);
+                            rig.rightLeg.kneeJoint.rotation.x = lerpVal(rig.rightLeg.kneeJoint.rotation.x, 0.55, dt * 12);
+                            rig.leftLeg.kneeJoint.rotation.x = lerpVal(rig.leftLeg.kneeJoint.rotation.x, 0.40, dt * 12);
+                            rig.hips.position.y = lerpVal(rig.hips.position.y, 0.98, dt * 12);
+                        } else if (isMoving) {
+                            const walk = this.animTime * (isSprinting ? 6.2 : 4.4);
+                            const strideAmp = isSprinting ? 0.65 : 0.45;
+                            const stride = Math.sin(walk);
+                            rig.rightLeg.hipJoint.rotation.x = lerpVal(rig.rightLeg.hipJoint.rotation.x, stride * strideAmp, 0.35);
+                            rig.leftLeg.hipJoint.rotation.x = lerpVal(rig.leftLeg.hipJoint.rotation.x, -stride * strideAmp, 0.35);
+                            rig.rightLeg.kneeJoint.rotation.x = lerpVal(rig.rightLeg.kneeJoint.rotation.x, Math.max(0.1, -Math.cos(walk) * strideAmp * 1.3), 0.35);
+                            rig.leftLeg.kneeJoint.rotation.x = lerpVal(rig.leftLeg.kneeJoint.rotation.x, Math.max(0.1, Math.cos(walk) * strideAmp * 1.3), 0.35);
+                            rig.hips.position.y = 0.95 + Math.abs(Math.cos(walk)) * 0.04;
+                        } else {
+                            rig.rightLeg.hipJoint.rotation.x = lerpVal(rig.rightLeg.hipJoint.rotation.x, -0.05, 0.15);
+                            rig.leftLeg.hipJoint.rotation.x = lerpVal(rig.leftLeg.hipJoint.rotation.x, 0.06, 0.15);
+                            rig.rightLeg.kneeJoint.rotation.x = lerpVal(rig.rightLeg.kneeJoint.rotation.x, 0.08, 0.15);
+                            rig.leftLeg.kneeJoint.rotation.x = lerpVal(rig.leftLeg.kneeJoint.rotation.x, 0.08, 0.15);
+                            rig.hips.position.y = 0.95;
+                        }
+                    }
+
+                    if (rig.torso && rig.head) {
+                        rig.torso.rotation.y = -0.40;
+                        rig.head.rotation.y = 0.40;
+                        rig.torso.rotation.x = isSwimming ? (isMoving ? -0.42 : -0.08) : 0;
+                        rig.head.rotation.x = isSwimming ? (isMoving ? 0.36 : 0.07) : 0;
+                    }
+
+                    if (this.grenadeAnimTimer > 0 && rig.rightArm && rig.rightArm.shoulder && rig.rightArm.elbow) {
+                        this.grenadeAnimTimer = Math.max(0, this.grenadeAnimTimer - dt);
+                        const p = 1.0 - (this.grenadeAnimTimer / 0.40);
+                        const lift = Math.sin(p * Math.PI);
+                        rig.rightArm.shoulder.rotation.set(-0.65 - lift * 1.55, 0.12, 0.60 - lift * 0.45);
+                        rig.rightArm.elbow.rotation.set(-2.20 + lift * 0.50, 0, 0);
+                        if (rig.rightArm.wrist) rig.rightArm.wrist.rotation.set(0, 0, 0);
+                    } else if (typeof window.poseSoldierWeapon === 'function' && rig.rifle) {
+                        if (rig.rightArm && rig.rightArm.wrist && rig.rifle.parent !== rig.rightArm.wrist && typeof rig.rightArm.wrist.attach === 'function') {
+                            rig.rightArm.wrist.attach(rig.rifle);
+                        }
+                        const aimDir = new THREE.Vector3(Math.sin(this.heading), 0, Math.cos(this.heading));
+                        window.poseSoldierWeapon(rig, aimDir, this.heading);
+                    }
                 }
             }
         }
@@ -702,6 +822,10 @@
                     this.onRemoteFireRocket(pkg);
                     break;
 
+                case 'fire_grenade':
+                    this.onRemoteFireGrenade(pkg);
+                    break;
+
                 case 'damage_player':
                     this.onDamageReceived(pkg);
                     break;
@@ -784,6 +908,12 @@
                 case 'soldier_kill':
                     if (!netState.isHost && typeof window.applyRemoteSoldierKill === 'function') {
                         window.applyRemoteSoldierKill(pkg.id);
+                    }
+                    break;
+
+                case 'soldier_fire':
+                    if (!netState.isHost && typeof window.applyRemoteSoldierFire === 'function') {
+                        window.applyRemoteSoldierFire(pkg.id, pkg.w, pkg.pos, pkg.dir);
                     }
                     break;
 
@@ -927,6 +1057,25 @@
             const dir = new THREE.Vector3(pkg.dir.x, pkg.dir.y, pkg.dir.z).normalize();
             if (typeof window.spawnPlayerRocket === 'function') {
                 window.spawnPlayerRocket(pos, dir, { isEnemy: netState.gameMode === 'pvp', isRemote: true });
+            }
+        },
+
+        sendFireGrenade(pos, vel) {
+            if (!netState.isActive || !pos || !vel) return;
+            this.broadcast({
+                type: 'fire_grenade',
+                shooterId: netState.peerId,
+                pos: { x: q2(pos.x), y: q2(pos.y), z: q2(pos.z) },
+                vel: { x: q2(vel.x), y: q2(vel.y), z: q2(vel.z) }
+            });
+        },
+
+        onRemoteFireGrenade(pkg) {
+            if (pkg.shooterId && pkg.shooterId === netState.peerId) return;
+            const rp = pkg.shooterId ? netState.remotePlayers.get(pkg.shooterId) : null;
+            if (rp) rp.grenadeAnimTimer = 0.40;
+            if (typeof window.spawnRemoteGrenade === 'function') {
+                window.spawnRemoteGrenade(pkg.pos, pkg.vel, netState.gameMode === 'pvp');
             }
         },
 
@@ -1080,6 +1229,17 @@
             if (!netState.isActive || !netState.isHost || !id) return;
             netState.lastSoldierSyncSnapshot.delete(id);
             this.broadcast({ type: 'soldier_kill', id });
+        },
+
+        sendSoldierFire(id, w, muzzlePos, fireDir) {
+            if (!netState.isActive || !netState.isHost || !id || !muzzlePos || !fireDir) return;
+            this.broadcast({
+                type: 'soldier_fire',
+                id,
+                w: w || 'r',
+                pos: { x: q2(muzzlePos.x), y: q2(muzzlePos.y), z: q2(muzzlePos.z) },
+                dir: { x: q2(fireDir.x), y: q2(fireDir.y), z: q2(fireDir.z) }
+            });
         },
 
         sendEnemyDeltaSync() {

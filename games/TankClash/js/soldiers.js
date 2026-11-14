@@ -2841,6 +2841,9 @@
                 if (typeof window.spawnPlayerMortarShell === 'function') {
                     window.spawnPlayerMortarShell(muzzlePos, mortarFireDir, this);
                 }
+                if (isMultiplayerHost() && window.networkManager && typeof window.networkManager.sendSoldierFire === 'function') {
+                    window.networkManager.sendSoldierFire(this.id, 'm', muzzlePos, mortarFireDir);
+                }
                 return;
             }
 
@@ -2906,6 +2909,9 @@
                 if (typeof window.spawnPlayerRocket === 'function') {
                     window.spawnPlayerRocket(muzzleWorldPos, shootDir, this);
                 }
+                if (isMultiplayerHost() && window.networkManager && typeof window.networkManager.sendSoldierFire === 'function') {
+                    window.networkManager.sendSoldierFire(this.id, 'b', muzzleWorldPos, shootDir);
+                }
                 return;
             }
 
@@ -2937,6 +2943,9 @@
             if (typeof window.spawnTracerRound === 'function') {
                 const tracerQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), shootDir);
                 window.spawnTracerRound(muzzleWorldPos, shootDir, tracerQuat, this.isEnemy, { damage: isSMG ? 20 : 35, isAI: true });
+            }
+            if (isMultiplayerHost() && window.networkManager && typeof window.networkManager.sendSoldierFire === 'function') {
+                window.networkManager.sendSoldierFire(this.id, isSMG ? 's' : 'r', muzzleWorldPos, shootDir);
             }
         }
 
@@ -3474,6 +3483,64 @@
                 s.health = 0;
                 s.die(true);
                 break;
+            }
+        }
+    };
+
+    window.applyRemoteSoldierFire = function (id, w, pos, dir) {
+        if (!pos || !dir) return;
+        const muzzlePos = new THREE.Vector3(pos.x, pos.y, pos.z);
+        const fireDir = new THREE.Vector3(dir.x, dir.y, dir.z).normalize();
+
+        let soldier = null;
+        for (let i = 0; i < activeSoldiers.length; i++) {
+            if (activeSoldiers[i] && activeSoldiers[i].id === id) {
+                soldier = activeSoldiers[i];
+                break;
+            }
+        }
+        if (soldier && !soldier.isDead) {
+            soldier.recoilKick = (w === 'b') ? 0.55 : ((w === 'm') ? 0.4 : ((w === 's') ? 0.12 : 0.25));
+        }
+
+        const soundPos = { x: muzzlePos.x, y: muzzlePos.y, z: muzzlePos.z };
+        if (w === 'm') {
+            if (typeof window.spawnParticle === 'function') {
+                window.spawnParticle(muzzlePos, fireDir.clone().multiplyScalar(5.0), 0xffcc44, 0.22, 0.45, 0.08, true, 'fire');
+                window.spawnParticle(muzzlePos, new THREE.Vector3((Math.random() - 0.5) * 0.4, 0.8 + Math.random() * 0.4, (Math.random() - 0.5) * 0.4), 0xbbbbbb, 0.25, 0.6, 0.8, false, 'smoke');
+            }
+            if (window.soundFX && typeof window.soundFX.playMainCannon === 'function') {
+                window.soundFX.playMainCannon('mortar');
+            }
+            if (typeof window.spawnPlayerMortarShell === 'function') {
+                window.spawnPlayerMortarShell(muzzlePos, fireDir, { isEnemy: true, isRemote: true });
+            }
+        } else if (w === 'b') {
+            if (typeof window.spawnParticle === 'function') {
+                window.spawnParticle(muzzlePos, fireDir.clone().multiplyScalar(4.0), 0xffe066, 0.16, 0.35, 0.08, true, 'fire');
+                window.spawnParticle(muzzlePos, new THREE.Vector3((Math.random() - 0.5) * 0.4, 0.3 + Math.random() * 0.3, (Math.random() - 0.5) * 0.4), 0xd0d0d0, 0.18, 0.45, 0.6, false, 'smoke');
+            }
+            if (window.soundFX && typeof window.soundFX.playRocketLaunch === 'function') {
+                window.soundFX.playRocketLaunch(soundPos);
+            }
+            if (typeof window.spawnPlayerRocket === 'function') {
+                window.spawnPlayerRocket(muzzlePos, fireDir, { isEnemy: true, isRemote: true });
+            }
+        } else {
+            if (typeof window.spawnParticle === 'function') {
+                window.spawnParticle(muzzlePos, fireDir.clone().multiplyScalar(4.0), 0xffe066, 0.12, 0.28, 0.05, true, 'fire');
+                window.spawnParticle(muzzlePos, new THREE.Vector3((Math.random() - 0.5) * 0.3, 0.3 + Math.random() * 0.3, (Math.random() - 0.5) * 0.3), 0xcccccc, 0.10, 0.35, 0.45, false, 'smoke');
+            }
+            if (w === 's') {
+                if (window.soundFX && typeof window.soundFX.playMG34Shot === 'function') {
+                    window.soundFX.playMG34Shot(soundPos);
+                }
+            } else if (window.soundFX && typeof window.soundFX.playRifleShot === 'function') {
+                window.soundFX.playRifleShot(soundPos);
+            }
+            if (typeof window.spawnTracerRound === 'function') {
+                const tracerQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), fireDir);
+                window.spawnTracerRound(muzzlePos, fireDir, tracerQuat, true, { damage: w === 's' ? 20 : 35, isRemote: true });
             }
         }
     };

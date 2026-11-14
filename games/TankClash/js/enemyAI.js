@@ -702,6 +702,7 @@
                         e.model.gunElevationPivot.rotation.x = e.gunElevation;
                     }
                 }
+                updateEnemyTerrainPose(e, dt);
                 e.barrelRecoil = Math.max(0, (e.barrelRecoil || 0) - dt * 2.2);
                 if (e.model && e.model.barrelRecoilGroup) {
                     e.model.barrelRecoilGroup.position.z = -e.barrelRecoil;

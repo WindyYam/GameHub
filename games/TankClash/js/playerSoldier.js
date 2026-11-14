@@ -766,8 +766,40 @@
             soundHandle = window.soundFX.playBombWhistle(1.6, grenade.pos);
         }
         grenade.soundHandle = soundHandle;
+
+        if (window.networkManager && typeof window.networkManager.sendFireGrenade === 'function') {
+            window.networkManager.sendFireGrenade(spawnPos, throwDir);
+        }
     }
     window.throwPlayerGrenade = throwPlayerGrenade;
+
+    function spawnRemoteGrenade(pos, vel, isHostile = false) {
+        if (!window.scene || !pos || !vel) return;
+        const spawnPos = new THREE.Vector3(pos.x, pos.y, pos.z);
+        const launchVel = new THREE.Vector3(vel.x, vel.y, vel.z);
+        const mesh = buildGrenadeMesh();
+        mesh.position.copy(spawnPos);
+        window.scene.add(mesh);
+
+        let soundHandle = null;
+        if (window.soundFX && typeof window.soundFX.playBombWhistle === 'function') {
+            soundHandle = window.soundFX.playBombWhistle(1.6, spawnPos);
+        }
+
+        activeGrenades.push({
+            mesh,
+            pos: spawnPos,
+            vel: launchVel,
+            rotVel: new THREE.Vector3((Math.random() - 0.5) * 12 + 6, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8),
+            timer: 3.0,
+            exploded: false,
+            isPlayerGrenade: true,
+            isRemote: true,
+            isHostile: !!isHostile,
+            soundHandle
+        });
+    }
+    window.spawnRemoteGrenade = spawnRemoteGrenade;
 
     function detonateGrenade(g) {
         if (g.exploded) return;
@@ -786,8 +818,9 @@
 
         // 1. Heavy Detonation Effects (Flash, Shockwave, Fireball, Billowing Smoke)
         if (typeof window.triggerHeavyDetonation === 'function') {
-            // ignorePlayer = true so player's own grenade won't kill/damage player soldier
-            window.triggerHeavyDetonation(blastPos, true);
+            // Local player's own grenade or Co-op ally grenade won't hurt local player; PvP enemy grenade can
+            const ignorePlayer = g.isRemote ? !g.isHostile : true;
+            window.triggerHeavyDetonation(blastPos, ignorePlayer);
         } else if (window.soundFX && typeof window.soundFX.playExplosion === 'function') {
             window.soundFX.playExplosion(blastPos);
         }
@@ -802,6 +835,9 @@
                 window.screenShake(intensity);
             }
         }
+
+        // Remote grenades infer visual/audio/PvP blast locally; thrower's client handles AI enemy damage
+        if (g.isRemote) return;
 
         // 2. Anti-Tank Damage: Check all enemy tanks within 5.0m lethal blast radius
         const enemies = window.activeEnemyTanks || [];
