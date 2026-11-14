@@ -2275,6 +2275,58 @@
         return !!(window.multiplayerState && window.multiplayerState.isActive && window.multiplayerState.isHost);
     }
 
+    function getNearestAlivePlayerForSoldier(sx, sz) {
+        let best = null;
+        let bestDist = Infinity;
+        const nowSec = (window.performance && window.performance.now) ? window.performance.now() * 0.001 : Date.now() * 0.001;
+
+        if (window.playerMode === 'soldier' && window.playerSoldier && !window.playerSoldier.isDead) {
+            const ps = window.playerSoldier;
+            const d = Math.hypot(ps.x - sx, ps.z - sz);
+            bestDist = d;
+            best = {
+                type: 'soldier',
+                ref: ps,
+                x: ps.x,
+                y: (ps.y || 0) + 1.2,
+                z: ps.z,
+                dist: d,
+                firedRecently: (nowSec - (ps.lastFireTime || 0) < 3.0) || (nowSec - (ps.lastGrenadeTime || 0) < 3.0)
+            };
+        } else if (window.tankState && !window.tankState.isKnockedOut && window.tankState.hasTank !== false) {
+            const ts = window.tankState;
+            const d = Math.hypot(ts.x - sx, ts.z - sz);
+            bestDist = d;
+            best = {
+                type: 'tank',
+                x: ts.x,
+                y: (ts.y || 0) + 1.2,
+                z: ts.z,
+                dist: d,
+                firedRecently: false
+            };
+        }
+
+        if (isMultiplayerHost() && window.multiplayerState && window.multiplayerState.remotePlayers) {
+            window.multiplayerState.remotePlayers.forEach((rp) => {
+                if (!rp || rp.isDead || rp.isKnockedOut) return;
+                const d = Math.hypot((rp.x || 0) - sx, (rp.z || 0) - sz);
+                if (d < bestDist) {
+                    bestDist = d;
+                    best = {
+                        type: rp.mode === 'soldier' ? 'soldier' : 'tank',
+                        x: rp.x || 0,
+                        y: (rp.y || 0) + 1.2,
+                        z: rp.z || 0,
+                        dist: d,
+                        firedRecently: false
+                    };
+                }
+            });
+        }
+        return best;
+    }
+
     class SoldierAI {
         constructor(id, faction, x, z, options = {}) {
             this.id = id;
@@ -2372,6 +2424,19 @@
             if (!this.isDead && window.tankState) {
                 const crushDist = Math.hypot(window.tankState.x - this.x, window.tankState.z - this.z);
                 if (crushDist < 2.3 && Math.abs(window.tankState.speed || 0) > 0.8) {
+                    this.die();
+                    return;
+                }
+            }
+            if (!this.isDead && isMultiplayerHost() && window.multiplayerState && window.multiplayerState.remotePlayers) {
+                let crushed = false;
+                window.multiplayerState.remotePlayers.forEach((rp) => {
+                    if (crushed || !rp || rp.mode !== 'tank' || rp.isDead || rp.isKnockedOut) return;
+                    if (Math.hypot((rp.x || 0) - this.x, (rp.z || 0) - this.z) < 2.3 && Math.abs(rp.speed || 0) > 0.8) {
+                        crushed = true;
+                    }
+                });
+                if (crushed) {
                     this.die();
                     return;
                 }
@@ -2533,59 +2598,24 @@
                     this.provokedTimer = 0;
                 }
 
-                if (window.playerMode === 'soldier' && window.playerSoldier && !window.playerSoldier.isDead) {
-                    const psRef = window.playerSoldier;
-                    this.currentTarget = {
-                        type: 'soldier',
-                        ref: psRef,
-                        x: psRef.x,
-                        y: psRef.y + 1.2,
-                        z: psRef.z,
-                        dist: dP
-                    };
-                    return;
-                } else if (window.tankState && !window.tankState.isKnockedOut && window.tankState.hasTank !== false) {
-                    this.currentTarget = {
-                        type: 'tank',
-                        x: window.tankState.x,
-                        y: (window.tankState.y || 0) + 1.2,
-                        z: window.tankState.z,
-                        dist: dP
-                    };
+                const nearestTarget = getNearestAlivePlayerForSoldier(this.x, this.z);
+                if (nearestTarget) {
+                    this.currentTarget = nearestTarget;
                     return;
                 }
             }
 
-            // In infantry mode, player is on foot as a soldier! (Detection ranges increased by 1.2)
-            if (window.playerMode === 'soldier' && window.playerSoldier && !window.playerSoldier.isDead) {
-                const ps = window.playerSoldier;
-                const dSoldier = Math.hypot(ps.x - this.x, ps.z - this.z);
-                const nowSec = performance.now() * 0.001;
-                const playerFiredRecently = (nowSec - (ps.lastFireTime || 0) < 3.0) || (nowSec - (ps.lastGrenadeTime || 0) < 3.0);
-                // In infantry mode player is hard to detect, only in close range (scaled 1.2x)
-                const detectDist = playerFiredRecently ? 80 : (22 * 1.2);
-
-                if (this.isEnemy && dSoldier < detectDist) {
-                    this.currentTarget = {
-                        type: 'soldier',
-                        ref: ps,
-                        x: ps.x,
-                        y: ps.y + 1.2,
-                        z: ps.z,
-                        dist: dSoldier
-                    };
-                    return;
-                }
-            } else {
-                // A. Check Player Tank (scaled 1.2x)
-                if (this.isEnemy && !window.tankState.isKnockedOut && window.tankState.hasTank !== false && distToPlayer < 155 * 1.2) {
-                    this.currentTarget = {
-                        type: 'tank',
-                        x: playerX,
-                        y: (window.tankState.y || 0) + 1.2,
-                        z: playerZ,
-                        dist: distToPlayer
-                    };
+            // Detect nearest alive player (Host or Client in multiplayer)
+            const nearestPlayer = getNearestAlivePlayerForSoldier(this.x, this.z);
+            if (this.isEnemy && nearestPlayer) {
+                if (nearestPlayer.type === 'soldier') {
+                    const detectDist = nearestPlayer.firedRecently ? 80 : (22 * 1.2);
+                    if (nearestPlayer.dist < detectDist) {
+                        this.currentTarget = nearestPlayer;
+                        return;
+                    }
+                } else if (nearestPlayer.dist < 155 * 1.2) {
+                    this.currentTarget = nearestPlayer;
                     return;
                 }
             }
@@ -2952,6 +2982,13 @@
         takeDamage(amount, isRemote = false) {
             if (this.isDead) return;
             if (isMultiplayerClient() && !isRemote) {
+                this.speed = -0.6;
+                this.recoilKick = 0.4;
+                if (typeof window.spawnParticle === 'function') {
+                    const puffPos = new THREE.Vector3(this.x, this.y + 1.2, this.z);
+                    const puffVel = new THREE.Vector3((Math.random() - 0.5) * 1.5, 1.0 + Math.random() * 1.5, (Math.random() - 0.5) * 1.5);
+                    window.spawnParticle(puffPos, puffVel, 0x882222, 0.12, 0.35, 0.45, false, 'smoke');
+                }
                 if (window.networkManager && typeof window.networkManager.sendSoldierHit === 'function') {
                     window.networkManager.sendSoldierHit(this.id, amount);
                 }
@@ -3409,24 +3446,49 @@
             }
 
             if (remoteClient) {
-                if (!s.isDead && s.netTarget) {
+                if (s.isDead) {
+                    if (typeof window.updateSoldierDeathAnimation === 'function') {
+                        window.updateSoldierDeathAnimation(s, dt);
+                    }
+                    continue;
+                }
+                let moving = false;
+                if (s.netTarget) {
                     const lf = Math.min(1.0, dt * 10.0);
-                    s.x += (s.netTarget.x - s.x) * lf;
+                    const dx = s.netTarget.x - s.x;
+                    const dz = s.netTarget.z - s.z;
+                    moving = (dx * dx + dz * dz) > 0.01;
+                    s.x += dx * lf;
                     s.y += (s.netTarget.y - s.y) * lf;
-                    s.z += (s.netTarget.z - s.z) * lf;
+                    s.z += dz * lf;
                     let diff = (s.netTarget.h - s.heading) % (Math.PI * 2);
                     if (diff < -Math.PI) diff += Math.PI * 2;
                     if (diff > Math.PI) diff -= Math.PI * 2;
                     s.heading += diff * lf;
                 }
+                s.animTime = (s.animTime || 0) + dt;
                 if (s.rig && s.rig.root) {
                     s.rig.root.position.set(s.x, s.y, s.z);
                     s.rig.root.rotation.y = s.heading;
+                    if (s.rig.rightLeg && s.rig.leftLeg) {
+                        const stride = moving ? Math.sin(s.animTime * 4.5) * 0.42 : 0;
+                        s.rig.rightLeg.hipJoint.rotation.x = stride;
+                        s.rig.leftLeg.hipJoint.rotation.x = -stride;
+                    }
                 }
                 continue;
             }
 
-            s.update(dt, playerX, playerZ, nowSec);
+            let targetPX = playerX;
+            let targetPZ = playerZ;
+            if (isMultiplayerHost()) {
+                const nearest = getNearestAlivePlayerForSoldier(s.x, s.z);
+                if (nearest) {
+                    targetPX = nearest.x;
+                    targetPZ = nearest.z;
+                }
+            }
+            s.update(dt, targetPX, targetPZ, nowSec);
         }
     }
 

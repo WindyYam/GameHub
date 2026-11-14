@@ -1346,6 +1346,7 @@
                 armor = ts.playerArmor !== undefined ? ts.playerArmor : 4;
                 maxArmor = ts.maxArmor !== undefined ? ts.maxArmor : 4;
                 isKO = !!ts.isKnockedOut;
+                isDead = (ts.hasTank === false) || !!ts.isKnockedOut;
             }
 
             this.broadcast({

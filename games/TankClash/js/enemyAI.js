@@ -562,20 +562,52 @@
             targetDead = true;
         }
 
-        const remoteClient = isMultiplayerClient();
+        const localTargetX = targetX;
+        const localTargetY = targetY;
+        const localTargetZ = targetZ;
+        const localTargetDead = targetDead;
+        const localIsInfantry = isInfantry;
 
-        // 1. DEGENERATE DISTANT ENEMY TANKS AND WRECKS: Player is away (> 280m)
+        const remoteClient = isMultiplayerClient();
+        const hostMP = isMultiplayerHost();
+        const combatPlayers = [{
+            x: localTargetX,
+            y: localTargetY,
+            z: localTargetZ,
+            dead: localTargetDead,
+            isInfantry: localIsInfantry
+        }];
+        if (hostMP && window.multiplayerState && window.multiplayerState.remotePlayers) {
+            window.multiplayerState.remotePlayers.forEach((rp) => {
+                if (!rp) return;
+                combatPlayers.push({
+                    x: rp.x || 0,
+                    y: rp.y || 0,
+                    z: rp.z || 0,
+                    dead: !!(rp.isDead || rp.isKnockedOut),
+                    isInfantry: rp.mode === 'soldier'
+                });
+            });
+        }
+        const alivePlayers = combatPlayers.filter(p => !p.dead);
+
+        // 1. DEGENERATE DISTANT ENEMY TANKS AND WRECKS: All alive players are away (> 280m)
         // Releases GPU meshes, collision bounding boxes, and burning particle systems, allowing new enemies to spawn in the zone
         if (!remoteClient) {
             for (let i = activeEnemyTanks.length - 1; i >= 0; i--) {
                 const e = activeEnemyTanks[i];
                 if (!e) continue;
 
-                const distToPlayer = Math.hypot(e.x - targetX, e.z - targetZ);
-                if (distToPlayer > DESPAWN_DIST) {
+                let minDist = Infinity;
+                const checkList = alivePlayers.length > 0 ? alivePlayers : combatPlayers;
+                for (let pi = 0; pi < checkList.length; pi++) {
+                    const d = Math.hypot(e.x - checkList[pi].x, e.z - checkList[pi].z);
+                    if (d < minDist) minDist = d;
+                }
+                if (minDist > DESPAWN_DIST) {
                     const eid = e.id;
                     e.dispose();
-                    if (isMultiplayerHost() && window.networkManager && typeof window.networkManager.sendEnemyDespawn === 'function') {
+                    if (hostMP && window.networkManager && typeof window.networkManager.sendEnemyDespawn === 'function') {
                         window.networkManager.sendEnemyDespawn(eid);
                     }
                     continue;
@@ -586,7 +618,8 @@
             enemySpawnCooldown -= dt;
             if (enemySpawnCooldown <= 0 && activeEnemyTanks.length < MAX_ZONE_ENEMIES) {
                 enemySpawnCooldown = SPAWN_INTERVAL_SEC;
-                spawnSingleFarEnemy(targetX, targetZ);
+                const spRef = (!targetDead || alivePlayers.length === 0) ? combatPlayers[0] : alivePlayers[0];
+                spawnSingleFarEnemy(spRef.x, spRef.z);
             }
         }
 
@@ -630,8 +663,8 @@
         }
 
         // In infantry mode, player is hard to detect, only in close range (all detection ranges increased by 1.2)
-        const maxDetectRange = playerShotRecently ? TANK_FIRE_PROVOKE_RANGE : (isInfantry ? 22 * 1.2 : 120 * 1.2);
-        const stealthBuffer = (isInfantry ? 18 : 32) * 1.2;
+        let maxDetectRange = playerShotRecently ? TANK_FIRE_PROVOKE_RANGE : (isInfantry ? 22 * 1.2 : 120 * 1.2);
+        let stealthBuffer = (isInfantry ? 18 : 32) * 1.2;
 
         for (let i = activeEnemyTanks.length - 1; i >= 0; i--) {
             const e = activeEnemyTanks[i];
@@ -723,6 +756,25 @@
                     e.state = 'ENGAGING';
                 }
             }
+
+            let chosenTarget = combatPlayers[0];
+            if (alivePlayers.length > 0) {
+                let bestD = Infinity;
+                for (let pi = 0; pi < alivePlayers.length; pi++) {
+                    const p = alivePlayers[pi];
+                    const d = Math.hypot(p.x - e.x, p.z - e.z);
+                    if (d < bestD) {
+                        bestD = d;
+                        chosenTarget = p;
+                    }
+                }
+            }
+            targetX = chosenTarget.x;
+            targetY = chosenTarget.y;
+            targetZ = chosenTarget.z;
+            targetDead = chosenTarget.dead;
+            maxDetectRange = playerShotRecently ? TANK_FIRE_PROVOKE_RANGE : (chosenTarget.isInfantry ? 22 * 1.2 : 120 * 1.2);
+            stealthBuffer = (chosenTarget.isInfantry ? 18 : 32) * 1.2;
 
             const dx = targetX - e.x;
             const dz = targetZ - e.z;
