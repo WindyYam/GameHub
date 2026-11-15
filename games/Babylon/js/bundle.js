@@ -10573,13 +10573,14 @@ function createPlayer(ctx) {
 
     hero.updatePose(state.pos, state.facingYaw, state.speed, state.walkPhase, state.timeSec, state.onGround, state.inWater, state.active, flying, sprint && flying, state.flightPitch, punchPhase, laserTarget);
 
-    const targetY = state.pos.y + (flying && state.speed > 1.5 ? 0.65 : 1.45);
+    // Offset camera and look target upward so the player sits in the lower third and doesn't block the view ahead
+    const targetY = state.pos.y + (flying && state.speed > 1.5 ? 1.45 : 2.15);
     const horiz = Math.cos(state.camPitch) * state.camDist;
     const vert = Math.sin(state.camPitch) * state.camDist;
     const camX = state.pos.x - Math.sin(state.camYaw) * horiz;
     const camZ = state.pos.z - Math.cos(state.camYaw) * horiz;
     const minCamY = ctx.ground.height(camX, camZ) + 0.75;
-    const camY = Math.max(minCamY, targetY + vert);
+    const camY = Math.max(minCamY, targetY + vert + 0.65);
     const dynFov = flying ? 54 + M.clamp((state.speed / BOOST_SPEED) * 12, 0, 12) : 54;
 
     return {
