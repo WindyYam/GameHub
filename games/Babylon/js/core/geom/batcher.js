@@ -293,7 +293,51 @@ export function makeBatcher(ctx, root, ao) {
     for (const b of dirty) { buildData(b); buildMesh(b); b.dirty = false; }
     for (const fam of families.values()) if (fam.dirty) buildFamily(fam);
     state.built += dirty.length;
+    aoBakedAll = false;
     return dirty.length;
+  }
+
+  let aoBakedAll = false;
+  function hasPending() {
+    for (const b of buckets.values()) if (b.dirty) return true;
+    for (const fam of families.values()) if (fam.dirty) return true;
+    return false;
+  }
+
+  /** Time-sliced finalize: processes nearest-to-camera dirty buckets/families within budgetMs. */
+  function finalizeStep(budgetMs = 4.5) {
+    const t0 = performance.now();
+    const dirty = [];
+    for (const b of buckets.values()) if (b.dirty) dirty.push(b);
+    if (dirty.length) {
+      if (!aoBakedAll) {
+        bakeAO(dirty);
+        aoBakedAll = true;
+        return { built: 0, remaining: dirty.length };
+      }
+      dirty.sort((a, b) => tileDistance(a.tx, a.tz, a.tile) - tileDistance(b.tx, b.tz, b.tile));
+      let built = 0;
+      for (let i = 0; i < dirty.length; i++) {
+        const b = dirty[i];
+        buildData(b); buildMesh(b); b.dirty = false;
+        built++;
+        if (performance.now() - t0 >= budgetMs) break;
+      }
+      state.built += built;
+      const remBuckets = dirty.length - built;
+      if (remBuckets === 0) aoBakedAll = false;
+      let remFam = 0;
+      for (const fam of families.values()) if (fam.dirty) remFam++;
+      return { built, remaining: remBuckets + remFam };
+    }
+    aoBakedAll = false;
+    let builtFam = 0, remFam = 0;
+    for (const fam of families.values()) {
+      if (!fam.dirty) continue;
+      if (builtFam === 0 || performance.now() - t0 < budgetMs) { buildFamily(fam); builtFam++; }
+      else remFam++;
+    }
+    return { built: builtFam, remaining: remFam };
   }
 
   /** Drop everything a module submitted that has not been built into meshes yet. */
@@ -389,5 +433,5 @@ export function makeBatcher(ctx, root, ao) {
   }
   const statsFor = (owner) => { const s = ownerStats.get(owner); return s ? { tris: s.tris, draws: s.buckets.size + s.sets, instances: s.instances, instancedTris: s.instancedTris, sets: s.sets } : { tris: 0, draws: 0, instances: 0, instancedTris: 0, sets: 0 }; };
 
-  return { state, buckets, families, statOf, limitShadow, addStatic, addShadowProxy, finalize, discard, update, registerLOD, unregisterLOD, lodObjects, lodDistance, tileDistance, gridDistance, lodJitter, stats, drawStats, statsFor, isOccluder };
+  return { state, buckets, families, statOf, limitShadow, addStatic, addShadowProxy, finalize, finalizeStep, hasPending, discard, update, registerLOD, unregisterLOD, lodObjects, lodDistance, tileDistance, gridDistance, lodJitter, stats, drawStats, statsFor, isOccluder };
 }

@@ -671,6 +671,19 @@ async function create(ctx) {
     if (built || setsBuilt) { geom.lastFinalize = { buckets: built, sets: setsBuilt, ms: Math.round(performance.now() - t0) }; if (show.report) show.report.finalize = geom.lastFinalize; }
     return built;
   }
+  function hasPendingFinalize() { return batcher.hasPending() || inst.hasPending(); }
+  function finalizeStep(budgetMs = 4.5) {
+    const t0 = performance.now();
+    const b = batcher.finalizeStep(budgetMs);
+    let s = { built: 0, remaining: inst.hasPending() ? 1 : 0 };
+    if (b.remaining === 0) {
+      const remMs = Math.max(1, budgetMs - (performance.now() - t0));
+      s = inst.finalizeStep(remMs);
+    }
+    const remaining = b.remaining + s.remaining;
+    if (remaining === 0) ao.clear();
+    return { built: b.built + s.built, remaining };
+  }
   function discard(owner) { batcher.discard(owner); inst.discard(owner); }
 
   const geom = {
@@ -715,6 +728,8 @@ async function create(ctx) {
     stats() { return { ...batcher.stats(), instancedSets: inst.sets.length }; },
     /** What the current frame draws from geom.root: { main: { calls, tris }, shadow: { casters, tris }, reflect: { calls, tris } }. */
     drawStats: batcher.drawStats,
+    finalizeStep,
+    hasPendingFinalize,
     lastFinalize: null,
   };
   return geom;
@@ -1229,7 +1244,51 @@ function makeBatcher(ctx, root, ao) {
     for (const b of dirty) { buildData(b); buildMesh(b); b.dirty = false; }
     for (const fam of families.values()) if (fam.dirty) buildFamily(fam);
     state.built += dirty.length;
+    aoBakedAll = false;
     return dirty.length;
+  }
+
+  let aoBakedAll = false;
+  function hasPending() {
+    for (const b of buckets.values()) if (b.dirty) return true;
+    for (const fam of families.values()) if (fam.dirty) return true;
+    return false;
+  }
+
+  /** Time-sliced finalize: processes nearest-to-camera dirty buckets/families within budgetMs. */
+  function finalizeStep(budgetMs = 4.5) {
+    const t0 = performance.now();
+    const dirty = [];
+    for (const b of buckets.values()) if (b.dirty) dirty.push(b);
+    if (dirty.length) {
+      if (!aoBakedAll) {
+        bakeAO(dirty);
+        aoBakedAll = true;
+        return { built: 0, remaining: dirty.length };
+      }
+      dirty.sort((a, b) => tileDistance(a.tx, a.tz, a.tile) - tileDistance(b.tx, b.tz, b.tile));
+      let built = 0;
+      for (let i = 0; i < dirty.length; i++) {
+        const b = dirty[i];
+        buildData(b); buildMesh(b); b.dirty = false;
+        built++;
+        if (performance.now() - t0 >= budgetMs) break;
+      }
+      state.built += built;
+      const remBuckets = dirty.length - built;
+      if (remBuckets === 0) aoBakedAll = false;
+      let remFam = 0;
+      for (const fam of families.values()) if (fam.dirty) remFam++;
+      return { built, remaining: remBuckets + remFam };
+    }
+    aoBakedAll = false;
+    let builtFam = 0, remFam = 0;
+    for (const fam of families.values()) {
+      if (!fam.dirty) continue;
+      if (builtFam === 0 || performance.now() - t0 < budgetMs) { buildFamily(fam); builtFam++; }
+      else remFam++;
+    }
+    return { built: builtFam, remaining: remFam };
   }
 
   /** Drop everything a module submitted that has not been built into meshes yet. */
@@ -1325,7 +1384,7 @@ function makeBatcher(ctx, root, ao) {
   }
   const statsFor = (owner) => { const s = ownerStats.get(owner); return s ? { tris: s.tris, draws: s.buckets.size + s.sets, instances: s.instances, instancedTris: s.instancedTris, sets: s.sets } : { tris: 0, draws: 0, instances: 0, instancedTris: 0, sets: 0 }; };
 
-  return { state, buckets, families, statOf, limitShadow, addStatic, addShadowProxy, finalize, discard, update, registerLOD, unregisterLOD, lodObjects, lodDistance, tileDistance, gridDistance, lodJitter, stats, drawStats, statsFor, isOccluder };
+  return { state, buckets, families, statOf, limitShadow, addStatic, addShadowProxy, finalize, finalizeStep, hasPending, discard, update, registerLOD, unregisterLOD, lodObjects, lodDistance, tileDistance, gridDistance, lodJitter, stats, drawStats, statsFor, isOccluder };
 }
 Object.assign(module.exports, { TILE, makeBatcher });
 
@@ -2077,6 +2136,18 @@ function makeInstancing(ctx, root, batcher, ao) {
   }
 
   function finalize() { let n = 0; for (const s of sets) if (!s.dynamic && s._dirty) { s._build(); n++; } return n; }
+  function finalizeStep(budgetMs = 4) {
+    const t0 = performance.now();
+    let n = 0, rem = 0;
+    for (const s of sets) {
+      if (!s.dynamic && s._dirty) {
+        if (n === 0 || performance.now() - t0 < budgetMs) { s._build(); n++; }
+        else rem++;
+      }
+    }
+    return { built: n, remaining: rem };
+  }
+  function hasPending() { for (const s of sets) if (!s.dynamic && s._dirty) return true; return false; }
   function discard(owner) {
     for (let i = sets.length - 1; i >= 0; i--) {
       if (sets[i].owner !== owner) continue;
@@ -2102,7 +2173,7 @@ function makeInstancing(ctx, root, batcher, ao) {
       if (want === 'cell') { for (const m of f.children) root.remove(m); root.add(f.parent); } else { root.remove(f.parent); for (const m of f.children) root.add(m); }
     }
   }
-  return { instanced, instancedLOD, finalize, discard, update, sets, toMatrix };
+  return { instanced, instancedLOD, finalize, finalizeStep, hasPending, discard, update, sets, toMatrix };
 }
 Object.assign(module.exports, { makeInstancing });
 
@@ -17130,9 +17201,10 @@ async function create(ctx) {
     };
     const h0 = M.clamp(1.7 * h + 80, 80, 2600);
     const A = win(h0, S.size, 0.62), B = win(h0 * 4, S.size / 2, 0.5);
-    buildWakes(frame.t, B.cx, B.cz, B.half, A.texel);
+    const wt = frame.animTime ?? frame.t;
+    buildWakes(wt, B.cx, B.cz, B.half, A.texel);
     Object.assign(wakeState.near, A); Object.assign(wakeState.far, B);
-    wakeU.uTime.value = frame.t;
+    wakeU.uTime.value = wt;
     const prev = renderer.getRenderTarget(); renderer.getClearColor(_cc); const prevA = renderer.getClearAlpha();
     renderer.setClearColor(0x000000, 0);
     [A, B].forEach((w, i) => {
@@ -17649,12 +17721,27 @@ async function boot() {
 
   ctx.streamRemainingCount = () => updateModules.streamRemaining ? updateModules.streamRemaining() : 0;
   ctx.streamQueueNames = () => updateModules.streamQueueNames ? updateModules.streamQueueNames() : [];
+  ctx.streamStep = async (budgetMs = 4.5) => {
+    if (ctx.geom.hasPendingFinalize && ctx.geom.hasPendingFinalize()) {
+      const tf = performance.now();
+      const r = ctx.geom.finalizeStep(budgetMs);
+      if (r.remaining === 0) {
+        ctx.materials.adopt(scene);
+        if (ctx.octree) ctx.octree.syncNewMeshes();
+      }
+      return { phase: 'finalize', ms: Math.round(performance.now() - tf), ...r };
+    }
+    if (!updateModules.streamNext) return null;
+    const res = await updateModules.streamNext();
+    if (!res) return null;
+    bootProfile.streamedModules[res.name] = { buildMs: res.ms };
+    return { phase: 'build', ...res };
+  };
   ctx.streamNext = async () => {
     if (!updateModules.streamNext) return null;
     const ts = performance.now();
     const res = await updateModules.streamNext();
     if (!res) return null;
-    // Yield a frame between build() and GPU finalize/octree sync so gameplay stays responsive
     await new Promise((r) => requestAnimationFrame(r));
     const tf = performance.now();
     ctx.geom.finalize();
@@ -42550,17 +42637,35 @@ async function start() {
   const totalStreamCount = ctx.streamRemainingCount ? ctx.streamRemainingCount() : 0;
 
   function stepStreaming(now, dt) {
-    if (streamingBusy || !ctx.streamNext || !ctx.streamRemainingCount || ctx.streamRemainingCount() <= 0) return;
+    if (streamingBusy || !ctx.streamStep) return;
+    const pendingFin = ctx.geom.hasPendingFinalize && ctx.geom.hasPendingFinalize();
+    const remMod = ctx.streamRemainingCount ? ctx.streamRemainingCount() : 0;
+    if (!pendingFin && remMod <= 0) return;
+
+    if (pendingFin) {
+      // Micro-job finalize: ~4ms slice per frame (skip if previous frame was heavy)
+      if (dt > 0.036 && now < nextStreamAt) return;
+      streamingBusy = true;
+      ctx.streamStep(4.0).then((res) => {
+        if (res && res.remaining === 0) {
+          nextStreamAt = performance.now() + 260;
+          if (ctx.streamRemainingCount() === 0 && window.STATS && window.STATS.bootProfile) {
+            console.info('[engine] all streamed modules loaded:', JSON.stringify(window.STATS.bootProfile.streamedModules));
+          }
+        }
+      }).finally(() => {
+        streamingBusy = false;
+        if (!gameMode) dirty = true;
+      });
+      return;
+    }
+
     if (now < nextStreamAt) return;
-    // If the frame is still heavy (e.g. shader compilation), defer slightly up to 1.2s
     if (dt > 0.032 && now < nextStreamAt + 1200) return;
     streamingBusy = true;
-    ctx.streamNext().then((res) => {
-      const cost = res ? res.totalMs : 100;
-      nextStreamAt = performance.now() + Math.max(350, Math.min(2500, cost * 2.5));
-      if (res && ctx.streamRemainingCount() === 0 && window.STATS && window.STATS.bootProfile) {
-        console.info('[engine] all streamed modules loaded:', JSON.stringify(window.STATS.bootProfile.streamedModules));
-      }
+    ctx.streamStep(4.0).then((res) => {
+      const cost = res ? (res.ms || 60) : 60;
+      nextStreamAt = performance.now() + Math.max(300, Math.min(2000, cost * 2.0));
     }).catch(() => {
       nextStreamAt = performance.now() + 500;
     }).finally(() => {

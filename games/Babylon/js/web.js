@@ -566,17 +566,35 @@ async function start() {
   const totalStreamCount = ctx.streamRemainingCount ? ctx.streamRemainingCount() : 0;
 
   function stepStreaming(now, dt) {
-    if (streamingBusy || !ctx.streamNext || !ctx.streamRemainingCount || ctx.streamRemainingCount() <= 0) return;
+    if (streamingBusy || !ctx.streamStep) return;
+    const pendingFin = ctx.geom.hasPendingFinalize && ctx.geom.hasPendingFinalize();
+    const remMod = ctx.streamRemainingCount ? ctx.streamRemainingCount() : 0;
+    if (!pendingFin && remMod <= 0) return;
+
+    if (pendingFin) {
+      // Micro-job finalize: ~4ms slice per frame (skip if previous frame was heavy)
+      if (dt > 0.036 && now < nextStreamAt) return;
+      streamingBusy = true;
+      ctx.streamStep(4.0).then((res) => {
+        if (res && res.remaining === 0) {
+          nextStreamAt = performance.now() + 260;
+          if (ctx.streamRemainingCount() === 0 && window.STATS && window.STATS.bootProfile) {
+            console.info('[engine] all streamed modules loaded:', JSON.stringify(window.STATS.bootProfile.streamedModules));
+          }
+        }
+      }).finally(() => {
+        streamingBusy = false;
+        if (!gameMode) dirty = true;
+      });
+      return;
+    }
+
     if (now < nextStreamAt) return;
-    // If the frame is still heavy (e.g. shader compilation), defer slightly up to 1.2s
     if (dt > 0.032 && now < nextStreamAt + 1200) return;
     streamingBusy = true;
-    ctx.streamNext().then((res) => {
-      const cost = res ? res.totalMs : 100;
-      nextStreamAt = performance.now() + Math.max(350, Math.min(2500, cost * 2.5));
-      if (res && ctx.streamRemainingCount() === 0 && window.STATS && window.STATS.bootProfile) {
-        console.info('[engine] all streamed modules loaded:', JSON.stringify(window.STATS.bootProfile.streamedModules));
-      }
+    ctx.streamStep(4.0).then((res) => {
+      const cost = res ? (res.ms || 60) : 60;
+      nextStreamAt = performance.now() + Math.max(300, Math.min(2000, cost * 2.0));
     }).catch(() => {
       nextStreamAt = performance.now() + 500;
     }).finally(() => {

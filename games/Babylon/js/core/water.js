@@ -1215,9 +1215,10 @@ export async function create(ctx) {
     };
     const h0 = M.clamp(1.7 * h + 80, 80, 2600);
     const A = win(h0, S.size, 0.62), B = win(h0 * 4, S.size / 2, 0.5);
-    buildWakes(frame.t, B.cx, B.cz, B.half, A.texel);
+    const wt = frame.animTime ?? frame.t;
+    buildWakes(wt, B.cx, B.cz, B.half, A.texel);
     Object.assign(wakeState.near, A); Object.assign(wakeState.far, B);
-    wakeU.uTime.value = frame.t;
+    wakeU.uTime.value = wt;
     const prev = renderer.getRenderTarget(); renderer.getClearColor(_cc); const prevA = renderer.getClearAlpha();
     renderer.setClearColor(0x000000, 0);
     [A, B].forEach((w, i) => {

@@ -140,6 +140,18 @@ export function makeInstancing(ctx, root, batcher, ao) {
   }
 
   function finalize() { let n = 0; for (const s of sets) if (!s.dynamic && s._dirty) { s._build(); n++; } return n; }
+  function finalizeStep(budgetMs = 4) {
+    const t0 = performance.now();
+    let n = 0, rem = 0;
+    for (const s of sets) {
+      if (!s.dynamic && s._dirty) {
+        if (n === 0 || performance.now() - t0 < budgetMs) { s._build(); n++; }
+        else rem++;
+      }
+    }
+    return { built: n, remaining: rem };
+  }
+  function hasPending() { for (const s of sets) if (!s.dynamic && s._dirty) return true; return false; }
   function discard(owner) {
     for (let i = sets.length - 1; i >= 0; i--) {
       if (sets[i].owner !== owner) continue;
@@ -165,5 +177,5 @@ export function makeInstancing(ctx, root, batcher, ao) {
       if (want === 'cell') { for (const m of f.children) root.remove(m); root.add(f.parent); } else { root.remove(f.parent); for (const m of f.children) root.add(m); }
     }
   }
-  return { instanced, instancedLOD, finalize, discard, update, sets, toMatrix };
+  return { instanced, instancedLOD, finalize, finalizeStep, hasPending, discard, update, sets, toMatrix };
 }

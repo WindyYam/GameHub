@@ -128,6 +128,19 @@ export async function create(ctx) {
     if (built || setsBuilt) { geom.lastFinalize = { buckets: built, sets: setsBuilt, ms: Math.round(performance.now() - t0) }; if (show.report) show.report.finalize = geom.lastFinalize; }
     return built;
   }
+  function hasPendingFinalize() { return batcher.hasPending() || inst.hasPending(); }
+  function finalizeStep(budgetMs = 4.5) {
+    const t0 = performance.now();
+    const b = batcher.finalizeStep(budgetMs);
+    let s = { built: 0, remaining: inst.hasPending() ? 1 : 0 };
+    if (b.remaining === 0) {
+      const remMs = Math.max(1, budgetMs - (performance.now() - t0));
+      s = inst.finalizeStep(remMs);
+    }
+    const remaining = b.remaining + s.remaining;
+    if (remaining === 0) ao.clear();
+    return { built: b.built + s.built, remaining };
+  }
   function discard(owner) { batcher.discard(owner); inst.discard(owner); }
 
   const geom = {
@@ -172,6 +185,8 @@ export async function create(ctx) {
     stats() { return { ...batcher.stats(), instancedSets: inst.sets.length }; },
     /** What the current frame draws from geom.root: { main: { calls, tris }, shadow: { casters, tris }, reflect: { calls, tris } }. */
     drawStats: batcher.drawStats,
+    finalizeStep,
+    hasPendingFinalize,
     lastFinalize: null,
   };
   return geom;

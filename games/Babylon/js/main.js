@@ -216,12 +216,27 @@ async function boot() {
 
   ctx.streamRemainingCount = () => updateModules.streamRemaining ? updateModules.streamRemaining() : 0;
   ctx.streamQueueNames = () => updateModules.streamQueueNames ? updateModules.streamQueueNames() : [];
+  ctx.streamStep = async (budgetMs = 4.5) => {
+    if (ctx.geom.hasPendingFinalize && ctx.geom.hasPendingFinalize()) {
+      const tf = performance.now();
+      const r = ctx.geom.finalizeStep(budgetMs);
+      if (r.remaining === 0) {
+        ctx.materials.adopt(scene);
+        if (ctx.octree) ctx.octree.syncNewMeshes();
+      }
+      return { phase: 'finalize', ms: Math.round(performance.now() - tf), ...r };
+    }
+    if (!updateModules.streamNext) return null;
+    const res = await updateModules.streamNext();
+    if (!res) return null;
+    bootProfile.streamedModules[res.name] = { buildMs: res.ms };
+    return { phase: 'build', ...res };
+  };
   ctx.streamNext = async () => {
     if (!updateModules.streamNext) return null;
     const ts = performance.now();
     const res = await updateModules.streamNext();
     if (!res) return null;
-    // Yield a frame between build() and GPU finalize/octree sync so gameplay stays responsive
     await new Promise((r) => requestAnimationFrame(r));
     const tf = performance.now();
     ctx.geom.finalize();
