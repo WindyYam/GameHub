@@ -1,0 +1,289 @@
+<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<title>Babylon c. 575 BCE (Copy)</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: the film fills the screen edge to edge; its own overlay (title, caption, preset and light bar) floats on it,
+   and one glass transport bar hugs the bottom edge. One committed dark look, like a night screening. */
+:root {
+  --night: #0c0d11;                       /* ground behind the canvas and the loader */
+  --ink: #f4f1ea;                         /* text on glass and on the image */
+  --ink-dim: rgba(244, 241, 234, 0.68);
+  --glass: rgba(20, 19, 22, 0.5);
+  --glass-strong: rgba(12, 13, 17, 0.84);
+  --hair: rgba(255, 255, 255, 0.14);
+  --gold: #e8cf9c;                        /* progress, focus, the free-look chip */
+  --lapis: rgba(61, 95, 196, 0.62);       /* glazed-brick blue: a light mode the viewer has pinned */
+  --lapis-line: rgba(168, 190, 255, 0.5);
+  --warn: #f2b8a0;
+  --serif: "Iowan Old Style", "Palatino", "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  --sans: "Avenir Next", "Avenir", "Helvetica Neue", "Segoe UI", system-ui, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --transport: 56px;                      /* height of the transport bar plus its bottom margin */
+  color-scheme: dark;
+}
+html, body { height: 100%; overflow: hidden; background: var(--night); color: var(--ink); }
+body { margin: 0; font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+button { font: inherit; }
+
+#c { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+#c:active { cursor: grabbing; }
+body.idle #c { cursor: none; }
+#boot { display: none; }
+
+/* ---- the film's overlay (js/core/hud.js), sized in vh like the film, with floors for small screens ---------------- */
+#hud {
+  position: fixed; z-index: 2; pointer-events: none;
+  top: env(safe-area-inset-top, 0px); right: env(safe-area-inset-right, 0px); bottom: env(safe-area-inset-bottom, 0px); left: env(safe-area-inset-left, 0px);
+  color: var(--ink); font-family: var(--serif);
+}
+#hud.bbl { -webkit-font-smoothing: antialiased; text-rendering: geometricPrecision; font-kerning: normal; }
+#hud.bbl > * { opacity: 0; }
+#hud.bbl .title { position: absolute; left: max(16px, 3.1vw); top: 4.4vh; text-shadow: 0 0.1vh 1.2vh rgba(0, 0, 0, 0.55), 0 0 0.35vh rgba(0, 0, 0, 0.4); }
+#hud.bbl .title .t { font: 500 max(15px, 2.45vh)/1 var(--serif); letter-spacing: 0.36em; }
+#hud.bbl .title .s { font: italic 400 max(11px, 1.36vh)/1 var(--serif); letter-spacing: 0.035em; margin-top: 1.05vh; color: rgba(244, 241, 234, 0.9); }
+
+#hud.bbl .barwrap { position: absolute; left: 0; right: 0; bottom: calc(var(--transport) + 10px); display: flex; justify-content: center; opacity: 1 !important; }
+#hud.bbl .bar {
+  display: flex; align-items: center; padding: 4px; box-sizing: border-box; margin: 0 auto;
+  border-radius: 13px; background: var(--glass); border: 1px solid var(--hair);
+  -webkit-backdrop-filter: blur(14px) saturate(1.25); backdrop-filter: blur(14px) saturate(1.25);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  font: 500 max(10px, 1.08vh)/1 var(--sans); letter-spacing: 0.085em; text-transform: uppercase; white-space: nowrap;
+}
+#hud.bbl .grp { display: flex; align-items: center; gap: 1px; }
+#hud.bbl .pill { padding: 0.72em 0.7em 0.68em; border-radius: 9px; color: rgba(244, 241, 234, 0.66); pointer-events: auto; cursor: pointer; transition: color 0.15s, background-color 0.15s; }
+#hud.bbl .pill:hover { color: var(--ink); background: rgba(255, 255, 255, 0.07); }
+#hud.bbl .pill.on {
+  color: #fffaf0;
+  background: rgba(255, 238, 208, calc(0.135 + 0.24 * var(--press, 0)));
+  box-shadow: inset 0 0 0 1px rgba(255, 244, 224, calc(0.05 + 0.2 * var(--press, 0)));
+}
+#hud.bbl .bar[data-pinned] .modes .pill.on { background: var(--lapis); box-shadow: inset 0 0 0 1px var(--lapis-line); }
+#hud.bbl .sep { display: block; width: 1px; height: 1.6em; margin: 0 0.5em; background: rgba(255, 255, 255, 0.2); }
+
+#hud.bbl .cap { position: absolute; left: max(16px, 3.1vw); top: 11.4vh; display: flex; justify-content: flex-start; margin-left: -0.75vw; }
+#hud.bbl .cap span {
+  display: block; max-width: 93vw; padding: 0.82vh 0.95vw 0.88vh 0.75vw; box-sizing: border-box; white-space: nowrap;
+  font: 400 max(12px, 1.66vh)/1.3 var(--serif); letter-spacing: 0.006em; color: var(--ink);
+  background: rgba(17, 16, 15, 0.34); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 0.95vh;
+  text-shadow: 0 0 0.5vh rgba(0, 0, 0, 0.35);
+  -webkit-backdrop-filter: blur(1.1vh); backdrop-filter: blur(1.1vh);
+}
+#hud.bbl .end {
+  position: absolute; right: max(16px, 2.6vw); top: 9.2vh; width: 29.8vw; min-width: 300px; box-sizing: border-box; padding: 1.75vh 1.45vw 1.6vh;
+  background: rgba(13, 14, 19, 0.56); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 1.5vh;
+  -webkit-backdrop-filter: blur(1.6vh); backdrop-filter: blur(1.6vh);
+}
+#hud.bbl .end .h { font: 600 max(9.5px, 0.98vh)/1 var(--sans); letter-spacing: 0.17em; text-transform: uppercase; color: rgba(244, 241, 234, 0.7); padding-bottom: 1.05vh; margin-bottom: 0.35vh; border-bottom: 1px solid rgba(255, 255, 255, 0.11); }
+#hud.bbl .end p { margin: 0.8vh 0 0; font: 400 max(11px, 1.3vh)/1.43 var(--serif); color: rgba(244, 241, 234, 0.95); }
+#hud.bbl .end p span { white-space: nowrap; }
+#hud.bbl .end b { font: 600 max(9px, 0.95vh)/1 var(--sans); letter-spacing: 0.12em; text-transform: uppercase; color: var(--gold); margin-right: 0.7em; white-space: nowrap; }
+#hud.bbl .dbg, #hud.bbl .tag { display: none !important; }
+
+/* ---- transport bar ---------------------------------------------------------------------------------------------- */
+#ui {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 3; display: flex; justify-content: center; pointer-events: none;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0 calc(12px + env(safe-area-inset-bottom, 0px));
+  transition: opacity 0.45s ease;
+}
+body.idle #ui { opacity: 0; }
+#ui .row {
+  pointer-events: auto; width: 100%; max-width: 980px; height: 44px; box-sizing: border-box;
+  display: flex; align-items: center; gap: 10px; padding-inline: 6px 8px;
+  border-radius: 14px; background: var(--glass); border: 1px solid var(--hair);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2); backdrop-filter: blur(14px) saturate(1.2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+.ico { flex: none; width: 32px; height: 32px; padding: 0; border: 0; border-radius: 9px; background: transparent; color: var(--ink); display: grid; place-items: center; cursor: pointer; }
+.ico:hover { background: rgba(255, 255, 255, 0.1); }
+.ico svg { width: 16px; height: 16px; fill: currentColor; display: none; }
+#play[data-state="play"] .i-play, #play[data-state="pause"] .i-pause, #play[data-state="replay"] .i-replay { display: block; }
+#fs .i-enter, #fs[data-state="exit"] .i-exit { display: block; }
+#fs[data-state="exit"] .i-enter { display: none; }
+.time { flex: none; min-width: 7.6em; font: 500 12px/1 var(--sans); font-variant-numeric: tabular-nums; letter-spacing: 0.02em; color: var(--ink-dim); }
+
+#tl { position: relative; flex: 1 1 auto; min-width: 60px; height: 32px; display: flex; align-items: center; cursor: pointer; touch-action: none; border-radius: 6px; }
+#tl .track { position: relative; width: 100%; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, 0.14); overflow: hidden; transition: height 0.15s; }
+#tl:hover .track, #tl:focus-visible .track { height: 6px; }
+#tl-segs i { position: absolute; top: 0; bottom: 0; background: rgba(255, 255, 255, 0.2); }
+#tl-fill { position: absolute; inset: 0; background: var(--gold); transform-origin: 0 50%; transform: scaleX(0); opacity: 0.9; }
+#tl-head { position: absolute; top: 50%; left: 0; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; background: var(--ink); box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.28); pointer-events: none; }
+#tl-tip {
+  position: absolute; bottom: 36px; left: 0; transform: translateX(-50%); white-space: nowrap; pointer-events: none;
+  font: 500 11px/1 var(--sans); letter-spacing: 0.04em; font-variant-numeric: tabular-nums;
+  padding: 7px 9px; border-radius: 8px; background: var(--glass-strong); border: 1px solid var(--hair); color: var(--ink);
+}
+
+.chip { flex: none; display: flex; align-items: center; gap: 8px; font: 600 10.5px/1 var(--sans); letter-spacing: 0.12em; text-transform: uppercase; color: var(--gold); }
+.txt {
+  flex: none; height: 30px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--hair); background: transparent; color: var(--ink);
+  font: 600 10.5px/1 var(--sans); letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; white-space: nowrap;
+}
+.txt:hover { background: rgba(255, 255, 255, 0.08); }
+.txt.on { color: var(--night); background: var(--gold); border-color: transparent; }
+#back { color: var(--night); background: var(--gold); border-color: transparent; }
+#back:hover { background: #f3dfb4; }
+.short { display: none; }
+
+/* ---- third-person game HUD ------------------------------------------------------------------------------------ */
+#game-hud {
+  position: fixed; top: max(12px, env(safe-area-inset-top, 0px)); right: max(16px, env(safe-area-inset-right, 0px));
+  z-index: 4; display: flex; flex-direction: column; align-items: flex-end; gap: 6px; pointer-events: none;
+}
+#game-hud[hidden] { display: none !important; }
+#game-hud .panel {
+  pointer-events: auto; display: flex; align-items: center; gap: 8px; padding: 6px 10px;
+  border-radius: 12px; background: var(--glass); border: 1px solid var(--hair);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2); backdrop-filter: blur(14px) saturate(1.2);
+  font: 500 11.5px/1 var(--sans); color: var(--ink);
+}
+#tod-slider { width: 88px; accent-color: var(--gold); cursor: pointer; }
+#tod-label { min-width: 118px; font-variant-numeric: tabular-nums; color: var(--gold); letter-spacing: 0.03em; }
+#oct-stats { font: 500 10.5px/1 var(--mono); color: var(--ink-dim); letter-spacing: 0.02em; }
+#game-keys {
+  position: fixed; left: max(16px, env(safe-area-inset-left, 0px)); top: max(14px, env(safe-area-inset-top, 0px));
+  z-index: 4; pointer-events: none; padding: 7px 11px; border-radius: 10px;
+  background: var(--glass); border: 1px solid var(--hair);
+  -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+  font: 500 11px/1.35 var(--sans); color: var(--ink-dim); letter-spacing: 0.02em;
+}
+#game-keys[hidden] { display: none !important; }
+#game-keys b { color: var(--gold); font-weight: 600; }
+#game-landmarks { display: flex; align-items: center; gap: 4px; overflow-x: auto; flex: 1 1 auto; scrollbar-width: none; }
+#game-landmarks::-webkit-scrollbar { display: none; }
+#game-landmarks[hidden], .game-only[hidden], .film-only[hidden] { display: none !important; }
+
+/* ---- loader --------------------------------------------------------------------------------------------------- */
+#loader { position: fixed; inset: 0; z-index: 10; background: var(--night); transition: opacity 0.8s ease; }
+#loader.done { opacity: 0; pointer-events: none; }
+#loader .poster { position: absolute; inset: 0; background: var(--night) url(poster.jpg) center / cover no-repeat; }
+#loader .poster::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(to top, rgba(10, 10, 13, 0.94) 0%, rgba(10, 10, 13, 0.78) 30%, rgba(10, 10, 13, 0.2) 62%, rgba(10, 10, 13, 0) 100%);
+}
+#loader .ld {
+  position: absolute; left: 0; bottom: 0; box-sizing: border-box; width: 100%; max-width: 820px; display: grid; gap: 14px;
+  padding-left: max(16px, 4vw, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0 calc(32px + env(safe-area-inset-bottom, 0px));
+}
+.eyebrow { margin: 0; font: 600 11px/1 var(--sans); letter-spacing: 0.22em; text-transform: uppercase; color: var(--gold); }
+#loader h1 { margin: 0; font: 500 clamp(40px, 7.2vw, 88px)/1 var(--serif); letter-spacing: 0.32em; text-transform: uppercase; text-wrap: balance; }
+.sub { margin: -4px 0 0; font: italic 400 clamp(15px, 1.6vw, 20px)/1.3 var(--serif); color: var(--ink-dim); }
+.lede { margin: 0; max-width: 62ch; font: 400 15.5px/1.55 var(--serif); color: rgba(244, 241, 234, 0.88); }
+.prog { display: grid; gap: 8px; max-width: 520px; margin-top: 6px; }
+.prog-line { display: flex; justify-content: space-between; gap: 16px; font: italic 400 14px/1.2 var(--serif); color: var(--ink); }
+#ld-count { font: 500 12px/1.2 var(--sans); font-style: normal; font-variant-numeric: tabular-nums; color: var(--ink-dim); white-space: nowrap; }
+.prog-track { height: 2px; border-radius: 1px; background: rgba(255, 255, 255, 0.16); overflow: hidden; }
+#ld-bar { display: block; height: 100%; background: var(--gold); transform-origin: 0 50%; transform: scaleX(0); transition: transform 0.25s ease; }
+#ld-err { margin: 0; max-height: 28vh; overflow: auto; white-space: pre-wrap; font: 12px/1.45 var(--mono); color: var(--warn); }
+#loader.failed .prog-track { display: none; }
+.note { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; font: 400 13px/1.45 var(--sans); color: var(--ink-dim); max-width: 64ch; }
+.keys { margin: 0; font: 500 11.5px/1.4 var(--sans); letter-spacing: 0.04em; color: rgba(244, 241, 234, 0.5); }
+
+/* ---- fault ---------------------------------------------------------------------------------------------------- */
+#fault { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; background: rgba(8, 8, 11, 0.7); padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+#fault .card { max-width: 420px; display: grid; gap: 14px; justify-items: start; padding: 22px 24px; border-radius: 14px; background: var(--glass-strong); border: 1px solid var(--hair); }
+#fault p { margin: 0; font: 400 16px/1.5 var(--serif); }
+
+/* ---- small screens -------------------------------------------------------------------------------------------- */
+@media (max-width: 720px) {
+  #hud.bbl .title { left: 16px; }
+  #hud.bbl .cap { left: 16px; right: 16px; margin-left: 0; }
+  #hud.bbl .cap span { white-space: normal; max-width: 100%; padding: 8px 10px; }
+  #hud.bbl .end { left: 16px; right: 16px; width: auto; min-width: 0; top: auto; bottom: calc(var(--transport) + 64px); max-height: 46vh; overflow: auto; padding: 12px 14px; }
+  #hud.bbl .end p span { white-space: normal; }
+  #hud.bbl .barwrap { justify-content: flex-start; overflow-x: auto; padding-inline: 16px; pointer-events: auto; scrollbar-width: none; }
+  #hud.bbl .barwrap::-webkit-scrollbar { display: none; }
+  .time, .long, .chip > span { display: none; }
+  .short { display: inline; }
+  #ui .row { gap: 6px; }
+  .lede { font-size: 14.5px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #loader, #ui, #ld-bar, #tl .track, #hud.bbl .pill { transition: none; }
+}
+</style>
+
+<canvas id="c" aria-label="Live 3D view of Babylon. Drag to look around."></canvas>
+<div id="hud"></div>
+<div id="boot" hidden></div>
+
+<section id="loader" aria-live="polite">
+  <div class="poster" role="img" aria-label="The Ishtar Gate and the double city wall from the north-west in afternoon light"></div>
+  <div class="ld">
+    <p class="eyebrow">A reconstruction at true scale</p>
+    <h1>Babylon</h1>
+    <p class="sub">c. 575 BCE, late in the reign of Nebuchadnezzar II</p>
+    <p class="lede">The inner city on both banks of the Euphrates, built at one unit to the metre from the excavation plans: the double wall, the Ishtar Gate, Etemenanki, the South Palace and some 20,000 courtyard houses. Ten shots on one continuous camera path, a little over a minute long.</p>
+    <div class="prog">
+      <div class="prog-line"><span id="ld-status">Loading the engine</span><span id="ld-count"></span></div>
+      <div class="prog-track"><i id="ld-bar"></i></div>
+    </div>
+    <pre id="ld-err" hidden></pre>
+    <p class="note"><span id="ld-note"></span><button id="ld-alt" class="txt" type="button"></button></p>
+    <p class="keys">Drag to look around, wheel or pinch to move · Space pauses · ← → jump between shots</p>
+  </div>
+</section>
+
+<div id="game-keys" hidden>
+  <b>WASD / Arrows</b> Move · <b>Shift</b> Sprint · <b>Space</b> Jump · <b>Drag</b> Look · <b>Scroll</b> Zoom · <b>F</b> Glide
+</div>
+
+<div id="game-hud" hidden>
+  <div class="panel">
+    <span id="tod-label">10:30 · Morning</span>
+    <input id="tod-slider" type="range" min="0" max="1000" value="150" aria-label="Time of day">
+    <button id="tod-play" class="txt" type="button">Pause Sun</button>
+    <button id="tod-speed" class="txt" type="button">1x</button>
+  </div>
+  <div class="panel">
+    <span id="oct-stats">Octree: -- · LOD: 1.0x · -- FPS</span>
+    <button id="oct-toggle" class="txt on" type="button">Octree On</button>
+  </div>
+</div>
+
+<div id="ui" hidden>
+  <div class="row">
+    <button id="mode-btn" class="txt on" type="button">Film Mode</button>
+    <button id="play" class="ico film-only" type="button" data-state="pause" aria-label="Pause">
+      <svg class="i-play" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v11a.5.5 0 0 0 .77.42l8.5-5.5a.5.5 0 0 0 0-.84l-8.5-5.5A.5.5 0 0 0 4 2.5z"/></svg>
+      <svg class="i-pause" viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="2.5" width="3" height="11" rx="0.8"/><rect x="9.5" y="2.5" width="3" height="11" rx="0.8"/></svg>
+      <svg class="i-replay" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5a5.5 5.5 0 1 1-5.2 3.7.75.75 0 0 1 1.42.49A4 4 0 1 0 8 4h-.6l1.08 1.08a.75.75 0 0 1-1.06 1.06L5.06 3.78a.75.75 0 0 1 0-1.06L7.42.36a.75.75 0 1 1 1.06 1.06L7.4 2.5H8z"/></svg>
+    </button>
+    <span id="time" class="time film-only">0:00 / 1:06</span>
+    <div id="tl" class="film-only" role="slider" tabindex="0" aria-label="Position in the film" aria-valuemin="0" aria-valuemax="66" aria-valuenow="0">
+      <div class="track"><div id="tl-segs"></div><div id="tl-fill"></div></div>
+      <div id="tl-head"></div>
+      <div id="tl-tip" hidden></div>
+    </div>
+    <div id="game-landmarks"></div>
+    <button id="glide-btn" class="txt game-only" type="button" title="Toggle fast glide speed (F)">Glide</button>
+    <div id="free" class="chip film-only" hidden><span>Free look</span><button id="back" class="txt" type="button">Back to film</button></div>
+    <button id="detail" class="txt" type="button"><span class="long">Full detail</span><span class="short">Full</span></button>
+    <button id="fs" class="ico" type="button" data-state="enter" aria-label="Full screen" title="Full screen">
+      <svg class="i-enter" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6V2.75A.75.75 0 0 1 2.75 2H6v1.5H3.5V6H2zm8-4h3.25a.75.75 0 0 1 .75.75V6h-1.5V3.5H10V2zM3.5 10v2.5H6V14H2.75a.75.75 0 0 1-.75-.75V10h1.5zm9 0H14v3.25a.75.75 0 0 1-.75.75H10v-1.5h2.5V10z"/></svg>
+      <svg class="i-exit" viewBox="0 0 16 16" aria-hidden="true"><path d="M4.5 2H6v3.25a.75.75 0 0 1-.75.75H2V4.5h2.5V2zM10 2h1.5v2.5H14V6h-3.25a.75.75 0 0 1-.75-.75V2zM2 10h3.25a.75.75 0 0 1 .75.75V14H4.5v-2.5H2V10zm8.75 0H14v1.5h-2.5V14H10v-3.25a.75.75 0 0 1 .75-.75z"/></svg>
+    </button>
+  </div>
+</div>
+
+<div id="fault" hidden role="alertdialog" aria-labelledby="fault-msg">
+  <div class="card"><p id="fault-msg"></p><button id="fault-btn" class="txt" type="button"></button></div>
+</div>
+
+<script>
+(function () {
+  var s = document.createElement('script');
+  if (location.protocol === 'file:') {
+    s.src = 'js/bundle.js';
+  } else {
+    s.type = 'module';
+    s.src = 'js/web.js';
+  }
+  document.body.appendChild(s);
+})();
+</script>
+
+</body></html>

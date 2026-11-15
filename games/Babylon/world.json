@@ -1,0 +1,10468 @@
+{
+ "meta": {
+  "title": "Babylon c. 575 BCE (reign of Nebuchadnezzar II), true-scale layout for the v2 three.js world",
+  "date": "-0575 (c. 575 BCE as the conventional label): the completed city LATE IN THE REIGN of Nebuchadnezzar II (604-562), incl. the final glazed Ishtar Gate (Level 1)",
+  "dateNote": "Pedersen dates the Level-1 gate, the North Gate, the limestone north wall and the Summer Palace to the end of the reign; an archaeomagnetic study (Di Chiara et al., PLoS ONE 2024, doi 10.1371/journal.pone.0293014) gives 569 BCE as the best-fit firing date of the gate bricks. A strict 575 could still be the Level-2 gate (flat glaze, no lions). The towered river wall that Pedersen pairs with this phase is deliberately left out as later.",
+  "season": "late April / early May (barley harvest), solar declination +15 deg. The river is modelled at its mean level (-3.0), not at the spring flood stage (about -1.5).",
+  "units": "metres; 1 unit = 1 m; true scale, no compression",
+  "origin": "centre of Etemenanki",
+  "lat": 32.53635,
+  "lon": 44.4211,
+  "originUTM38N": [
+   445640.5,
+   3600036.0
+  ],
+  "axes": "+x = grid east, +z = grid south, +y = up; axes follow the CITY GRID (Processional Way beside the precinct / inner walls)",
+  "gridRotationFromTrueNorthDeg": 15.8,
+  "gridRotationDirection": "grid north (-z) points 15.8 deg WEST of true north (true azimuth 344.2)",
+  "gridRotationFromUTMNorthDeg": 15.5,
+  "utmGridConvergenceDeg": -0.31,
+  "trueNorthInModelXZ": [
+   0.2723,
+   -0.9622
+  ],
+  "utmToModel": "dE=E-445640.5; dN=N-3600036.0; x=0.96363*dE+0.26724*dN; z=0.26724*dE-0.96363*dN",
+  "azimuthConvention": "model azimuth: 0 = -z (grid north), 90 = +x (grid east), clockwise. modelAzimuth = trueAzimuth + 15.8",
+  "rotationConvention": "footprint.rotationDeg is clockwise seen from above; three.js rotation.y = -rotationDeg*PI/180. True-cardinal buildings have rotationDeg = +15.5",
+  "polygonConvention": "all \"polygon\" rings are explicitly closed (first vertex repeated); coordinates are [x, z]",
+  "verticalDatum": "y = level in the German excavation datum (0 = 25.5 m a.s.l.). Water plane y = -3.0",
+  "worldExtent": {
+   "modelled": [
+    -9000,
+    -10000,
+    9000,
+    9000
+   ],
+   "terrainRadius": 30000,
+   "note": "ground and sky to the horizon; no visible edge"
+  },
+  "conf": "high (origin +/-5 m); medium-high (rotation +/-0.7 deg)",
+  "src": "R1 1, 12; R2 12.1; R3 2; harmonised to R1 convention",
+  "generatedBy": "tools/build_world.py"
+ },
+ "levels": {
+  "datum": "every value in this block is a LEVEL (y) in the German excavation datum, not a height above local ground",
+  "water": -3.0,
+  "waterFlood": -1.5,
+  "waterLow": -4.5,
+  "quayWalkwayRiver": -0.4,
+  "riverQuayTop": 4.0,
+  "cityWallBase": 0.0,
+  "lowCitySE": -1.0,
+  "urashGateStreet": 1.4,
+  "bridgePierTop": 1.6,
+  "bridgeDeck": 2.35,
+  "westEastStreet": 2.4,
+  "pwAtPrecinctGate": 3.0,
+  "precinctCourt": 2.5,
+  "esagilaFloor": 4.4,
+  "moatBerm": 1.5,
+  "moatQuayNabopolassarTop": 2.0,
+  "moatQuayTop": 4.0,
+  "merkes": [
+   4.0,
+   8.0
+  ],
+  "nabuShaHareFloor": 8.0,
+  "ashratumFloor": 6.0,
+  "ishtarAgadeFloor": 5.3,
+  "streetAtIshtarAgadeTemple": 5.0,
+  "nemettiEnlilTop": 10.0,
+  "imgurEnlilWalk": 14.0,
+  "nemettiEnlilTopAtIshtarGate": 25.4,
+  "imgurEnlilWalkAtIshtarGate": 29.4,
+  "southPalaceFloor": 12.5,
+  "pwAtIshtarGate": 15.4,
+  "northPalaceTerrace": 15.0,
+  "pwNorthOfNorthGate": 7.5,
+  "eastFortificationFloor": -2.3,
+  "lionStreetWallTopAtNorthGate": 21.5,
+  "lionStreetWallTopAtBastions": 27.4,
+  "summerPalaceFloor": 21.0,
+  "summerPalaceWallTop": 30.0,
+  "etemenankiSummit": 94.0,
+  "terrainSpotLevels": [
+   [
+    0,
+    60,
+    2.5
+   ],
+   [
+    -55,
+    310,
+    3.5
+   ],
+   [
+    345,
+    5,
+    3.0
+   ],
+   [
+    344,
+    -320,
+    7.5
+   ],
+   [
+    353,
+    -580,
+    13.0
+   ],
+   [
+    346,
+    -720,
+    15.4
+   ],
+   [
+    357,
+    -937,
+    9.5
+   ],
+   [
+    380,
+    -1122,
+    6.0
+   ],
+   [
+    190,
+    -620,
+    12.5
+   ],
+   [
+    180,
+    -845,
+    15.0
+   ],
+   [
+    505,
+    -890,
+    -2.3
+   ],
+   [
+    480,
+    -200,
+    6.5
+   ],
+   [
+    520,
+    -231,
+    7.0
+   ],
+   [
+    440,
+    -300,
+    5.0
+   ],
+   [
+    403,
+    -690,
+    12.0
+   ],
+   [
+    560,
+    -740,
+    7.0
+   ],
+   [
+    700,
+    -775,
+    3.0
+   ],
+   [
+    150,
+    -380,
+    5.0
+   ],
+   [
+    140,
+    669,
+    4.5
+   ],
+   [
+    309,
+    739,
+    3.5
+   ],
+   [
+    900,
+    -600,
+    2.0
+   ],
+   [
+    1045,
+    15,
+    2.0
+   ],
+   [
+    1055,
+    535,
+    -1.0
+   ],
+   [
+    1300,
+    600,
+    -1.5
+   ],
+   [
+    -700,
+    200,
+    2.0
+   ],
+   [
+    -1000,
+    700,
+    1.0
+   ],
+   [
+    -300,
+    200,
+    3.0
+   ],
+   [
+    2000,
+    -500,
+    0.5
+   ],
+   [
+    1215,
+    -3025,
+    21.0
+   ],
+   [
+    800,
+    -1800,
+    1.0
+   ],
+   [
+    146,
+    913,
+    1.4
+   ],
+   [
+    3000,
+    3000,
+    0.5
+   ],
+   [
+    -3000,
+    -2000,
+    0.5
+   ]
+  ],
+  "note": "the city is NOT flat: c. 17 m from the low south-east to the gate terrace; river and main canals run on slightly raised levees outside the walls",
+  "conf": "high (attested street/floor levels); low (water level, terrain between points)",
+  "src": "R1 13; R2 7.3; R3 2; R4 3.2"
+ },
+ "river": {
+  "name": "Euphrates (Arahtu branch)",
+  "centerline": [
+   [
+    2700.0,
+    -9500.0,
+    120.0
+   ],
+   [
+    2500.0,
+    -8700.0,
+    118.0
+   ],
+   [
+    2380.0,
+    -7950.0,
+    120.0
+   ],
+   [
+    2180.0,
+    -7250.0,
+    125.0
+   ],
+   [
+    1900.0,
+    -6600.0,
+    120.0
+   ],
+   [
+    1700.0,
+    -5900.0,
+    115.0
+   ],
+   [
+    1610.0,
+    -5200.0,
+    118.0
+   ],
+   [
+    1500.0,
+    -4550.0,
+    120.0
+   ],
+   [
+    1300.0,
+    -3950.0,
+    115.0
+   ],
+   [
+    1192.0,
+    -3607.0,
+    112.0
+   ],
+   [
+    1116.0,
+    -3240.9,
+    112.6
+   ],
+   [
+    1014.6,
+    -2898.5,
+    112.3
+   ],
+   [
+    898.3,
+    -2508.7,
+    111.1
+   ],
+   [
+    822.2,
+    -2325.0,
+    104.4
+   ],
+   [
+    737.0,
+    -2134.2,
+    99.9
+   ],
+   [
+    649.5,
+    -1951.1,
+    101.0
+   ],
+   [
+    546.3,
+    -1786.3,
+    103.6
+   ],
+   [
+    408.4,
+    -1595.7,
+    113.3
+   ],
+   [
+    285.8,
+    -1441.8,
+    108.8
+   ],
+   [
+    160.0,
+    -1268.3,
+    103.4
+   ],
+   [
+    56.4,
+    -1124.9,
+    132.3
+   ],
+   [
+    29.8,
+    -1083.1,
+    149.1
+   ],
+   [
+    -103.7,
+    -927.0,
+    114.7
+   ],
+   [
+    -142.4,
+    -775.7,
+    108.1
+   ],
+   [
+    -173.1,
+    -624.5,
+    86.8
+   ],
+   [
+    -173.8,
+    -616.2,
+    87.0
+   ],
+   [
+    -127.3,
+    -377.0,
+    169.2
+   ],
+   [
+    -152.2,
+    -210.6,
+    136.1
+   ],
+   [
+    -191.2,
+    -18.4,
+    128.8
+   ],
+   [
+    -223.2,
+    152.8,
+    124.6
+   ],
+   [
+    -223.9,
+    285.1,
+    127.9
+   ],
+   [
+    -219.9,
+    387.6,
+    128.4
+   ],
+   [
+    -193.9,
+    520.7,
+    124.7
+   ],
+   [
+    -165.4,
+    623.0,
+    127.7
+   ],
+   [
+    -132.0,
+    741.0,
+    140.3
+   ],
+   [
+    -57.5,
+    935.4,
+    147.7
+   ],
+   [
+    -21.2,
+    1084.4,
+    119.7
+   ],
+   [
+    49.4,
+    1280.1,
+    126.8
+   ],
+   [
+    121.3,
+    1469.4,
+    127.0
+   ],
+   [
+    300.0,
+    1940.0,
+    128.0
+   ],
+   [
+    470.0,
+    2450.0,
+    130.0
+   ],
+   [
+    560.0,
+    3000.0,
+    128.0
+   ],
+   [
+    560.0,
+    3600.0,
+    125.0
+   ],
+   [
+    480.0,
+    4200.0,
+    128.0
+   ],
+   [
+    420.0,
+    4850.0,
+    130.0
+   ],
+   [
+    470.0,
+    5500.0,
+    126.0
+   ],
+   [
+    520.0,
+    6150.0,
+    125.0
+   ],
+   [
+    450.0,
+    6800.0,
+    128.0
+   ],
+   [
+    330.0,
+    7450.0,
+    130.0
+   ],
+   [
+    250.0,
+    8100.0,
+    128.0
+   ]
+  ],
+  "centerlineFormat": "[x, z, width], north -> south",
+  "eastBank": [
+   [
+    2758.2,
+    -9485.4
+   ],
+   [
+    2557.8,
+    -8688.1
+   ],
+   [
+    2438.6,
+    -7937.1
+   ],
+   [
+    2238.9,
+    -7229.1
+   ],
+   [
+    1956.5,
+    -6579.9
+   ],
+   [
+    1756.3,
+    -5888.3
+   ],
+   [
+    1668.4,
+    -5191.4
+   ],
+   [
+    1558.2,
+    -4535.6
+   ],
+   [
+    1354.7,
+    -3932.1
+   ],
+   [
+    1245.4,
+    -3590.2
+   ],
+   [
+    1170.0,
+    -3225.0
+   ],
+   [
+    955.0,
+    -2500.0
+   ],
+   [
+    875.0,
+    -2315.0
+   ],
+   [
+    790.0,
+    -2130.0
+   ],
+   [
+    705.0,
+    -1945.0
+   ],
+   [
+    640.0,
+    -1840.0
+   ],
+   [
+    545.0,
+    -1685.0
+   ],
+   [
+    445.0,
+    -1550.0
+   ],
+   [
+    330.0,
+    -1410.0
+   ],
+   [
+    225.0,
+    -1270.0
+   ],
+   [
+    160.0,
+    -1180.0
+   ],
+   [
+    130.7,
+    -1128.1
+   ],
+   [
+    99.1,
+    -1062.7
+   ],
+   [
+    48.4,
+    -880.1
+   ],
+   [
+    -49.8,
+    -907.3
+   ],
+   [
+    -130.3,
+    -617.3
+   ],
+   [
+    -32.0,
+    -590.0
+   ],
+   [
+    1.0,
+    -581.9
+   ],
+   [
+    -52.3,
+    -326.0
+   ],
+   [
+    -72.0,
+    -249.3
+   ],
+   [
+    -101.7,
+    -134.0
+   ],
+   [
+    -160.9,
+    154.3
+   ],
+   [
+    -161.1,
+    160.4
+   ],
+   [
+    -159.3,
+    362.0
+   ],
+   [
+    -128.0,
+    535.0
+   ],
+   [
+    -82.0,
+    670.0
+   ],
+   [
+    -45.0,
+    780.0
+   ],
+   [
+    46.1,
+    988.3
+   ],
+   [
+    35.8,
+    1066.4
+   ],
+   [
+    181.1,
+    1448.1
+   ],
+   [
+    360.7,
+    1919.8
+   ],
+   [
+    533.1,
+    2434.5
+   ],
+   [
+    623.8,
+    2995.0
+   ],
+   [
+    622.4,
+    3604.2
+   ],
+   [
+    543.6,
+    4207.1
+   ],
+   [
+    485.0,
+    4850.5
+   ],
+   [
+    532.8,
+    5495.2
+   ],
+   [
+    582.5,
+    6151.0
+   ],
+   [
+    513.3,
+    6809.3
+   ],
+   [
+    394.2,
+    7459.9
+   ],
+   [
+    313.5,
+    8107.8
+   ]
+  ],
+  "westBank": [
+   [
+    2641.8,
+    -9514.6
+   ],
+   [
+    2442.2,
+    -8711.9
+   ],
+   [
+    2321.4,
+    -7962.9
+   ],
+   [
+    2121.1,
+    -7270.9
+   ],
+   [
+    1843.5,
+    -6620.1
+   ],
+   [
+    1643.7,
+    -5911.7
+   ],
+   [
+    1551.6,
+    -5208.6
+   ],
+   [
+    1441.8,
+    -4564.4
+   ],
+   [
+    1245.3,
+    -3967.9
+   ],
+   [
+    1138.6,
+    -3623.8
+   ],
+   [
+    1062.0,
+    -3257.0
+   ],
+   [
+    847.6,
+    -2531.6
+   ],
+   [
+    770.0,
+    -2335.0
+   ],
+   [
+    685.0,
+    -2140.0
+   ],
+   [
+    605.0,
+    -1975.0
+   ],
+   [
+    500.0,
+    -1810.0
+   ],
+   [
+    375.0,
+    -1645.0
+   ],
+   [
+    235.0,
+    -1465.0
+   ],
+   [
+    105.0,
+    -1280.0
+   ],
+   [
+    -35.0,
+    -1120.0
+   ],
+   [
+    -125.0,
+    -1035.0
+   ],
+   [
+    -160.0,
+    -940.0
+   ],
+   [
+    -205.0,
+    -745.0
+   ],
+   [
+    -215.1,
+    -640.8
+   ],
+   [
+    -218.2,
+    -603.3
+   ],
+   [
+    -216.6,
+    -459.6
+   ],
+   [
+    -209.3,
+    -344.3
+   ],
+   [
+    -209.4,
+    -276.0
+   ],
+   [
+    -285.1,
+    136.8
+   ],
+   [
+    -288.0,
+    270.0
+   ],
+   [
+    -287.0,
+    375.0
+   ],
+   [
+    -270.0,
+    480.0
+   ],
+   [
+    -235.0,
+    605.0
+   ],
+   [
+    -205.0,
+    735.0
+   ],
+   [
+    -170.0,
+    895.0
+   ],
+   [
+    -123.0,
+    969.4
+   ],
+   [
+    -19.5,
+    1277.2
+   ],
+   [
+    62.4,
+    1493.2
+   ],
+   [
+    239.3,
+    1960.2
+   ],
+   [
+    406.9,
+    2465.5
+   ],
+   [
+    496.2,
+    3005.0
+   ],
+   [
+    497.6,
+    3595.8
+   ],
+   [
+    416.4,
+    4192.9
+   ],
+   [
+    355.0,
+    4849.5
+   ],
+   [
+    407.2,
+    5504.8
+   ],
+   [
+    457.5,
+    6149.0
+   ],
+   [
+    386.7,
+    6790.7
+   ],
+   [
+    265.8,
+    7440.1
+   ],
+   [
+    186.5,
+    8092.2
+   ]
+  ],
+  "polygon": [
+   [
+    2758.2,
+    -9485.4
+   ],
+   [
+    2557.8,
+    -8688.1
+   ],
+   [
+    2438.6,
+    -7937.1
+   ],
+   [
+    2238.9,
+    -7229.1
+   ],
+   [
+    1956.5,
+    -6579.9
+   ],
+   [
+    1756.3,
+    -5888.3
+   ],
+   [
+    1668.4,
+    -5191.4
+   ],
+   [
+    1558.2,
+    -4535.6
+   ],
+   [
+    1354.7,
+    -3932.1
+   ],
+   [
+    1245.4,
+    -3590.2
+   ],
+   [
+    1170.0,
+    -3225.0
+   ],
+   [
+    955.0,
+    -2500.0
+   ],
+   [
+    875.0,
+    -2315.0
+   ],
+   [
+    790.0,
+    -2130.0
+   ],
+   [
+    705.0,
+    -1945.0
+   ],
+   [
+    640.0,
+    -1840.0
+   ],
+   [
+    545.0,
+    -1685.0
+   ],
+   [
+    445.0,
+    -1550.0
+   ],
+   [
+    330.0,
+    -1410.0
+   ],
+   [
+    225.0,
+    -1270.0
+   ],
+   [
+    160.0,
+    -1180.0
+   ],
+   [
+    130.7,
+    -1128.1
+   ],
+   [
+    99.1,
+    -1062.7
+   ],
+   [
+    48.4,
+    -880.1
+   ],
+   [
+    -49.8,
+    -907.3
+   ],
+   [
+    -130.3,
+    -617.3
+   ],
+   [
+    -32.0,
+    -590.0
+   ],
+   [
+    1.0,
+    -581.9
+   ],
+   [
+    -52.3,
+    -326.0
+   ],
+   [
+    -72.0,
+    -249.3
+   ],
+   [
+    -101.7,
+    -134.0
+   ],
+   [
+    -160.9,
+    154.3
+   ],
+   [
+    -161.1,
+    160.4
+   ],
+   [
+    -159.3,
+    362.0
+   ],
+   [
+    -128.0,
+    535.0
+   ],
+   [
+    -82.0,
+    670.0
+   ],
+   [
+    -45.0,
+    780.0
+   ],
+   [
+    46.1,
+    988.3
+   ],
+   [
+    35.8,
+    1066.4
+   ],
+   [
+    181.1,
+    1448.1
+   ],
+   [
+    360.7,
+    1919.8
+   ],
+   [
+    533.1,
+    2434.5
+   ],
+   [
+    623.8,
+    2995.0
+   ],
+   [
+    622.4,
+    3604.2
+   ],
+   [
+    543.6,
+    4207.1
+   ],
+   [
+    485.0,
+    4850.5
+   ],
+   [
+    532.8,
+    5495.2
+   ],
+   [
+    582.5,
+    6151.0
+   ],
+   [
+    513.3,
+    6809.3
+   ],
+   [
+    394.2,
+    7459.9
+   ],
+   [
+    313.5,
+    8107.8
+   ],
+   [
+    186.5,
+    8092.2
+   ],
+   [
+    265.8,
+    7440.1
+   ],
+   [
+    386.7,
+    6790.7
+   ],
+   [
+    457.5,
+    6149.0
+   ],
+   [
+    407.2,
+    5504.8
+   ],
+   [
+    355.0,
+    4849.5
+   ],
+   [
+    416.4,
+    4192.9
+   ],
+   [
+    497.6,
+    3595.8
+   ],
+   [
+    496.2,
+    3005.0
+   ],
+   [
+    406.9,
+    2465.5
+   ],
+   [
+    239.3,
+    1960.2
+   ],
+   [
+    62.4,
+    1493.2
+   ],
+   [
+    -19.5,
+    1277.2
+   ],
+   [
+    -123.0,
+    969.4
+   ],
+   [
+    -170.0,
+    895.0
+   ],
+   [
+    -205.0,
+    735.0
+   ],
+   [
+    -235.0,
+    605.0
+   ],
+   [
+    -270.0,
+    480.0
+   ],
+   [
+    -287.0,
+    375.0
+   ],
+   [
+    -288.0,
+    270.0
+   ],
+   [
+    -285.1,
+    136.8
+   ],
+   [
+    -209.4,
+    -276.0
+   ],
+   [
+    -209.3,
+    -344.3
+   ],
+   [
+    -216.6,
+    -459.6
+   ],
+   [
+    -218.2,
+    -603.3
+   ],
+   [
+    -215.1,
+    -640.8
+   ],
+   [
+    -205.0,
+    -745.0
+   ],
+   [
+    -160.0,
+    -940.0
+   ],
+   [
+    -125.0,
+    -1035.0
+   ],
+   [
+    -35.0,
+    -1120.0
+   ],
+   [
+    105.0,
+    -1280.0
+   ],
+   [
+    235.0,
+    -1465.0
+   ],
+   [
+    375.0,
+    -1645.0
+   ],
+   [
+    500.0,
+    -1810.0
+   ],
+   [
+    605.0,
+    -1975.0
+   ],
+   [
+    685.0,
+    -2140.0
+   ],
+   [
+    770.0,
+    -2335.0
+   ],
+   [
+    847.6,
+    -2531.6
+   ],
+   [
+    1062.0,
+    -3257.0
+   ],
+   [
+    1138.6,
+    -3623.8
+   ],
+   [
+    1245.3,
+    -3967.9
+   ],
+   [
+    1441.8,
+    -4564.4
+   ],
+   [
+    1551.6,
+    -5208.6
+   ],
+   [
+    1643.7,
+    -5911.7
+   ],
+   [
+    1843.5,
+    -6620.1
+   ],
+   [
+    2121.1,
+    -7270.9
+   ],
+   [
+    2321.4,
+    -7962.9
+   ],
+   [
+    2442.2,
+    -8711.9
+   ],
+   [
+    2641.8,
+    -9514.6
+   ],
+   [
+    2758.2,
+    -9485.4
+   ]
+  ],
+  "widthAtBridge": 126.2,
+  "flow": "north -> south, c. 0.5-1 m/s; silty",
+  "waterLevel": -3.0,
+  "bedLevel": -7.5,
+  "cityReach": {
+   "zFrom": -3225.0,
+   "zTo": 1448.1
+  },
+  "extensions": {
+   "north": "conjectural beyond z = -3400: runs true north (as on Pedersen Fig. 2.1) with gentle meanders",
+   "south": "conjectural beyond z = +1450: SE then S towards Dilbat"
+  },
+  "quays": [
+   {
+    "name": "North Palace river wall",
+    "polyline": [
+     [
+      99.1,
+      -1062.7
+     ],
+     [
+      48.4,
+      -880.1
+     ]
+    ],
+    "type": "palace kari wall, limestone-faced footing possible, top +18",
+    "conf": "medium",
+    "src": "R4 5.1"
+   },
+   {
+    "name": "West Fortification faces",
+    "polyline": [
+     [
+      48.4,
+      -880.1
+     ],
+     [
+      -49.8,
+      -907.3
+     ],
+     [
+      -130.3,
+      -617.3
+     ],
+     [
+      -32.0,
+      -590.0
+     ]
+    ],
+    "type": "sheer baked-brick walls, base -5, top +18",
+    "conf": "medium",
+    "src": "R4 4"
+   },
+   {
+    "name": "Nebuchadnezzar quay, inner city (the river front c. 575 BCE)",
+    "polyline": [
+     [
+      37.9,
+      -714.9
+     ],
+     [
+      1.0,
+      -581.9
+     ],
+     [
+      -52.3,
+      -326.0
+     ],
+     [
+      -72.0,
+      -249.3
+     ],
+     [
+      -101.7,
+      -134.0
+     ],
+     [
+      -160.9,
+      154.3
+     ],
+     [
+      -161.1,
+      160.4
+     ],
+     [
+      -159.3,
+      362.0
+     ],
+     [
+      -128.0,
+      535.0
+     ],
+     [
+      -82.0,
+      670.0
+     ],
+     [
+      -45.0,
+      780.0
+     ],
+     [
+      46.1,
+      988.3
+     ]
+    ],
+    "type": "baked brick in bitumen: 5.25 m thick below with a 1.65 m walkway at -0.4, upper wall 3.6 m to +4.0; square corners; NO towers; at street ends plain openings in the upper wall with stair flights down to the walkway (no doorways or ramps: those belong to the later river wall)",
+    "bridgeReach": {
+     "from": [
+      -160.9,
+      154.3
+     ],
+     "to": [
+      -160.4,
+      200.0
+     ],
+     "conf": "low",
+     "form": "CONJECTURAL: Nebuchadnezzar's quay is not attested next to the bridge (never built there, or pulled down later). Within about 25 m either side of the bridge axis show the older Nabopolassar quay as the river front: c. 3.9 m thick, top +2.0, rounded corners, the street running flush onto the bridge; the +4.0 upper wall of the Nebuchadnezzar quay ends in a return on either side."
+    },
+    "conf": "high beside the precinct (R3); medium elsewhere; low at the bridge head",
+    "src": "R3 3.5, 5; R1 5; Pedersen 2021 p. 66"
+   },
+   {
+    "name": "east bank north of the palaces",
+    "polyline": [
+     [
+      1170.0,
+      -3225.0
+     ],
+     [
+      955.0,
+      -2500.0
+     ],
+     [
+      875.0,
+      -2315.0
+     ],
+     [
+      790.0,
+      -2130.0
+     ],
+     [
+      705.0,
+      -1945.0
+     ],
+     [
+      640.0,
+      -1840.0
+     ],
+     [
+      545.0,
+      -1685.0
+     ],
+     [
+      445.0,
+      -1550.0
+     ],
+     [
+      330.0,
+      -1410.0
+     ],
+     [
+      225.0,
+      -1270.0
+     ],
+     [
+      160.0,
+      -1180.0
+     ],
+     [
+      130.7,
+      -1128.1
+     ]
+    ],
+    "type": "earth bank with landings and palms (the brick quay here has Nabonidus bricks: later)",
+    "conf": "low",
+    "src": "R1 8"
+   },
+   {
+    "name": "west bank quay of the west city (textual)",
+    "polyline": [
+     [
+      -216.9,
+      -487.5
+     ],
+     [
+      -216.6,
+      -459.6
+     ],
+     [
+      -209.3,
+      -344.3
+     ],
+     [
+      -209.4,
+      -276.0
+     ],
+     [
+      -285.1,
+      136.8
+     ],
+     [
+      -288.0,
+      270.0
+     ],
+     [
+      -287.0,
+      375.0
+     ],
+     [
+      -270.0,
+      480.0
+     ],
+     [
+      -235.0,
+      605.0
+     ],
+     [
+      -205.0,
+      735.0
+     ],
+     [
+      -170.0,
+      895.0
+     ],
+     [
+      -123.0,
+      969.4
+     ],
+     [
+      -121.9,
+      972.8
+     ]
+    ],
+    "type": "plain brick quay like the east one, or sloping earth banks with boats drawn up",
+    "conf": "low",
+    "src": "R1 5; R5 3.2"
+   }
+  ],
+  "excluded": "the towered \"Nabonidus\" river wall and bridge-head gate (after c. 560 BCE) are NOT modelled; R1's east-bank line beside the precinct followed that later wall and is replaced by R3's quay",
+  "conf": "medium (banks +/-10-25 m; bridge reach high); low (extensions, west bank)",
+  "src": "R1 5, 12; R3 5; Figs. 2.1, 2.2, 6.2"
+ },
+ "canals": [
+  {
+   "id": "libilHegalla",
+   "name": "Libil-hegalla (\"may it bring abundance\"), the eastern canal",
+   "polyline": [
+    [
+     -1.0,
+     -572.0
+    ],
+    [
+     27.4,
+     -566.3
+    ],
+    [
+     178.3,
+     -535.9
+    ],
+    [
+     346.9,
+     -501.9
+    ],
+    [
+     480.0,
+     -470.0
+    ],
+    [
+     640.0,
+     -452.0
+    ],
+    [
+     820.0,
+     -440.0
+    ],
+    [
+     1000.0,
+     -415.0
+    ],
+    [
+     1180.0,
+     -395.0
+    ],
+    [
+     1392.0,
+     -380.0
+    ],
+    [
+     1431.0,
+     -379.0
+    ]
+   ],
+   "width": 2.8,
+   "widthEastOfPW": 5.0,
+   "lining": "baked brick in bitumen west of the Processional Way; earth banks further east",
+   "excavatedTo": [
+    178.3,
+    -535.9
+   ],
+   "waterLevel": -3.0,
+   "crossingAtPW": {
+    "point": [
+     346.9,
+     -501.9
+    ],
+    "streetLevel": 11.0,
+    "canalWaterLevel": -3.0,
+    "form": "CONJECTURAL: the street runs c. 14 m above the canal water on a made causeway; the canal passes under it through a baked-brick culvert / arched opening c. 3 m wide and c. 22 m long with brick retaining walls on both sides (NOT a free-standing viaduct)",
+    "basis": "the bridge (titurru) is textual only; 150-180 m of the street were washed away by a later river channel (R2 7.1, 7.3; Pedersen 2021 p. 218)"
+   },
+   "note": "Excavated from the river to the middle of the palace south wall. East of the Processional Way the course is conjectural (washed away by a later flood); drawn ESE to the east moat through a culvert under the walls.",
+   "conf": "high for the palace stretch, low east of the Processional Way",
+   "src": "R1 6.1, 12.F; R4 3.8; Fig. 6.2"
+  },
+  {
+   "id": "westFortCanal",
+   "name": "narrow ditch between the West Fortification and the old quay",
+   "polyline": [
+    [
+     -25.7,
+     -590.3
+    ],
+    [
+     24.6,
+     -771.5
+    ]
+   ],
+   "width": 10.0,
+   "waterLevel": -3.0,
+   "connectingWalls": "short baked-brick walls close both ends, each pierced by several openings (water passes, boats do not)",
+   "dryStripEast": {
+    "width": 23.0,
+    "level": 4.0,
+    "use": "quay terrace between the outer and the inner embankment of Nebuchadnezzar (20-25 m apart here); beyond it the 575 quay line and the garden strip under the South Palace west wall"
+   },
+   "note": "Koldewey: \"a narrow ditch is left; at its north and south ends only connecting pieces are jointed in, pierced by several holes\". Width is a model value (5-15 m possible).",
+   "conf": "low-medium (existence high; width 5-15 m)",
+   "src": "Koldewey 1914 ch. XXIII; Pedersen 2021 p. 66; Fig. 6.2; R4 4"
+  },
+  {
+   "id": "northPalaceCanal",
+   "name": "canal inside the North Palace",
+   "polyline": [
+    [
+     88.7,
+     -965.4
+    ],
+    [
+     323.8,
+     -900.2
+    ]
+   ],
+   "width": 13.0,
+   "waterLevel": -3.0,
+   "embankmentTop": 0.0,
+   "inside": "northPalace",
+   "note": "W-E canal from the Euphrates almost to the east wall, north of the main terrace; quay top = the excavators' zero.",
+   "conf": "medium",
+   "src": "R4 5.1; Fig. 6.2"
+  },
+  {
+   "id": "shuhiCanal",
+   "name": "Shuhi canal (course conjectural)",
+   "polyline": [
+    [
+     985.0,
+     -2615.0
+    ],
+    [
+     1200.0,
+     -2610.0
+    ],
+    [
+     1408.6,
+     -2587.3
+    ],
+    [
+     1700.0,
+     -2660.0
+    ],
+    [
+     2400.0,
+     -2900.0
+    ],
+    [
+     3600.0,
+     -3300.0
+    ],
+    [
+     5200.0,
+     -3700.0
+    ],
+    [
+     7500.0,
+     -4100.0
+    ]
+   ],
+   "width": 12.0,
+   "levee": 2.0,
+   "waterGate": [
+    1408.6,
+    -2587.3
+   ],
+   "waterGateNote": "the canal passes the outer wall through its own arched water gate 40 m north of the road gate named after it (never through the 4.6 m road doors)",
+   "conf": "low",
+   "src": "R1 6.1, 9 (name textual; gate named after it)"
+  },
+  {
+   "id": "madanuCanal",
+   "name": "Madanu canal (course conjectural)",
+   "polyline": [
+    [
+     1489.5,
+     -1085.0
+    ],
+    [
+     1800.0,
+     -1225.0
+    ],
+    [
+     2036.3,
+     -1324.1
+    ],
+    [
+     2700.0,
+     -1500.0
+    ],
+    [
+     3500.0,
+     -1500.0
+    ],
+    [
+     5000.0,
+     -1250.0
+    ],
+    [
+     7000.0,
+     -800.0
+    ],
+    [
+     9500.0,
+     -200.0
+    ]
+   ],
+   "width": 10.0,
+   "levee": 1.5,
+   "waterGate": [
+    2036.3,
+    -1324.1
+   ],
+   "waterGateNote": "arched water gate 40 m north-west of the road gate named after it",
+   "conf": "low",
+   "src": "R1 6.1, 9"
+  },
+  {
+   "id": "borsippaCanal",
+   "name": "Borsippa canal (processional water-way of Nabu; course conjectural)",
+   "polyline": [
+    [
+     40.0,
+     1560.0
+    ],
+    [
+     -700.0,
+     2200.0
+    ],
+    [
+     -2000.0,
+     3400.0
+    ],
+    [
+     -4000.0,
+     5450.0
+    ],
+    [
+     -7000.0,
+     8600.0
+    ],
+    [
+     -11550.0,
+     13360.0
+    ]
+   ],
+   "width": 15.0,
+   "levee": 2.0,
+   "conf": "low",
+   "src": "R1 9"
+  },
+  {
+   "id": "westCanal",
+   "name": "west-bank main canal (generic, conjectural)",
+   "polyline": [
+    [
+     395.0,
+     -1700.0
+    ],
+    [
+     -300.0,
+     -1500.0
+    ],
+    [
+     -1400.0,
+     -900.0
+    ],
+    [
+     -1900.0,
+     200.0
+    ],
+    [
+     -2100.0,
+     1500.0
+    ],
+    [
+     -2600.0,
+     3000.0
+    ],
+    [
+     -3200.0,
+     5000.0
+    ]
+   ],
+   "width": 12.0,
+   "levee": 2.0,
+   "conf": "low",
+   "src": "R5 3.6; GAPS G09 (needed for the field pattern)"
+  },
+  {
+   "id": "kishCanal",
+   "name": "canal towards Kish outside the Zababa and Gishshu gates (conjectural)",
+   "polyline": [
+    [
+     3140.0,
+     640.0
+    ],
+    [
+     4200.0,
+     1000.0
+    ],
+    [
+     6000.0,
+     1500.0
+    ],
+    [
+     9000.0,
+     2300.0
+    ],
+    [
+     12500.0,
+     3200.0
+    ],
+    [
+     16710.0,
+     4260.0
+    ]
+   ],
+   "width": 10.0,
+   "levee": 1.5,
+   "conf": "low",
+   "src": "R1 9 (private archives mention land and canals towards Kish)"
+  }
+ ],
+ "moats": [
+  {
+   "id": "innerMoatEast",
+   "name": "moat (hiritu) of the east inner city, wrapping the East Fortification",
+   "polygon": [
+    [
+     374.1,
+     -992.1
+    ],
+    [
+     612.8,
+     -1032.8
+    ],
+    [
+     649.8,
+     -824.0
+    ],
+    [
+     1411.1,
+     -999.4
+    ],
+    [
+     1425.2,
+     -243.8
+    ],
+    [
+     1434.9,
+     489.6
+    ],
+    [
+     1438.0,
+     707.4
+    ],
+    [
+     156.9,
+     948.5
+    ],
+    [
+     46.1,
+     988.3
+    ],
+    [
+     35.8,
+     1066.4
+    ],
+    [
+     178.0,
+     1025.9
+    ],
+    [
+     1518.9,
+     773.6
+    ],
+    [
+     1514.9,
+     488.5
+    ],
+    [
+     1505.2,
+     -245.1
+    ],
+    [
+     1489.2,
+     -1099.5
+    ],
+    [
+     713.9,
+     -920.8
+    ],
+    [
+     677.7,
+     -1125.0
+    ],
+    [
+     378.8,
+     -1074.1
+    ],
+    [
+     374.1,
+     -992.1
+    ]
+   ],
+   "innerBank": [
+    [
+     374.1,
+     -992.1
+    ],
+    [
+     612.8,
+     -1032.8
+    ],
+    [
+     649.8,
+     -824.0
+    ],
+    [
+     1411.1,
+     -999.4
+    ],
+    [
+     1425.2,
+     -243.8
+    ],
+    [
+     1434.9,
+     489.6
+    ],
+    [
+     1438.0,
+     707.4
+    ],
+    [
+     156.9,
+     948.5
+    ],
+    [
+     46.1,
+     988.3
+    ]
+   ],
+   "outerBank": [
+    [
+     378.8,
+     -1074.1
+    ],
+    [
+     677.7,
+     -1125.0
+    ],
+    [
+     713.9,
+     -920.8
+    ],
+    [
+     1489.2,
+     -1099.5
+    ],
+    [
+     1505.2,
+     -245.1
+    ],
+    [
+     1514.9,
+     488.5
+    ],
+    [
+     1518.9,
+     773.6
+    ],
+    [
+     178.0,
+     1025.9
+    ],
+    [
+     35.8,
+     1066.4
+    ]
+   ],
+   "width": 80.0,
+   "waterLevel": -3.0,
+   "innerBankType": "brick quay with bastions 8 m wide projecting 5 m, about every 48 m",
+   "outerBankType": "plain earth with reeds",
+   "outerBankRule": "inner bank (quay line) + 80 m; the bank traced from Pedersen Fig. 2.2 lies within 0.6-7 m of it",
+   "mouths": "open to the river at the south (by the Urash Gate); in the north cut by the Processional Way causeway",
+   "conf": "medium-high",
+   "src": "R1 3, 12.C; Fig. 2.2; rev. 1"
+  },
+  {
+   "id": "northPalaceMoat",
+   "name": "moat in front of the North Palace north wall",
+   "polygon": [
+    [
+     99.1,
+     -1062.7
+    ],
+    [
+     351.3,
+     -992.7
+    ],
+    [
+     357.0,
+     -1067.4
+    ],
+    [
+     130.7,
+     -1128.1
+    ],
+    [
+     99.1,
+     -1062.7
+    ]
+   ],
+   "width": 75.0,
+   "waterLevel": -3.0,
+   "note": "between the limestone-faced wall and the outer bank (the thin line R1 took for a wall); open to the river on the west, closed by the causeway on the east",
+   "conf": "medium",
+   "src": "Figs. 2.2/6.2 re-read; R4 5.1"
+  },
+  {
+   "id": "innerMoatWest",
+   "name": "moat of the west inner city",
+   "polygon": [
+    [
+     -217.3,
+     -524.2
+    ],
+    [
+     -1283.7,
+     -545.0
+    ],
+    [
+     -1243.7,
+     990.4
+    ],
+    [
+     -109.5,
+     1009.6
+    ],
+    [
+     -82.6,
+     1089.6
+    ],
+    [
+     -1321.7,
+     1069.0
+    ],
+    [
+     -1365.9,
+     -626.6
+    ],
+    [
+     -218.1,
+     -604.2
+    ],
+    [
+     -217.3,
+     -524.2
+    ]
+   ],
+   "innerBank": [
+    [
+     -217.3,
+     -524.2
+    ],
+    [
+     -1283.7,
+     -545.0
+    ],
+    [
+     -1243.7,
+     990.4
+    ],
+    [
+     -109.5,
+     1009.6
+    ]
+   ],
+   "outerBank": [
+    [
+     -218.1,
+     -604.2
+    ],
+    [
+     -1365.9,
+     -626.6
+    ],
+    [
+     -1321.7,
+     1069.0
+    ],
+    [
+     -82.6,
+     1089.6
+    ]
+   ],
+   "width": 80.0,
+   "waterLevel": -3.0,
+   "conf": "low-medium (unexcavated; mirrored from the east city)",
+   "src": "R1 3, 12.D"
+  },
+  {
+   "id": "outerMoat",
+   "name": "moat of Nebuchadnezzar's outer wall",
+   "polygon": [
+    [
+     1175.2,
+     -3250.1
+    ],
+    [
+     1467.1,
+     -3225.1
+    ],
+    [
+     1433.5,
+     -2553.1
+    ],
+    [
+     3061.8,
+     610.0
+    ],
+    [
+     162.2,
+     1398.4
+    ],
+    [
+     190.8,
+     1473.5
+    ],
+    [
+     3178.2,
+     661.3
+    ],
+    [
+     1514.5,
+     -2570.6
+    ],
+    [
+     1550.8,
+     -3298.2
+    ],
+    [
+     1191.5,
+     -3329.0
+    ],
+    [
+     1175.2,
+     -3250.1
+    ]
+   ],
+   "innerBank": [
+    [
+     1175.2,
+     -3250.1
+    ],
+    [
+     1467.1,
+     -3225.1
+    ],
+    [
+     1433.5,
+     -2553.1
+    ],
+    [
+     3061.8,
+     610.0
+    ],
+    [
+     162.2,
+     1398.4
+    ]
+   ],
+   "outerBank": [
+    [
+     1191.5,
+     -3329.0
+    ],
+    [
+     1550.8,
+     -3298.2
+    ],
+    [
+     1514.5,
+     -2570.6
+    ],
+    [
+     3178.2,
+     661.3
+    ],
+    [
+     190.8,
+     1473.5
+    ]
+   ],
+   "width": 80.0,
+   "waterLevel": -3.0,
+   "conf": "medium",
+   "src": "R1 8; Fig. 2.1"
+  }
+ ],
+ "innerWalls": {
+  "names": {
+   "inner": "Imgur-Enlil (duru, main wall)",
+   "outer": "Nemetti-Enlil (shalhu, front wall)"
+  },
+  "profile": {
+   "heightsDatum": "base / walkLevel / top / level / top values in this profile are LEVELS in the excavation datum (y), valid where the ground at the wall is about 0 to +2, i.e. everywhere except the raised stretch at the palaces and the Ishtar Gate (east.raisedSection)",
+   "imgurEnlil": {
+    "thickness": 6.5,
+    "base": 0.0,
+    "walkLevel": 14.0,
+    "parapet": 2.0,
+    "material": "mudbrick, mud-plastered, no colour",
+    "towers": {
+     "moduleCC": 27.6,
+     "frontage": 9.5,
+     "curtain": 18.1,
+     "type": "cavalier (astride the wall), alternating large and small",
+     "largeDepth": 11.4,
+     "smallDepth": 8.06,
+     "largeExtraHeight": 6.0,
+     "smallExtraHeight": 3.0,
+     "projectsInwards": 0.7
+    }
+   },
+   "gap": {
+    "width": 7.2,
+    "surface": "open earth lane at ground level"
+   },
+   "nemettiEnlil": {
+    "thickness": 3.7,
+    "base": 0.0,
+    "top": 10.0,
+    "material": "mudbrick, mud-plastered",
+    "towers": {
+     "spacingCC": 20.5,
+     "frontage": 5.1,
+     "depth": 5.8,
+     "extraHeight": 2.5
+    }
+   },
+   "berm": {
+    "width": 17.0,
+    "level": 1.5,
+    "note": "ground between the front wall and the quay: about +1 at the wall foot to +2.0 at the quay (top of Nabopolassar's quay). Both mud walls are founded at about 0 and show their full height above it."
+   },
+   "quay": {
+    "nabopolassar": {
+     "thickness": 2.3,
+     "top": 2.0
+    },
+    "nebuchadnezzar": {
+     "thickness": 3.3,
+     "top": 4.0,
+     "breastwork": "the upper 2 m (from +2.0 to +4.0) stand as a baked-brick breastwork above the berm at the moat edge"
+    },
+    "base": -5.0,
+    "towers": {
+     "width": 8.0,
+     "projection": 5.0,
+     "spacingCC": 48.0
+    },
+    "material": "baked brick in bitumen"
+   },
+   "moat": {
+    "width": 80.0
+   },
+   "offsetsFromImgurEnlilCentreline": {
+    "mainWall": [
+     -3.25,
+     3.25
+    ],
+    "gapTo": 10.45,
+    "frontWall": [
+     10.45,
+     14.15
+    ],
+    "bermTo": 31.0,
+    "quay": [
+     31.0,
+     36.75
+    ],
+    "quayTowersTo": 41.75,
+    "waterTo": 116.75
+   },
+   "merlons": {
+    "type": "stepped (3 steps)",
+    "width": 0.8,
+    "height": 1.1,
+    "pitch": 1.3
+   },
+   "towerRule": "the SPACINGS are authoritative (27.6 / 20.5 / 48 m centre to centre, laid out per straight wall segment between corners and gates). Counts are informative only: +/-8 %.",
+   "towerCountsFromSpacing": {
+    "east": {
+     "main": 159,
+     "front": 216,
+     "quay": 88,
+     "lengths": {
+      "imgurEnlil": 4385,
+      "nemettiEnlil": 4431,
+      "moatQuay": 4218
+     }
+    },
+    "west": {
+     "main": 130,
+     "front": 177,
+     "quay": 78,
+     "lengths": {
+      "imgurEnlil": 3578,
+      "nemettiEnlil": 3627,
+      "moatQuay": 3737
+     }
+    }
+   },
+   "towerCountsPedersenModel": {
+    "east": {
+     "main": 168,
+     "front": 203,
+     "quay": 94
+    },
+    "westAssumed": {
+     "main": 137,
+     "front": 169,
+     "quay": 65
+    },
+    "note": "totals of Pedersen's digital model (R1); they do not follow from the excavated spacings on these line lengths and are NOT targets"
+   },
+   "conf": "high (plan dimensions); medium (heights: nothing above +12 m survives)",
+   "src": "R1 3, 10; Pedersen 2021 pp. 29-30, 56, 63"
+  },
+  "east": {
+   "innerLine": [
+    [
+     38.1,
+     -707.9
+    ],
+    [
+     345.8,
+     -716.2
+    ],
+    [
+     1375.2,
+     -953.4
+    ],
+    [
+     1388.5,
+     -243.2
+    ],
+    [
+     1398.2,
+     490.1
+    ],
+    [
+     1400.8,
+     677.0
+    ],
+    [
+     145.8,
+     913.2
+    ],
+    [
+     42.4,
+     960.3
+    ]
+   ],
+   "outerLine": [
+    [
+     37.8,
+     -720.2
+    ],
+    [
+     344.3,
+     -728.5
+    ],
+    [
+     1387.2,
+     -968.8
+    ],
+    [
+     1400.8,
+     -243.4
+    ],
+    [
+     1410.5,
+     489.9
+    ],
+    [
+     1413.2,
+     687.2
+    ],
+    [
+     149.5,
+     925.0
+    ],
+    [
+     47.5,
+     971.5
+    ]
+   ],
+   "quayLine": [
+    [
+     37.1,
+     -744.6
+    ],
+    [
+     341.2,
+     -752.9
+    ],
+    [
+     1411.1,
+     -999.4
+    ],
+    [
+     1425.2,
+     -243.8
+    ],
+    [
+     1434.9,
+     489.6
+    ],
+    [
+     1438.0,
+     707.4
+    ],
+    [
+     156.9,
+     948.5
+    ],
+    [
+     57.7,
+     993.7
+    ]
+   ],
+   "lengthM": 4385,
+   "vertices": [
+    "W end at the palace quay",
+    "Ishtar Gate",
+    "NE corner",
+    "Marduk Gate",
+    "Zababa Gate",
+    "SE corner",
+    "Urash Gate",
+    "S end at the river quay"
+   ],
+   "note": "west of the Ishtar Gate the double wall runs between the South and North Palaces (outerLine/quayLine there lie inside the palace quarter: build walls only, no moat)",
+   "lineNote": "innerLine = centreline of Imgur-Enlil. Rev. 1 moved it 7-8.5 m south on the north side and 2-12 m west on the east side (profiles on Pedersen Figs. 6.2 and 2.2); the south wall was unchanged. Nemetti-Enlil and the quay keep the excavated section (12.3 and 31-36.75 m outward); Pedersen's plans draw the two walls c. 16 m apart centre to centre near the gate, 3-4 m more than that section.",
+   "raisedSection": {
+    "why": "Nebuchadnezzar raised the palace quarter and the gate by 12-15 m; the city walls there were raised with the terrain (Pedersen 2021 pp. 30, 59; preserved tops +13.5 / +14.5). Swept at the standard levels the wall-walk (+14) would lie BELOW the gate pavement (+15.4).",
+    "datum": "all values are LEVELS in the excavation datum (y)",
+    "frontWallTopLevel": 25.4,
+    "mainWalkLevel": 29.4,
+    "mainParapetLevel": 31.4,
+    "aboveGatePavement": {
+     "frontWall": 10.0,
+     "mainWalk": 14.0
+    },
+    "towers": "as in the profile: +6 / +3 m above the walk on the main wall, +2.5 m on the front wall",
+    "heightStations": [
+     {
+      "at": "west end at the palace quay",
+      "x": 38.1,
+      "z": -707.9,
+      "frontWallTopLevel": 25.4,
+      "mainWalkLevel": 29.4
+     },
+     {
+      "at": "Ishtar Gate",
+      "x": 345.8,
+      "z": -716.2,
+      "frontWallTopLevel": 25.4,
+      "mainWalkLevel": 29.4
+     },
+     {
+      "at": "east of the Ninmah temple: start of the step-down",
+      "x": 450.0,
+      "z": -740.2,
+      "frontWallTopLevel": 25.4,
+      "mainWalkLevel": 29.4
+     },
+     {
+      "at": "opposite the SE corner of the East Fortification: standard profile from here on",
+      "x": 650.0,
+      "z": -786.3,
+      "frontWallTopLevel": 10.0,
+      "mainWalkLevel": 14.0
+     }
+    ],
+    "stepDown": "between x = 450 and x = 650 both walls step down at each tower (seven bays of 27.6 m, about 2.2 m per bay). Interpolate linearly between the stations for a tower's walk level. Length and form of the step-down are DESIGN VALUES: unattested.",
+    "visibleFoot": "the walls are founded at about 0 but stand in made ground here: the visible foot is the local terrain (South Palace floor +12.5 and North Palace terrace +8 / +15 west of the gate; +15.4 at the gate; Ninmah temple floor +12; falling to about +3 at x = 700)",
+    "outside": {
+     "bermLevelAtGate": 10.0,
+     "embankmentTopLevelAtGate": 15.0,
+     "falls": "both fall with the walls to the standard +1.5 / +4.0 at x = 650",
+     "note": "east of the gate the embankment (quay line) forms the south side of the East Fortification; Pedersen assumes its top at +15 here, 5 m above the walkway behind it"
+    },
+    "check": "wall-walk >= adjacent street or floor level + 8 m at every station (validator)",
+    "conf": "medium (that the walls were raised); low (levels, extent east of the gate)",
+    "src": "Pedersen 2021 pp. 30-31, 59; R2 sec. 5 height table; Koldewey 1918 Taf. 9 (adjoining mud wall 15.3 m above the pavement)"
+   },
+   "conf": "high (excavated; +/-5 m on the north side, +/-10 m elsewhere)",
+   "src": "R1 12.C; R2 12.2; rev. 1 verification on Figs. 2.2 and 6.2"
+  },
+  "west": {
+   "innerLine": [
+    [
+     -216.9,
+     -487.5
+    ],
+    [
+     -1246.0,
+     -507.5
+    ],
+    [
+     -1207.9,
+     954.2
+    ],
+    [
+     -121.9,
+     972.8
+    ]
+   ],
+   "outerLine": [
+    [
+     -216.6,
+     -499.8
+    ],
+    [
+     -1258.6,
+     -520.0
+    ],
+    [
+     -1219.9,
+     966.3
+    ],
+    [
+     -122.1,
+     985.1
+    ]
+   ],
+   "quayLine": [
+    [
+     -217.3,
+     -524.2
+    ],
+    [
+     -1283.7,
+     -545.0
+    ],
+    [
+     -1243.7,
+     990.4
+    ],
+    [
+     -109.5,
+     1009.6
+    ]
+   ],
+   "lengthM": 3578,
+   "vertices": [
+    "N end at the river",
+    "NW corner",
+    "SW corner",
+    "S end at the river"
+   ],
+   "note": "never excavated; ridges read on Pedersen Fig. 2.1 and corrected to the inner (main) wall line by overlay; wall ends snapped to the river bank",
+   "conf": "medium-low (ridges, +/-25 m)",
+   "src": "R1 12.D"
+  },
+  "gates": [
+   {
+    "name": "Ishtar Gate",
+    "ceremonialName": "Ishtar-sakipat-tebisha",
+    "x": 345.8,
+    "z": -716.2,
+    "facingDeg": 359.3,
+    "type": "double gate (fore-gate in Nemetti-Enlil + main gate in Imgur-Enlil)",
+    "width": 29.6,
+    "depth": 49.94,
+    "heightsDatum": "topLevel / towerTopLevel are LEVELS in the excavation datum (y); the pavement in this gate is at +15.4, so the heights above the pavement are 14.5 / 18.5 / 19.2 / 24.0",
+    "foreGate": {
+     "width": 28.1,
+     "depth": 12.95,
+     "topLevel": 29.9,
+     "towerTopLevel": 33.9,
+     "topAbovePavement": 14.5,
+     "towerTopAbovePavement": 18.5
+    },
+    "gap": 4.0,
+    "mainGate": {
+     "width": 22.05,
+     "depth": 33.0,
+     "topLevel": 34.6,
+     "towerTopLevel": 39.4,
+     "topAbovePavement": 19.2,
+     "towerTopAbovePavement": 24.0
+    },
+    "roadwayLevel": 15.4,
+    "doorWidth": 4.5,
+    "doorHeight": 11.9,
+    "arch": "round",
+    "material": "baked brick, blue-glazed with relief bulls and dragons",
+    "doors": "cedar leaves with bronze bands",
+    "excavated": true,
+    "leadsTo": "north: Processional Way, akitu house, Sippar/Akkad road",
+    "conf": "high",
+    "src": "R2 4-6; R1 4.1",
+    "causeway": {
+     "note": "no moat causeway in the final state: the walled, lion-lined street and the North Gate lie north of it"
+    },
+    "axis": {
+     "north": [
+      345.5,
+      -744.3
+     ],
+     "south": [
+      346.1,
+      -694.6
+     ]
+    },
+    "monumentId": "ishtarGate"
+   },
+   {
+    "name": "Marduk Gate",
+    "ceremonialName": "Shu'ashu-re'i",
+    "x": 1388.5,
+    "z": -243.2,
+    "facingDeg": 89.1,
+    "type": "double gate (fore-gate in Nemetti-Enlil + main gate in Imgur-Enlil)",
+    "width": 28.0,
+    "depth": 52.0,
+    "heightsDatum": "topLevel / towerTopLevel are LEVELS in the excavation datum (y); the roadway through these gates lies at about +1 to +2",
+    "foreGate": {
+     "width": 28.0,
+     "depth": 13.5,
+     "topLevel": 14.0,
+     "towerTopLevel": 18.0
+    },
+    "gap": 3.0,
+    "mainGate": {
+     "width": 22.0,
+     "depth": 35.0,
+     "topLevel": 18.0,
+     "towerTopLevel": 23.0
+    },
+    "roadwayLevel": 1.5,
+    "doorWidth": 4.5,
+    "doorHeight": 11.9,
+    "arch": "round",
+    "material": "mud-plastered mudbrick",
+    "doors": "cedar leaves with bronze bands",
+    "excavated": true,
+    "leadsTo": "east",
+    "conf": "high",
+    "src": "R1 4.1, 12.C; rev. 1 wall line",
+    "causeway": {
+     "from": [
+      1425.2,
+      -243.8
+     ],
+     "to": [
+      1505.2,
+      -245.1
+     ],
+     "width": 10.0,
+     "length": 80.0,
+     "note": "brick-walled ramp/causeway straight across the 80 m moat (quay line to outer bank, perpendicular to the wall) with a short timber span"
+    }
+   },
+   {
+    "name": "Zababa Gate",
+    "ceremonialName": "Izer-arshu",
+    "x": 1398.2,
+    "z": 490.1,
+    "facingDeg": 89.2,
+    "type": "double gate (fore-gate in Nemetti-Enlil + main gate in Imgur-Enlil)",
+    "width": 28.0,
+    "depth": 52.0,
+    "heightsDatum": "topLevel / towerTopLevel are LEVELS in the excavation datum (y); the roadway through these gates lies at about +1 to +2",
+    "foreGate": {
+     "width": 28.0,
+     "depth": 13.5,
+     "topLevel": 14.0,
+     "towerTopLevel": 18.0
+    },
+    "gap": 3.0,
+    "mainGate": {
+     "width": 22.0,
+     "depth": 35.0,
+     "topLevel": 18.0,
+     "towerTopLevel": 23.0
+    },
+    "roadwayLevel": 1.5,
+    "doorWidth": 4.5,
+    "doorHeight": 11.9,
+    "arch": "round",
+    "material": "mud-plastered mudbrick",
+    "doors": "cedar leaves with bronze bands",
+    "excavated": true,
+    "leadsTo": "east-south-east: Kish",
+    "conf": "high",
+    "src": "R1 4.1, 12.C; rev. 1 wall line",
+    "causeway": {
+     "from": [
+      1434.9,
+      489.6
+     ],
+     "to": [
+      1514.9,
+      488.5
+     ],
+     "width": 10.0,
+     "length": 80.0,
+     "note": "brick-walled ramp/causeway straight across the 80 m moat (quay line to outer bank, perpendicular to the wall) with a short timber span"
+    }
+   },
+   {
+    "name": "Urash Gate",
+    "ceremonialName": "Ikkibshu-nakari",
+    "x": 145.8,
+    "z": 913.2,
+    "facingDeg": 169.3,
+    "type": "double gate (fore-gate in Nemetti-Enlil + main gate in Imgur-Enlil)",
+    "width": 28.0,
+    "depth": 52.0,
+    "heightsDatum": "topLevel / towerTopLevel are LEVELS in the excavation datum (y); the roadway through these gates lies at about +1 to +2",
+    "foreGate": {
+     "width": 28.0,
+     "depth": 13.5,
+     "topLevel": 14.0,
+     "towerTopLevel": 18.0
+    },
+    "gap": 3.0,
+    "mainGate": {
+     "width": 22.0,
+     "depth": 35.0,
+     "topLevel": 18.0,
+     "towerTopLevel": 23.0
+    },
+    "roadwayLevel": 1.5,
+    "doorWidth": 4.5,
+    "doorHeight": 11.9,
+    "arch": "round",
+    "material": "mud-plastered mudbrick",
+    "doors": "cedar leaves with bronze bands",
+    "excavated": true,
+    "leadsTo": "south: Dilbat; Nabu arrives here from Borsippa",
+    "conf": "high",
+    "src": "R1 4.1, 12.C",
+    "causeway": {
+     "from": [
+      152.6,
+      949.3
+     ],
+     "to": [
+      167.6,
+      1028.9
+     ],
+     "width": 10.0,
+     "length": 81.0,
+     "note": "brick-walled ramp/causeway straight across the 80 m moat (quay line to outer bank, perpendicular to the wall) with a short timber span"
+    }
+   },
+   {
+    "name": "Enlil Gate",
+    "ceremonialName": "Enlil-munabbirshu",
+    "x": -370.2,
+    "z": -490.5,
+    "facingDeg": 1.1,
+    "type": "double gate (fore-gate in Nemetti-Enlil + main gate in Imgur-Enlil)",
+    "width": 28.0,
+    "depth": 52.0,
+    "heightsDatum": "topLevel / towerTopLevel are LEVELS in the excavation datum (y); the roadway through these gates lies at about +1 to +2",
+    "foreGate": {
+     "width": 28.0,
+     "depth": 13.5,
+     "topLevel": 14.0,
+     "towerTopLevel": 18.0
+    },
+    "gap": 3.0,
+    "mainGate": {
+     "width": 22.0,
+     "depth": 35.0,
+     "topLevel": 18.0,
+     "towerTopLevel": 23.0
+    },
+    "roadwayLevel": 1.5,
+    "doorWidth": 4.5,
+    "doorHeight": 11.9,
+    "arch": "round",
+    "material": "mud-plastered mudbrick",
+    "doors": "cedar leaves with bronze bands",
+    "excavated": false,
+    "leadsTo": "north / north-west",
+    "conf": "low",
+    "src": "R1 4.1, 12.D (placement conjectural)",
+    "causeway": {
+     "from": [
+      -369.5,
+      -527.2
+     ],
+     "to": [
+      -368.0,
+      -607.2
+     ],
+     "width": 10.0,
+     "length": 80.0,
+     "note": "brick-walled ramp/causeway straight across the 80 m moat (quay line to outer bank, perpendicular to the wall) with a short timber span"
+    }
+   },
+   {
+    "name": "King's Gate",
+    "ceremonialName": "Libur-nadushu",
+    "x": -1227.1,
+    "z": 216.4,
+    "facingDeg": 268.5,
+    "type": "double gate (fore-gate in Nemetti-Enlil + main gate in Imgur-Enlil)",
+    "width": 28.0,
+    "depth": 52.0,
+    "heightsDatum": "topLevel / towerTopLevel are LEVELS in the excavation datum (y); the roadway through these gates lies at about +1 to +2",
+    "foreGate": {
+     "width": 28.0,
+     "depth": 13.5,
+     "topLevel": 14.0,
+     "towerTopLevel": 18.0
+    },
+    "gap": 3.0,
+    "mainGate": {
+     "width": 22.0,
+     "depth": 35.0,
+     "topLevel": 18.0,
+     "towerTopLevel": 23.0
+    },
+    "roadwayLevel": 1.5,
+    "doorWidth": 4.5,
+    "doorHeight": 11.9,
+    "arch": "round",
+    "material": "mud-plastered mudbrick",
+    "doors": "cedar leaves with bronze bands",
+    "excavated": false,
+    "leadsTo": "west",
+    "conf": "low",
+    "src": "R1 4.1, 12.D (projected onto the wall line)",
+    "causeway": {
+     "from": [
+      -1263.9,
+      217.4
+     ],
+     "to": [
+      -1343.8,
+      219.4
+     ],
+     "width": 10.0,
+     "length": 80.0,
+     "note": "brick-walled ramp/causeway straight across the 80 m moat (quay line to outer bank, perpendicular to the wall) with a short timber span"
+    }
+   },
+   {
+    "name": "Adad Gate",
+    "ceremonialName": "Adad-napishti-ummani-usur",
+    "x": -1211.0,
+    "z": 835.8,
+    "facingDeg": 268.5,
+    "type": "double gate (fore-gate in Nemetti-Enlil + main gate in Imgur-Enlil)",
+    "width": 28.0,
+    "depth": 52.0,
+    "heightsDatum": "topLevel / towerTopLevel are LEVELS in the excavation datum (y); the roadway through these gates lies at about +1 to +2",
+    "foreGate": {
+     "width": 28.0,
+     "depth": 13.5,
+     "topLevel": 14.0,
+     "towerTopLevel": 18.0
+    },
+    "gap": 3.0,
+    "mainGate": {
+     "width": 22.0,
+     "depth": 35.0,
+     "topLevel": 18.0,
+     "towerTopLevel": 23.0
+    },
+    "roadwayLevel": 1.5,
+    "doorWidth": 4.5,
+    "doorHeight": 11.9,
+    "arch": "round",
+    "material": "mud-plastered mudbrick",
+    "doors": "cedar leaves with bronze bands",
+    "excavated": false,
+    "leadsTo": "west / south-west",
+    "conf": "low",
+    "src": "R1 4.1, 12.D (snapped onto the wall line)",
+    "causeway": {
+     "from": [
+      -1247.7,
+      836.7
+     ],
+     "to": [
+      -1327.7,
+      838.8
+     ],
+     "width": 10.0,
+     "length": 80.0,
+     "note": "brick-walled ramp/causeway straight across the 80 m moat (quay line to outer bank, perpendicular to the wall) with a short timber span"
+    }
+   },
+   {
+    "name": "Shamash Gate",
+    "ceremonialName": "Shamash-ishid-ummani-kin",
+    "x": -346.9,
+    "z": 969.0,
+    "facingDeg": 181.0,
+    "type": "double gate (fore-gate in Nemetti-Enlil + main gate in Imgur-Enlil)",
+    "width": 28.0,
+    "depth": 52.0,
+    "heightsDatum": "topLevel / towerTopLevel are LEVELS in the excavation datum (y); the roadway through these gates lies at about +1 to +2",
+    "foreGate": {
+     "width": 28.0,
+     "depth": 13.5,
+     "topLevel": 14.0,
+     "towerTopLevel": 18.0
+    },
+    "gap": 3.0,
+    "mainGate": {
+     "width": 22.0,
+     "depth": 35.0,
+     "topLevel": 18.0,
+     "towerTopLevel": 23.0
+    },
+    "roadwayLevel": 1.5,
+    "doorWidth": 4.5,
+    "doorHeight": 11.9,
+    "arch": "round",
+    "material": "mud-plastered mudbrick",
+    "doors": "cedar leaves with bronze bands",
+    "excavated": false,
+    "leadsTo": "south: Borsippa road (west bank)",
+    "conf": "low",
+    "src": "R1 4.1, 12.D",
+    "causeway": {
+     "from": [
+      -347.6,
+      1005.7
+     ],
+     "to": [
+      -349.0,
+      1085.7
+     ],
+     "width": 10.0,
+     "length": 80.0,
+     "note": "brick-walled ramp/causeway straight across the 80 m moat (quay line to outer bank, perpendicular to the wall) with a short timber span"
+    }
+   }
+  ],
+  "gateModule": {
+   "frontGate": [
+    28,
+    13.5
+   ],
+   "gap": 3,
+   "mainGate": [
+    22,
+    35
+   ],
+   "passageLength": 52,
+   "frontTopLevel": 14,
+   "mainTopLevel": 18,
+   "towerTopLevels": [
+    18,
+    23
+   ],
+   "heightsDatum": "levels in the excavation datum for the seven ordinary gates (roadway at about +1.5); the Ishtar Gate has its own levels (+29.9 / +34.6, towers +33.9 / +39.4)",
+   "door": [
+    4.5,
+    11.9
+   ],
+   "causewayLength": 80,
+   "causewayNote": "quay line to the outer bank of the moat, straight along facingDeg; the approach ramps on either side are extra",
+   "statues": "copper bulls and dragons on pedestals at the jambs",
+   "conf": "high (plan); medium (heights)",
+   "src": "R1 4.2"
+  },
+  "conf": "high (east); medium-low (west)",
+  "src": "R1 3, 4, 12"
+ },
+ "outerWall": {
+  "name": "outer (eastern) wall of Nebuchadnezzar II",
+  "line": [
+   [
+    1168.6,
+    -3224.0
+   ],
+   [
+    1439.2,
+    -3200.8
+   ],
+   [
+    1406.6,
+    -2547.3
+   ],
+   [
+    3023.1,
+    593.0
+   ],
+   [
+    203.2,
+    1359.7
+   ],
+   [
+    83.7,
+    1062.0
+   ]
+  ],
+  "vertices": [
+   "NW end at the river quay",
+   "N corner",
+   "kink (Shuhi Canal gate)",
+   "E corner",
+   "SW corner",
+   "north end of the return along the river"
+  ],
+  "faceLengths": {
+   "northHook": 272,
+   "north": 654,
+   "northEast": 3532,
+   "south": 2922,
+   "riverReturn": 321
+  },
+  "lineNote": "line = centreline of the mud wall. Rev. 1 moved the south face 25 m and the north-east face 12 m inward (the old line lay on the outer edge of the wall zone drawn by Pedersen); gates re-projected, moat regenerated.",
+  "profile": {
+   "heightsDatum": "top / walkway values are LEVELS in the excavation datum (ground here 0 to +2)",
+   "mudWall": {
+    "thickness": 7.0,
+    "top": 13.0,
+    "crenellation": 2.0,
+    "towers": {
+     "width": 8.4,
+     "spacingCC": 52.5,
+     "depthLarge": 14.8,
+     "depthSmall": 10.4,
+     "countFromSpacing": 147,
+     "countNote": "spacing is authoritative; count informative (+/-8 %)"
+    }
+   },
+   "gap": {
+    "width": 12.0,
+    "fill": "rubble, used as a road on top"
+   },
+   "bakedWall": {
+    "thickness": 7.8,
+    "top": 8.0,
+    "walkway": 2.0,
+    "towers": "assumed: 12.5 m wide every c. 40 m"
+   },
+   "quay": {
+    "thickness": 3.3
+   },
+   "zoneWidth": 30.0,
+   "moat": 80.0,
+   "offsetsFromMudWallCentreline": {
+    "mudWall": [
+     -3.5,
+     3.5
+    ],
+    "gapTo": 15.5,
+    "bakedWall": [
+     15.5,
+     23.3
+    ],
+    "quay": [
+     23.3,
+     26.6
+    ],
+    "waterTo": 106.6
+   },
+   "look": "from outside: 80 m of water, a pale baked-brick wall 8-10 m high with bastions, and behind it the tan mud wall with a tower every 52.5 m",
+   "conf": "high (thicknesses, tower spacing on the excavated 850 m); low (heights, baked-wall towers)",
+   "src": "R1 8, 10"
+  },
+  "gates": [
+   {
+    "name": "Gate of the Shuhi Canal",
+    "x": 1406.6,
+    "z": -2547.3,
+    "facingDeg": 92.9,
+    "width": 30.0,
+    "depth": 40.0,
+    "doorWidth": 4.6,
+    "type": "double gate with ramp and bridge over the 80 m moat (assumed like the inner gates)",
+    "where": "at the kink below the Summer Palace",
+    "excavated": false,
+    "conf": "low",
+    "src": "R1 4.4, 12.E (names from the wall-measurement tablet; positions after Pedersen; none found)"
+   },
+   {
+    "name": "Gate of the Madanu Canal",
+    "x": 2054.6,
+    "z": -1288.5,
+    "facingDeg": 62.8,
+    "width": 30.0,
+    "depth": 40.0,
+    "doorWidth": 4.6,
+    "type": "double gate with ramp and bridge over the 80 m moat (assumed like the inner gates)",
+    "where": "middle of the north-east face",
+    "excavated": false,
+    "conf": "low",
+    "src": "R1 4.4, 12.E (names from the wall-measurement tablet; positions after Pedersen; none found)"
+   },
+   {
+    "name": "Gishshu Gate",
+    "x": 2880.8,
+    "z": 316.6,
+    "facingDeg": 62.8,
+    "width": 30.0,
+    "depth": 40.0,
+    "doorWidth": 4.6,
+    "type": "double gate with ramp and bridge over the 80 m moat (assumed like the inner gates)",
+    "where": "just north of the east corner; road to Kish",
+    "excavated": false,
+    "conf": "low",
+    "src": "R1 4.4, 12.E (names from the wall-measurement tablet; positions after Pedersen; none found)"
+   },
+   {
+    "name": "Gate of the Sun of the Gods",
+    "x": 1872.7,
+    "z": 905.8,
+    "facingDeg": 164.8,
+    "width": 30.0,
+    "depth": 40.0,
+    "doorWidth": 4.6,
+    "type": "double gate with ramp and bridge over the 80 m moat (assumed like the inner gates)",
+    "where": "south face",
+    "excavated": false,
+    "conf": "low",
+    "src": "R1 4.4, 12.E (names from the wall-measurement tablet; positions after Pedersen; none found)"
+   },
+   {
+    "name": "Gate of the Seashore",
+    "x": 414.7,
+    "z": 1302.2,
+    "facingDeg": 164.8,
+    "width": 30.0,
+    "depth": 40.0,
+    "doorWidth": 4.6,
+    "type": "double gate with ramp and bridge over the 80 m moat (assumed like the inner gates)",
+    "where": "south face near the river",
+    "excavated": false,
+    "conf": "low",
+    "src": "R1 4.4, 12.E (names from the wall-measurement tablet; positions after Pedersen; none found)"
+   }
+  ],
+  "crossWall": {
+   "polyline": [
+    [
+     643.3,
+     -1839.0
+    ],
+    [
+     1072.1,
+     -1697.2
+    ]
+   ],
+   "thickness": 5.8,
+   "height": 6.0,
+   "towers": "9.4 x 7.4 and 7.4 x 7.4",
+   "note": "drawn by Pedersen from the east bank eastwards for 450 m, then lost (text: begins 60 m from the river); the north road passes it by a gate near its west end; date and purpose uncertain",
+   "conf": "medium",
+   "src": "R1 8, 12.E"
+  },
+  "summerPalace": {
+   "monumentId": "summerPalace",
+   "center": [
+    1213.9,
+    -3026.2
+   ],
+   "size": [
+    153,
+    173
+   ],
+   "rotationDeg": 15.5,
+   "polygon": [
+    [
+     1163.3,
+     -3130.0
+    ],
+    [
+     1310.7,
+     -3089.1
+    ],
+    [
+     1264.5,
+     -2922.4
+    ],
+    [
+     1117.0,
+     -2963.3
+    ],
+    [
+     1163.3,
+     -3130.0
+    ]
+   ],
+   "floorLevel": 21.0,
+   "wallTop": 30.0,
+   "conf": "high (position); medium (outline)",
+   "src": "R1 8, 12.E; R4 6"
+  },
+  "conf": "medium-high (NE face, E corner); low (SW end, gates)",
+  "src": "R1 8, 12.E; Fig. 2.1"
+ },
+ "enclosures": {
+  "innerEast": [
+   [
+    38.1,
+    -707.9
+   ],
+   [
+    345.8,
+    -716.2
+   ],
+   [
+    1375.2,
+    -953.4
+   ],
+   [
+    1388.5,
+    -243.2
+   ],
+   [
+    1398.2,
+    490.1
+   ],
+   [
+    1400.8,
+    677.0
+   ],
+   [
+    145.8,
+    913.2
+   ],
+   [
+    42.4,
+    960.3
+   ],
+   [
+    35.2,
+    963.4
+   ],
+   [
+    -45.0,
+    780.0
+   ],
+   [
+    -82.0,
+    670.0
+   ],
+   [
+    -128.0,
+    535.0
+   ],
+   [
+    -159.3,
+    362.0
+   ],
+   [
+    -161.1,
+    160.4
+   ],
+   [
+    -160.9,
+    154.3
+   ],
+   [
+    -101.7,
+    -134.0
+   ],
+   [
+    -72.0,
+    -249.3
+   ],
+   [
+    -52.3,
+    -326.0
+   ],
+   [
+    1.0,
+    -581.9
+   ],
+   [
+    1.0,
+    -581.9
+   ],
+   [
+    38.1,
+    -707.9
+   ]
+  ],
+  "innerWest": [
+   [
+    -216.9,
+    -487.5
+   ],
+   [
+    -1246.0,
+    -507.5
+   ],
+   [
+    -1207.9,
+    954.2
+   ],
+   [
+    -121.9,
+    972.8
+   ],
+   [
+    -121.9,
+    972.8
+   ],
+   [
+    -123.0,
+    969.4
+   ],
+   [
+    -170.0,
+    895.0
+   ],
+   [
+    -205.0,
+    735.0
+   ],
+   [
+    -235.0,
+    605.0
+   ],
+   [
+    -270.0,
+    480.0
+   ],
+   [
+    -287.0,
+    375.0
+   ],
+   [
+    -288.0,
+    270.0
+   ],
+   [
+    -285.1,
+    136.8
+   ],
+   [
+    -209.4,
+    -276.0
+   ],
+   [
+    -209.3,
+    -344.3
+   ],
+   [
+    -216.6,
+    -459.6
+   ],
+   [
+    -216.9,
+    -487.5
+   ]
+  ],
+  "outerCity": [
+   [
+    1168.6,
+    -3224.0
+   ],
+   [
+    1439.2,
+    -3200.8
+   ],
+   [
+    1406.6,
+    -2547.3
+   ],
+   [
+    3023.1,
+    593.0
+   ],
+   [
+    203.2,
+    1359.7
+   ],
+   [
+    83.7,
+    1062.0
+   ],
+   [
+    35.8,
+    1066.4
+   ],
+   [
+    46.1,
+    988.3
+   ],
+   [
+    -45.0,
+    780.0
+   ],
+   [
+    -82.0,
+    670.0
+   ],
+   [
+    -128.0,
+    535.0
+   ],
+   [
+    -159.3,
+    362.0
+   ],
+   [
+    -161.1,
+    160.4
+   ],
+   [
+    -160.9,
+    154.3
+   ],
+   [
+    -101.7,
+    -134.0
+   ],
+   [
+    -72.0,
+    -249.3
+   ],
+   [
+    -52.3,
+    -326.0
+   ],
+   [
+    1.0,
+    -581.9
+   ],
+   [
+    -32.0,
+    -590.0
+   ],
+   [
+    -130.3,
+    -617.3
+   ],
+   [
+    -49.8,
+    -907.3
+   ],
+   [
+    48.4,
+    -880.1
+   ],
+   [
+    99.1,
+    -1062.7
+   ],
+   [
+    130.7,
+    -1128.1
+   ],
+   [
+    160.0,
+    -1180.0
+   ],
+   [
+    225.0,
+    -1270.0
+   ],
+   [
+    330.0,
+    -1410.0
+   ],
+   [
+    445.0,
+    -1550.0
+   ],
+   [
+    545.0,
+    -1685.0
+   ],
+   [
+    640.0,
+    -1840.0
+   ],
+   [
+    705.0,
+    -1945.0
+   ],
+   [
+    790.0,
+    -2130.0
+   ],
+   [
+    875.0,
+    -2315.0
+   ],
+   [
+    955.0,
+    -2500.0
+   ],
+   [
+    1169.6,
+    -3223.7
+   ],
+   [
+    1168.6,
+    -3224.0
+   ]
+  ],
+  "note": "helper rings: wall centreline closed along the river bank",
+  "conf": "derived",
+  "src": "derived from innerWalls / outerWall / river"
+ },
+ "streets": [
+  {
+   "id": "processionalWay",
+   "name": "Processional Way (Ay-ibur-shabu, \"Street of Babylon\"; the stretch at the Ishtar Gate was called Ishtar-lamassi-ummanishu)",
+   "class": "processional",
+   "polyline": [
+    [
+     372.5,
+     -1124.3
+    ],
+    [
+     367.3,
+     -1064.5
+    ],
+    [
+     362.8,
+     -993.2
+    ],
+    [
+     358.0,
+     -937.4
+    ],
+    [
+     355.8,
+     -901.7
+    ],
+    [
+     351.1,
+     -840.8
+    ],
+    [
+     348.0,
+     -800.1
+    ],
+    [
+     346.6,
+     -771.4
+    ],
+    [
+     345.5,
+     -744.3
+    ],
+    [
+     346.1,
+     -694.6
+    ],
+    [
+     347.5,
+     -686.1
+    ],
+    [
+     351.3,
+     -643.5
+    ],
+    [
+     353.6,
+     -601.4
+    ],
+    [
+     353.3,
+     -580.7
+    ],
+    [
+     349.6,
+     -540.2
+    ],
+    [
+     347.5,
+     -520.1
+    ],
+    [
+     346.7,
+     -494.3
+    ],
+    [
+     346.2,
+     -478.9
+    ],
+    [
+     344.5,
+     -406.7
+    ],
+    [
+     343.2,
+     -324.1
+    ],
+    [
+     343.1,
+     -241.1
+    ],
+    [
+     343.5,
+     -217.3
+    ],
+    [
+     344.2,
+     -117.1
+    ],
+    [
+     345.0,
+     5.3
+    ],
+    [
+     345.6,
+     102.7
+    ],
+    [
+     346.2,
+     200.1
+    ],
+    [
+     75.6,
+     179.0
+    ],
+    [
+     -120.3,
+     163.7
+    ],
+    [
+     -161.1,
+     160.4
+    ]
+   ],
+   "levels": [
+    6.0,
+    6.5,
+    7.5,
+    9.5,
+    10.7,
+    12.5,
+    13.7,
+    14.5,
+    15.3,
+    15.5,
+    15.3,
+    14.5,
+    13.5,
+    13.0,
+    12.5,
+    12.0,
+    11.0,
+    10.0,
+    8.0,
+    7.5,
+    6.0,
+    5.6,
+    5.0,
+    3.0,
+    2.7,
+    2.4,
+    2.4,
+    2.3,
+    2.35
+   ],
+   "widths": [
+    10.5,
+    10.5,
+    10.5,
+    4.6,
+    10.5,
+    10.5,
+    10.5,
+    10.5,
+    4.5,
+    4.5,
+    10.5,
+    10.5,
+    10.5,
+    10.5,
+    10.5,
+    10.5,
+    10.5,
+    6.4,
+    6.4,
+    6.4,
+    6.4,
+    6.4,
+    6.4,
+    6.4,
+    6.4,
+    6.4,
+    6.4,
+    6.4,
+    6.4
+   ],
+   "stations": [
+    "north end of the causeway/ramp across the north moat (continues north unexcavated)",
+    "north moat, outer bank",
+    "final (limestone-faced) north wall of the North Palace",
+    "North Gate (baked brick, c. 30 m long)",
+    "",
+    "lion friezes on both walls",
+    "",
+    "between the bastions",
+    "Ishtar Gate, fore-gate front",
+    "Ishtar Gate, main-gate south face",
+    "",
+    "",
+    "",
+    "opposite the South Palace main gate (street widens)",
+    "",
+    "SE corner of the South Palace",
+    "crossing of the Libil-hegalla canal (lost): street on a causeway c. 14 m above the canal, which passes through a brick culvert (conjectural)",
+    "street narrows",
+    "",
+    "Nabu-sha-hare temple to the west",
+    "approaching the precinct NE corner",
+    "NE corner of the Etemenanki precinct",
+    "small east gate (IV) of the precinct",
+    "main east gate (V) of the precinct: 30 m forecourt; Marduk Gate street leaves east",
+    "",
+    "SE corner of the precinct: the route turns west",
+    "west-east street along the precinct south wall (gate forecourts VI-IX on the north side)",
+    "SW corner of the precinct",
+    "east abutment of the Euphrates bridge (street flush with the timber deck)"
+   ],
+   "width": 10.5,
+   "sections": [
+    {
+     "name": "north causeway and walled lion street (to the Ishtar Gate)",
+     "from": 0,
+     "to": 8,
+     "spaceBetweenWalls": 21.5,
+     "roadway": 10.5,
+     "paving": "white limestone slabs 1.05 m (5 across) flanked by red breccia slabs 0.66 m (4 each side), bitumen joints; asphalted brick side strips",
+     "gradientPct": 3.0,
+     "lionFrieze": true
+    },
+    {
+     "name": "Ishtar Gate passage",
+     "from": 8,
+     "to": 9,
+     "roadway": 4.5
+    },
+    {
+     "name": "along the South Palace",
+     "from": 9,
+     "to": 16,
+     "roadway": 10.5,
+     "paving": "limestone centre + breccia sides as north of the gate; open terrace before the palace front"
+    },
+    {
+     "name": "Nabu temple to the precinct",
+     "from": 16,
+     "to": 25,
+     "roadway": 6.4,
+     "paving": "4.2 m of red breccia slabs 0.59 m (7 across) on the west + 2.2 m asphalted brick on the east, inside an open strip c. 20 m wide"
+    },
+    {
+     "name": "west-east street to the bridge",
+     "from": 25,
+     "to": 28,
+     "roadway": 6.4,
+     "corridor": 20.0,
+     "paving": "asphalted brick (stone probably robbed)"
+    }
+   ],
+   "turnToBridge": [
+    346.2,
+    200.1
+   ],
+   "conf": "high (course from the North Gate to the bridge, +/-3-5 m); medium (levels between attested points)",
+   "src": "R2 7, 12.3; R3 3.3, 5; R1 6.2, 12.B"
+  },
+  {
+   "id": "mardukGateStreet",
+   "name": "Ziggurat street / street of the Marduk Gate (Marduk-re'i-matishu)",
+   "class": "main",
+   "polyline": [
+    [
+     345.0,
+     5.3
+    ],
+    [
+     474.6,
+     -16.3
+    ],
+    [
+     563.7,
+     -26.0
+    ],
+    [
+     800.0,
+     -85.0
+    ],
+    [
+     1050.0,
+     -160.0
+    ],
+    [
+     1250.0,
+     -215.0
+    ],
+    [
+     1358.5,
+     -242.7
+    ]
+   ],
+   "width": 20.0,
+   "pavedLane": 4.2,
+   "altar": {
+    "x": 523.8,
+    "z": -8.3,
+    "note": "baked-brick pedestal/altar with Esarhaddon and Assurbanipal bricks, in the street"
+   },
+   "conf": "high for the first 200 m; low beyond (straight course to the gate assumed)",
+   "src": "R1 6.2; R3 5; R5 4.2"
+  },
+  {
+   "id": "urashGateStreet",
+   "name": "street of the Urash Gate (Nabu-dayyan-nishishu), Nabu's processional street",
+   "class": "main",
+   "polyline": [
+    [
+     140.2,
+     883.7
+    ],
+    [
+     192.0,
+     790.0
+    ],
+    [
+     200.0,
+     660.0
+    ],
+    [
+     185.0,
+     520.0
+    ],
+    [
+     140.0,
+     440.0
+    ],
+    [
+     105.0,
+     400.0
+    ],
+    [
+     98.0,
+     300.0
+    ],
+    [
+     96.5,
+     180.7
+    ]
+   ],
+   "width": 9.0,
+   "conf": "low (textual; not found; routed east of the Ishhara temple and the Esagila annex)",
+   "src": "R1 6.2 (Tintir V 67)"
+  },
+  {
+   "id": "zababaGateStreet",
+   "name": "street of the Zababa Gate",
+   "class": "main",
+   "polyline": [
+    [
+     1368.2,
+     490.5
+    ],
+    [
+     1100.0,
+     475.0
+    ],
+    [
+     800.0,
+     455.0
+    ],
+    [
+     500.0,
+     440.0
+    ],
+    [
+     200.0,
+     440.0
+    ],
+    [
+     140.0,
+     440.0
+    ]
+   ],
+   "width": 8.0,
+   "conf": "low (textual)",
+   "src": "R1 6.2"
+  },
+  {
+   "id": "bridgeStreetWest",
+   "name": "street from the bridge to the King's Gate (west city)",
+   "class": "main",
+   "polyline": [
+    [
+     -285.1,
+     136.8
+    ],
+    [
+     -420.0,
+     130.0
+    ],
+    [
+     -800.0,
+     165.0
+    ],
+    [
+     -1197.1,
+     215.6
+    ]
+   ],
+   "width": 8.0,
+   "conf": "low (conjectural)",
+   "src": "R1 6.2; R3 3.5"
+  },
+  {
+   "id": "enlilGateStreet",
+   "name": "street of the Enlil Gate",
+   "class": "main",
+   "polyline": [
+    [
+     -370.8,
+     -460.5
+    ],
+    [
+     -374.0,
+     -150.0
+    ],
+    [
+     -385.0,
+     127.5
+    ]
+   ],
+   "width": 8.0,
+   "conf": "low (conjectural)",
+   "src": "R1 6.2"
+  },
+  {
+   "id": "shamashGateStreet",
+   "name": "street of the Shamash Gate",
+   "class": "main",
+   "polyline": [
+    [
+     -346.4,
+     939.0
+    ],
+    [
+     -362.0,
+     620.0
+    ],
+    [
+     -372.0,
+     300.0
+    ],
+    [
+     -385.0,
+     127.5
+    ]
+   ],
+   "width": 8.0,
+   "conf": "low (conjectural)",
+   "src": "R1 6.2"
+  },
+  {
+   "id": "adadGateStreet",
+   "name": "street of the Adad Gate",
+   "class": "main",
+   "polyline": [
+    [
+     -1181.0,
+     835.0
+    ],
+    [
+     -900.0,
+     800.0
+    ],
+    [
+     -600.0,
+     700.0
+    ],
+    [
+     -365.0,
+     660.0
+    ]
+   ],
+   "width": 8.0,
+   "conf": "low (conjectural)",
+   "src": "R1 6.2"
+  },
+  {
+   "id": "northRoad",
+   "name": "road north from the palace quarter to the Summer Palace (continuation of the Processional Way; akitu route)",
+   "class": "road",
+   "polyline": [
+    [
+     372.5,
+     -1124.3
+    ],
+    [
+     392.0,
+     -1250.0
+    ],
+    [
+     430.0,
+     -1380.0
+    ],
+    [
+     520.0,
+     -1520.0
+    ],
+    [
+     610.0,
+     -1690.0
+    ],
+    [
+     672.0,
+     -1832.0
+    ],
+    [
+     765.0,
+     -1960.0
+    ],
+    [
+     865.0,
+     -2170.0
+    ],
+    [
+     985.0,
+     -2420.0
+    ],
+    [
+     1090.0,
+     -2700.0
+    ],
+    [
+     1150.0,
+     -2880.0
+    ],
+    [
+     1188.0,
+     -2924.0
+    ]
+   ],
+   "width": 10.0,
+   "conf": "low (conjectural; crosses the cross-wall by a gate near its west end)",
+   "src": "R1 8, 9; R5 4.3"
+  }
+ ],
+ "merkesStreets": {
+  "streets": [
+   {
+    "name": "Untere Tempelstrasse",
+    "polyline": [
+     [
+      360.6,
+      -309.7
+     ],
+     [
+      421.6,
+      -297.5
+     ],
+     [
+      485.6,
+      -286.3
+     ],
+     [
+      548.5,
+      -274.1
+     ],
+     [
+      569.5,
+      -274.0
+     ],
+     [
+      599.6,
+      -282.9
+     ]
+    ],
+    "width": 6.0,
+    "level": 5.0,
+    "note": "street level c. +5.0 before the Ishtar-of-Agade temple (floor +5.3), rising west to c. +7.5 at the Processional Way"
+   },
+   {
+    "name": "street north of the Ishtar temple",
+    "polyline": [
+     [
+      394.8,
+      -350.6
+     ],
+     [
+      497.7,
+      -327.3
+     ],
+     [
+      579.7,
+      -318.0
+     ],
+     [
+      604.7,
+      -319.9
+     ]
+    ],
+    "width": 3.5
+   },
+   {
+    "name": "Westweg",
+    "polyline": [
+     [
+      428.9,
+      -366.5
+     ],
+     [
+      412.6,
+      -295.6
+     ],
+     [
+      405.4,
+      -231.6
+     ],
+     [
+      397.2,
+      -169.6
+     ]
+    ],
+    "width": 3.5
+   },
+   {
+    "name": "Weg hinter dem Tempel",
+    "polyline": [
+     [
+      476.8,
+      -355.3
+     ],
+     [
+      459.6,
+      -289.4
+     ]
+    ],
+    "width": 3.0
+   },
+   {
+    "name": "Mittelweg",
+    "polyline": [
+     [
+      504.8,
+      -347.2
+     ],
+     [
+      489.6,
+      -286.3
+     ],
+     [
+      485.5,
+      -254.3
+     ],
+     [
+      481.3,
+      -212.3
+     ],
+     [
+      472.1,
+      -149.3
+     ],
+     [
+      473.0,
+      -129.3
+     ],
+     [
+      482.8,
+      -72.3
+     ],
+     [
+      488.6,
+      -19.3
+     ],
+     [
+      495.5,
+      31.7
+     ]
+    ],
+    "width": 4.0
+   },
+   {
+    "name": "Ostweg",
+    "polyline": [
+     [
+      546.5,
+      -270.1
+     ],
+     [
+      549.3,
+      -196.1
+     ],
+     [
+      554.1,
+      -140.1
+     ],
+     [
+      557.9,
+      -93.0
+     ],
+     [
+      560.7,
+      -38.0
+     ],
+     [
+      568.6,
+      -14.0
+     ]
+    ],
+    "width": 8.0
+   },
+   {
+    "name": "street south of the Great House block",
+    "polyline": [
+     [
+      429.3,
+      -219.5
+     ],
+     [
+      481.3,
+      -212.3
+     ],
+     [
+      550.3,
+      -204.1
+     ]
+    ],
+    "width": 3.5
+   },
+   {
+    "name": "South Merkes E-W street 1",
+    "polyline": [
+     [
+      422.0,
+      -127.5
+     ],
+     [
+      467.0,
+      -131.4
+     ],
+     [
+      509.0,
+      -133.2
+     ],
+     [
+      558.0,
+      -134.0
+     ]
+    ],
+    "width": 4.0
+   },
+   {
+    "name": "South Merkes E-W street 2",
+    "polyline": [
+     [
+      396.8,
+      -69.6
+     ],
+     [
+      482.8,
+      -77.3
+     ],
+     [
+      565.9,
+      -83.0
+     ]
+    ],
+    "width": 4.0
+   },
+   {
+    "name": "lane west of Mittelweg",
+    "polyline": [
+     [
+      449.6,
+      -287.4
+     ],
+     [
+      437.3,
+      -219.5
+     ],
+     [
+      432.1,
+      -162.5
+     ]
+    ],
+    "width": 2.5
+   }
+  ],
+  "blockSize": [
+   60,
+   80
+  ],
+  "angleJitterDeg": [
+   3,
+   10
+  ],
+  "note": "excavated street skeleton of Merkes (seed for the procedural net); three lines nudged by <= 9 m so that they clear the excavated Ishtar-of-Agade temple on Pedersen Fig. 6.2; excavated building footprints take precedence over these centre lines",
+  "conf": "medium (+/-10-15 m)",
+  "src": "R5 4.2 (Koldewey fig. 155), re-rotated into this frame"
+ },
+ "bridge": {
+  "name": "Euphrates bridge",
+  "x": -223.1,
+  "z": 148.6,
+  "westAbutment": [
+   -285.1,
+   136.8
+  ],
+  "eastAbutment": [
+   -161.1,
+   160.4
+  ],
+  "length": 126.2,
+  "width": 9.0,
+  "roadwayWidth": 6.4,
+  "axisAzimuthDeg": 100.8,
+  "rotationDeg": 10.8,
+  "piers": [
+   {
+    "n": 1,
+    "x": -174.4,
+    "z": 157.9
+   },
+   {
+    "n": 2,
+    "x": -192.0,
+    "z": 154.5
+   },
+   {
+    "n": 3,
+    "x": -209.7,
+    "z": 151.1
+   },
+   {
+    "n": 4,
+    "x": -227.4,
+    "z": 147.8
+   },
+   {
+    "n": 5,
+    "x": -245.1,
+    "z": 144.4
+   },
+   {
+    "n": 6,
+    "x": -262.8,
+    "z": 141.0
+   }
+  ],
+  "pierSize": {
+   "alongBridge": 9.0,
+   "alongStream": 21.0
+  },
+  "pierSpacingCC": 18.0,
+  "clearGap": 9.0,
+  "eastGap": 9.0,
+  "westGap": 18.2,
+  "pierShape": "boat-shaped in plan: pointed bow UPSTREAM (grid north), slightly rounded stern, strongly battered faces",
+  "pierBowAzimuthDeg": 10.8,
+  "pierMaterial": "baked brick 31 cm in bitumen, stone-slab capping",
+  "pierBase": -5.0,
+  "pierTop": 1.6,
+  "pierTopNote": "top of the stone capping = bearing of the deck beams (beam holes found at about +1.0 and +1.5). NO pier masonry rises above the roadway. The +3.8 preserved top of pier 1 belongs to its later rebuilding as the abutment of the Nabonidus wall.",
+  "deck": "level timber roadway (cedar, cypress, palm logs) with simple rails, sections removable; NO arches",
+  "deckStructure": {
+   "beamsAndPlanking": 0.75,
+   "undersideLevel": 1.6
+  },
+  "deckLevel": 2.35,
+  "deckLevelNote": "roadway surface flush with the earlier west-east street (+2.3). The +3.1 pavement is that of the later bridge gateway in the Nabonidus wall and is not used.",
+  "clearanceAboveWater": {
+   "toRoadway": 5.35,
+   "toBeams": 4.6
+  },
+  "waterLevel": -3.0,
+  "builder": "Nabopolassar / early Nebuchadnezzar",
+  "conf": "high (piers, span); medium (levels); low (deck width and construction)",
+  "src": "R3 3.5, 5; R1 5; Pedersen 2021 pp. 204-206; Koldewey 1914 ch. XXXI-XXXII"
+ },
+ "monuments": [
+  {
+   "id": "etemenanki",
+   "name": "Etemenanki, ziggurat of Marduk",
+   "kind": "ziggurat",
+   "footprint": {
+    "center": [
+     0.0,
+     0.0
+    ],
+    "size": [
+     91.5,
+     91.5
+    ],
+    "rotationDeg": 1.2,
+    "sizeIsBoundingBox": false,
+    "polygon": [
+     [
+      -44.8,
+      -46.7
+     ],
+     [
+      46.7,
+      -44.8
+     ],
+     [
+      44.8,
+      46.7
+     ],
+     [
+      46.7,
+      46.7
+     ],
+     [
+      46.5,
+      55.4
+     ],
+     [
+      3.4,
+      54.5
+     ],
+     [
+      2.3,
+      106.1
+     ],
+     [
+      -6.7,
+      105.9
+     ],
+     [
+      -5.6,
+      54.3
+     ],
+     [
+      -48.8,
+      53.4
+     ],
+     [
+      -48.6,
+      44.7
+     ],
+     [
+      -46.7,
+      44.8
+     ],
+     [
+      -44.8,
+      -46.7
+     ]
+    ],
+    "areaM2": 9666
+   },
+   "within": "innerEast",
+   "dims": {
+    "baseSide": 91.5,
+    "totalHeight": 91.5,
+    "baseLevel": 2.5,
+    "summitLevel": 94.0,
+    "stages": [
+     [
+      91.5,
+      27.1
+     ],
+     [
+      80.5,
+      9.5
+     ],
+     [
+      71.0,
+      8.8
+     ],
+     [
+      61.5,
+      8.8
+     ],
+     [
+      51.2,
+      8.8
+     ],
+     [
+      40.3,
+      8.1
+     ]
+    ],
+    "stageTops": [
+     27.1,
+     36.6,
+     45.4,
+     54.2,
+     63.0,
+     71.1
+    ],
+    "temple": {
+     "size": [
+      28.5,
+      27.0
+     ],
+     "height": 20.4,
+     "material": "baked brick glazed lapis blue",
+     "doors": [
+      "south",
+      "north"
+     ],
+     "doorsNote": "south door on the stair axis (stele elevation) and a north door (stele plan); the tablet names four gates - only these two are built",
+     "recessesPerSide": 4,
+     "roof": "flat, cedar beams",
+     "parapet": "stepped merlons (assumed)"
+    },
+    "profileSource": "Nebuchadnezzar \"Tower of Babel\" stele, scaled by Pedersen 2024 (recommended)",
+    "alternativeProfile_EsagilTablet": {
+     "stages": [
+      [
+       90,
+       33
+      ],
+      [
+       78,
+       18
+      ],
+      [
+       60,
+       6
+      ],
+      [
+       51,
+       6
+      ],
+      [
+       42,
+       6
+      ],
+      [
+       33,
+       6
+      ]
+     ],
+     "temple": {
+      "size": [
+       24,
+       22.5
+      ],
+      "height": 15
+     },
+     "totalHeight": 90
+    },
+    "core": {
+     "side": 60.0,
+     "material": "mudbrick (never visible)"
+    },
+    "mantleThickness": 15.75,
+    "material": "baked brick 31.5-33 cm in bitumen, 10 courses per metre, no plaster",
+    "batter": "1:16 to 1:20 on terraces, vertical on the temple",
+    "parapetPerTerrace": {
+     "height": 1.2,
+     "thickness": 1.0
+    },
+    "recessesPerFace": [
+     12,
+     9,
+     8,
+     7,
+     6,
+     5
+    ],
+    "recess": {
+     "width": 2.3,
+     "depth": 0.65
+    },
+    "stairs": {
+     "side": "south",
+     "lateralBlock": {
+      "projection": 8.7,
+      "xFrom": -47.65,
+      "xTo": 47.65,
+      "note": "two flights rise from the SW and SE corners to a landing at the top of stage 1"
+     },
+     "landing": {
+      "xFrom": -4.5,
+      "xTo": 4.5,
+      "level": 27.1,
+      "levelNote": "height above the base level (+2.5), i.e. datum level +29.6"
+     },
+     "central": {
+      "width": 9.0,
+      "run": 51.6,
+      "zFrom": 54.45,
+      "zTo": 106.05,
+      "top": "landing at the top of stage 1 (27.1 m)"
+     },
+     "flights": {
+      "central": {
+       "rise": 27.1,
+       "run": 51.6,
+       "risers": 156,
+       "riser": 0.1737,
+       "tread": 0.3308,
+       "slopeDeg": 27.7
+      },
+      "lateralWest": {
+       "rise": 27.1,
+       "run": 43.15,
+       "risers": 131,
+       "riser": 0.2069,
+       "tread": 0.3294,
+       "slopeDeg": 32.1
+      },
+      "lateralEast": {
+       "rise": 27.1,
+       "run": 43.15,
+       "risers": 131,
+       "riser": 0.2069,
+       "tread": 0.3294,
+       "slopeDeg": 32.1
+      }
+     },
+     "stepRule": "treads are one brick (0.33 m) on all three flights; risers follow from the excavated plan and the 27.1 m landing: 0.174 m (two brick courses) on the central flight, 0.207 m on the lateral flights. The v2.0 module 0.33 / 0.25 (37 deg) could not reach the landing on the excavated runs.",
+     "optionBuilt": "A: all three flights end on the first terrace (Nebuchadnezzar stele; Pedersen 2021 sec. 4.3)",
+     "alternative_B": "central flight continues to the top of stage 2 (36.6 m over 60.3 m, gradient 0.61): the Wetzel / Schmid reading, allowed by the gradient of the remains but not shown on the stele",
+     "parapet": 1.0,
+     "aboveStage1": "internal, not visible",
+     "footModel": [
+      -2.2,
+      106.1
+     ]
+    },
+    "localFrame": "own axes, origin at centre, south face at local z = +45.75; apply rotationDeg afterwards"
+   },
+   "conf": "high (base, position, stairs on the south); medium-low (stage profile, from the stele); low (temple details)",
+   "src": "R3 3.1, 5",
+   "parent": "etemenankiPrecinct",
+   "baseLevel": 2.5
+  },
+  {
+   "id": "etemenankiPrecinct",
+   "name": "Etemenanki precinct (peribolos)",
+   "kind": "precinct",
+   "footprint": {
+    "center": [
+     118.5,
+     -24.7
+    ],
+    "size": [
+     460.9,
+     442.6
+    ],
+    "rotationDeg": 0.0,
+    "sizeIsBoundingBox": true,
+    "polygon": [
+     [
+      -67.8,
+      -248.1
+     ],
+     [
+      338.3,
+      -217.3
+     ],
+     [
+      341.0,
+      194.5
+     ],
+     [
+      -119.9,
+      158.5
+     ],
+     [
+      -99.7,
+      -133.1
+     ],
+     [
+      -67.8,
+      -248.1
+     ]
+    ],
+    "areaM2": 181703
+   },
+   "within": "innerEast",
+   "dims": {
+    "sides": {
+     "N": 407,
+     "E": 412,
+     "S": 462,
+     "W_south": 292,
+     "W_north": 120
+    },
+    "areaHa": 18.2,
+    "wall": {
+     "type": "casemate (double wall with rooms) of mudbrick, solid single wall on the NW stretch",
+     "depth": 8.5,
+     "depthEast": 12.0,
+     "height": 10.0,
+     "parapet": 1.0,
+     "finish": "white lime-gypsum plaster; baked-brick kisu skirt 1.5-4 m high on the street sides",
+     "pilasterBay": 9.5,
+     "pilaster": "shallow pilaster-towers and recesses of equal width, two vertical grooves each"
+    },
+    "gateTowersHeight": 14.5,
+    "gates": {
+     "I": {
+      "x": -46.2,
+      "z": -246.8,
+      "note": "plain door, N"
+     },
+     "II": {
+      "x": 24.0,
+      "z": -241.4,
+      "note": "plain door, N"
+     },
+     "III": {
+      "x": 189.2,
+      "z": -222.1,
+      "note": "gate-house, N"
+     },
+     "IV": {
+      "x": 335.5,
+      "z": -120.9,
+      "note": "small east door"
+     },
+     "V": {
+      "x": 249.0,
+      "z": 5.5,
+      "note": "MAIN east gate (gate-house restored) at the back of an 88 m forecourt"
+     },
+     "VI": {
+      "x": 164.0,
+      "z": 156.9,
+      "note": "S gate-house, forecourt 21 x 25"
+     },
+     "VII": {
+      "x": 95.0,
+      "z": 150.9,
+      "note": "S gate-house, forecourt 21 x 25"
+     },
+     "VIII": {
+      "x": 11.1,
+      "z": 146.0,
+      "note": "S gate-house, forecourt 21 x 25 (on the cult route from the central stair to Esagila)"
+     },
+     "IX": {
+      "x": -46.5,
+      "z": 140.8,
+      "note": "S gate-house, forecourt 21 x 25"
+     },
+     "X": {
+      "x": -111.0,
+      "z": 28.9,
+      "note": "W gate-house"
+     },
+     "XI": {
+      "x": -104.2,
+      "z": -65.9,
+      "note": "W gate-house"
+     },
+     "XII": {
+      "x": -99.8,
+      "z": -125.8,
+      "note": "W gate-house at the kink"
+     }
+    },
+    "gateVForecourt": {
+     "mouth": [
+      336.6,
+      5.3
+     ],
+     "width": 30.0,
+     "depth": 88.0,
+     "paving": "red breccia branch 4.2 m wide"
+    },
+    "southForecourtMouths": {
+     "VI": [
+      161.2,
+      183.8
+     ],
+     "VII": [
+      91.3,
+      178.2
+     ],
+     "VIII": [
+      9.6,
+      170.9
+     ],
+     "IX": [
+      -48.8,
+      165.5
+     ]
+    },
+    "northStorehouse": {
+     "polygon": [
+      [
+       240.2,
+       -116.3
+      ],
+      [
+       336.5,
+       -113.8
+      ],
+      [
+       335.8,
+       -11.1
+      ],
+      [
+       240.1,
+       -15.5
+      ],
+      [
+       240.2,
+       -116.3
+      ]
+     ],
+     "size": [
+      96,
+      103
+     ],
+     "court": [
+      [
+       259.8,
+       -95.6
+      ],
+      [
+       317.5,
+       -93.9
+      ],
+      [
+       316.2,
+       -33.8
+      ],
+      [
+       259.7,
+       -34.1
+      ],
+      [
+       259.8,
+       -95.6
+      ]
+     ],
+     "rooms": "one ring of c. 50 long narrow rooms c. 4 x 16 m",
+     "height": 9.0
+    },
+    "southStorehouse": {
+     "polygon": [
+      [
+       243.1,
+       21.5
+      ],
+      [
+       339.2,
+       23.6
+      ],
+      [
+       339.1,
+       124.0
+      ],
+      [
+       243.1,
+       121.9
+      ],
+      [
+       243.1,
+       21.5
+      ]
+     ],
+     "size": [
+      96,
+      100
+     ],
+     "note": "restored as a twin of the north one",
+     "height": 9.0
+    },
+    "southRange": "SW corner house + four courtyard mansions (priests' houses) 45-75 m long, 25-35 m deep, between the gate forecourts; 8-10 m high",
+    "innerWestWall": [
+     [
+      -62.9,
+      14.2
+     ],
+     [
+      -70.7,
+      125.6
+     ]
+    ],
+    "crossWallStub": [
+     [
+      -99.7,
+      -133.1
+     ],
+     [
+      -45.7,
+      -128.4
+     ]
+    ],
+    "smallHousesNE": {
+     "x": 309.0,
+     "z": -146.0,
+     "size": [
+      15,
+      37
+     ]
+    },
+    "court": "vast baked-brick paved court, left EMPTY; level +2 to +3",
+    "courtLevel": 2.5
+   },
+   "conf": "high (outline +/-3 m, gates); low (heights)",
+   "src": "R3 3.2, 5; R1 12.A"
+  },
+  {
+   "id": "esagila",
+   "name": "Esagila, temple of Marduk (main building)",
+   "kind": "temple",
+   "footprint": {
+    "center": [
+     -55.5,
+     309.6
+    ],
+    "size": [
+     79.3,
+     85.8
+    ],
+    "rotationDeg": 2.5,
+    "sizeIsBoundingBox": false,
+    "polygon": [
+     [
+      -92.8,
+      266.1
+     ],
+     [
+      -14.6,
+      269.4
+     ],
+     [
+      -18.5,
+      352.7
+     ],
+     [
+      -96.2,
+      350.3
+     ],
+     [
+      -92.8,
+      266.1
+     ]
+    ],
+    "areaM2": 6539
+   },
+   "within": "innerEast",
+   "dims": {
+    "size": [
+     79.3,
+     85.8
+    ],
+    "court": {
+     "center": [
+      -47.0,
+      308.8
+     ],
+     "size": [
+      31.3,
+      37.6
+     ]
+    },
+    "outerWall": 7.0,
+    "kisu": 2.0,
+    "innerWalls": 3.0,
+    "floorLevel": 4.4,
+    "wallHeight": 16.5,
+    "wallTopLevel": 20.9,
+    "gates": {
+     "A_east_KaUtuE": [
+      -15.5,
+      311.3
+     ],
+     "D_north_KaLammaRabi": [
+      -53.0,
+      261.0
+     ],
+     "C_west_KaHegal": [
+      -99.1,
+      308.1
+     ],
+     "B_south_KaUdeBabbar": [
+      -57.3,
+      356.6
+     ]
+    },
+    "cellae": "Marduk (and Zarpanitu) on the WEST side of the court behind a towered front; Ea on the north; a double cella on the south",
+    "facade": "stepped pilasters in two layers (three at the gates): every tall pilaster flanked by two lower ones; paired gate towers in the middle of each side; ramps with balustrades to the N, W and S gates",
+    "finish": "white lime-gypsum plaster; baked-brick kisu visible 1.5-3 m; stepped merlons; gold and cedar INSIDE only"
+   },
+   "conf": "high (plan); medium (heights)",
+   "src": "R3 3.4, 5"
+  },
+  {
+   "id": "esagilaAnnex",
+   "name": "Esagila eastern annex",
+   "kind": "temple",
+   "footprint": {
+    "center": [
+     29.6,
+     325.9
+    ],
+    "size": [
+     92.0,
+     118.0
+    ],
+    "rotationDeg": 0.0,
+    "sizeIsBoundingBox": true,
+    "polygon": [
+     [
+      -14.6,
+      269.4
+     ],
+     [
+      74.2,
+      273.3
+     ],
+     [
+      67.8,
+      387.4
+     ],
+     [
+      -3.0,
+      385.4
+     ],
+     [
+      0.5,
+      345.0
+     ],
+     [
+      -17.8,
+      344.5
+     ],
+     [
+      -14.6,
+      269.4
+     ]
+    ],
+    "areaM2": 9424
+   },
+   "within": "innerEast",
+   "dims": {
+    "fronts": {
+     "N": 89.4,
+     "E": 116.0,
+     "S": 72.3
+    },
+    "wallHeight": 15.0,
+    "floorLevel": 4.4,
+    "gates": {
+     "F_east_KaMah_main": [
+      71.6,
+      307.1
+     ],
+     "G_east": [
+      69.3,
+      360.2
+     ],
+     "E_north": [
+      -8.7,
+      270.2
+     ],
+     "H_south": [
+      -8.6,
+      344.7
+     ]
+    },
+    "courts": {
+     "north": {
+      "center": [
+       18.7,
+       311.9
+      ],
+      "size": [
+       69,
+       42
+      ]
+     },
+     "south": {
+      "center": [
+       33.4,
+       358.5
+      ],
+      "size": [
+       46,
+       30
+      ]
+     }
+    },
+    "note": "outline traced by tunnels; interior never excavated (courts conjectural)"
+   },
+   "conf": "high (outline); low (interior)",
+   "src": "R3 3.4, 5",
+   "adjoins": [
+    "esagila"
+   ]
+  },
+  {
+   "id": "southPalace",
+   "name": "South Palace (Sudburg) of Nebuchadnezzar II",
+   "kind": "palace",
+   "footprint": {
+    "center": [
+     195.8,
+     -618.3
+    ],
+    "size": [
+     301.7,
+     189.0
+    ],
+    "rotationDeg": 0.0,
+    "sizeIsBoundingBox": true,
+    "polygon": [
+     [
+      63.9,
+      -696.2
+     ],
+     [
+      322.9,
+      -702.2
+     ],
+     [
+      330.7,
+      -513.3
+     ],
+     [
+      29.0,
+      -574.1
+     ],
+     [
+      63.9,
+      -696.2
+     ]
+    ],
+    "areaM2": 43979
+   },
+   "within": "innerEast",
+   "dims": {
+    "sides": {
+     "S": 308,
+     "E": 190,
+     "N": 259,
+     "W": 127
+    },
+    "areaM2": 45000,
+    "interiorRotationDeg": 15.5,
+    "interiorNote": "ALL courts, the throne room and the room blocks are on true-cardinal lines, i.e. rotated 15.5 deg clockwise against the model axes; the enclosure wall is the irregular polygon and cuts them obliquely (saw-tooth inner faces)",
+    "floorLevel": 12.5,
+    "wallTopLevel": 23.0,
+    "towerTopLevel": 25.5,
+    "wall": {
+     "thicknessEast": 4.0,
+     "kisu": 4.7,
+     "towers": 60,
+     "towerSpacingCC": 10.4,
+     "towerWidth": 5.5,
+     "towerProjection": "0.35 common, up to 2.0",
+     "towerSides": {
+      "S": "whole side",
+      "E": "whole side",
+      "N": "eastern half only",
+      "W": "none (footings only)"
+     },
+     "towerNote": "the 60 towers stand on the south, the east and the eastern half of the north side only (308 + 190 + 130 m = 628 m at 10.4 m); no towers on the west side or the western half of the north side",
+     "material": "baked brick, bare (no plaster), buff merlons"
+    },
+    "mainGate": {
+     "x": 332.9,
+     "z": -588.4,
+     "side": "east",
+     "doorWidth": 4.0,
+     "doorHeight": 10.0,
+     "note": "recess with two towers on the Processional Way"
+    },
+    "courts": {
+     "east": {
+      "polygon": [
+       [
+        286.5,
+        -624.4
+       ],
+       [
+        316.1,
+        -616.2
+       ],
+       [
+        307.9,
+        -556.3
+       ],
+       [
+        270.5,
+        -566.6
+       ],
+       [
+        286.5,
+        -624.4
+       ]
+      ],
+      "size": "31-40 x 61 (east side oblique)",
+      "center": [
+       295.1,
+       -590.9
+      ]
+     },
+     "middle": {
+      "polygon": [
+       [
+        238.3,
+        -634.1
+       ],
+       [
+        273.0,
+        -624.5
+       ],
+       [
+        263.1,
+        -588.8
+       ],
+       [
+        228.4,
+        -598.4
+       ],
+       [
+        238.3,
+        -634.1
+       ]
+      ],
+      "size": [
+       36,
+       37
+      ],
+      "center": [
+       250.7,
+       -611.4
+      ]
+     },
+     "main": {
+      "polygon": [
+       [
+        174.0,
+        -669.3
+       ],
+       [
+        227.0,
+        -654.6
+       ],
+       [
+        210.7,
+        -595.9
+       ],
+       [
+        157.7,
+        -610.6
+       ],
+       [
+        174.0,
+        -669.3
+       ]
+      ],
+      "size": [
+       55,
+       61
+      ],
+      "center": [
+       192.4,
+       -632.6
+      ]
+     },
+     "west": {
+      "polygon": [
+       [
+        114.5,
+        -663.2
+       ],
+       [
+        144.4,
+        -654.9
+       ],
+       [
+        135.6,
+        -623.1
+       ],
+       [
+        105.7,
+        -631.4
+       ],
+       [
+        114.5,
+        -663.2
+       ]
+      ],
+      "size": [
+       31,
+       33
+      ],
+      "center": [
+       125.0,
+       -643.2
+      ]
+     },
+     "annex": {
+      "polygon": [
+       [
+        67.5,
+        -678.6
+       ],
+       [
+        97.4,
+        -670.4
+       ],
+       [
+        88.0,
+        -636.6
+       ],
+       [
+        58.2,
+        -644.9
+       ],
+       [
+        67.5,
+        -678.6
+       ]
+      ],
+      "size": [
+       31,
+       35
+      ],
+      "center": [
+       77.8,
+       -657.6
+      ]
+     }
+    },
+    "gateBlocks": "towered gate buildings between East->Middle (c. 13 m) and Middle->Main (c. 17 m, taller) with blue-glazed tower faces and lion reliefs",
+    "throneRoom": {
+     "center": [
+      183.0,
+      -587.7
+     ],
+     "interior": [
+      51.9,
+      17.5
+     ],
+     "external": [
+      57.5,
+      29.5
+     ],
+     "polygon": [
+      [
+       159.2,
+       -609.6
+      ],
+      [
+       214.6,
+       -594.2
+      ],
+      [
+       206.8,
+       -565.8
+      ],
+      [
+       151.4,
+       -581.1
+      ],
+      [
+       159.2,
+       -609.6
+      ]
+     ],
+     "wallsNS": 6.0,
+     "wallsEnd": 2.8,
+     "doors": [
+      3.8,
+      5.8,
+      3.8
+     ],
+     "doorHeights": [
+      10,
+      13,
+      10
+     ],
+     "heightAboveCourt": 19.0,
+     "roof": "flat, cedar beams 35 x 75 cm at 0.6 m",
+     "faces": "north (onto the Main Courtyard); throne niche in the south wall opposite the central door",
+     "facade": {
+      "length": 53.0,
+      "decoratedHeight": 12.0,
+      "ground": "dark blue glaze",
+      "registers": [
+       "checker and rosette borders",
+       "striding lions 1.0 m high, tails RAISED, facing the central door",
+       "border",
+       "slender yellow palm-shaft columns with stacked light-blue volute capitals (flat glaze)",
+       "checker band",
+       "white double palmettes"
+      ],
+      "lions": 17
+     }
+    },
+    "westPrincipalRoom": {
+     "center": [
+      118.1,
+      -617.6
+     ],
+     "size": [
+      34,
+      12
+     ]
+    },
+    "dividingWall": {
+     "utmE": 445627,
+     "thickness": 3.5,
+     "lane": 5.0
+    },
+    "vaultedBuilding": {
+     "center": [
+      299.1,
+      -672.5
+     ],
+     "size": [
+      30,
+      42
+     ],
+     "sizeNote": "east-west x north-south in the palace's true-cardinal frame, measured on Fig. 6.2 (the 40 x 40 of v2.0 poked 9-10 m through the east enclosure wall)",
+     "centerNote": "set 12 m south-west of the Fig. 6.2 reading (445756/3600774) so that the block stays 4.5 m behind the simplified enclosure quadrilateral; within 7 m of R4's centre",
+     "rotationDeg": 15.5,
+     "polygon": [
+      [
+       290.3,
+       -696.8
+      ],
+      [
+       319.2,
+       -688.8
+      ],
+      [
+       307.9,
+       -648.3
+      ],
+      [
+       279.0,
+       -656.3
+      ],
+      [
+       290.3,
+       -696.8
+      ]
+     ],
+     "cells": 14,
+     "vaultSpan": 3.2,
+     "floorLevel": 4.6,
+     "note": "half-basement store with ration archive; from outside an ordinary flat-roofed block. NOT a garden."
+    },
+    "smallCourtyardHouses": 50,
+    "rooms": 600,
+    "paving": "baked-brick tiles 33 or 50 cm with white gypsum joints; no planting in the courts",
+    "windows": "none",
+    "roofs": "flat at many heights; ordinary rooms 5-8 m, principal halls 10-14 m, gate blocks 12-14 m",
+    "gardenStripWest": {
+     "polygon": [
+      [
+       1.8,
+       -584.8
+      ],
+      [
+       37.9,
+       -714.9
+      ],
+      [
+       61.4,
+       -694.9
+      ],
+      [
+       27.9,
+       -577.6
+      ],
+      [
+       1.8,
+       -584.8
+      ]
+     ],
+     "level": 10.0,
+     "note": "probable garden between the palace west wall and the quay/canal (excavators' suggestion)"
+    }
+   },
+   "conf": "high (outline, court sizes, court positions +/-5 m re-read on Fig. 6.2); low (heights)",
+   "src": "R4 3, 9.1; Fig. 6.2"
+  },
+  {
+   "id": "westFortification",
+   "name": "West Fortification (\"great fortification in the river\")",
+   "kind": "fortification",
+   "footprint": {
+    "center": [
+     -40.9,
+     -748.7
+    ],
+    "size": [
+     102.0,
+     301.0
+    ],
+    "rotationDeg": 15.5,
+    "sizeIsBoundingBox": false,
+    "polygon": [
+     [
+      -49.8,
+      -907.3
+     ],
+     [
+      48.4,
+      -880.1
+     ],
+     [
+      -32.0,
+      -590.0
+     ],
+     [
+      -130.3,
+      -617.3
+     ],
+     [
+      -49.8,
+      -907.3
+     ]
+    ],
+    "areaM2": 30702
+   },
+   "within": "outerCity",
+   "dims": {
+    "size": [
+     102,
+     301
+    ],
+    "wallThickness": 20.0,
+    "base": -5.0,
+    "top": 18.0,
+    "material": "solid baked brick in bitumen, sheer walls rising from the river",
+    "interior": "cross-walls; open southern court with a great stair/ramp in its NE corner",
+    "embankmentRiverSide": 14.0,
+    "connectingWalls": "pierced walls at the N and S ends of the narrow ditch join it to the old quay (water passes through)",
+    "unexcavatedNote": "the whole northern part of the building has not been excavated (Pedersen 2021 p. 130): the northern half of this block is reconstruction. On Fig. 6.2 the block is drawn 4-7 deg off the cardinal lines (roughly parallel to the river); the cardinal rectangle used here is a simplification."
+   },
+   "conf": "medium (southern part of the plan); low (northern part, height)",
+   "src": "R4 4; R1 12.F; Fig. 6.2; Pedersen 2021 p. 130",
+   "riverfront": true
+  },
+  {
+   "id": "northPalace",
+   "name": "North Palace (Hauptburg) with North Fortification",
+   "kind": "palace",
+   "footprint": {
+    "center": [
+     193.9,
+     -900.6
+    ],
+    "size": [
+     328.6,
+     286.5
+    ],
+    "rotationDeg": 0.0,
+    "sizeIsBoundingBox": true,
+    "polygon": [
+     [
+      22.7,
+      -776.2
+     ],
+     [
+      99.1,
+      -1062.7
+     ],
+     [
+      351.3,
+      -992.7
+     ],
+     [
+      346.9,
+      -940.5
+     ],
+     [
+      339.9,
+      -843.9
+     ],
+     [
+      335.7,
+      -780.7
+     ],
+     [
+      22.7,
+      -776.2
+     ]
+    ],
+    "areaM2": 71867
+   },
+   "within": "outerCity",
+   "dims": {
+    "areaHa": 7.3,
+    "terraceLevel": 15.0,
+    "lowerTerraceLevel": 8.0,
+    "outerWallTop": 18.0,
+    "interiorRotationDeg": 15.5,
+    "mainBuilding": {
+     "center": [
+      183.8,
+      -847.1
+     ],
+     "size": [
+      134,
+      130
+     ],
+     "rotationDeg": 15.5,
+     "polygon": [
+      [
+       136.6,
+       -927.6
+      ],
+      [
+       265.7,
+       -891.8
+      ],
+      [
+       234.5,
+       -779.3
+      ],
+      [
+       187.8,
+       -778.6
+      ],
+      [
+       101.8,
+       -802.4
+      ],
+      [
+       136.6,
+       -927.6
+      ]
+     ],
+     "polygonNote": "true-cardinal block; the SE corner is cut back along the strip of the old city wall as drawn on Fig. 6.2 (the plain 134 x 130 rectangle stuck 12.6 m out of the palace footprint)",
+     "courts": {
+      "east": {
+       "center": [
+        216.4,
+        -853.2
+       ],
+       "size": [
+        34,
+        37
+       ]
+      },
+      "west": {
+       "center": [
+        150.5,
+        -859.0
+       ],
+       "size": [
+        33,
+        35
+       ]
+      }
+     },
+     "principalRooms": [
+      [
+       31,
+       11
+      ],
+      [
+       21,
+       9
+      ]
+     ],
+     "portalWidth": 7.5,
+     "paving": "stone slabs 66 cm: white limestone, mottled sandstone, black basalt",
+     "merlons": "lapis-blue glazed (textually certain here)"
+    },
+    "mainTerraceNorthWall": {
+     "line": [
+      [
+       81.0,
+       -986.2
+      ],
+      [
+       331.5,
+       -916.7
+      ]
+     ],
+     "thickness": 12.0,
+     "towers": true
+    },
+    "finalNorthWall": {
+     "line": [
+      [
+       96.8,
+       -1054.5
+      ],
+      [
+       349.3,
+       -984.5
+      ]
+     ],
+     "thickness": 17.5,
+     "length": 263,
+     "facing": "lower facade of limestone blocks c. 2 x 2 x 0.75 m to +0.5, brick above; rises from the north moat",
+     "dateNote": "end-of-reign step; may have been unfinished in 575 BCE"
+    },
+    "northFortification": "strip between the two north walls (store/military use, no palace building)",
+    "eastWall": {
+     "thickness": 7.0,
+     "towersCC": 14.0,
+     "towerWidth": 8.0,
+     "towerProjection": 1.3,
+     "heightAboveStreet": 12.0,
+     "towerHeightAboveStreet": 14.0,
+     "heightsDatum": "heights are ABOVE THE STREET PAVEMENT beside the wall; the top therefore climbs with the street",
+     "topLevelAtNorthGate": 21.5,
+     "topLevelAtBastions": 27.4,
+     "merlons": "blue-glazed (textually certain for the North Palace; assumed on this street wall)",
+     "lionFrieze": {
+      "perSide": 60,
+      "lionSize": [
+       2.0,
+       0.95
+      ],
+      "friezeHeight": 3.3,
+      "feetAbovePavement": 1.15,
+      "direction": "all striding NORTH (towards the arriving visitor)",
+      "colours": "white lions with yellow manes / yellow lions with RED manes on alternately turquoise and lapis ground",
+      "tails": "down"
+     }
+    },
+    "canalId": "northPalaceCanal",
+    "basaltLion": {
+     "x": 305.3,
+     "z": -915.7,
+     "height": 1.95
+    },
+    "gardenTerraces_CONJECTURAL": {
+     "northSlope": [
+      [
+       108.3,
+       -953.7
+      ],
+      [
+       301.0,
+       -900.3
+      ],
+      [
+       296.2,
+       -882.9
+      ],
+      [
+       103.5,
+       -936.4
+      ],
+      [
+       108.3,
+       -953.7
+      ]
+     ],
+     "westFlank": [
+      [
+       74.3,
+       -943.4
+      ],
+      [
+       132.1,
+       -927.4
+      ],
+      [
+       98.7,
+       -807.0
+      ],
+      [
+       40.9,
+       -823.0
+      ],
+      [
+       74.3,
+       -943.4
+      ]
+     ],
+     "levels": [
+      15,
+      13,
+      11,
+      8,
+      4,
+      0
+     ],
+     "note": "royal terraced garden (\"Hanging Gardens\") after Berossus / Streck / Pedersen: modest, architectural, lower than the palace parapets"
+    },
+    "material": "very pale hard yellow baked brick, hairline white joints"
+   },
+   "conf": "medium-high (outline, main building); low (heights, courts, gardens)",
+   "src": "R4 5, 7, 9.3; R2 8.2; Figs. 2.2 and 6.2",
+   "streetsThrough": []
+  },
+  {
+   "id": "eastFortification",
+   "name": "East Fortification (ostliches Ausfallvorwerk)",
+   "kind": "fortification",
+   "footprint": {
+    "center": [
+     498.0,
+     -900.5
+    ],
+    "size": [
+     292.0,
+     264.5
+    ],
+    "rotationDeg": 0.0,
+    "sizeIsBoundingBox": true,
+    "polygon": [
+     [
+      357.7,
+      -768.3
+     ],
+     [
+      362.3,
+      -837.7
+     ],
+     [
+      369.2,
+      -934.3
+     ],
+     [
+      374.1,
+      -992.1
+     ],
+     [
+      612.8,
+      -1032.8
+     ],
+     [
+      649.8,
+      -824.0
+     ],
+     [
+      357.7,
+      -768.3
+     ]
+    ],
+    "areaM2": 57986
+   },
+   "within": "outerCity",
+   "dims": {
+    "areaHa": 5.5,
+    "floorLevel": -2.3,
+    "wallTopLevel": {
+     "north": 14.0,
+     "east": 14.0,
+     "datum": "LEVELS in the excavation datum (y): 16.3 m above the sunken floor, 17 m above the moat water"
+    },
+    "interior": "bare sunken enclosure c. 12-18 m below the street (reservoir or yard); towered walls with posterns; moat outside",
+    "westWall": {
+     "is": "the east wall of the lion street (same section and frieze as the North Palace east wall)",
+     "heightAboveStreet": 12.0,
+     "topLevelAtNorthGate": 21.5,
+     "topLevelAtBastions": 27.4,
+     "datum": "street level + 12 m; seen from inside the fortification it stands 24-30 m above the floor"
+    },
+    "southSide": "the inner embankment (quay line) with its top at +15 here, and behind it the raised stretch of the double city wall (innerWalls.east.raisedSection)",
+    "innerOlderWall": [
+     [
+      376.2,
+      -909.5
+     ],
+     [
+      625.1,
+      -965.0
+     ]
+    ]
+   },
+   "conf": "medium",
+   "src": "R2 8.3; R1 12.F; Fig. 2.2"
+  },
+  {
+   "id": "ishtarGate",
+   "name": "Ishtar Gate (Ishtar-sakipat-tebisha), final glazed phase (Level 1)",
+   "kind": "gate",
+   "footprint": {
+    "center": [
+     345.8,
+     -719.3
+    ],
+    "size": [
+     29.6,
+     49.9
+    ],
+    "rotationDeg": 359.3,
+    "sizeIsBoundingBox": false,
+    "polygon": [
+     [
+      331.4,
+      -744.2
+     ],
+     [
+      359.5,
+      -744.5
+     ],
+     [
+      359.7,
+      -731.6
+     ],
+     [
+      360.4,
+      -731.6
+     ],
+     [
+      360.5,
+      -723.5
+     ],
+     [
+      356.7,
+      -723.4
+     ],
+     [
+      357.1,
+      -694.5
+     ],
+     [
+      335.1,
+      -694.3
+     ],
+     [
+      334.7,
+      -723.2
+     ],
+     [
+      330.9,
+      -723.1
+     ],
+     [
+      330.8,
+      -731.2
+     ],
+     [
+      331.6,
+      -731.2
+     ],
+     [
+      331.4,
+      -744.2
+     ]
+    ],
+    "areaM2": 1239
+   },
+   "within": "wall",
+   "dims": {
+    "axis": {
+     "north": [
+      345.5,
+      -744.3
+     ],
+     "south": [
+      346.1,
+      -694.6
+     ],
+     "length": 49.94
+    },
+    "pavementLevel": 15.4,
+    "heightsDatum": "wallTop / towerTop / frontTop / mainTop in this block are heights ABOVE THE +15.4 PAVEMENT; the matching datum levels are given as ...Level",
+    "stations_s": {
+     "foreGateTowerFronts": 0.0,
+     "door1": 2.05,
+     "foreChamberN": 6.17,
+     "door2": 9.85,
+     "foreGateSouthFace": 12.95,
+     "mainGateTowerFronts": 16.95,
+     "door3": 21.04,
+     "mainChamberN": 28.04,
+     "door4": 42.94,
+     "mainGateSouthFace": 49.94
+    },
+    "foreGate": {
+     "width": 28.1,
+     "depth": 12.95,
+     "frontWall": 4.12,
+     "otherWalls": 3.1,
+     "chamber": [
+      21.9,
+      3.68
+     ],
+     "towers": {
+      "width": 6.2,
+      "projection": 2.05,
+      "innerFacesApart": 9.7
+     },
+     "wallTop": 14.5,
+     "towerTop": 18.5,
+     "wallTopLevel": 29.9,
+     "towerTopLevel": 33.9
+    },
+    "court": {
+     "depth": 4.0,
+     "width": 12.3,
+     "open": true
+    },
+    "mainGate": {
+     "width": 22.05,
+     "depth": 33.0,
+     "walls": 7.0,
+     "chamber": [
+      8.05,
+      14.9
+     ],
+     "towers": {
+      "width": 9.05,
+      "projection": 4.09,
+      "innerFacesApart": 11.5
+     },
+     "wallTop": 19.2,
+     "towerTop": 24.0,
+     "wallTopLevel": 34.6,
+     "towerTopLevel": 39.4
+    },
+    "doors": {
+     "count": 4,
+     "width": 4.5,
+     "jamb": 9.6,
+     "crown": 11.9,
+     "arch": "semicircular",
+     "leaves": "cedar planks with horizontal bronze bands"
+    },
+    "wingWalls": {
+     "count": 4,
+     "length": 20.0,
+     "material": "baked brick, blue-glazed fronts on the two northern ones",
+     "towers": "one cavalier tower each",
+     "posterns": 1
+    },
+    "cityWallsJoined": {
+     "front": 3.7,
+     "main": 6.5,
+     "gap": 7.0,
+     "frontTop": 10.0,
+     "mainTop": 14.0,
+     "frontTopLevel": 25.4,
+     "mainWalkLevel": 29.4,
+     "mainParapetLevel": 31.4,
+     "datum": "frontTop / mainTop are heights above the +15.4 pavement (R2 height table); as levels the front wall tops out at +25.4 and the main wall-walk lies at +29.4. See innerWalls.east.raisedSection for the stretch that carries these levels.",
+     "join": "Imgur-Enlil meets the main gate at s = 28.1 on the gate axis; Nemetti-Enlil reaches the fore-gate through the two northern wing walls (the fore-gate projects 6 m in front of it)",
+     "note": "mud-plastered mudbrick, running 11-13 deg obliquely east of the gate"
+    },
+    "merlons": {
+     "type": "stepped, 3 steps, blue-glazed",
+     "width": 0.66,
+     "height": 1.1
+    },
+    "loopholes": "small round openings in the tower upper storeys",
+    "decoration": {
+     "rowModule": 2.06,
+     "animalHeight": 1.1,
+     "bullLength": 1.5,
+     "dragonLength": 1.7,
+     "rowsFacade": 6,
+     "rowsDoorway": 4,
+     "rows": "alternate rows of bulls (Adad) and mushhushshu dragons (Marduk), lowest row bulls; NO lions on the gate",
+     "animalColours_CONJECTURAL": "white and ochre animals alternating along a row is a reconstruction choice: the single relief found in place is a yellow bull",
+     "glazedFaces": "blue glaze with reliefs on the faces open to view (north fronts, doorways, court, the two northern wing walls); blue glaze on the remaining faces is a model choice",
+     "socle": "13 courses (1.1 m): blue, checker border, white-daisy rosette band, checker border",
+     "cornerStripes": true,
+     "animalsVisible": "300-400 (the famous 575 counts buried phases)",
+     "red": "horns/hooves of the ochre animals are RED (the museum green is decayed red)"
+    },
+    "forecourt": {
+     "size": [
+      32,
+      18
+     ],
+     "note": "only pedestals 1 and 2 stand in the forecourt; pairs 3-8 stand at the doors along the gate axis (see pedestals)"
+    },
+    "pedestals": {
+     "frame": "u = metres east of the gate axis, s = metres south of the fore-gate tower fronts (stations_s); odd numbers west, even numbers east",
+     "height": 1.0,
+     "size": "square c. 1.5 m, except no. 1",
+     "items": [
+      {
+       "n": 1,
+       "u": -9.8,
+       "s": -14.2,
+       "x": 335.5,
+       "z": -758.4,
+       "shape": "round, d 1.40",
+       "where": "forecourt, 14 m north of the fore-gate",
+       "attested": true,
+       "carries": "empty"
+      },
+      {
+       "n": 2,
+       "u": 11.5,
+       "s": -14.1,
+       "x": 356.8,
+       "z": -758.6,
+       "shape": "square",
+       "where": "forecourt, 14 m north of the fore-gate",
+       "attested": true,
+       "carries": "empty"
+      },
+      {
+       "n": 3,
+       "u": -4.6,
+       "s": -1.1,
+       "x": 340.9,
+       "z": -745.4,
+       "shape": "square",
+       "where": "before the fore-gate door (door 1), west jamb",
+       "attested": false,
+       "carries": "copper bull"
+      },
+      {
+       "n": 4,
+       "u": 4.6,
+       "s": -1.1,
+       "x": 350.1,
+       "z": -745.5,
+       "shape": "square",
+       "where": "before the fore-gate door (door 1), east jamb",
+       "attested": true,
+       "carries": "copper dragon"
+      },
+      {
+       "n": 5,
+       "u": -3.6,
+       "s": 8.0,
+       "x": 342.0,
+       "z": -736.3,
+       "shape": "square",
+       "where": "inside the fore-gate chamber",
+       "attested": true,
+       "carries": "empty"
+      },
+      {
+       "n": 6,
+       "u": 3.6,
+       "s": 8.0,
+       "x": 349.2,
+       "z": -736.4,
+       "shape": "square",
+       "where": "inside the fore-gate chamber",
+       "attested": false,
+       "carries": "empty"
+      },
+      {
+       "n": 7,
+       "u": -4.0,
+       "s": 15.0,
+       "x": 341.7,
+       "z": -729.3,
+       "shape": "square",
+       "where": "in the 4 m court before the main gate (door 3), west jamb",
+       "attested": true,
+       "carries": "copper bull"
+      },
+      {
+       "n": 8,
+       "u": 4.0,
+       "s": 15.0,
+       "x": 349.7,
+       "z": -729.4,
+       "shape": "square",
+       "where": "in the 4 m court before the main gate (door 3), east jamb",
+       "attested": false,
+       "carries": "copper dragon"
+      }
+     ],
+     "statues": "copper (eru) bulls and dragons \"at the door-jambs\" (Nebuchadnezzar): placed on pedestals 3-4 and 7-8 only. What stood on 1-2 and 5-6 is unknown: build them as empty plinths (or neutral divine standards), flagged conjectural. Which beast stood on which side is a model choice.",
+     "conf": "high (positions of 1, 2, 4; existence of 5, 7); low (3, 6, 8 by symmetry; all statues)",
+     "src": "Pedersen 2021 pp. 73-74; R2 4.3, 12"
+    },
+    "bastions": {
+     "west": [
+      [
+       336.7,
+       -780.8
+      ],
+      [
+       335.5,
+       -762.8
+      ]
+     ],
+     "east": [
+      [
+       356.9,
+       -781.0
+      ],
+      [
+       358.0,
+       -762.9
+      ]
+     ],
+     "blocks": "c. 16 x 18 m each, 12-14 m above the forecourt (levels +27.4 to +29.4), plain baked brick"
+    },
+    "northGate": {
+     "x": 358.0,
+     "z": -937.4,
+     "length": 30.0,
+     "door": 4.6,
+     "level": 9.5,
+     "note": "baked brick; superstructure unknown (low arched gatehouse between two square towers with blue merlons)"
+    },
+    "heightsNote": "nothing above the pavement survived; all heights are reconstruction (Pedersen model); Berlin shows only the smaller fore-gate"
+   },
+   "conf": "high (plan, position +/-1 m); low (elevations, number of rows)",
+   "src": "R2 4-8, 11, 12",
+   "streetsThrough": [
+    "processionalWay"
+   ],
+   "baseLevel": 15.4
+  },
+  {
+   "id": "ninmahTemple",
+   "name": "Ninmah temple, E-mah",
+   "kind": "temple",
+   "footprint": {
+    "center": [
+     403.1,
+     -686.5
+    ],
+    "size": [
+     44.5,
+     62.0
+    ],
+    "rotationDeg": -13.1,
+    "sizeIsBoundingBox": false,
+    "polygon": [
+     [
+      375.7,
+      -710.8
+     ],
+     [
+      418.9,
+      -721.4
+     ],
+     [
+      429.1,
+      -659.8
+     ],
+     [
+      389.1,
+      -653.0
+     ],
+     [
+      375.7,
+      -710.8
+     ]
+    ],
+    "areaM2": 2587
+   },
+   "within": "innerEast",
+   "dims": {
+    "temple": [
+     35,
+     50
+    ],
+    "withKisu": [
+     44.5,
+     62
+    ],
+    "court": [
+     14,
+     20.4
+    ],
+    "wall": 2.4,
+    "height": 9.0,
+    "floorLevel": 12.0,
+    "entrance": "middle of the short NNW front, small whitewashed altar on a dark paved patch before it",
+    "altar": [
+     397.7,
+     -716.5
+    ],
+    "finish": "mudbrick with WHITE lime-gypsum plaster (\"like marble\"), buttress-towers and vertical stepped grooves, black asphalt floors"
+   },
+   "conf": "high",
+   "src": "R2 9, 12.2; R1 7"
+  },
+  {
+   "id": "nabuShaHare",
+   "name": "Nabu-sha-hare temple (E-niggidru-kalamma-summa)",
+   "kind": "temple",
+   "footprint": {
+    "center": [
+     306.9,
+     -304.0
+    ],
+    "size": [
+     36.0,
+     30.0
+    ],
+    "rotationDeg": 15.5,
+    "sizeIsBoundingBox": false,
+    "polygon": [
+     [
+      293.6,
+      -323.3
+     ],
+     [
+      328.3,
+      -313.7
+     ],
+     [
+      320.2,
+      -284.8
+     ],
+     [
+      285.6,
+      -294.4
+     ],
+     [
+      293.6,
+      -323.3
+     ]
+    ],
+    "areaM2": 1080
+   },
+   "within": "innerEast",
+   "dims": {
+    "areaM2": 1080,
+    "courts": 2,
+    "floorLevel": 8.0,
+    "floorNote": "rebuilt by Nebuchadnezzar at +8.0 when the Processional Way was raised (the +3.8 floor shown on site today is Esarhaddon's)",
+    "height": 9.0,
+    "material": "BAKED brick (unusual for a temple), white plaster with black bitumen bands inside",
+    "altar": "in the street before its door"
+   },
+   "conf": "high (position); medium (footprint)",
+   "src": "R1 7, 12.F"
+  },
+  {
+   "id": "ashratumTemple",
+   "name": "Ashratum temple (E-hili-kalamma)",
+   "kind": "temple",
+   "footprint": {
+    "center": [
+     330.2,
+     -294.5
+    ],
+    "size": [
+     10.0,
+     26.0
+    ],
+    "rotationDeg": 15.5,
+    "sizeIsBoundingBox": false,
+    "polygon": [
+     [
+      328.9,
+      -308.3
+     ],
+     [
+      338.5,
+      -305.7
+     ],
+     [
+      331.5,
+      -280.6
+     ],
+     [
+      321.9,
+      -283.3
+     ],
+     [
+      328.9,
+      -308.3
+     ]
+    ],
+    "areaM2": 260
+   },
+   "within": "innerEast",
+   "dims": {
+    "areaM2": 260,
+    "height": 7.0,
+    "floorLevel": 6.0,
+    "note": "smallest temple; pilastered walls, no gate towers; footprint shape assumed (slim, between the Nabu temple and the street); floor at about +6 (Pedersen 2021 sec. 8.6)"
+   },
+   "conf": "medium (position); low (shape)",
+   "src": "R1 7, 12.F"
+  },
+  {
+   "id": "ishtarAgadeTemple",
+   "name": "Ishtar of Agade temple (E-mashdari)",
+   "kind": "temple",
+   "footprint": {
+    "center": [
+     440.2,
+     -316.9
+    ],
+    "size": [
+     37.0,
+     31.0
+    ],
+    "rotationDeg": 15.5,
+    "sizeIsBoundingBox": false,
+    "polygon": [
+     [
+      426.5,
+      -336.8
+     ],
+     [
+      462.2,
+      -326.9
+     ],
+     [
+      453.9,
+      -297.0
+     ],
+     [
+      418.2,
+      -306.9
+     ],
+     [
+      426.5,
+      -336.8
+     ]
+    ],
+    "areaM2": 1147
+   },
+   "within": "innerEast",
+   "dims": {
+    "areaM2": 1150,
+    "height": 9.0,
+    "floorLevel": 5.3,
+    "floorNote": "Level 2 (floor +5.3, Nebuchadnezzar or Nabopolassar). The +7.0 rebuilding is Nebuchadnezzar or Nabonidus; the +8.0 floor of v2.0 (Level 4, with its baked-brick skirt) is Nabonidus and is NOT built",
+    "kisu": "none in 575 (the baked-brick skirt belongs to Level 4)",
+    "finish": "mudbrick, white plaster, black bitumen bands; cella on the west",
+    "forecourt": {
+     "polygon": [
+      [
+       418.2,
+       -306.9
+      ],
+      [
+       453.9,
+       -297.0
+      ],
+      [
+       460.0,
+       -284.2
+      ],
+      [
+       420.4,
+       -291.1
+      ],
+      [
+       415.0,
+       -292.2
+      ],
+      [
+       418.2,
+       -306.9
+      ]
+     ],
+     "width": 13.0,
+     "level": 5.0,
+     "note": "open space c. 13 m wide between the temple front and the house block to the south (Untere Tempelstrasse widens here); two brick street altars (one attested before the door at Level 3, one at the SW corner of uncertain date)"
+    },
+    "streetAltars": [
+     [
+      435.0,
+      -298.1
+     ],
+     [
+      414.4,
+      -304.0
+     ]
+    ]
+   },
+   "conf": "high (plan); medium (which floor was in use in 575)",
+   "src": "R1 7, 12.F; R5 4.1; Pedersen 2021 sec. 4.6, 8.6; Fig. 6.2"
+  },
+  {
+   "id": "ishharaTemple",
+   "name": "Ishhara temple (E-shasurra), Koldewey's \"Temple Z\"",
+   "kind": "temple",
+   "footprint": {
+    "center": [
+     140.8,
+     669.0
+    ],
+    "size": [
+     41.0,
+     42.0
+    ],
+    "rotationDeg": 0.0,
+    "sizeIsBoundingBox": false,
+    "polygon": [
+     [
+      120.3,
+      648.0
+     ],
+     [
+      161.3,
+      648.0
+     ],
+     [
+      161.3,
+      690.0
+     ],
+     [
+      120.3,
+      690.0
+     ],
+     [
+      120.3,
+      648.0
+     ]
+    ],
+    "areaM2": 1722
+   },
+   "within": "innerEast",
+   "dims": {
+    "areaM2": 1710,
+    "court": [
+     11.2,
+     13.4
+    ],
+    "wall": 2.3,
+    "height": 9.0,
+    "floorLevel": 5.8,
+    "note": "NOT a Gula temple; orientation assumed on the grid"
+   },
+   "conf": "high (position); low (orientation)",
+   "src": "R1 7, 12.F"
+  },
+  {
+   "id": "ninurtaTemple",
+   "name": "Ninurta temple (E-hursag-tilla)",
+   "kind": "temple",
+   "footprint": {
+    "center": [
+     309.4,
+     738.5
+    ],
+    "size": [
+     40.5,
+     44.0
+    ],
+    "rotationDeg": 0.0,
+    "sizeIsBoundingBox": false,
+    "polygon": [
+     [
+      289.1,
+      716.5
+     ],
+     [
+      329.6,
+      716.5
+     ],
+     [
+      329.6,
+      760.5
+     ],
+     [
+      289.1,
+      760.5
+     ],
+     [
+      289.1,
+      716.5
+     ]
+    ],
+    "areaM2": 1782
+   },
+   "within": "innerEast",
+   "dims": {
+    "areaM2": 1780,
+    "court": [
+     14,
+     28.5
+    ],
+    "wall": 2.8,
+    "height": 10.0,
+    "floorLevel": 4.5,
+    "entrance": "east, with a double altar; three cellas in a row on the west",
+    "note": "orientation assumed on the grid"
+   },
+   "conf": "high (position); low (orientation)",
+   "src": "R1 7, 12.F"
+  },
+  {
+   "id": "summerPalace",
+   "name": "Summer Palace (mound Babil)",
+   "kind": "palace",
+   "footprint": {
+    "center": [
+     1213.9,
+     -3026.2
+    ],
+    "size": [
+     153.0,
+     173.0
+    ],
+    "rotationDeg": 15.5,
+    "sizeIsBoundingBox": false,
+    "polygon": [
+     [
+      1163.3,
+      -3130.0
+     ],
+     [
+      1310.7,
+      -3089.1
+     ],
+     [
+      1264.5,
+      -2922.4
+     ],
+     [
+      1117.0,
+      -2963.3
+     ],
+     [
+      1163.3,
+      -3130.0
+     ]
+    ],
+    "areaM2": 26469
+   },
+   "within": "outerCity",
+   "dims": {
+    "size": [
+     153,
+     173
+    ],
+    "floorLevel": 21.0,
+    "wallTop": 30.0,
+    "wallTopDatum": "LEVEL in the excavation datum (Pedersen 2021 p. 71: walls assumed up to +30; the inscriptions' 60 cubits = 30 m are probably counted from the foundation at -3)",
+    "towers": 64,
+    "courts": {
+     "east": [
+      36,
+      45
+     ],
+     "west": [
+      30,
+      41
+     ]
+    },
+    "halls": [
+     [
+      35,
+      12
+     ],
+     [
+      20,
+      10
+     ]
+    ],
+    "portals": [
+     6.0,
+     9.0
+    ],
+    "form": "a c. 20 m high sheer brick terrace with towers every c. 10 m and a low two-court palace on top; river quay c. 22 m west of it",
+    "material": "baked brick, lime-gypsum mortar above; 66 cm limestone court slabs; cedar roofs",
+    "dateNote": "built by Nebuchadnezzar II; completion by 575 BCE not certain"
+   },
+   "conf": "high (position, floor level); medium (outline)",
+   "src": "R1 8, 12.E; R4 6; Pedersen 2021 pp. 71, 135"
+  },
+  {
+   "id": "akituTemple",
+   "name": "Akitu (New Year) temple, E-siskur",
+   "kind": "temple (conjectural placement)",
+   "footprint": {
+    "center": [
+     492.0,
+     -1330.0
+    ],
+    "size": [
+     80.0,
+     60.0
+    ],
+    "rotationDeg": 0.0,
+    "sizeIsBoundingBox": false,
+    "polygon": [
+     [
+      452.0,
+      -1360.0
+     ],
+     [
+      532.0,
+      -1360.0
+     ],
+     [
+      532.0,
+      -1300.0
+     ],
+     [
+      452.0,
+      -1300.0
+     ],
+     [
+      452.0,
+      -1360.0
+     ]
+    ],
+    "areaM2": 4800
+   },
+   "within": "outerCity",
+   "dims": {
+    "height": 9.0,
+    "type": "generic Babylonian courtyard temple: buttressed mudbrick block, twin grooved towers at the door, white plaster, forecourt altar",
+    "note": "north of the inner city beside the processional road; never located"
+   },
+   "conf": "low (attested in texts only; position and size invented within the right quarter)",
+   "src": "R1 7 (Tintir IV)",
+   "conjectural": true
+  },
+  {
+   "id": "gulaEsabad",
+   "name": "Gula temple, Esabad",
+   "kind": "temple (conjectural placement)",
+   "footprint": {
+    "center": [
+     -430.0,
+     780.0
+    ],
+    "size": [
+     45.0,
+     40.0
+    ],
+    "rotationDeg": 0.0,
+    "sizeIsBoundingBox": false,
+    "polygon": [
+     [
+      -452.5,
+      760.0
+     ],
+     [
+      -407.5,
+      760.0
+     ],
+     [
+      -407.5,
+      800.0
+     ],
+     [
+      -452.5,
+      800.0
+     ],
+     [
+      -452.5,
+      760.0
+     ]
+    ],
+    "areaM2": 1800
+   },
+   "within": "innerWest",
+   "dims": {
+    "height": 9.0,
+    "type": "generic Babylonian courtyard temple: buttressed mudbrick block, twin grooved towers at the door, white plaster, forecourt altar",
+    "note": "Tuba quarter; baked brick; dogs of gold, silver and copper at its gates"
+   },
+   "conf": "low (attested in texts only; position and size invented within the right quarter)",
+   "src": "R1 7 (Tintir IV)",
+   "conjectural": true
+  },
+  {
+   "id": "shamashTemple",
+   "name": "Shamash temple, Edikukalamma",
+   "kind": "temple (conjectural placement)",
+   "footprint": {
+    "center": [
+     -640.0,
+     300.0
+    ],
+    "size": [
+     50.0,
+     45.0
+    ],
+    "rotationDeg": 0.0,
+    "sizeIsBoundingBox": false,
+    "polygon": [
+     [
+      -665.0,
+      277.5
+     ],
+     [
+      -615.0,
+      277.5
+     ],
+     [
+      -615.0,
+      322.5
+     ],
+     [
+      -665.0,
+      322.5
+     ],
+     [
+      -665.0,
+      277.5
+     ]
+    ],
+    "areaM2": 2250
+   },
+   "within": "innerWest",
+   "dims": {
+    "height": 9.0,
+    "type": "generic Babylonian courtyard temple: buttressed mudbrick block, twin grooved towers at the door, white plaster, forecourt altar",
+    "note": "Kumar quarter; rebuilt in baked brick"
+   },
+   "conf": "low (attested in texts only; position and size invented within the right quarter)",
+   "src": "R1 7 (Tintir IV)",
+   "conjectural": true
+  },
+  {
+   "id": "adadEnamhe",
+   "name": "Adad temple, Enamhe",
+   "kind": "temple (conjectural placement)",
+   "footprint": {
+    "center": [
+     -880.0,
+     210.0
+    ],
+    "size": [
+     40.0,
+     36.0
+    ],
+    "rotationDeg": 0.0,
+    "sizeIsBoundingBox": false,
+    "polygon": [
+     [
+      -900.0,
+      192.0
+     ],
+     [
+      -860.0,
+      192.0
+     ],
+     [
+      -860.0,
+      228.0
+     ],
+     [
+      -900.0,
+      228.0
+     ],
+     [
+      -900.0,
+      192.0
+     ]
+    ],
+    "areaM2": 1440
+   },
+   "within": "innerWest",
+   "dims": {
+    "height": 9.0,
+    "type": "generic Babylonian courtyard temple: buttressed mudbrick block, twin grooved towers at the door, white plaster, forecourt altar",
+    "note": "Kumar quarter"
+   },
+   "conf": "low (attested in texts only; position and size invented within the right quarter)",
+   "src": "R1 7 (Tintir IV)",
+   "conjectural": true
+  },
+  {
+   "id": "enlilEnamtila",
+   "name": "Enlil temple, Enamtila",
+   "kind": "temple (conjectural placement)",
+   "footprint": {
+    "center": [
+     -520.0,
+     20.0
+    ],
+    "size": [
+     40.0,
+     36.0
+    ],
+    "rotationDeg": 0.0,
+    "sizeIsBoundingBox": false,
+    "polygon": [
+     [
+      -540.0,
+      2.0
+     ],
+     [
+      -500.0,
+      2.0
+     ],
+     [
+      -500.0,
+      38.0
+     ],
+     [
+      -540.0,
+      38.0
+     ],
+     [
+      -540.0,
+      2.0
+     ]
+    ],
+    "areaM2": 1440
+   },
+   "within": "innerWest",
+   "dims": {
+    "height": 9.0,
+    "type": "generic Babylonian courtyard temple: buttressed mudbrick block, twin grooved towers at the door, white plaster, forecourt altar",
+    "note": "Kumar quarter"
+   },
+   "conf": "low (attested in texts only; position and size invented within the right quarter)",
+   "src": "R1 7 (Tintir IV)",
+   "conjectural": true
+  },
+  {
+   "id": "beletNinua",
+   "name": "Belet-Ninua temple",
+   "kind": "temple (conjectural placement)",
+   "footprint": {
+    "center": [
+     -930.0,
+     -330.0
+    ],
+    "size": [
+     40.0,
+     34.0
+    ],
+    "rotationDeg": 0.0,
+    "sizeIsBoundingBox": false,
+    "polygon": [
+     [
+      -950.0,
+      -347.0
+     ],
+     [
+      -910.0,
+      -347.0
+     ],
+     [
+      -910.0,
+      -313.0
+     ],
+     [
+      -950.0,
+      -313.0
+     ],
+     [
+      -950.0,
+      -347.0
+     ]
+    ],
+    "areaM2": 1360
+   },
+   "within": "innerWest",
+   "dims": {
+    "height": 9.0,
+    "type": "generic Babylonian courtyard temple: buttressed mudbrick block, twin grooved towers at the door, white plaster, forecourt altar",
+    "note": "Bab-Lugalirra quarter"
+   },
+   "conf": "low (attested in texts only; position and size invented within the right quarter)",
+   "src": "R1 7 (Tintir IV)",
+   "conjectural": true
+  },
+  {
+   "id": "nabuTuba",
+   "name": "Nabu temple of Tuba",
+   "kind": "temple (conjectural placement)",
+   "footprint": {
+    "center": [
+     -560.0,
+     560.0
+    ],
+    "size": [
+     36.0,
+     32.0
+    ],
+    "rotationDeg": 0.0,
+    "sizeIsBoundingBox": false,
+    "polygon": [
+     [
+      -578.0,
+      544.0
+     ],
+     [
+      -542.0,
+      544.0
+     ],
+     [
+      -542.0,
+      576.0
+     ],
+     [
+      -578.0,
+      576.0
+     ],
+     [
+      -578.0,
+      544.0
+     ]
+    ],
+    "areaM2": 1152
+   },
+   "within": "innerWest",
+   "dims": {
+    "height": 9.0,
+    "type": "generic Babylonian courtyard temple: buttressed mudbrick block, twin grooved towers at the door, white plaster, forecourt altar",
+    "note": "Tuba quarter"
+   },
+   "conf": "low (attested in texts only; position and size invented within the right quarter)",
+   "src": "R1 7 (Tintir IV)",
+   "conjectural": true
+  },
+  {
+   "id": "beletEannaWest",
+   "name": "Belet-Eanna temple, Ekitushgarza",
+   "kind": "temple (conjectural placement)",
+   "footprint": {
+    "center": [
+     -1130.0,
+     870.0
+    ],
+    "size": [
+     36.0,
+     32.0
+    ],
+    "rotationDeg": 0.0,
+    "sizeIsBoundingBox": false,
+    "polygon": [
+     [
+      -1148.0,
+      854.0
+     ],
+     [
+      -1112.0,
+      854.0
+     ],
+     [
+      -1112.0,
+      886.0
+     ],
+     [
+      -1148.0,
+      886.0
+     ],
+     [
+      -1148.0,
+      854.0
+     ]
+    ],
+    "areaM2": 1152
+   },
+   "within": "innerWest",
+   "dims": {
+    "height": 9.0,
+    "type": "generic Babylonian courtyard temple: buttressed mudbrick block, twin grooved towers at the door, white plaster, forecourt altar",
+    "note": "\"at the outer corner of the city wall\" (SW corner)"
+   },
+   "conf": "low (attested in texts only; position and size invented within the right quarter)",
+   "src": "R1 7 (Tintir IV)",
+   "conjectural": true
+  },
+  {
+   "id": "beletEannaCanal",
+   "name": "Belet-Eanna temple, Ekitushgirzal",
+   "kind": "temple (conjectural placement)",
+   "footprint": {
+    "center": [
+     905.0,
+     -395.0
+    ],
+    "size": [
+     40.0,
+     34.0
+    ],
+    "rotationDeg": 0.0,
+    "sizeIsBoundingBox": false,
+    "polygon": [
+     [
+      885.0,
+      -412.0
+     ],
+     [
+      925.0,
+      -412.0
+     ],
+     [
+      925.0,
+      -378.0
+     ],
+     [
+      885.0,
+      -378.0
+     ],
+     [
+      885.0,
+      -412.0
+     ]
+    ],
+    "areaM2": 1360
+   },
+   "within": "innerEast",
+   "dims": {
+    "height": 9.0,
+    "type": "generic Babylonian courtyard temple: buttressed mudbrick block, twin grooved towers at the door, white plaster, forecourt altar",
+    "note": "New City, on the canal bank at the Kullab border"
+   },
+   "conf": "low (attested in texts only; position and size invented within the right quarter)",
+   "src": "R1 7 (Tintir IV)",
+   "conjectural": true
+  },
+  {
+   "id": "sinEgishnugal",
+   "name": "Sin temple, Egishnugal",
+   "kind": "temple (conjectural placement)",
+   "footprint": {
+    "center": [
+     1040.0,
+     40.0
+    ],
+    "size": [
+     48.0,
+     42.0
+    ],
+    "rotationDeg": 0.0,
+    "sizeIsBoundingBox": false,
+    "polygon": [
+     [
+      1016.0,
+      19.0
+     ],
+     [
+      1064.0,
+      19.0
+     ],
+     [
+      1064.0,
+      61.0
+     ],
+     [
+      1016.0,
+      61.0
+     ],
+     [
+      1016.0,
+      19.0
+     ]
+    ],
+    "areaM2": 2016
+   },
+   "within": "innerEast",
+   "dims": {
+    "height": 9.0,
+    "type": "generic Babylonian courtyard temple: buttressed mudbrick block, twin grooved towers at the door, white plaster, forecourt altar",
+    "note": "Kullab quarter"
+   },
+   "conf": "low (attested in texts only; position and size invented within the right quarter)",
+   "src": "R1 7 (Tintir IV)",
+   "conjectural": true
+  },
+  {
+   "id": "teShrine",
+   "name": "shrine of the TE.E quarter",
+   "kind": "temple (conjectural placement)",
+   "footprint": {
+    "center": [
+     1060.0,
+     560.0
+    ],
+    "size": [
+     36.0,
+     30.0
+    ],
+    "rotationDeg": 0.0,
+    "sizeIsBoundingBox": false,
+    "polygon": [
+     [
+      1042.0,
+      545.0
+     ],
+     [
+      1078.0,
+      545.0
+     ],
+     [
+      1078.0,
+      575.0
+     ],
+     [
+      1042.0,
+      575.0
+     ],
+     [
+      1042.0,
+      545.0
+     ]
+    ],
+    "areaM2": 1080
+   },
+   "within": "innerEast",
+   "dims": {
+    "height": 9.0,
+    "type": "generic Babylonian courtyard temple: buttressed mudbrick block, twin grooved towers at the door, white plaster, forecourt altar",
+    "note": "TE.E quarter (low ground)"
+   },
+   "conf": "low (attested in texts only; position and size invented within the right quarter)",
+   "src": "R1 7 (Tintir IV)",
+   "conjectural": true
+  },
+  {
+   "id": "eaEkarzaginna",
+   "name": "Ea temple, Ekarzaginna, with river-bank gardens",
+   "kind": "temple (conjectural placement)",
+   "footprint": {
+    "center": [
+     -116.0,
+     442.0
+    ],
+    "size": [
+     36.0,
+     30.0
+    ],
+    "rotationDeg": 0.0,
+    "sizeIsBoundingBox": false,
+    "polygon": [
+     [
+      -134.0,
+      427.0
+     ],
+     [
+      -98.0,
+      427.0
+     ],
+     [
+      -98.0,
+      457.0
+     ],
+     [
+      -134.0,
+      457.0
+     ],
+     [
+      -134.0,
+      427.0
+     ]
+    ],
+    "areaM2": 1080
+   },
+   "within": "innerEast",
+   "dims": {
+    "height": 9.0,
+    "type": "generic Babylonian courtyard temple: buttressed mudbrick block, twin grooved towers at the door, white plaster, forecourt altar",
+    "note": "Eridu quarter, on the river bank beside Esagila"
+   },
+   "conf": "low (attested in texts only; position and size invented within the right quarter)",
+   "src": "R1 7 (Tintir IV)",
+   "conjectural": true
+  },
+  {
+   "id": "ishtarBabylon",
+   "name": "Ishtar of Babylon temple, Eturkalamma",
+   "kind": "temple (conjectural placement)",
+   "footprint": {
+    "center": [
+     150.0,
+     300.0
+    ],
+    "size": [
+     40.0,
+     34.0
+    ],
+    "rotationDeg": 0.0,
+    "sizeIsBoundingBox": false,
+    "polygon": [
+     [
+      130.0,
+      283.0
+     ],
+     [
+      170.0,
+      283.0
+     ],
+     [
+      170.0,
+      317.0
+     ],
+     [
+      130.0,
+      317.0
+     ],
+     [
+      130.0,
+      283.0
+     ]
+    ],
+    "areaM2": 1360
+   },
+   "within": "innerEast",
+   "dims": {
+    "height": 9.0,
+    "type": "generic Babylonian courtyard temple: buttressed mudbrick block, twin grooved towers at the door, white plaster, forecourt altar",
+    "note": "Eridu quarter, near Esagila (inside the wider Esagila precinct)"
+   },
+   "conf": "low (attested in texts only; position and size invented within the right quarter)",
+   "src": "R1 7 (Tintir IV)",
+   "conjectural": true
+  }
+ ],
+ "landmarkHouses": {
+  "houses": [
+   {
+    "name": "Merkes House III (\"Great House\")",
+    "x": 520.8,
+    "z": -233.3,
+    "areaM2": 1475,
+    "floorLevel": 7.0,
+    "outline": [
+     [
+      497.8,
+      -250.2
+     ],
+     [
+      534.2,
+      -249.3
+     ],
+     [
+      538.5,
+      -208.7
+     ],
+     [
+      491.9,
+      -212.4
+     ],
+     [
+      497.8,
+      -250.2
+     ]
+    ],
+    "court": {
+     "center": [
+      522.8,
+      -231.3
+     ],
+     "size": [
+      16,
+      18
+     ],
+     "rotationDeg": 15.5,
+     "polygon": [
+      [
+       517.5,
+       -242.1
+      ],
+      [
+       532.9,
+       -237.8
+      ],
+      [
+       528.1,
+       -220.5
+      ],
+      [
+       512.7,
+       -224.8
+      ],
+      [
+       517.5,
+       -242.1
+      ]
+     ]
+    },
+    "roofLevel": 15.2,
+    "eastRange": "c. 6 m deep between the court and the east street wall: the rooftop camera of shot 8 stands on its roof",
+    "note": ">90 saw-teeth on the outer wall; terrace 1.5 m above the street; rooftop camera. Outline and court read on Pedersen Fig. 6.2: build this house to its plan, not as a generic archetype."
+   },
+   {
+    "name": "Merkes House VI",
+    "x": 519.2,
+    "z": -264.9,
+    "areaM2": 330,
+    "floorLevel": 5.4
+   },
+   {
+    "name": "mansion west of the Ishtar-of-Agade temple",
+    "x": 399.2,
+    "z": -318.9,
+    "areaM2": 1200
+   },
+   {
+    "name": "house with two shops on the Processional Way",
+    "x": 366.3,
+    "z": -312.5,
+    "areaM2": 450
+   },
+   {
+    "name": "largest excavated house (New Town)",
+    "x": 724.6,
+    "z": -519.2,
+    "areaM2": 1900,
+    "size": [
+     44,
+     43.5
+    ]
+   }
+  ],
+  "conf": "high (+/-10 m)",
+  "src": "R5 4.1"
+ },
+ "districts": [
+  {
+   "name": "Ka-dingirra",
+   "kind": "quarter",
+   "bank": "east",
+   "polygon": [
+    [
+     1.0,
+     -581.9
+    ],
+    [
+     38.1,
+     -707.9
+    ],
+    [
+     345.8,
+     -716.2
+    ],
+    [
+     520.0,
+     -756.0
+    ],
+    [
+     520.0,
+     -245.0
+    ],
+    [
+     348.0,
+     -245.0
+    ],
+    [
+     338.3,
+     -217.3
+    ],
+    [
+     -67.8,
+     -248.1
+    ],
+    [
+     -52.3,
+     -326.0
+    ],
+    [
+     1.0,
+     -581.9
+    ]
+   ],
+   "areaHa": 26.1,
+   "houseDensityPerHa": 34,
+   "lotSizeRangeM2": [
+    80,
+    900
+   ],
+   "openGardenFraction": 0.1,
+   "character": "palace quarter: South Palace, Ninmah/Nabu/Ishtar temples, north Merkes; \"town of the common people\" ridge between the palace canal and the precinct",
+   "classMix": {
+    "small": 0.5,
+    "medium": 0.4,
+    "large": 0.09,
+    "mansion": 0.01
+   },
+   "sawToothShare": 0.55,
+   "whitewashShare": 0.2,
+   "groundLevel": "+4 to +8 (palace terrace +12 to +15)",
+   "estHouses": 649,
+   "conf": "high (extent); low (fabric)",
+   "src": "R1 6.3; R5 3.2, 4.3",
+   "groundLevelRange": [
+    4,
+    8
+   ],
+   "fabricTopLevel": 17.0,
+   "monumentAreaHa": 4.9
+  },
+  {
+   "name": "Eridu",
+   "kind": "quarter",
+   "bank": "east",
+   "polygon": [
+    [
+     -72.0,
+     -249.3
+    ],
+    [
+     338.3,
+     -217.3
+    ],
+    [
+     348.0,
+     450.0
+    ],
+    [
+     -150.0,
+     450.0
+    ],
+    [
+     -161.1,
+     160.4
+    ],
+    [
+     -101.7,
+     -134.0
+    ],
+    [
+     -72.0,
+     -249.3
+    ]
+   ],
+   "areaHa": 32.7,
+   "houseDensityPerHa": 40,
+   "lotSizeRangeM2": [
+    100,
+    900
+   ],
+   "openGardenFraction": 0.15,
+   "character": "sacred centre: Etemenanki precinct, Esagila and a dozen text-attested shrines with courts and palm gardens; priests' houses",
+   "classMix": {
+    "small": 0.1,
+    "medium": 0.45,
+    "large": 0.35,
+    "mansion": 0.1
+   },
+   "sawToothShare": 0.7,
+   "whitewashShare": 0.5,
+   "groundLevel": "+2 to +4.4",
+   "estHouses": 431,
+   "conf": "high (extent)",
+   "src": "R1 6.3; R3",
+   "groundLevelRange": [
+    2,
+    4.4
+   ],
+   "fabricTopLevel": 13.4,
+   "monumentAreaHa": 20.0
+  },
+  {
+   "name": "Shuanna",
+   "kind": "quarter",
+   "bank": "east",
+   "polygon": [
+    [
+     -150.0,
+     450.0
+    ],
+    [
+     700.0,
+     450.0
+    ],
+    [
+     700.0,
+     800.0
+    ],
+    [
+     145.8,
+     913.2
+    ],
+    [
+     55.0,
+     945.0
+    ],
+    [
+     -45.0,
+     780.0
+    ],
+    [
+     -128.0,
+     535.0
+    ],
+    [
+     -150.0,
+     450.0
+    ]
+   ],
+   "areaHa": 32.8,
+   "houseDensityPerHa": 50,
+   "lotSizeRangeM2": [
+    60,
+    600
+   ],
+   "openGardenFraction": 0.15,
+   "character": "southern residential quarter to the Urash Gate (Ishhara and Ninurta temples; Market Gate area; later Egibi family quarter)",
+   "classMix": {
+    "small": 0.5,
+    "medium": 0.4,
+    "large": 0.09,
+    "mansion": 0.01
+   },
+   "sawToothShare": 0.5,
+   "whitewashShare": 0.15,
+   "groundLevel": "+2 to +5",
+   "estHouses": 1379,
+   "conf": "medium",
+   "src": "R1 6.3; R5 4.3",
+   "groundLevelRange": [
+    2,
+    5
+   ],
+   "fabricTopLevel": 14.0,
+   "monumentAreaHa": 0.4
+  },
+  {
+   "name": "New City (Alu eshshu)",
+   "kind": "quarter",
+   "bank": "east",
+   "polygon": [
+    [
+     520.0,
+     -756.0
+    ],
+    [
+     1368.0,
+     -942.0
+    ],
+    [
+     1381.0,
+     -300.0
+    ],
+    [
+     520.0,
+     -300.0
+    ],
+    [
+     520.0,
+     -756.0
+    ]
+   ],
+   "areaHa": 47.0,
+   "houseDensityPerHa": 45,
+   "lotSizeRangeM2": [
+    60,
+    1900
+   ],
+   "openGardenFraction": 0.2,
+   "character": "north-east quarter with the largest excavated house; looser toward the walls with garden plots",
+   "classMix": {
+    "small": 0.5,
+    "medium": 0.4,
+    "large": 0.09,
+    "mansion": 0.01
+   },
+   "sawToothShare": 0.5,
+   "whitewashShare": 0.18,
+   "groundLevel": "0 to +4",
+   "estHouses": 1687,
+   "conf": "medium",
+   "src": "R1 6.3; R5 4.1",
+   "groundLevelRange": [
+    0,
+    4
+   ],
+   "fabricTopLevel": 13.0,
+   "monumentAreaHa": 0.1
+  },
+  {
+   "name": "Kullab",
+   "kind": "quarter",
+   "bank": "east",
+   "polygon": [
+    [
+     348.0,
+     -245.0
+    ],
+    [
+     520.0,
+     -245.0
+    ],
+    [
+     520.0,
+     -300.0
+    ],
+    [
+     1381.0,
+     -300.0
+    ],
+    [
+     1389.0,
+     250.0
+    ],
+    [
+     348.0,
+     250.0
+    ],
+    [
+     348.0,
+     -245.0
+    ]
+   ],
+   "areaHa": 56.1,
+   "houseDensityPerHa": 45,
+   "lotSizeRangeM2": [
+    60,
+    1500
+   ],
+   "openGardenFraction": 0.15,
+   "character": "east-centre inside the Marduk Gate; includes the excavated elite Merkes mound (x 350-620, z -360..80) with irregular streets",
+   "classMix": {
+    "small": 0.5,
+    "medium": 0.4,
+    "large": 0.09,
+    "mansion": 0.01
+   },
+   "sawToothShare": 0.55,
+   "whitewashShare": 0.2,
+   "groundLevel": "+2 to +8 (Merkes mound)",
+   "estHouses": 2138,
+   "conf": "medium",
+   "src": "R1 6.3; R5 4.2, 4.3",
+   "groundLevelRange": [
+    2,
+    8
+   ],
+   "fabricTopLevel": 17.0,
+   "monumentAreaHa": 0.2
+  },
+  {
+   "name": "TE.E (Te)",
+   "kind": "quarter",
+   "bank": "east",
+   "polygon": [
+    [
+     348.0,
+     250.0
+    ],
+    [
+     1389.0,
+     250.0
+    ],
+    [
+     1394.0,
+     668.0
+    ],
+    [
+     700.0,
+     800.0
+    ],
+    [
+     700.0,
+     450.0
+    ],
+    [
+     348.0,
+     450.0
+    ],
+    [
+     348.0,
+     250.0
+    ]
+   ],
+   "areaHa": 40.5,
+   "houseDensityPerHa": 48,
+   "lotSizeRangeM2": [
+    60,
+    500
+   ],
+   "openGardenFraction": 0.4,
+   "character": "south-east, the lowest ground of the city (seasonally wet): houses thin out into gardens, palms and open plots",
+   "classMix": {
+    "small": 0.65,
+    "medium": 0.3,
+    "large": 0.05,
+    "mansion": 0.0
+   },
+   "sawToothShare": 0.35,
+   "whitewashShare": 0.08,
+   "groundLevel": "-2 to +1",
+   "estHouses": 1163,
+   "conf": "medium (extent); low (fabric)",
+   "src": "R1 6.3, 13",
+   "groundLevelRange": [
+    -2,
+    1
+   ],
+   "fabricTopLevel": 10.0,
+   "monumentAreaHa": 0.1
+  },
+  {
+   "name": "Bab-Lugalirra",
+   "kind": "quarter",
+   "bank": "west",
+   "polygon": [
+    [
+     -1238.0,
+     -498.0
+    ],
+    [
+     -222.9,
+     -483.5
+    ],
+    [
+     -250.0,
+     0.0
+    ],
+    [
+     -1230.0,
+     0.0
+    ],
+    [
+     -1238.0,
+     -498.0
+    ]
+   ],
+   "areaHa": 49.0,
+   "houseDensityPerHa": 50,
+   "lotSizeRangeM2": [
+    60,
+    500
+   ],
+   "openGardenFraction": 0.3,
+   "character": "north part of the unexcavated west city: ordinary houses, more unbuilt plots and palm gardens toward the wall",
+   "classMix": {
+    "small": 0.65,
+    "medium": 0.3,
+    "large": 0.05,
+    "mansion": 0.0
+   },
+   "sawToothShare": 0.3,
+   "whitewashShare": 0.08,
+   "groundLevel": "0 to +3",
+   "estHouses": 1710,
+   "conf": "low",
+   "src": "R1 6.3; R5 3.2",
+   "groundLevelRange": [
+    0,
+    3
+   ],
+   "fabricTopLevel": 12.0,
+   "monumentAreaHa": 0.1
+  },
+  {
+   "name": "Kumar",
+   "kind": "quarter",
+   "bank": "west",
+   "polygon": [
+    [
+     -1230.0,
+     0.0
+    ],
+    [
+     -250.0,
+     0.0
+    ],
+    [
+     -283.0,
+     130.0
+    ],
+    [
+     -284.0,
+     500.0
+    ],
+    [
+     -1218.0,
+     500.0
+    ],
+    [
+     -1230.0,
+     0.0
+    ]
+   ],
+   "areaHa": 47.2,
+   "houseDensityPerHa": 50,
+   "lotSizeRangeM2": [
+    60,
+    600
+   ],
+   "openGardenFraction": 0.25,
+   "character": "middle of the west city, seven text-attested temples; dense housing at the bridge head (house walls seen in the river cut)",
+   "classMix": {
+    "small": 0.5,
+    "medium": 0.4,
+    "large": 0.09,
+    "mansion": 0.01
+   },
+   "sawToothShare": 0.4,
+   "whitewashShare": 0.12,
+   "groundLevel": "0 to +3",
+   "estHouses": 1751,
+   "conf": "low",
+   "src": "R1 6.3; R5 3.2",
+   "groundLevelRange": [
+    0,
+    3
+   ],
+   "fabricTopLevel": 12.0,
+   "monumentAreaHa": 0.5
+  },
+  {
+   "name": "Tuba",
+   "kind": "quarter",
+   "bank": "west",
+   "polygon": [
+    [
+     -700.0,
+     500.0
+    ],
+    [
+     -266.0,
+     500.0
+    ],
+    [
+     -135.0,
+     962.0
+    ],
+    [
+     -700.0,
+     958.0
+    ],
+    [
+     -700.0,
+     500.0
+    ]
+   ],
+   "areaHa": 23.0,
+   "houseDensityPerHa": 50,
+   "lotSizeRangeM2": [
+    60,
+    500
+   ],
+   "openGardenFraction": 0.3,
+   "character": "south part by the river: Gula, Belet-Eanna and Nabu temples; river landings",
+   "classMix": {
+    "small": 0.65,
+    "medium": 0.3,
+    "large": 0.05,
+    "mansion": 0.0
+   },
+   "sawToothShare": 0.3,
+   "whitewashShare": 0.08,
+   "groundLevel": "0 to +3",
+   "estHouses": 795,
+   "conf": "low",
+   "src": "R1 6.3",
+   "groundLevelRange": [
+    0,
+    3
+   ],
+   "fabricTopLevel": 12.0,
+   "monumentAreaHa": 0.3
+  },
+  {
+   "name": "Nu[...] (name broken)",
+   "kind": "quarter",
+   "bank": "west",
+   "polygon": [
+    [
+     -1218.0,
+     500.0
+    ],
+    [
+     -700.0,
+     500.0
+    ],
+    [
+     -700.0,
+     958.0
+    ],
+    [
+     -1206.0,
+     948.0
+    ],
+    [
+     -1218.0,
+     500.0
+    ]
+   ],
+   "areaHa": 23.2,
+   "houseDensityPerHa": 50,
+   "lotSizeRangeM2": [
+    60,
+    400
+   ],
+   "openGardenFraction": 0.4,
+   "character": "south-west corner: thin housing, gardens",
+   "classMix": {
+    "small": 0.65,
+    "medium": 0.3,
+    "large": 0.05,
+    "mansion": 0.0
+   },
+   "sawToothShare": 0.25,
+   "whitewashShare": 0.05,
+   "groundLevel": "0 to +2",
+   "estHouses": 693,
+   "conf": "low",
+   "src": "R1 6.3",
+   "groundLevelRange": [
+    0,
+    2
+   ],
+   "fabricTopLevel": 11.0,
+   "monumentAreaHa": 0.1
+  },
+  {
+   "name": "Outer city north",
+   "kind": "outerCity",
+   "bank": "east",
+   "polygon": [
+    [
+     130.7,
+     -1128.1
+    ],
+    [
+     357.0,
+     -1067.4
+    ],
+    [
+     378.8,
+     -1074.1
+    ],
+    [
+     677.7,
+     -1125.0
+    ],
+    [
+     713.9,
+     -920.8
+    ],
+    [
+     1489.2,
+     -1099.5
+    ],
+    [
+     2013.1,
+     -1369.1
+    ],
+    [
+     1406.6,
+     -2547.3
+    ],
+    [
+     1439.2,
+     -3200.8
+    ],
+    [
+     1168.6,
+     -3224.0
+    ],
+    [
+     955.0,
+     -2500.0
+    ],
+    [
+     875.0,
+     -2315.0
+    ],
+    [
+     790.0,
+     -2130.0
+    ],
+    [
+     705.0,
+     -1945.0
+    ],
+    [
+     640.0,
+     -1840.0
+    ],
+    [
+     545.0,
+     -1685.0
+    ],
+    [
+     445.0,
+     -1550.0
+    ],
+    [
+     330.0,
+     -1410.0
+    ],
+    [
+     225.0,
+     -1270.0
+    ],
+    [
+     160.0,
+     -1180.0
+    ],
+    [
+     130.7,
+     -1128.1
+    ]
+   ],
+   "areaHa": 193.9,
+   "houseDensityPerHa": 45,
+   "lotSizeRangeM2": [
+    60,
+    400
+   ],
+   "openGardenFraction": 0.776,
+   "character": "between the inner moat and the Summer Palace: processional road, akitu temple, suburb ribbons along the road and river, otherwise palm gardens, vegetable plots, kilns",
+   "classMix": {
+    "small": 0.65,
+    "medium": 0.3,
+    "large": 0.05,
+    "mansion": 0.0
+   },
+   "sawToothShare": 0.25,
+   "whitewashShare": 0.05,
+   "groundLevel": "0 to +2",
+   "estHouses": 1923,
+   "conf": "low (no survey exists)",
+   "src": "R1 8; R5 3.2",
+   "groundLevelRange": [
+    0,
+    2
+   ],
+   "fabricTopLevel": 11.0,
+   "monumentAreaHa": 3.1
+  },
+  {
+   "name": "Outer city east",
+   "kind": "outerCity",
+   "bank": "east",
+   "polygon": [
+    [
+     1489.2,
+     -1099.5
+    ],
+    [
+     2013.1,
+     -1369.1
+    ],
+    [
+     3023.1,
+     593.0
+    ],
+    [
+     1518.9,
+     773.6
+    ],
+    [
+     1514.9,
+     488.5
+    ],
+    [
+     1505.2,
+     -245.1
+    ],
+    [
+     1489.2,
+     -1099.5
+    ]
+   ],
+   "areaHa": 205.9,
+   "houseDensityPerHa": 45,
+   "lotSizeRangeM2": [
+    60,
+    400
+   ],
+   "openGardenFraction": 0.708,
+   "character": "between the inner moat and the outer wall: suburbs on the Marduk/Zababa gate roads, fields, canals, gardens",
+   "classMix": {
+    "small": 0.65,
+    "medium": 0.3,
+    "large": 0.05,
+    "mansion": 0.0
+   },
+   "sawToothShare": 0.25,
+   "whitewashShare": 0.05,
+   "groundLevel": "-1 to +2",
+   "estHouses": 2706,
+   "conf": "low",
+   "src": "R1 8; R5 3.2",
+   "groundLevelRange": [
+    -1,
+    2
+   ],
+   "fabricTopLevel": 11.0,
+   "monumentAreaHa": 0.0
+  },
+  {
+   "name": "Outer city south",
+   "kind": "outerCity",
+   "bank": "east",
+   "polygon": [
+    [
+     35.8,
+     1066.4
+    ],
+    [
+     178.0,
+     1025.9
+    ],
+    [
+     1518.9,
+     773.6
+    ],
+    [
+     3023.1,
+     593.0
+    ],
+    [
+     203.2,
+     1359.7
+    ],
+    [
+     83.7,
+     1062.0
+    ],
+    [
+     35.8,
+     1066.4
+    ]
+   ],
+   "areaHa": 56.6,
+   "houseDensityPerHa": 45,
+   "lotSizeRangeM2": [
+    60,
+    400
+   ],
+   "openGardenFraction": 0.8,
+   "character": "south of the inner moat: Urash Gate suburb and landing (Nabu's arrival point), gardens, low wet ground in the angle of the outer wall",
+   "classMix": {
+    "small": 0.65,
+    "medium": 0.3,
+    "large": 0.05,
+    "mansion": 0.0
+   },
+   "sawToothShare": 0.25,
+   "whitewashShare": 0.05,
+   "groundLevel": "-1 to +1",
+   "estHouses": 509,
+   "conf": "low",
+   "src": "R1 8, 9",
+   "groundLevelRange": [
+    -1,
+    1
+   ],
+   "fabricTopLevel": 10.0,
+   "monumentAreaHa": 0.0
+  }
+ ],
+ "environs": {
+  "terrain": {
+   "character": "dead-flat alluvium, 0 to +2 m; relief only from river/canal levees (1-3 m), spoil banks, village mounds, kiln heaps; no stone, no hills, no dunes",
+   "conf": "high",
+   "src": "R1 9; R5 3.6"
+  },
+  "fieldZones": [
+   {
+    "name": "west plain",
+    "polygon": [
+     [
+      -9000.0,
+      -10000.0
+     ],
+     [
+      2700.0,
+      -10000.0
+     ],
+     [
+      2700.0,
+      -9500.0
+     ],
+     [
+      2500.0,
+      -8700.0
+     ],
+     [
+      2380.0,
+      -7950.0
+     ],
+     [
+      2180.0,
+      -7250.0
+     ],
+     [
+      1900.0,
+      -6600.0
+     ],
+     [
+      1700.0,
+      -5900.0
+     ],
+     [
+      1610.0,
+      -5200.0
+     ],
+     [
+      1500.0,
+      -4550.0
+     ],
+     [
+      1300.0,
+      -3950.0
+     ],
+     [
+      1192.0,
+      -3607.0
+     ],
+     [
+      1116.0,
+      -3240.9
+     ],
+     [
+      1014.6,
+      -2898.5
+     ],
+     [
+      898.3,
+      -2508.7
+     ],
+     [
+      822.2,
+      -2325.0
+     ],
+     [
+      737.0,
+      -2134.2
+     ],
+     [
+      649.5,
+      -1951.1
+     ],
+     [
+      546.3,
+      -1786.3
+     ],
+     [
+      408.4,
+      -1595.7
+     ],
+     [
+      285.8,
+      -1441.8
+     ],
+     [
+      160.0,
+      -1268.3
+     ],
+     [
+      56.4,
+      -1124.9
+     ],
+     [
+      29.8,
+      -1083.1
+     ],
+     [
+      -103.7,
+      -927.0
+     ],
+     [
+      -142.4,
+      -775.7
+     ],
+     [
+      -173.1,
+      -624.5
+     ],
+     [
+      -173.8,
+      -616.2
+     ],
+     [
+      -127.3,
+      -377.0
+     ],
+     [
+      -152.2,
+      -210.6
+     ],
+     [
+      -191.2,
+      -18.4
+     ],
+     [
+      -223.2,
+      152.8
+     ],
+     [
+      -223.9,
+      285.1
+     ],
+     [
+      -219.9,
+      387.6
+     ],
+     [
+      -193.9,
+      520.7
+     ],
+     [
+      -165.4,
+      623.0
+     ],
+     [
+      -132.0,
+      741.0
+     ],
+     [
+      -57.5,
+      935.4
+     ],
+     [
+      -21.2,
+      1084.4
+     ],
+     [
+      49.4,
+      1280.1
+     ],
+     [
+      121.3,
+      1469.4
+     ],
+     [
+      300.0,
+      1940.0
+     ],
+     [
+      470.0,
+      2450.0
+     ],
+     [
+      560.0,
+      3000.0
+     ],
+     [
+      560.0,
+      3600.0
+     ],
+     [
+      480.0,
+      4200.0
+     ],
+     [
+      420.0,
+      4850.0
+     ],
+     [
+      470.0,
+      5500.0
+     ],
+     [
+      520.0,
+      6150.0
+     ],
+     [
+      450.0,
+      6800.0
+     ],
+     [
+      330.0,
+      7450.0
+     ],
+     [
+      250.0,
+      8100.0
+     ],
+     [
+      250.0,
+      9000.0
+     ],
+     [
+      -9000.0,
+      9000.0
+     ],
+     [
+      -9000.0,
+      -10000.0
+     ]
+    ],
+    "mix": {
+     "palmGarden": 0.15,
+     "barleyRipe": 0.35,
+     "fallow": 0.33,
+     "gardenVegetables": 0.05,
+     "saltFlecked": 0.07,
+     "reedMarsh": 0.05
+    },
+    "conf": "low",
+    "src": "R5 3.6; R1 9"
+   },
+   {
+    "name": "east plain",
+    "polygon": [
+     [
+      2700.0,
+      -10000.0
+     ],
+     [
+      9000.0,
+      -10000.0
+     ],
+     [
+      9000.0,
+      9000.0
+     ],
+     [
+      250.0,
+      9000.0
+     ],
+     [
+      250.0,
+      8100.0
+     ],
+     [
+      330.0,
+      7450.0
+     ],
+     [
+      450.0,
+      6800.0
+     ],
+     [
+      520.0,
+      6150.0
+     ],
+     [
+      470.0,
+      5500.0
+     ],
+     [
+      420.0,
+      4850.0
+     ],
+     [
+      480.0,
+      4200.0
+     ],
+     [
+      560.0,
+      3600.0
+     ],
+     [
+      560.0,
+      3000.0
+     ],
+     [
+      470.0,
+      2450.0
+     ],
+     [
+      300.0,
+      1940.0
+     ],
+     [
+      121.3,
+      1469.4
+     ],
+     [
+      49.4,
+      1280.1
+     ],
+     [
+      -21.2,
+      1084.4
+     ],
+     [
+      -57.5,
+      935.4
+     ],
+     [
+      -132.0,
+      741.0
+     ],
+     [
+      -165.4,
+      623.0
+     ],
+     [
+      -193.9,
+      520.7
+     ],
+     [
+      -219.9,
+      387.6
+     ],
+     [
+      -223.9,
+      285.1
+     ],
+     [
+      -223.2,
+      152.8
+     ],
+     [
+      -191.2,
+      -18.4
+     ],
+     [
+      -152.2,
+      -210.6
+     ],
+     [
+      -127.3,
+      -377.0
+     ],
+     [
+      -173.8,
+      -616.2
+     ],
+     [
+      -173.1,
+      -624.5
+     ],
+     [
+      -142.4,
+      -775.7
+     ],
+     [
+      -103.7,
+      -927.0
+     ],
+     [
+      29.8,
+      -1083.1
+     ],
+     [
+      56.4,
+      -1124.9
+     ],
+     [
+      160.0,
+      -1268.3
+     ],
+     [
+      285.8,
+      -1441.8
+     ],
+     [
+      408.4,
+      -1595.7
+     ],
+     [
+      546.3,
+      -1786.3
+     ],
+     [
+      649.5,
+      -1951.1
+     ],
+     [
+      737.0,
+      -2134.2
+     ],
+     [
+      822.2,
+      -2325.0
+     ],
+     [
+      898.3,
+      -2508.7
+     ],
+     [
+      1014.6,
+      -2898.5
+     ],
+     [
+      1116.0,
+      -3240.9
+     ],
+     [
+      1192.0,
+      -3607.0
+     ],
+     [
+      1300.0,
+      -3950.0
+     ],
+     [
+      1500.0,
+      -4550.0
+     ],
+     [
+      1610.0,
+      -5200.0
+     ],
+     [
+      1700.0,
+      -5900.0
+     ],
+     [
+      1900.0,
+      -6600.0
+     ],
+     [
+      2180.0,
+      -7250.0
+     ],
+     [
+      2380.0,
+      -7950.0
+     ],
+     [
+      2500.0,
+      -8700.0
+     ],
+     [
+      2700.0,
+      -9500.0
+     ],
+     [
+      2700.0,
+      -10000.0
+     ]
+    ],
+    "mix": {
+     "palmGarden": 0.12,
+     "barleyRipe": 0.35,
+     "fallow": 0.35,
+     "gardenVegetables": 0.05,
+     "saltFlecked": 0.08,
+     "reedMarsh": 0.05
+    },
+    "conf": "low",
+    "src": "R5 3.6; R1 9"
+   }
+  ],
+  "landUseRule": {
+   "rule": "field zones are the COMPLEMENT of everything else: a point belongs to the first class in this list that contains it",
+   "priority": [
+    "river polygon",
+    "moat polygons and canals (with levees)",
+    "wall zones (inner: 12 m inside to the quay line; outer: 4 m inside to 27 m outside the mud-wall centreline)",
+    "monument footprints",
+    "inner-city districts",
+    "outer-city districts (inside enclosures.outerCity)",
+    "villages, kilns, roads, palm belts",
+    "fieldZones (west / east plain)"
+   ],
+   "note": "rev. 1: the hand-drawn field polygons of v2.0 left 302 ha of the mapped window and 89 ha inside the outer wall without any land use",
+   "gardenVegetablesNote": "small green plots (onion, garlic, cress, flax) only directly at canals and ditches; sesame is a SUMMER crop: at the barley harvest those plots are bare or freshly sown, never green"
+  },
+  "fieldPattern": {
+   "shape": "long narrow strips, short end on a canal or ditch, long axis perpendicular to the feeder",
+   "width": [
+    30,
+    120
+   ],
+   "length": [
+    300,
+    1500
+   ],
+   "bundHeight": [
+    0.2,
+    0.4
+   ],
+   "fallowShare": 0.5,
+   "tones": [
+    "#D4B75A ripe barley",
+    "#C8B27E stubble",
+    "#A6916C fallow",
+    "#7B6A52 ploughed (incl. bare or just-sown sesame plots)",
+    "#4F7A34 garden vegetables / onion-garlic / flax (small plots at canals only)",
+    "#DAD4C4 salt crust"
+   ],
+   "beyondIrrigationKm": 4.5,
+   "beyond": "grey-buff steppe with salt flecks and reed-filled low basins",
+   "conf": "low (shape after Liverani; metres are modelling values)",
+   "src": "R5 2.4, 3.6; GAPS G09"
+  },
+  "palmBelts": [
+   {
+    "along": "river, both banks, outside the embanked city reach",
+    "width": [
+     300,
+     600
+    ],
+    "palmsPerHa": 150,
+    "understorey": "pomegranate, fig, vegetable basins; poplar, willow, tamarisk and reeds at the waterline",
+    "conf": "medium",
+    "src": "R1 9; R5 2.4, 3.5"
+   },
+   {
+    "along": "outer bank of the inner moats",
+    "width": [
+     60,
+     150
+    ],
+    "palmsPerHa": 140,
+    "conf": "low",
+    "src": "R1 9"
+   },
+   {
+    "along": "outer bank of the outer moat",
+    "width": [
+     80,
+     200
+    ],
+    "palmsPerHa": 140,
+    "conf": "low",
+    "src": "R1 9"
+   },
+   {
+    "along": "every main canal, both sides",
+    "width": [
+     50,
+     300
+    ],
+    "palmsPerHa": 150,
+    "conf": "low",
+    "src": "R5 3.6"
+   },
+   {
+    "along": "inside the outer city: garden plots between suburb ribbons",
+    "width": [
+     100,
+     400
+    ],
+    "palmsPerHa": 120,
+    "conf": "low",
+    "src": "R5 3.2"
+   },
+   {
+    "along": "inner city",
+    "rule": "sparse: one visible palm crown per 2-5 houses in ordinary quarters, fewer in Merkes; walled gardens near temples and the palace; NO street trees",
+    "conf": "low",
+    "src": "R5 3.5"
+   }
+  ],
+  "targets": {
+   "datePalms": 40000,
+   "otherTrees": 6000,
+   "reedCards": 25000,
+   "conf": "target",
+   "src": "STYLE 9.3 E; GAPS G12"
+  },
+  "villages": {
+   "items": [
+    {
+     "x": 1500,
+     "z": -3900,
+     "houses": 30
+    },
+    {
+     "x": 1780,
+     "z": -4750,
+     "houses": 40
+    },
+    {
+     "x": 1450,
+     "z": -5500,
+     "houses": 25
+    },
+    {
+     "x": -450,
+     "z": -1500,
+     "houses": 35
+    },
+    {
+     "x": -1500,
+     "z": -1000,
+     "houses": 30
+    },
+    {
+     "x": -1950,
+     "z": 300,
+     "houses": 40
+    },
+    {
+     "x": -2150,
+     "z": 1500,
+     "houses": 30
+    },
+    {
+     "x": -2700,
+     "z": 3000,
+     "houses": 35
+    },
+    {
+     "x": -900,
+     "z": -2600,
+     "houses": 25
+    },
+    {
+     "x": 150,
+     "z": -2500,
+     "houses": 30
+    },
+    {
+     "x": -3500,
+     "z": -1500,
+     "houses": 20
+    },
+    {
+     "x": -4200,
+     "z": 800,
+     "houses": 25
+    },
+    {
+     "x": -800,
+     "z": 2350,
+     "houses": 40
+    },
+    {
+     "x": -2050,
+     "z": 3500,
+     "houses": 35
+    },
+    {
+     "x": -4000,
+     "z": 5550,
+     "houses": 30
+    },
+    {
+     "x": 760,
+     "z": 2300,
+     "houses": 35
+    },
+    {
+     "x": 250,
+     "z": 3300,
+     "houses": 30
+    },
+    {
+     "x": 800,
+     "z": 4500,
+     "houses": 25
+    },
+    {
+     "x": 3650,
+     "z": 980,
+     "houses": 45
+    },
+    {
+     "x": 4350,
+     "z": 1150,
+     "houses": 30
+    },
+    {
+     "x": 6000,
+     "z": 1650,
+     "houses": 35
+    },
+    {
+     "x": 5000,
+     "z": -1150,
+     "houses": 30
+    },
+    {
+     "x": 3500,
+     "z": -1600,
+     "houses": 35
+    },
+    {
+     "x": 2500,
+     "z": -3000,
+     "houses": 30
+    },
+    {
+     "x": 3700,
+     "z": -3450,
+     "houses": 25
+    },
+    {
+     "x": 5200,
+     "z": -3800,
+     "houses": 20
+    },
+    {
+     "x": 4000,
+     "z": 3000,
+     "houses": 25
+    },
+    {
+     "x": 2500,
+     "z": 2500,
+     "houses": 30
+    }
+   ],
+   "form": "linear clusters of 5-45 low mud houses on levees beside canals and roads, with pens, reed huts, straw stacks, a few palms, threshing floors 15-30 m across",
+   "conf": "low (invented positions on the conjectural canal/road net)",
+   "src": "R5 3.6; GAPS G09"
+  },
+  "kilns": {
+   "items": [
+    {
+     "x": 1900,
+     "z": -2350
+    },
+    {
+     "x": 3280,
+     "z": 180
+    },
+    {
+     "x": 2000,
+     "z": 1330
+    },
+    {
+     "x": -1700,
+     "z": -300
+    },
+    {
+     "x": -1520,
+     "z": 1400
+    },
+    {
+     "x": 650,
+     "z": 1900
+    },
+    {
+     "x": 1680,
+     "z": -3550
+    },
+    {
+     "x": 3320,
+     "z": -1000
+    }
+   ],
+   "form": "brickfields: clay pits, rows of drying mudbricks, 4-8 smoking scove kilns each",
+   "conf": "low",
+   "src": "R5 3.6; R1 9"
+  },
+  "roads": [
+   {
+    "name": "Kish road",
+    "polyline": [
+     [
+      1514.9,
+      488.5
+     ],
+     [
+      2200.0,
+      440.0
+     ],
+     [
+      2760.0,
+      330.0
+     ],
+     [
+      2880.8,
+      316.6
+     ],
+     [
+      2983.1,
+      264.0
+     ],
+     [
+      3300.0,
+      330.0
+     ],
+     [
+      4200.0,
+      900.0
+     ],
+     [
+      6000.0,
+      1450.0
+     ],
+     [
+      9000.0,
+      2250.0
+     ],
+     [
+      12500.0,
+      3150.0
+     ],
+     [
+      16710.0,
+      4260.0
+     ]
+    ],
+    "width": 8,
+    "conf": "low",
+    "src": "R1 9"
+   },
+   {
+    "name": "Dilbat road",
+    "polyline": [
+     [
+      167.6,
+      1028.9
+     ],
+     [
+      300.0,
+      1180.0
+     ],
+     [
+      414.7,
+      1302.2
+     ],
+     [
+      444.9,
+      1413.2
+     ],
+     [
+      720.0,
+      2400.0
+     ],
+     [
+      820.0,
+      3500.0
+     ],
+     [
+      720.0,
+      5000.0
+     ],
+     [
+      760.0,
+      6150.0
+     ],
+     [
+      690.0,
+      6800.0
+     ],
+     [
+      570.0,
+      7450.0
+     ],
+     [
+      480.0,
+      8100.0
+     ],
+     [
+      430.0,
+      9000.0
+     ]
+    ],
+    "width": 8,
+    "conf": "low",
+    "src": "R1 9"
+   },
+   {
+    "name": "Borsippa road (west bank)",
+    "polyline": [
+     [
+      -349.0,
+      1085.7
+     ],
+     [
+      -900.0,
+      1900.0
+     ],
+     [
+      -2100.0,
+      3200.0
+     ],
+     [
+      -4100.0,
+      5300.0
+     ],
+     [
+      -7100.0,
+      8450.0
+     ],
+     [
+      -11550.0,
+      13360.0
+     ]
+    ],
+    "width": 8,
+    "conf": "low",
+    "src": "R1 9"
+   },
+   {
+    "name": "Sippar / Akkad road",
+    "polyline": [
+     [
+      1406.6,
+      -2547.3
+     ],
+     [
+      1556.4,
+      -2539.7
+     ],
+     [
+      1640.0,
+      -3300.0
+     ],
+     [
+      1640.0,
+      -4000.0
+     ],
+     [
+      1830.0,
+      -5000.0
+     ],
+     [
+      1950.0,
+      -5900.0
+     ],
+     [
+      2150.0,
+      -6600.0
+     ],
+     [
+      2430.0,
+      -7250.0
+     ],
+     [
+      2640.0,
+      -7950.0
+     ],
+     [
+      2760.0,
+      -8700.0
+     ],
+     [
+      2950.0,
+      -9500.0
+     ]
+    ],
+    "width": 8,
+    "conf": "low",
+    "src": "R1 9"
+   },
+   {
+    "name": "Kutha road",
+    "polyline": [
+     [
+      2054.6,
+      -1288.5
+     ],
+     [
+      2188.0,
+      -1357.1
+     ],
+     [
+      3000.0,
+      -2300.0
+     ],
+     [
+      5000.0,
+      -4200.0
+     ],
+     [
+      9000.0,
+      -7500.0
+     ]
+    ],
+    "width": 6,
+    "conf": "low",
+    "src": "R1 9"
+   },
+   {
+    "name": "west road",
+    "polyline": [
+     [
+      -1343.8,
+      219.4
+     ],
+     [
+      -2500.0,
+      300.0
+     ],
+     [
+      -5000.0,
+      500.0
+     ],
+     [
+      -9000.0,
+      700.0
+     ]
+    ],
+    "width": 6,
+    "conf": "low",
+    "src": "R1 9"
+   }
+  ],
+  "farLandmarks": [
+   {
+    "name": "Borsippa ziggurat (Birs Nimrud)",
+    "x": -11550,
+    "z": 13360,
+    "distanceKm": 17.7,
+    "trueAzimuthDeg": 205.0,
+    "modelAzimuthDeg": 220.8,
+    "height": 60,
+    "apparentHeightDeg": 0.19,
+    "look": "tiny pale blue-grey stepped bump; visible from wall tops and higher, hidden at street level",
+    "conf": "high (bearing, distance); low (height 50-70)",
+    "src": "R1 9"
+   },
+   {
+    "name": "Kish ziggurat (Tell Uhaimir)",
+    "x": 16710,
+    "z": 4260,
+    "distanceKm": 17.2,
+    "trueAzimuthDeg": 89.0,
+    "modelAzimuthDeg": 104.8,
+    "height": 25,
+    "apparentHeightDeg": 0.08,
+    "look": "reddish speck on the eastern horizon",
+    "conf": "high (bearing, distance); low (height)",
+    "src": "R1 9"
+   },
+   {
+    "name": "Dilbat (Tell Deylam)",
+    "x": -3200,
+    "z": 26840,
+    "distanceKm": 27.0,
+    "trueAzimuthDeg": 171.0,
+    "modelAzimuthDeg": 186.8,
+    "height": 15,
+    "look": "not visible (below the haze); direction marker only",
+    "conf": "high (bearing)",
+    "src": "R1 9"
+   },
+   {
+    "name": "Kutha (Tell Ibrahim)",
+    "x": 24040,
+    "z": -18980,
+    "distanceKm": 30.6,
+    "trueAzimuthDeg": 36.0,
+    "modelAzimuthDeg": 51.8,
+    "height": 20,
+    "look": "only in very clear weather; omit",
+    "conf": "high (bearing)",
+    "src": "R1 9"
+   },
+   {
+    "name": "Sippar (Abu Habbah)",
+    "x": 610,
+    "z": -60040,
+    "distanceKm": 60.0,
+    "trueAzimuthDeg": 345.0,
+    "modelAzimuthDeg": 0.8,
+    "height": 20,
+    "look": "not visible; almost exactly along grid north",
+    "conf": "high (bearing)",
+    "src": "R1 9"
+   }
+  ],
+  "excludeModern": "present course of the Shatt al-Hillah, 1980s palace hill and lakes, the 20 m ring canal, roads and railway, rebuilt walls, the half-size gate replica, Greek theatre, Homera mounds",
+  "conf": "low (everything outside the walls is conjecture guided by texts and the traditional landscape)",
+  "src": "R1 9; R5 3.5-3.6"
+ },
+ "palette": {
+  "materials": {
+   "mudPlaster": "#B9A27C",
+   "mudPlasterSunlit": "#C4B08A",
+   "mudPlasterWeathered": "#A38A63",
+   "mudPlasterFresh": "#C8B48E",
+   "mudPlasterDampBase": "#8E7755",
+   "mudPlasterGrey": "#A89270",
+   "mudPlasterReddish": "#B39374",
+   "mudPlasterDark": "#8A7658",
+   "limewash": "#EFE8D8",
+   "limewashAged": "#DDD3BE",
+   "templePlasterWhite": "#F2EDDE",
+   "bakedBrickYellow": "#D0B27A",
+   "bakedBrickBuff": "#C9A46C",
+   "bakedBrickRed": "#B8845C",
+   "bakedBrickOld": "#5A4A3A",
+   "bitumen": "#1F1B18",
+   "asphaltedBrickRoad": "#3A332D",
+   "limestone": "#E4DDC9",
+   "breccia": "#A9574B",
+   "brecciaVein": "#E9DDD0",
+   "basalt": "#2A2A2D",
+   "sandstoneMottled": "#C8B59A",
+   "cedar": "#6E4A2C",
+   "palmWood": "#6F5B46",
+   "bronze": "#B8763A",
+   "bronzePatina": "#8F6B42",
+   "gold": "#D9A441",
+   "silver": "#C9CCD1",
+   "glazeBlue": "#1F4A9A",
+   "glazeBlueDark": "#173A7C",
+   "glazeBlueLight": "#2D66B6",
+   "glazeTurquoise": "#3A9BB5",
+   "glazeYellow": "#D8A23E",
+   "glazeWhite": "#EEE8D6",
+   "glazeRed": "#9C2E22",
+   "glazeBlack": "#1B1B1B",
+   "streetEarth": "#B7A482",
+   "streetEarthDamp": "#93805F",
+   "roofEarth": "#BBA987",
+   "courtBrickPaving": "#C4A374",
+   "reedMat": "#C8AE6A",
+   "riverNormal": "#7E8764",
+   "riverFlood": "#8D7B55",
+   "riverDeep": "#5B6A4E",
+   "riverLookDown": "#3D5A4A",
+   "moat": "#6C7A59",
+   "canal": "#7C8463",
+   "wetBank": "#6F5C42",
+   "palmFrond": "#5E7A38",
+   "palmFrondHighlight": "#8FA060",
+   "palmTrunk": "#75624C",
+   "poplar": "#7FA24A",
+   "tamarisk": "#7C8C6A",
+   "reedsGreen": "#8A9A4B",
+   "gardenGreen": "#4F7A34",
+   "cypressJuniper": "#2E4A2C",
+   "barleyRipe": "#D4B75A",
+   "barleyGreen": "#7FA147",
+   "stubble": "#C8B27E",
+   "fallow": "#A6916C",
+   "ploughedSoil": "#7B6A52",
+   "saltCrust": "#DAD4C4",
+   "alluvialSoilDry": "#B39E7A",
+   "woolCream": "#E3D8C0",
+   "woolOatmeal": "#CDB893",
+   "woolBrown": "#9A7F5E",
+   "woolDark": "#5E4A38",
+   "linenWhite": "#F3EFE6",
+   "dyeMadderRed": "#A3312A",
+   "dyeIndigo": "#2F4E86",
+   "dyeSaffron": "#C99A2E",
+   "dyePurple": "#5B2C5E",
+   "skin": "#B98A62",
+   "skinDark": "#8B5E3C",
+   "hair": "#1C1612",
+   "donkey": "#8B8378",
+   "ox": "#6B4E36",
+   "sheep": "#E2D8C4",
+   "lampFlame": "#FF9A3C",
+   "torchFlame": "#FFB347",
+   "ember": "#FF5A1E"
+  },
+  "rules": [
+   "city walls, houses: mud plaster (8 tones above, +/-12 % value jitter, mixed within every block); NO colour on city walls",
+   "white lime wash on WALLS and parapet faces only: temples, precinct, Esagila, 45 % of elite houses, 15 % of ordinary houses",
+   "ALL roofs are rolled mud on palm beams: roofEarth #BBA987 (albedo 0.40-0.48), never white; whitewashed houses show white only on wall and parapet faces",
+   "bare baked brick (yellow-buff to light red, thin dark or white joints): palaces, quays, bridge piers, ziggurat, Ishtar Gate wings, street walls above the lion frieze",
+   "blue glaze ONLY on: Ishtar Gate, lion-frieze band and merlons of the street walls north of it (merlons textually certain for the North Palace only; assumed on the east street wall), ziggurat summit temple, South Palace throne-room court facade and inner gate towers, North Palace merlons",
+   "never use the museum green: it is decayed RED glaze",
+   "value targets (albedo): limewashed wall and parapet faces 0.62-0.72, mud roofs 0.40-0.48, mud walls 0.38-0.50, streets 0.28-0.35, court floors 0.30",
+   "colour accents about one per 3-4 houses: dyed cloth on roofs, awnings, painted door frames, garden green, goods"
+  ],
+  "screenTargetsGolden": {
+   "lit cream wall": "#dcc6a1",
+   "shade": "#554945",
+   "meanFrame": "#87726a-#95867b",
+   "meanSaturation": [
+    0.25,
+    0.33
+   ]
+  },
+  "conf": "medium (suggested sRGB starting points, not measurements)",
+  "src": "R1 11; R2 13; R3 4.5; R4 11; R5 6; STYLE 2.4, 9.3 B"
+ },
+ "lighting": {
+  "site": {
+   "lat": 32.54,
+   "lon": 44.42
+  },
+  "sunFormula": "modelAzimuth = trueAzimuth + 15.8; dirToSun = (sin(az)*cos(el), sin(el), -cos(az)*cos(el)) with az = model azimuth",
+  "modes": {
+   "golden": {
+    "when": "about 55 min before sunset",
+    "sunColor": "#FFC27A",
+    "sunIntensity": 3.2,
+    "fillColor": "#9DB4D6",
+    "keyToFill": 9.0,
+    "skyZenith": "#516B9C",
+    "skyMid": "#8E8EB2",
+    "skyHorizon": "#C6AFAF",
+    "skyTowardSun": "#F2DEC2",
+    "fogColor": "#C5AA93",
+    "fogDensity": 0.00035,
+    "clouds": {
+     "type": "streaky cirrus",
+     "cover": 0.3,
+     "color": "#D0B3AF"
+    },
+    "shadowTint": "#6B5F7A",
+    "frameTargets": {
+     "medianLuma": [
+      0.45,
+      0.58
+     ],
+     "meanSaturation": [
+      0.26,
+      0.33
+     ]
+    },
+    "lights": "the sun stands in the grid WNW-NW: west faces fully lit; the river glitter path points towards a camera looking WNW. At 11 deg the walled lion street is a shadow canyon (pavement and both friezes shaded, the gate front lit only above 7-11 m): street and gate shots use the afternoon state instead",
+    "conf": "high (sun geometry); medium (colours, from the reference)",
+    "src": "STYLE 6.1; R5 2.6, 3.8",
+    "sunTrueAzimuthDeg": 280.9,
+    "sunModelAzimuthDeg": 296.7,
+    "sunElevationDeg": 11.0,
+    "sunDirModel": [
+     -0.8771,
+     0.1908,
+     -0.4407
+    ]
+   },
+   "afternoon": {
+    "when": "about 2 h before sunset",
+    "sunColor": "#FFDDB0",
+    "sunIntensity": 3.4,
+    "fillColor": "#A9BCD9",
+    "keyToFill": 6.0,
+    "skyZenith": "#5F7FB4",
+    "skyMid": "#93A6C8",
+    "skyHorizon": "#CFC3BC",
+    "skyTowardSun": "#F4E6CF",
+    "fogColor": "#CDB9A6",
+    "fogDensity": 0.00032,
+    "clouds": {
+     "type": "streaky cirrus",
+     "cover": 0.3,
+     "color": "#E2D2C6"
+    },
+    "shadowTint": "#66607C",
+    "frameTargets": {
+     "medianLuma": [
+      0.46,
+      0.6
+     ],
+     "meanSaturation": [
+      0.24,
+      0.32
+     ]
+    },
+    "lights": "used for the lion street and the Ishtar Gate (shots 2-3): at 24.8 deg the east lion frieze is sunlit down to 1.7 m, the east half of the gate front down to 1.5-6.7 m (n.s on the gate front = 0.30); the west frieze stays in open shade with strong bounce from the lit east wall",
+    "conf": "high (sun geometry); medium (colours: golden state interpolated toward a warm afternoon)",
+    "src": "rev. 1 verification (shadow canyon test); STYLE 6.1",
+    "sunTrueAzimuthDeg": 272.5,
+    "sunModelAzimuthDeg": 288.3,
+    "sunElevationDeg": 24.8,
+    "sunDirModel": [
+     -0.8619,
+     0.4195,
+     -0.2848
+    ]
+   },
+   "morning": {
+    "when": "about 65 min after sunrise",
+    "sunColor": "#FFF4E2",
+    "sunIntensity": 2.4,
+    "fillColor": "#B9C6DA",
+    "keyToFill": 3.5,
+    "skyZenith": "#97ACC9",
+    "skyMid": "#A8B3CA",
+    "skyHorizon": "#D9D2D3",
+    "fogColor": "#D2CDCF",
+    "fogDensity": 0.00028,
+    "clouds": {
+     "type": "thin white cirrus",
+     "cover": 0.2,
+     "color": "#EDEBEE"
+    },
+    "frameTargets": {
+     "meanSaturation": [
+      0.19,
+      0.24
+     ]
+    },
+    "lights": "sun from the grid east (slightly south): east faces lit, south faces raked (ziggurat stairs, saw-tooth house fronts), mist over river and canals",
+    "conf": "high (sun geometry); medium (colours)",
+    "src": "STYLE 6.2; R5 3.8",
+    "sunTrueAzimuthDeg": 80.3,
+    "sunModelAzimuthDeg": 96.1,
+    "sunElevationDeg": 13.0,
+    "sunDirModel": [
+     0.9688,
+     0.225,
+     0.1042
+    ]
+   },
+   "blue": {
+    "when": "about 15 min after sunset",
+    "sunColor": "#F0A070",
+    "sunIntensity": 0.0,
+    "ambient": "#1C1F2D",
+    "keyToFill": 1.5,
+    "skyZenith": "#06173F",
+    "skyMid": "#122760",
+    "skyHorizon": "#2C3566",
+    "afterglow": [
+     "#F6E8C6",
+     "#DCAD87",
+     "#C68C76",
+     "#6A5078"
+    ],
+    "fogColor": "#232A4A",
+    "fogDensity": 0.0003,
+    "clouds": {
+     "type": "cirrus streaks",
+     "cover": 0.25,
+     "color": "#4A3E6E"
+    },
+    "stars": 400,
+    "milkyWay": "faint band",
+    "moon": {
+     "phase": "waxing gibbous (elongation c. 135 deg)",
+     "trueAzimuthDeg": 127.0,
+     "modelAzimuthDeg": 142.8,
+     "elevationDeg": 45.0,
+     "color": "#B8C6E0",
+     "intensity": 0.25,
+     "note": "rev. 1: az 140 / el 38 implied a lunar declination 7 deg further south than a waxing gibbous moon can have on this date"
+    },
+    "fires": {
+     "oilLampsAndHearths": 6000,
+     "torchesBraziers": 400,
+     "lampColor": "#FF9A3C",
+     "colorTemperatureK": 1900,
+     "where": "INSIDE courtyards and on roofs (no street windows), door spill in lanes; fixed fires (braziers, torches) ONLY at city gates, wall towers, the precinct gates, the bridge heads, the palace gate and walls and in temple courts; fire bowls on the ziggurat terraces (conjectural, after a Seleucid night-vigil ritual from Uruk); open oil lamps or small braziers on moored boats (no lanterns: enclosed lamps are not attested). Streets, incl. the Processional Way, are dark.",
+     "reach": {
+      "lamp": 3,
+      "brazier": 7,
+      "torch": 10
+     },
+     "litLandmarkColor": "#D08F70",
+     "realPointLights": 18
+    },
+    "frameTargets": {
+     "medianLuma": [
+      0.12,
+      0.21
+     ],
+     "litPixelsAerialPct": [
+      1,
+      3
+     ]
+    },
+    "rule": "no purple/magenta cast; darkness is the rule; streets are black, light leaks upward from courts",
+    "conf": "high (sun geometry); medium (palette); low (number of lamps)",
+    "src": "STYLE 6.3; GAPS G11; R5 3.7",
+    "sunTrueAzimuthDeg": 289.9,
+    "sunModelAzimuthDeg": 305.7,
+    "sunElevationDeg": -3.0,
+    "sunDirModel": [
+     -0.8107,
+     -0.0523,
+     -0.5832
+    ]
+   }
+  },
+  "transitions": "mode changes animate the sun along its arc over 1.5-3 s (sky, fog, exposure, fire emissive and stars follow one parameter); never a cross-fade of two looks",
+  "shadows": "cascaded shadow maps (4 x 4096), 0.3-0.5 m penumbra near, plus baked vertex AO in lanes and courts",
+  "conf": "high (geometry); medium (colours)",
+  "src": "STYLE 6; GAPS G07, G14; R5 2.6",
+  "gridRotationFromTrueNorthDeg": 15.8,
+  "solarDeclinationDeg": 15.0
+ },
+ "shots": {
+  "totalDuration": 58.0,
+  "fps": 60,
+  "path": "ONE continuous camera path: eased fly-through transitions (centripetal Catmull-Rom on position and target, ease-in-out), slow drift during holds; no cuts",
+  "pathSpline": "inside a shot the position moves on the STRAIGHT segment between its keyframes (eased). Each transition is a centripetal Catmull-Rom (alpha 0.5) through [last keyframe of the previous shot, transitionWaypoints..., first keyframe of the shot]; its outer tangent neighbours are the previous shot's second-to-last keyframe and the shot's second keyframe. tools/validate_world.py samples exactly these curves against the height model.",
+  "keyframeFormat": "t = seconds from the start of the shot; the transition flies from the previous shot's last pose through transitionWaypoints (positions only, evenly timed) to the first keyframe (t = transitionIn)",
+  "clearanceRule": "at least 2 m above monuments, walls and the bridge everywhere; below roof level inside the inner city only over water, on a street axis, over the precinct court or on the declared roof",
+  "list": [
+   {
+    "n": 1,
+    "id": "panorama",
+    "name": "PANORAMA",
+    "mode": "golden",
+    "duration": 6.5,
+    "transitionIn": 0.0,
+    "keyframes": [
+     {
+      "t": 0.0,
+      "pos": [
+       2800,
+       820,
+       -2900
+      ],
+      "look": [
+       520,
+       10,
+       -1650
+      ],
+      "fov": 46
+     },
+     {
+      "t": 6.5,
+      "pos": [
+       1780,
+       570,
+       -1880
+      ],
+      "look": [
+       330,
+       15,
+       -560
+      ],
+      "fov": 46
+     }
+    ],
+    "mustSee": [
+     "opening frame: 1.6 km of the outer wall (towers every 52.5 m) and its 80 m moat across the lower quarter; the camera then flies in over it",
+     "Summer Palace low on the right of the opening frame",
+     "gardens, fields and suburb ribbons of the outer city",
+     "NE corner of the double inner wall and moat",
+     "river bend past the North Palace and West Fortification",
+     "Ishtar Gate and the Processional Way",
+     "Etemenanki and Esagila",
+     "west city across the river",
+     "haze to the horizon"
+    ],
+    "caption": "Babylon late in the reign of Nebuchadnezzar II, c. 575 BCE, at true scale, seen from the north-east."
+   },
+   {
+    "n": 2,
+    "id": "processionalWay",
+    "name": "PROCESSIONAL WAY",
+    "mode": "afternoon",
+    "duration": 6.0,
+    "transitionIn": 2.3,
+    "lightChange": "golden -> afternoon during the transition (the sun climbs back to 24.8 deg so that the east frieze and the gate front are sunlit)",
+    "transitionWaypoints": [
+     [
+      372,
+      60,
+      -1124
+     ],
+     [
+      358,
+      32,
+      -940
+     ]
+    ],
+    "transitionNote": "arrive along the street axis over the north causeway and the North Gate (the straight spline cut through the east street wall)",
+    "keyframes": [
+     {
+      "t": 2.3,
+      "pos": [
+       349.9,
+       14.7,
+       -825
+      ],
+      "look": [
+       345.6,
+       21.5,
+       -742
+      ],
+      "fov": 52
+     },
+     {
+      "t": 6.0,
+      "pos": [
+       348.8,
+       15.1,
+       -811
+      ],
+      "look": [
+       345.6,
+       21.5,
+       -742
+      ],
+      "fov": 52
+     }
+    ],
+    "mustSee": [
+     "limestone centre and red breccia side paving with bitumen joints",
+     "lion friezes on both street walls: the lions stride NORTH, out of the city, towards the camera, tails down; east frieze in sun, west frieze in open shade",
+     "blue stepped merlons on bare brick walls",
+     "the two pairs of bastions",
+     "fore-gate with rows of bulls and dragons, taller main gate behind, copper beasts at the door-jambs",
+     "vignette: procession of priests, musicians, guards with spears, onlookers, a dog"
+    ],
+    "eyeLevel": true,
+    "maxSpeed": 3.8,
+    "caption": "The Processional Way north of the Ishtar Gate: about 120 glazed lions stride out toward the visitor. Heights and the number of animal rows are reconstructed."
+   },
+   {
+    "n": 3,
+    "id": "ishtarGate",
+    "name": "ISHTAR GATE",
+    "mode": "afternoon",
+    "duration": 5.0,
+    "transitionIn": 1.5,
+    "transitionWaypoints": [
+     [
+      346,
+      46,
+      -775
+     ]
+    ],
+    "transitionNote": "rise over the forecourt first, then swing out west (the straight spline cut through the west street wall)",
+    "keyframes": [
+     {
+      "t": 1.5,
+      "pos": [
+       270,
+       62,
+       -850
+      ],
+      "look": [
+       346,
+       20,
+       -722
+      ],
+      "fov": 45
+     },
+     {
+      "t": 5.0,
+      "pos": [
+       241,
+       58,
+       -828
+      ],
+      "look": [
+       346,
+       20,
+       -722
+      ],
+      "fov": 45
+     }
+    ],
+    "mustSee": [
+     "DOUBLE gate 50 m deep: fore-gate and larger, taller main gate",
+     "four wing walls and the RAISED double mud-brick city wall (front wall +25.4, wall-walk +29.4) running obliquely east and stepping down",
+     "forecourt with two plinths; copper bulls and dragons at the door-jambs",
+     "white Ninmah temple set at an angle inside the gate",
+     "South Palace roofs and towers",
+     "the street descending south to the ziggurat"
+    ],
+    "caption": "The Ishtar Gate: a double gate set in the double city wall. Berlin shows only the smaller front gate."
+   },
+   {
+    "n": 4,
+    "id": "southPalace",
+    "name": "SOUTH PALACE",
+    "mode": "golden",
+    "duration": 5.5,
+    "transitionIn": 2.0,
+    "lightChange": "afternoon -> golden during the transition (the sun sinks to 11 deg)",
+    "keyframes": [
+     {
+      "t": 2.0,
+      "pos": [
+       352,
+       72,
+       -655
+      ],
+      "look": [
+       190,
+       12,
+       -622
+      ],
+      "fov": 50
+     },
+     {
+      "t": 5.5,
+      "pos": [
+       312,
+       84,
+       -648
+      ],
+      "look": [
+       -120,
+       0,
+       -780
+      ],
+      "fov": 50
+     }
+    ],
+    "mustSee": [
+     "five paved courts in a row, interiors turned 15.5 deg against the oblique enclosure wall",
+     "throne-room block with the blue glazed court facade (in shade, facing north)",
+     "enclosure wall with a slim tower every 10 m on its south, east and north-east sides",
+     "West Fortification standing in the river",
+     "contre-jour glitter on the open bay north-west of the West Fortification (the direct glitter path on the narrow channel is hidden behind the fortification)",
+     "west city in the haze"
+    ],
+    "caption": "The South Palace: about 600 rooms around five courts; the throne room faces north across the main court."
+   },
+   {
+    "n": 5,
+    "id": "euphrates",
+    "name": "EUPHRATES",
+    "mode": "golden",
+    "duration": 6.0,
+    "transitionIn": 2.4,
+    "transitionWaypoints": [
+     [
+      -40,
+      40,
+      -470
+     ]
+    ],
+    "transitionNote": "come down over the river basin below the palace, then settle onto the boat",
+    "keyframes": [
+     {
+      "t": 2.4,
+      "pos": [
+       -150,
+       0.2,
+       -335
+      ],
+      "look": [
+       -110,
+       16,
+       110
+      ],
+      "fov": 52
+     },
+     {
+      "t": 6.0,
+      "pos": [
+       -152,
+       0.2,
+       -323
+      ],
+      "look": [
+       -110,
+       16,
+       112
+      ],
+      "fov": 52
+     }
+    ],
+    "mustSee": [
+     "camera rides a cargo boat (bow, steersman, grain under reed mats)",
+     "brick quay with walkway and the white precinct wall above it",
+     "Etemenanki lit from the west, left of centre (whole tower in frame)",
+     "bridge right of centre: six free-standing boat-shaped piers, bows upstream, low timber deck (no pier masonry above the roadway) with people and donkeys",
+     "quffas, a towed barge with its tow team, herons, wakes",
+     "Esagila beyond the bridge"
+    ],
+    "ridesBoat": true,
+    "maxSpeed": 3.5,
+    "caption": "On the Euphrates below the temple tower. The bridge stood on six free-standing brick piers; its timber deck is reconstructed from Greek accounts."
+   },
+   {
+    "n": 6,
+    "id": "etemenanki",
+    "name": "ETEMENANKI",
+    "mode": "morning",
+    "duration": 6.5,
+    "transitionIn": 2.5,
+    "lightChange": "golden -> morning during the transition (the sun swings across the sky)",
+    "transitionWaypoints": [
+     [
+      -185,
+      22,
+      20
+     ],
+     [
+      -75,
+      45,
+      225
+     ]
+    ],
+    "transitionNote": "down-river past the bridge head, then along the west-east street (the straight spline went through the ziggurat)",
+    "keyframes": [
+     {
+      "t": 2.5,
+      "pos": [
+       150,
+       38,
+       175
+      ],
+      "look": [
+       0,
+       42,
+       5
+      ],
+      "fov": 46
+     },
+     {
+      "t": 6.5,
+      "pos": [
+       212,
+       48,
+       118
+      ],
+      "look": [
+       0,
+       42,
+       0
+      ],
+      "fov": 46
+     }
+    ],
+    "mustSee": [
+     "six stages and the blue summit temple, first stage three times the height of the others",
+     "triple stair on the SOUTH face with people climbing",
+     "niched and buttressed faces in raking light",
+     "vast empty paved court",
+     "white casemate precinct wall with gate-houses, two square storehouses on the east",
+     "pigeons; incense smoke"
+    ],
+    "caption": "Etemenanki, \"house of the foundation of heaven and earth\": 91.5 m square. The stage profile follows a stele of Nebuchadnezzar; the height (about 90 m) is debated."
+   },
+   {
+    "n": 7,
+    "id": "merkesLane",
+    "name": "MERKES",
+    "mode": "morning",
+    "duration": 5.0,
+    "transitionIn": 2.3,
+    "transitionWaypoints": [
+     [
+      600,
+      60,
+      -60
+     ],
+     [
+      640,
+      44,
+      -200
+     ],
+     [
+      600,
+      30,
+      -262
+     ],
+     [
+      560,
+      22,
+      -273.5
+     ],
+     [
+      520,
+      12,
+      -280
+     ]
+    ],
+    "transitionNote": "wide left-hand arc east of Merkes above the roofs, then down along the axis of Untere Tempelstrasse, already walking west",
+    "keyframes": [
+     {
+      "t": 2.3,
+      "pos": [
+       480,
+       6.6,
+       -287.3
+      ],
+      "look": [
+       437,
+       7.3,
+       -294.8
+      ],
+      "fov": 55
+     },
+     {
+      "t": 5.0,
+      "pos": [
+       470,
+       6.6,
+       -289.0
+      ],
+      "look": [
+       427,
+       7.3,
+       -296.6
+      ],
+      "fov": 55
+     }
+    ],
+    "walkDirection": "WEST (view azimuth 280): the morning sun is behind the camera. Walking east, as in v2.0, put the sun disc in frame and every visible face in shade.",
+    "mustSee": [
+     "saw-tooth house fronts: the east-facing tooth risers of the north frontage catch the sun as bright vertical stripes",
+     "blank walls, one door per house, no windows",
+     "white Ishtar-of-Agade temple ahead on the right: sunlit east face, grooved door towers, the 13 m forecourt with a brick street altar",
+     "vignette: women with water jars, a loaded donkey, children, a potter's mats of goods, a palm over a garden wall",
+     "earth street with ruts"
+    ],
+    "eyeLevel": true,
+    "maxSpeed": 3.8,
+    "caption": "A street in Merkes, the excavated residential quarter. Saw-tooth walls arise where true-north houses meet skewed streets."
+   },
+   {
+    "n": 8,
+    "id": "rooftop",
+    "name": "ROOFTOP",
+    "mode": "blue",
+    "duration": 7.0,
+    "transitionIn": 2.0,
+    "lightTimeline": [
+     {
+      "t": 0.0,
+      "mode": "morning"
+     },
+     {
+      "t": 2.6,
+      "mode": "morning"
+     },
+     {
+      "t": 4.4,
+      "mode": "golden"
+     },
+     {
+      "t": 6.0,
+      "mode": "blue"
+     }
+    ],
+    "transitionWaypoints": [
+     [
+      452,
+      20,
+      -292
+     ],
+     [
+      425,
+      30,
+      -290
+     ],
+     [
+      415,
+      36,
+      -262
+     ],
+     [
+      450,
+      34,
+      -235
+     ],
+     [
+      500,
+      24,
+      -236
+     ]
+    ],
+    "transitionNote": "keep walking west while rising out of the street, loop left (south) over the house blocks and come back east over the roofs to the east range of the Great House",
+    "keyframes": [
+     {
+      "t": 2.0,
+      "pos": [
+       533.8,
+       16.8,
+       -227.9
+      ],
+      "look": [
+       -63,
+       30,
+       -259
+      ],
+      "fov": 50
+     },
+     {
+      "t": 7.0,
+      "pos": [
+       533.0,
+       16.8,
+       -227.3
+      ],
+      "look": [
+       -63,
+       30,
+       -259
+      ],
+      "fov": 50
+     }
+    ],
+    "onRoofOf": "Merkes House III (\"Great House\")",
+    "roofNote": "the camera stands on the roof of the EAST RANGE (roof +15.2), looking west across the house's own 16 x 18 m court; the v2.0 position hovered over the open court",
+    "mustSee": [
+     "roof terrace of the Great House: family, reed mats, storage jars, loom, awning on poles, ladder, bread oven smoke, a cat",
+     "the house's own court void in the foreground, layered roofscape with courtyard voids and palms beyond",
+     "Etemenanki left of centre on the skyline, the sun going down to its right inside the frame",
+     "lamps and hearths lighting up inside courtyards as the light turns blue"
+    ],
+    "caption": "Evening on a roof in Merkes. Light comes from lamps and hearths in the courtyards; the houses had no street windows."
+   },
+   {
+    "n": 9,
+    "id": "aerial",
+    "name": "AERIAL",
+    "mode": "blue",
+    "duration": 5.5,
+    "transitionIn": 2.4,
+    "keyframes": [
+     {
+      "t": 2.4,
+      "pos": [
+       1500,
+       1750,
+       2000
+      ],
+      "look": [
+       80,
+       0,
+       40
+      ],
+      "fov": 45
+     },
+     {
+      "t": 5.5,
+      "pos": [
+       1300,
+       1650,
+       2200
+      ],
+      "look": [
+       80,
+       0,
+       40
+      ],
+      "fov": 45
+     }
+    ],
+    "mustSee": [
+     "the whole inner city on both banks as a field of warm points",
+     "the skewed east half and the smaller west half, river reflecting the afterglow",
+     "moats, gates with braziers",
+     "precinct and palace glowing",
+     "outer wall receding to the Summer Palace"
+    ],
+    "caption": "The inner city, 2.7 km across; the outer wall encloses about 950 hectares. Most of the housing is reconstructed from the excavated quarter."
+   },
+   {
+    "n": 10,
+    "id": "nightPass",
+    "name": "NIGHT",
+    "mode": "blue",
+    "duration": 5.0,
+    "transitionIn": 2.0,
+    "keyframes": [
+     {
+      "t": 2.0,
+      "pos": [
+       430,
+       190,
+       560
+      ],
+      "look": [
+       0,
+       45,
+       20
+      ],
+      "fov": 45
+     },
+     {
+      "t": 5.0,
+      "pos": [
+       255,
+       120,
+       395
+      ],
+      "look": [
+       -20,
+       40,
+       40
+      ],
+      "fov": 45
+     }
+    ],
+    "mustSee": [
+     "Etemenanki silhouetted against the afterglow with fire bowls on its terraces",
+     "Esagila courts lit from within",
+     "bridge with torches at both heads, light streaks on the river",
+     "braziers at the precinct gates and the palace gate; the Processional Way itself dark"
+    ],
+    "caption": "Babylon at nightfall. Fires on the temple tower are conjectural (after a later ritual from Uruk)."
+   }
+  ],
+  "presetsForHUD": [
+   "PANORAMA",
+   "WAY",
+   "GATE",
+   "PALACE",
+   "RIVER",
+   "ZIGGURAT",
+   "MERKES",
+   "ROOFTOP",
+   "AERIAL"
+  ],
+  "conf": "design",
+  "src": "STYLE 7, 9.3 I; GAPS G10"
+ },
+ "conjectural": {
+  "captionRule": "every caption that shows a conjectural element carries a short hedge (\"reconstructed\", \"conjectural\", \"after ...\"); the end card lists the classes below",
+  "items": [
+   {
+    "element": "all heights of walls, towers, gates, palaces, temples",
+    "basis": "Pedersen's digital model and the thickness:height rule; nothing above about +12 m survives",
+    "flag": "heights reconstructed"
+   },
+   {
+    "element": "Etemenanki above the base",
+    "basis": "stage profile scaled from the Nebuchadnezzar stele (alternative: Esagil tablet); summit temple details",
+    "flag": "profile after the stele; height debated"
+   },
+   {
+    "element": "Ishtar Gate elevation: number of animal rows (6 / 4), tower tops, loopholes; copper beasts at the door-jambs (pedestals 3-4, 7-8), empty plinths 1-2 and 5-6",
+    "basis": "Pedersen / Koldewey reconstructions; inscription for the copper bulls and dragons",
+    "flag": "reconstructed"
+   },
+   {
+    "element": "white and ochre animals alternating along a row on the gate; lions alternately white and yellow on alternately turquoise and lapis ground",
+    "basis": "one yellow bull found in place; the Berlin street \"shows a possible alternation\" (Pedersen 2020)",
+    "flag": "colour scheme reconstructed"
+   },
+   {
+    "element": "blue glaze on every face of the gate; blue merlons on BOTH street walls",
+    "basis": "reliefs attested only on the faces open to view; blue merlons textually certain for the North Palace only",
+    "flag": "reconstructed"
+   },
+   {
+    "element": "raised city walls at the palaces and the Ishtar Gate (+25.4 / +29.4) and their step-down east of the gate",
+    "basis": "Pedersen 2021 pp. 30, 59; R2 height table; extent is a design value",
+    "flag": "heights reconstructed"
+   },
+   {
+    "element": "white lime plaster on the Etemenanki precinct wall",
+    "basis": "model choice by analogy with the excavated temples",
+    "flag": "reconstructed finish"
+   },
+   {
+    "element": "Etemenanki central stair ending on the first terrace",
+    "basis": "stele (alternative: to the second terrace, Wetzel / Schmid)",
+    "flag": "profile after the stele"
+   },
+   {
+    "element": "northern half of the West Fortification",
+    "basis": "not excavated (Pedersen 2021 p. 130)",
+    "flag": "reconstructed"
+   },
+   {
+    "element": "culvert carrying the Libil-hegalla canal under the Processional Way; Nabopolassar quay as the river front at the bridge head",
+    "basis": "textual bridge only; stretch washed away / quay not attested there",
+    "flag": "conjectural"
+   },
+   {
+    "element": "North Fortification and final north wall, Summer Palace finished by 575",
+    "basis": "end-of-reign works; date within the reign unknown",
+    "flag": "late-reign state"
+   },
+   {
+    "element": "royal terraced garden on the North Palace (\"Hanging Gardens\")",
+    "basis": "Berossus; Streck 2018; Pedersen 2021; no cuneiform evidence",
+    "flag": "conjectural - location after Berossus / Streck / Pedersen"
+   },
+   {
+    "element": "whole west city: walls from ridges, 4 gates, streets, temples, quay",
+    "basis": "never excavated; Tintir V order",
+    "flag": "unexcavated - schematic"
+   },
+   {
+    "element": "13 text-attested temples incl. the akitu temple",
+    "basis": "Tintir IV; positions invented inside the right quarter",
+    "flag": "known from texts only"
+   },
+   {
+    "element": "nine-tenths of the housing, all streets outside Merkes and the three excavated streets",
+    "basis": "procedural, seeded by the Merkes plan",
+    "flag": "reconstructed from the excavated quarter"
+   },
+   {
+    "element": "outer city contents, five outer gates, canals outside the walls (Shuhi, Madanu, Borsippa, Kish, west canal), roads, villages, fields",
+    "basis": "names from texts; courses invented",
+    "flag": "conjectural"
+   },
+   {
+    "element": "Libil-hegalla canal east of the Processional Way",
+    "basis": "washed away; textual hint of a temple on its bank",
+    "flag": "conjectural course"
+   },
+   {
+    "element": "bridge deck (level +2.35, timber on stone-capped piers), boats, people, costume, night fires; fire bowls on the ziggurat",
+    "basis": "Greek authors, Assyrian reliefs, texts, ethnography; a Seleucid night-vigil ritual from Uruk for the tower fires",
+    "flag": "reconstructed / conjectural"
+   },
+   {
+    "element": "river course beyond the city, water level (-3.0), west bank",
+    "basis": "extrapolation",
+    "flag": "approximate"
+   }
+  ],
+  "excludedAsLater": [
+   "towered \"Nabonidus\" river wall and bridge-head gate (a deliberate choice: Pedersen's model pairs it with the end-of-reign state shown here)",
+   "Level-4 Ishtar-of-Agade temple (+8.0 floor, baked-brick skirt: Nabonidus)",
+   "the +3.1 bridge-gateway pavement and the +3.8 top of pier 1",
+   "Neriglissar's silver dragons at Esagila",
+   "Persian Building",
+   "Greek theatre and Homera mounds",
+   "Parthian/Sasanian works",
+   "all modern features"
+  ],
+  "conf": "n/a",
+  "src": "R1 15; R2 15; R3 8; R4 14; R5 9; GAPS G18, G24"
+ },
+ "targets": {
+  "houses": {
+   "innerCity": 12000,
+   "outside": 8000,
+   "densityPerHa": [
+    25,
+    50
+   ],
+   "archetypes": 12,
+   "outsideBreakdown": "outer-city districts c. 5,100 + 28 villages c. 850 + ribbons along the gate roads and river outside the walls c. 2,000"
+  },
+  "propsPerHouse": [
+   2,
+   4
+  ],
+  "landmarks": {
+   "tier1": [
+    "etemenanki + precinct",
+    "esagila",
+    "ishtarGate + processional way",
+    "southPalace"
+   ],
+   "tier2Min": 10,
+   "tier3ShrinesAltars": 30,
+   "wallTowers": 1000
+  },
+  "trees": {
+   "palms": 40000,
+   "other": 6000
+  },
+  "boats": {
+   "underWay": 25,
+   "moored": 60,
+   "types": [
+    "plank cargo barge",
+    "quffa coracle",
+    "kelek raft",
+    "reed canoe/punt"
+   ]
+  },
+  "people": 2500,
+  "animals": 300,
+  "birds": 60,
+  "smokeColumns": 400,
+  "nightLamps": 6000,
+  "nightFires": 400,
+  "fogAt2kmPct": [
+   40,
+   50
+  ],
+  "texelsPerMetre": {
+   "eyeLevel": 64,
+   "fabric": 16,
+   "glazedReliefs": 128
+  },
+  "conf": "target",
+  "src": "STYLE 9.3, 9.4; GAPS 5, 8"
+ }
+}
