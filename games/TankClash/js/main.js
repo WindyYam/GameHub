@@ -10,7 +10,7 @@ scene.fog = new THREE.FogExp2(0x82b4dc, 0.00085);
 window.scene = scene;
 
 // 1. Perspective Camera
-const perspCamera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.15, 800);
+const perspCamera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.25, 12000);
 window.perspCamera = perspCamera;
 
 // 2. Orthographic Camera (Seamless switch via 'O' key or HUD button)
@@ -23,7 +23,7 @@ const orthoCamera = new THREE.OrthographicCamera(
      orthoFrustumSize / 2,
     -orthoFrustumSize / 2,
     -200,
-    800
+    12000
 );
 orthoCamera.zoom = 1.15;
 orthoCamera.updateProjectionMatrix();
@@ -88,6 +88,45 @@ function generateSteelEnvironmentMap() {
     const rt = pmremGenerator.fromEquirectangular(envTex);
     envTex.dispose();
     return rt.texture;
+}
+
+let _lastIblTime = -999;
+let _lastIblZone = -1;
+let _dynamicEnvRT = null;
+function updateSkyEnvironmentMap(skyTopCol, skyHorCol, groundCol, sunCol, dayFactor, twilightFactor) {
+    const envCanvas = document.createElement('canvas');
+    envCanvas.width = 256;
+    envCanvas.height = 128;
+    const ctx = envCanvas.getContext('2d');
+
+    const cTop = '#' + skyTopCol.getHexString();
+    const cHor = '#' + skyHorCol.getHexString();
+    const cGnd = '#' + groundCol.getHexString();
+    const cGndDeep = '#' + groundCol.clone().multiplyScalar(0.45).getHexString();
+
+    const grad = ctx.createLinearGradient(0, 0, 0, 128);
+    grad.addColorStop(0.00, cTop);
+    grad.addColorStop(0.35, cHor);
+    grad.addColorStop(0.50, cHor);
+    grad.addColorStop(0.54, cGnd);
+    grad.addColorStop(1.00, cGndDeep);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, 256, 128);
+
+    const sunAlpha = Math.max(0.15, Math.min(0.95, 0.35 + dayFactor * 0.55 + twilightFactor * 0.35));
+    const sunGrad = ctx.createRadialGradient(128, 52, 2, 128, 52, 48);
+    sunGrad.addColorStop(0, `rgba(${Math.round(sunCol.r * 255)}, ${Math.round(sunCol.g * 255)}, ${Math.round(sunCol.b * 255)}, ${sunAlpha})`);
+    sunGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    ctx.fillStyle = sunGrad;
+    ctx.fillRect(80, 4, 96, 96);
+
+    const envTex = new THREE.CanvasTexture(envCanvas);
+    const rt = pmremGenerator.fromEquirectangular(envTex);
+    envTex.dispose();
+    if (_dynamicEnvRT) _dynamicEnvRT.dispose();
+    _dynamicEnvRT = rt;
+    scene.environment = rt.texture;
+    window.steelEnvMap = rt.texture;
 }
 
 const steelEnvMap = generateSteelEnvironmentMap();
@@ -232,15 +271,104 @@ sunLight.shadow.radius = 2.5; // Soften PCF shadow filter kernel for large-scale
 scene.add(sunLight);
 window.sunLight = sunLight;
 
-function updateCelestialShadows(shadowsActive) {
-    const shadow = sunLight.shadow;
-    if (shadowsActive) {
-        shadow.autoUpdate = true;
-        return;
-    }
-    if (!shadow.autoUpdate || !shadow.map) return;
+// Cascade 1: Low-resolution distant shadow map ([-220, 220]m) throttled to update every 4 frames.
+// Intensity is 0.0 so it contributes zero extra light; ShaderChunk patches blend it with sunLight outside [-58, 58]m.
+const farShadowRes = isMobLight ? 256 : 512;
+const FAR_SHADOW_EXTENT = 220;
+const FAR_SHADOW_TEXEL = (FAR_SHADOW_EXTENT * 2) / farShadowRes;
+const farShadowLight = new THREE.DirectionalLight(0xffffff, 0.0);
+farShadowLight.position.set(90, 110, 76);
+farShadowLight.castShadow = true;
+farShadowLight.shadow.mapSize.width = farShadowRes;
+farShadowLight.shadow.mapSize.height = farShadowRes;
+farShadowLight.shadow.camera.near = 5;
+farShadowLight.shadow.camera.far = 420;
+farShadowLight.shadow.camera.left = -FAR_SHADOW_EXTENT;
+farShadowLight.shadow.camera.right = FAR_SHADOW_EXTENT;
+farShadowLight.shadow.camera.top = FAR_SHADOW_EXTENT;
+farShadowLight.shadow.camera.bottom = -FAR_SHADOW_EXTENT;
+farShadowLight.shadow.bias = -0.0025;
+farShadowLight.shadow.normalBias = 0.25;
+farShadowLight.shadow.radius = 1.5;
+farShadowLight.shadow.autoUpdate = false;
+farShadowLight.shadow.needsUpdate = true;
+scene.add(farShadowLight);
+scene.add(farShadowLight.target);
+window.farShadowLight = farShadowLight;
+let farShadowFrameCounter = 0;
+let farShadowWasActive = true;
 
-    // Keep the shadow shader variant stable and clear its map to fully lit at the horizon.
+(function patchCascadedShadowChunks() {
+    const targetDirLine = 'directLight.color *= all( bvec2( directLight.visible, receiveShadow ) ) ? getShadow( directionalShadowMap[ i ], directionalLightShadow.shadowMapSize, directionalLightShadow.shadowBias, directionalLightShadow.shadowRadius, vDirectionalShadowCoord[ i ] ) : 1.0;';
+    if (THREE.ShaderChunk.lights_fragment_begin.includes(targetDirLine)) {
+        THREE.ShaderChunk.lights_fragment_begin = THREE.ShaderChunk.lights_fragment_begin.replace(
+            targetDirLine,
+            `#if UNROLLED_LOOP_INDEX == 0 && NUM_DIR_LIGHT_SHADOWS == 2
+\t\tfloat csmShadow = 1.0;
+\t\tif ( all( bvec2( directLight.visible, receiveShadow ) ) ) {
+\t\t\tvec3 sc0 = vDirectionalShadowCoord[ 0 ].xyz / vDirectionalShadowCoord[ 0 ].w;
+\t\t\tfloat edgeDist = max( abs( sc0.x - 0.5 ), abs( sc0.y - 0.5 ) ) * 2.0;
+\t\t\tfloat csmBlend = smoothstep( 0.82, 0.98, edgeDist );
+\t\t\tif ( csmBlend < 0.001 ) {
+\t\t\t\tcsmShadow = getShadow( directionalShadowMap[ 0 ], directionalLightShadow.shadowMapSize, directionalLightShadow.shadowBias, directionalLightShadow.shadowRadius, vDirectionalShadowCoord[ 0 ] );
+\t\t\t} else if ( csmBlend > 0.999 ) {
+\t\t\t\tDirectionalLightShadow farShadow = directionalLightShadows[ 1 ];
+\t\t\t\tcsmShadow = getShadow( directionalShadowMap[ 1 ], farShadow.shadowMapSize, farShadow.shadowBias, farShadow.shadowRadius, vDirectionalShadowCoord[ 1 ] );
+\t\t\t} else {
+\t\t\t\tfloat s0 = getShadow( directionalShadowMap[ 0 ], directionalLightShadow.shadowMapSize, directionalLightShadow.shadowBias, directionalLightShadow.shadowRadius, vDirectionalShadowCoord[ 0 ] );
+\t\t\t\tDirectionalLightShadow farShadow = directionalLightShadows[ 1 ];
+\t\t\t\tfloat s1 = getShadow( directionalShadowMap[ 1 ], farShadow.shadowMapSize, farShadow.shadowBias, farShadow.shadowRadius, vDirectionalShadowCoord[ 1 ] );
+\t\t\t\tcsmShadow = mix( s0, s1, csmBlend );
+\t\t\t}
+\t\t}
+\t\tdirectLight.color *= csmShadow;
+\t\t#else
+\t\tdirectLight.color *= all( bvec2( directLight.visible, receiveShadow ) ) ? getShadow( directionalShadowMap[ i ], directionalLightShadow.shadowMapSize, directionalLightShadow.shadowBias, directionalLightShadow.shadowRadius, vDirectionalShadowCoord[ i ] ) : 1.0;
+\t\t#endif`
+        );
+    }
+    const targetMaskBlock = `#if NUM_DIR_LIGHT_SHADOWS > 0
+\tDirectionalLightShadow directionalLight;
+\t#pragma unroll_loop_start
+\tfor ( int i = 0; i < NUM_DIR_LIGHT_SHADOWS; i ++ ) {
+\t\tdirectionalLight = directionalLightShadows[ i ];
+\t\tshadow *= receiveShadow ? getShadow( directionalShadowMap[ i ], directionalLight.shadowMapSize, directionalLight.shadowBias, directionalLight.shadowRadius, vDirectionalShadowCoord[ i ] ) : 1.0;
+\t}
+\t#pragma unroll_loop_end
+\t#endif`;
+    if (THREE.ShaderChunk.shadowmask_pars_fragment.includes(targetMaskBlock)) {
+        THREE.ShaderChunk.shadowmask_pars_fragment = THREE.ShaderChunk.shadowmask_pars_fragment.replace(
+            targetMaskBlock,
+            `#if NUM_DIR_LIGHT_SHADOWS == 2
+\tif ( receiveShadow ) {
+\t\tvec3 sc0 = vDirectionalShadowCoord[ 0 ].xyz / vDirectionalShadowCoord[ 0 ].w;
+\t\tfloat edgeDist = max( abs( sc0.x - 0.5 ), abs( sc0.y - 0.5 ) ) * 2.0;
+\t\tfloat csmBlend = smoothstep( 0.82, 0.98, edgeDist );
+\t\tif ( csmBlend < 0.001 ) {
+\t\t\tshadow *= getShadow( directionalShadowMap[ 0 ], directionalLightShadows[ 0 ].shadowMapSize, directionalLightShadows[ 0 ].shadowBias, directionalLightShadows[ 0 ].shadowRadius, vDirectionalShadowCoord[ 0 ] );
+\t\t} else if ( csmBlend > 0.999 ) {
+\t\t\tshadow *= getShadow( directionalShadowMap[ 1 ], directionalLightShadows[ 1 ].shadowMapSize, directionalLightShadows[ 1 ].shadowBias, directionalLightShadows[ 1 ].shadowRadius, vDirectionalShadowCoord[ 1 ] );
+\t\t} else {
+\t\t\tfloat s0 = getShadow( directionalShadowMap[ 0 ], directionalLightShadows[ 0 ].shadowMapSize, directionalLightShadows[ 0 ].shadowBias, directionalLightShadows[ 0 ].shadowRadius, vDirectionalShadowCoord[ 0 ] );
+\t\t\tfloat s1 = getShadow( directionalShadowMap[ 1 ], directionalLightShadows[ 1 ].shadowMapSize, directionalLightShadows[ 1 ].shadowBias, directionalLightShadows[ 1 ].shadowRadius, vDirectionalShadowCoord[ 1 ] );
+\t\t\tshadow *= mix( s0, s1, csmBlend );
+\t\t}
+\t}
+\t#elif NUM_DIR_LIGHT_SHADOWS > 0
+\tDirectionalLightShadow directionalLight;
+\t#pragma unroll_loop_start
+\tfor ( int i = 0; i < NUM_DIR_LIGHT_SHADOWS; i ++ ) {
+\t\tdirectionalLight = directionalLightShadows[ i ];
+\t\tshadow *= receiveShadow ? getShadow( directionalShadowMap[ i ], directionalLight.shadowMapSize, directionalLight.shadowBias, directionalLight.shadowRadius, vDirectionalShadowCoord[ i ] ) : 1.0;
+\t}
+\t#pragma unroll_loop_end
+\t#endif`
+        );
+    }
+})();
+
+function clearShadowMapToWhite(shadow) {
+    if (!shadow || !shadow.map) return;
     const oldTarget = renderer.getRenderTarget();
     const oldFace = renderer.getActiveCubeFace();
     const oldMipmap = renderer.getActiveMipmapLevel();
@@ -261,8 +389,30 @@ function updateCelestialShadows(shadowsActive) {
     shadow.needsUpdate = false;
 }
 
+function updateCelestialShadows(shadowsActive) {
+    const shadow = sunLight.shadow;
+    const farShadow = farShadowLight.shadow;
+    if (shadowsActive) {
+        shadow.autoUpdate = true;
+        if (!farShadowWasActive || (farShadowFrameCounter & 3) === 0) {
+            farShadow.needsUpdate = true;
+        }
+        farShadowFrameCounter++;
+        farShadowWasActive = true;
+        return;
+    }
+    farShadowWasActive = false;
+    if (shadow.autoUpdate && shadow.map) {
+        clearShadowMapToWhite(shadow);
+    }
+    if (farShadow.map) {
+        clearShadowMapToWhite(farShadow);
+    }
+}
+
 renderer.domElement.addEventListener('webglcontextrestored', () => {
     sunLight.shadow.autoUpdate = true;
+    farShadowLight.shadow.needsUpdate = true;
 });
 
 // Moon color used by the shared directional light at night
@@ -1224,6 +1374,13 @@ function updateSimulation(dt) {
     sunLight.target.position.set(focusX, focusY, focusZ);
     sunLight.target.updateMatrixWorld();
 
+    const farSnapX = Math.round(focusX / FAR_SHADOW_TEXEL) * FAR_SHADOW_TEXEL;
+    const farSnapZ = Math.round(focusZ / FAR_SHADOW_TEXEL) * FAR_SHADOW_TEXEL;
+    const farLightDist = 190.0;
+    farShadowLight.position.set(farSnapX + celestialDir.x * farLightDist, focusY + celestialDir.y * farLightDist, farSnapZ + celestialDir.z * farLightDist);
+    farShadowLight.target.position.set(farSnapX, focusY, farSnapZ);
+    farShadowLight.target.updateMatrixWorld();
+
     // Maldive continuous atmospheric interpolation factors
     const dayFactor = THREE.MathUtils.smoothstep(sunY, -0.10, 0.28);
     const twilightFactor = THREE.MathUtils.smoothstep(sunY, -0.20, 0.06) * (1.0 - THREE.MathUtils.smoothstep(sunY, 0.04, 0.34));
@@ -1258,7 +1415,18 @@ function updateSimulation(dt) {
     // Hemisphere natural bounce lighting (Zone ground up + Sky down)
     hemiLight.color.copy(skyHorizonColor);
     hemiLight.groundColor.copy(DAY_NIGHT_COLORS.groundNight).lerp(zoneGroundDay, dayFactor);
-    hemiLight.intensity = 0.16 + dayFactor * 0.10 + twilightFactor * 0.10;
+    hemiLight.intensity = 0.22 + dayFactor * 0.22 + twilightFactor * 0.16;
+
+    // Babylon-calibrated ACES exposure: luminous golden hour & crisp afternoon
+    renderer.toneMappingExposure = 0.95 + dayFactor * 0.17 + twilightFactor * 0.12;
+
+    // Update sky-matched PMREM IBL throttled by time-of-day or zone change
+    const curZoneIdx = (typeof window.currentZoneIndex === 'number') ? window.currentZoneIndex : 0;
+    if (Math.abs(dayNight.time - _lastIblTime) > 0.25 || curZoneIdx !== _lastIblZone) {
+        _lastIblTime = dayNight.time;
+        _lastIblZone = curZoneIdx;
+        updateSkyEnvironmentMap(skyTopColor, skyHorizonColor, hemiLight.groundColor, sunCol, dayFactor, twilightFactor);
+    }
 
     // Fog & Background synced with horizon atmosphere
     if (scene.fog) {
@@ -1288,6 +1456,10 @@ function updateSimulation(dt) {
         window.celestialLighting.sunDirection.value.copy(celestialDir);
         window.celestialLighting.sunColor.value.copy(sunLight.color);
         window.celestialLighting.skyColor.value.copy(skyHorizonColor);
+        if (!window.celestialLighting.skyTopColor) {
+            window.celestialLighting.skyTopColor = { value: new THREE.Color() };
+        }
+        window.celestialLighting.skyTopColor.value.copy(skyTopColor);
         if (window.celestialLighting.groundColor) {
             window.celestialLighting.groundColor.value.copy(hemiLight.groundColor);
         }
@@ -1633,6 +1805,290 @@ function updateAdaptiveResolution(frameMs) {
     }
 }
 
+// ============================================================================
+// BABYLON-INSPIRED PLANAR WATER REFLECTION & HDR BLOOM POST-PROCESSING
+// ============================================================================
+const WATER_CLIP_PLANE = new THREE.Plane(new THREE.Vector3(0, 1, 0), 2.52);
+const waterReflectCamera = new THREE.PerspectiveCamera(42, 1, 0.25, 12000);
+const _reflFwd = new THREE.Vector3();
+let waterReflectionRT = null;
+
+function hasHalfFloatColorBuffer() {
+    const gl = renderer.getContext();
+    if (!gl || !renderer.capabilities.isWebGL2) return false;
+    return Boolean(gl.getExtension('EXT_color_buffer_float') || gl.getExtension('EXT_color_buffer_half_float'));
+}
+
+function ensureWaterReflectionRT() {
+    const isMob = (typeof isMobileBrowser === 'function' && isMobileBrowser()) || (typeof isMobileDevice === 'function' && isMobileDevice());
+    const scale = isMob ? 0.28 : 0.42;
+    const w = Math.max(128, Math.floor(window.innerWidth * scale));
+    const h = Math.max(128, Math.floor(window.innerHeight * scale));
+    if (!waterReflectionRT || waterReflectionRT.width !== w || waterReflectionRT.height !== h) {
+        if (waterReflectionRT) waterReflectionRT.dispose();
+        waterReflectionRT = new THREE.WebGLRenderTarget(w, h, {
+            minFilter: THREE.LinearFilter,
+            magFilter: THREE.LinearFilter,
+            format: THREE.RGBAFormat,
+            type: hasHalfFloatColorBuffer() ? THREE.HalfFloatType : THREE.UnsignedByteType,
+            depthBuffer: true,
+            stencilBuffer: false
+        });
+    }
+    return waterReflectionRT;
+}
+
+function renderWaterReflection(renderCamera) {
+    const water = window.waterMeshRef;
+    if (!water || !water.visible || !water.material || !water.material.uniforms || !renderCamera || !renderCamera.isPerspectiveCamera) {
+        if (water && water.material && water.material.uniforms && water.material.uniforms.uHasReflection) {
+            water.material.uniforms.uHasReflection.value = 0.0;
+        }
+        return;
+    }
+    if (renderCamera.position.y < -2.35) {
+        water.material.uniforms.uHasReflection.value = 0.0;
+        return;
+    }
+
+    const rt = ensureWaterReflectionRT();
+    waterReflectCamera.fov = renderCamera.fov;
+    waterReflectCamera.aspect = renderCamera.aspect;
+    waterReflectCamera.near = renderCamera.near;
+    waterReflectCamera.far = renderCamera.far;
+    waterReflectCamera.updateProjectionMatrix();
+
+    renderCamera.getWorldDirection(_reflFwd);
+    waterReflectCamera.position.set(renderCamera.position.x, -5.0 - renderCamera.position.y, renderCamera.position.z);
+    waterReflectCamera.up.set(0, 1, 0);
+    waterReflectCamera.lookAt(
+        renderCamera.position.x + _reflFwd.x * 100.0,
+        -5.0 - (renderCamera.position.y + _reflFwd.y * 100.0),
+        renderCamera.position.z + _reflFwd.z * 100.0
+    );
+    waterReflectCamera.updateMatrixWorld(true);
+    waterReflectCamera.layers.mask = 1; // World layer only
+
+    water.material.uniforms.uReflectVP.value.multiplyMatrices(waterReflectCamera.projectionMatrix, waterReflectCamera.matrixWorldInverse);
+    water.material.uniforms.tReflection.value = rt.texture;
+    water.material.uniforms.uHasReflection.value = 1.0;
+
+    const oldTarget = renderer.getRenderTarget();
+    const oldShadowAuto = renderer.shadowMap.autoUpdate;
+    const oldClip = renderer.localClippingEnabled;
+    const oldPlanes = renderer.clippingPlanes;
+    const oldSkyPos = window.skyDome ? window.skyDome.position.clone() : null;
+
+    try {
+        water.visible = false;
+        renderer.shadowMap.autoUpdate = false;
+        renderer.localClippingEnabled = true;
+        renderer.clippingPlanes = [WATER_CLIP_PLANE];
+        if (window.skyDome) window.skyDome.position.copy(waterReflectCamera.position);
+        renderer.setRenderTarget(rt);
+        renderer.clear();
+        renderer.render(scene, waterReflectCamera);
+    } finally {
+        water.visible = true;
+        renderer.shadowMap.autoUpdate = oldShadowAuto;
+        renderer.localClippingEnabled = oldClip;
+        renderer.clippingPlanes = oldPlanes;
+        if (window.skyDome && oldSkyPos) window.skyDome.position.copy(oldSkyPos);
+        renderer.setRenderTarget(oldTarget);
+    }
+}
+
+const babylonPost = {
+    initialized: false,
+    supported: false,
+    hdrRT: null,
+    bloomRTs: [],
+    quadScene: null,
+    quadCam: null,
+    quadMesh: null,
+    downsampleMat: null,
+    upsampleMat: null,
+    compositeMat: null,
+
+    init() {
+        this.initialized = true;
+        const isMob = (typeof isMobileBrowser === 'function' && isMobileBrowser()) || (typeof isMobileDevice === 'function' && isMobileDevice());
+        if (isMob || !hasHalfFloatColorBuffer()) {
+            this.supported = false;
+            return;
+        }
+        this.supported = true;
+        this.quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+        this.quadScene = new THREE.Scene();
+
+        const vs = `varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
+        this.downsampleMat = new THREE.ShaderMaterial({
+            uniforms: { tSrc: { value: null }, uTexel: { value: new THREE.Vector2() }, uFirst: { value: 0.0 } },
+            vertexShader: vs,
+            fragmentShader: `
+                uniform sampler2D tSrc;
+                uniform vec2 uTexel;
+                uniform float uFirst;
+                varying vec2 vUv;
+                void main() {
+                    vec3 c = (
+                        texture2D(tSrc, vUv + vec2(-uTexel.x, -uTexel.y)).rgb +
+                        texture2D(tSrc, vUv + vec2( uTexel.x, -uTexel.y)).rgb +
+                        texture2D(tSrc, vUv + vec2(-uTexel.x,  uTexel.y)).rgb +
+                        texture2D(tSrc, vUv + vec2( uTexel.x,  uTexel.y)).rgb
+                    ) * 0.25;
+                    if (uFirst > 0.5) {
+                        c = min(c, vec3(16.0));
+                        float br = max(c.r, max(c.g, c.b));
+                        float thresh = 1.65;
+                        float knee = 0.35;
+                        float soft = clamp(br - thresh + knee, 0.0, 2.0 * knee);
+                        soft = (soft * soft) / (4.0 * knee + 1e-5);
+                        float contrib = max(soft, br - thresh) / max(br, 1e-5);
+                        c *= max(contrib, 0.0);
+                    }
+                    gl_FragColor = vec4(c, 1.0);
+                }
+            `,
+            depthTest: false, depthWrite: false
+        });
+
+        this.upsampleMat = new THREE.ShaderMaterial({
+            uniforms: { tSrc: { value: null }, tAdd: { value: null }, uTexel: { value: new THREE.Vector2() } },
+            vertexShader: vs,
+            fragmentShader: `
+                uniform sampler2D tSrc;
+                uniform sampler2D tAdd;
+                uniform vec2 uTexel;
+                varying vec2 vUv;
+                void main() {
+                    vec3 b = (
+                        texture2D(tSrc, vUv + vec2(-uTexel.x, -uTexel.y)).rgb +
+                        texture2D(tSrc, vUv + vec2( uTexel.x, -uTexel.y)).rgb +
+                        texture2D(tSrc, vUv + vec2(-uTexel.x,  uTexel.y)).rgb +
+                        texture2D(tSrc, vUv + vec2( uTexel.x,  uTexel.y)).rgb
+                    ) * 0.25;
+                    vec3 base = texture2D(tAdd, vUv).rgb;
+                    gl_FragColor = vec4(base + b * 0.72, 1.0);
+                }
+            `,
+            depthTest: false, depthWrite: false
+        });
+
+        this.compositeMat = new THREE.ShaderMaterial({
+            uniforms: { tScene: { value: null }, tBloom: { value: null }, uExposure: { value: 1.08 } },
+            vertexShader: vs,
+            fragmentShader: `
+                uniform sampler2D tScene;
+                uniform sampler2D tBloom;
+                uniform float uExposure;
+                varying vec2 vUv;
+                vec3 acesFilm(vec3 x) {
+                    x *= 0.6;
+                    float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
+                    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+                }
+                void main() {
+                    vec3 hdr = texture2D(tScene, vUv).rgb + texture2D(tBloom, vUv).rgb * 0.28;
+                    hdr *= uExposure;
+                    vec3 col = acesFilm(hdr);
+                    vec2 q = vUv - 0.5;
+                    col *= 1.0 - dot(q, q) * 0.09;
+                    col = pow(max(col, vec3(0.0)), vec3(1.0 / 2.2));
+                    gl_FragColor = vec4(col, 1.0);
+                }
+            `,
+            depthTest: false, depthWrite: false
+        });
+
+        this.quadMesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.compositeMat);
+        this.quadScene.add(this.quadMesh);
+    },
+
+    ensureTargets() {
+        const size = renderer.getDrawingBufferSize(new THREE.Vector2());
+        const w = Math.max(64, size.x);
+        const h = Math.max(64, size.y);
+        if (this.hdrRT && this.hdrRT.width === w && this.hdrRT.height === h) return;
+
+        if (this.hdrRT) this.hdrRT.dispose();
+        for (const rt of this.bloomRTs) rt.dispose();
+        this.bloomRTs.length = 0;
+
+        this.hdrRT = new THREE.WebGLRenderTarget(w, h, {
+            minFilter: THREE.LinearFilter,
+            magFilter: THREE.LinearFilter,
+            format: THREE.RGBAFormat,
+            type: THREE.HalfFloatType
+        });
+
+        let bw = Math.max(16, w >> 1);
+        let bh = Math.max(16, h >> 1);
+        for (let i = 0; i < 4; i++) {
+            this.bloomRTs.push(new THREE.WebGLRenderTarget(bw, bh, {
+                minFilter: THREE.LinearFilter,
+                magFilter: THREE.LinearFilter,
+                format: THREE.RGBAFormat,
+                type: THREE.HalfFloatType,
+                depthBuffer: false
+            }));
+            bw = Math.max(8, bw >> 1);
+            bh = Math.max(8, bh >> 1);
+        }
+    },
+
+    render(renderCamera) {
+        if (!this.initialized) this.init();
+        if (!this.supported) {
+            renderer.render(scene, renderCamera);
+            return;
+        }
+        this.ensureTargets();
+
+        const oldTarget = renderer.getRenderTarget();
+        try {
+            renderer.setRenderTarget(this.hdrRT);
+            renderer.clear(true, true, false);
+            renderer.render(scene, renderCamera);
+
+            // Downsample 4 bloom mips
+            let src = this.hdrRT;
+            for (let i = 0; i < this.bloomRTs.length; i++) {
+                const dst = this.bloomRTs[i];
+                this.downsampleMat.uniforms.tSrc.value = src.texture;
+                this.downsampleMat.uniforms.uTexel.value.set(1.0 / src.width, 1.0 / src.height);
+                this.downsampleMat.uniforms.uFirst.value = (i === 0) ? 1.0 : 0.0;
+                this.quadMesh.material = this.downsampleMat;
+                renderer.setRenderTarget(dst);
+                renderer.render(this.quadScene, this.quadCam);
+                src = dst;
+            }
+
+            // Upsample chain back to mip 0
+            for (let i = this.bloomRTs.length - 1; i > 0; i--) {
+                const hi = this.bloomRTs[i - 1];
+                const lo = this.bloomRTs[i];
+                this.upsampleMat.uniforms.tSrc.value = lo.texture;
+                this.upsampleMat.uniforms.tAdd.value = hi.texture;
+                this.upsampleMat.uniforms.uTexel.value.set(1.0 / lo.width, 1.0 / lo.height);
+                this.quadMesh.material = this.upsampleMat;
+                renderer.setRenderTarget(hi);
+                renderer.render(this.quadScene, this.quadCam);
+            }
+
+            // Composite HDR + Bloom -> ACES -> sRGB -> Screen
+            this.compositeMat.uniforms.tScene.value = this.hdrRT.texture;
+            this.compositeMat.uniforms.tBloom.value = this.bloomRTs[0].texture;
+            this.compositeMat.uniforms.uExposure.value = renderer.toneMappingExposure || 1.08;
+            this.quadMesh.material = this.compositeMat;
+            renderer.setRenderTarget(null);
+            renderer.render(this.quadScene, this.quadCam);
+        } finally {
+            renderer.setRenderTarget(oldTarget);
+        }
+    }
+};
+
 function animate(now) {
     requestAnimationFrame(animate);
     const dt = Math.min((now - lastTime) / 1000, 0.05);
@@ -1648,10 +2104,17 @@ function animate(now) {
     try {
         const renderCamera = window.activeCamera || activeCamera;
         const renderCameraLayers = renderCamera.layers.mask;
+        try {
+            renderWaterReflection(renderCamera);
+        } catch (reflErr) {
+            console.warn('[Engine] Water reflection pass skipped:', reflErr);
+            if (window.waterMeshRef) window.waterMeshRef.visible = true;
+            renderer.localClippingEnabled = false;
+        }
         if (!useSSAO) {
-            // Layers 0 (world) + 1 (FX particles) in a single pass
+            // Layers 0 (world) + 1 (FX particles) with Babylon HDR Bloom & ACES Grading
             renderCamera.layers.mask = 3;
-            renderer.render(scene, renderCamera);
+            babylonPost.render(renderCamera);
             renderCamera.layers.mask = renderCameraLayers;
             return;
         }

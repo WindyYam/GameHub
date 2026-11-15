@@ -1513,6 +1513,31 @@ function updateDaylightSystem(hour) {
 // ============================================================================
 // 4. SHARED MATERIALS & SHADERS
 // ============================================================================
+// ============================================================================
+// Babylon-Inspired Dual-Layer Analytical Aerial Perspective & Haze
+// ============================================================================
+const BABYLON_HAZE_GLSL = `
+vec3 applyBabylonAerialHaze(vec3 col, vec3 worldPos, vec3 camPos, vec3 sunDir, vec3 sunCol, vec3 skyHor, vec3 skyTop, float hazeStrength) {
+    vec3 toPt = worldPos - camPos;
+    float dist = length(toPt);
+    if (dist < 1.0) return col;
+    vec3 V = toPt / dist;
+    float y0 = max(camPos.y, -2.5);
+    float y1 = max(worldPos.y, -2.5);
+    float avgY = 0.5 * (y0 + y1);
+    float lowDensity = exp(-max(avgY + 4.0, 0.0) / 145.0) * 0.88;
+    float highDensity = exp(-max(avgY + 4.0, 0.0) / 2400.0) * 0.12;
+    float optical = (lowDensity + highDensity) * (dist / 4200.0) * hazeStrength;
+    float hazeAmt = 1.0 - exp(-optical * 1.45);
+    hazeAmt = clamp(hazeAmt + smoothstep(3200.0, 6200.0, dist) * 0.65, 0.0, 1.0);
+    float sunAlign = max(dot(V, normalize(sunDir)), 0.0);
+    float mieGlow = pow(sunAlign, 6.0) * 0.42 + pow(sunAlign, 2.0) * 0.14;
+    vec3 horizonCol = mix(skyHor, skyTop, clamp(V.y * 0.45, 0.0, 0.45));
+    vec3 hazeCol = mix(horizonCol, sunCol * 0.95 + skyHor * 0.25, mieGlow * clamp(sunDir.y * 2.5 + 0.35, 0.0, 1.0));
+    return mix(col, hazeCol, hazeAmt);
+}
+`;
+
 const terrainUniforms = {
     uTime: { value: 0 },
     uWindSpeed: { value: 1.2 },
@@ -1530,6 +1555,8 @@ const terrainUniforms = {
     uSunDir: { value: new THREE.Vector3(0.45, 0.72, -0.52).normalize() },
     uSunColor: { value: new THREE.Color(0xfff5e0) },
     uSkyColor: { value: new THREE.Color(0x82b6e5) },
+    uSkyTopColor: { value: new THREE.Color(0x1958aa) },
+    uHazeStrength: { value: 1.0 },
     uTerrainNormalAtlas: { value: null }
 };
 
@@ -1548,7 +1575,8 @@ const terrainMat = new THREE.MeshStandardMaterial({
     vertexColors: true,
     roughness: 0.94,
     metalness: 0.0,
-    envMapIntensity: GROUND_ENV_MAP_INTENSITY
+    envMapIntensity: GROUND_ENV_MAP_INTENSITY,
+    fog: false
 });
 
 terrainMat.onBeforeCompile = (shader) => {
@@ -1567,6 +1595,8 @@ terrainMat.onBeforeCompile = (shader) => {
     shader.uniforms.uSunDir = terrainUniforms.uSunDir;
     shader.uniforms.uSunColor = terrainUniforms.uSunColor;
     shader.uniforms.uSkyColor = terrainUniforms.uSkyColor;
+    shader.uniforms.uSkyTopColor = terrainUniforms.uSkyTopColor;
+    shader.uniforms.uHazeStrength = terrainUniforms.uHazeStrength;
     shader.uniforms.uTerrainNormalAtlas = terrainUniforms.uTerrainNormalAtlas;
 
     shader.vertexShader = `
@@ -1594,11 +1624,14 @@ terrainMat.onBeforeCompile = (shader) => {
         uniform vec3 uSunDir;
         uniform vec3 uSunColor;
         uniform vec3 uSkyColor;
+        uniform vec3 uSkyTopColor;
+        uniform float uHazeStrength;
         uniform sampler2D uTerrainNormalAtlas;
         varying vec3 vTerrainWorldPos;
         varying vec3 vTerrainWorldNormal;
         varying float vTerrainSlope;
         ${SHARED_TERRAIN_GLSL}
+        ${BABYLON_HAZE_GLSL}
     ` + shader.fragmentShader;
 
     shader.fragmentShader = shader.fragmentShader.replace(
@@ -2133,6 +2166,14 @@ terrainMat.onBeforeCompile = (shader) => {
         }
         `
     );
+
+    shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <tonemapping_fragment>',
+        `
+        gl_FragColor.rgb = applyBabylonAerialHaze(gl_FragColor.rgb, vTerrainWorldPos, uCameraPos, uSunDir, uSunColor, uSkyColor, uSkyTopColor, uHazeStrength);
+        #include <tonemapping_fragment>
+        `
+    );
 };
 
 // ============================================================================
@@ -2151,7 +2192,8 @@ const treeMaterial = new THREE.MeshStandardMaterial({
     roughness: 0.76,
     metalness: 0.03,
     side: THREE.DoubleSide,
-    envMapIntensity: GROUND_ENV_MAP_INTENSITY
+    envMapIntensity: GROUND_ENV_MAP_INTENSITY,
+    fog: false
 });
 
 let sharedTreeDepthMaterial = null;
@@ -2171,8 +2213,12 @@ treeMaterial.customDepthMaterial = getTreeDepthMaterial();
 treeMaterial.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = terrainUniforms.uTime;
     shader.uniforms.uWindSpeed = terrainUniforms.uWindSpeed;
+    shader.uniforms.uCameraPos = terrainUniforms.uCameraPos;
     shader.uniforms.uSunDir = terrainUniforms.uSunDir;
     shader.uniforms.uSunColor = terrainUniforms.uSunColor;
+    shader.uniforms.uSkyColor = terrainUniforms.uSkyColor;
+    shader.uniforms.uSkyTopColor = terrainUniforms.uSkyTopColor;
+    shader.uniforms.uHazeStrength = terrainUniforms.uHazeStrength;
     shader.uniforms.uFoliageMap = { value: getBotanicalAtlas() };
     shader.uniforms.uSeedOffset = terrainUniforms.uSeedOffset;
     shader.uniforms.uRoadBaseX = terrainUniforms.uRoadBaseX;
@@ -2182,6 +2228,7 @@ treeMaterial.onBeforeCompile = (shader) => {
     shader.vertexShader = `
         uniform float uTime;
         uniform float uWindSpeed;
+        uniform vec3 uCameraPos;
         varying vec3 vTreeWorldPos;
         varying vec3 vTreeWorldNormal;
         varying vec3 vBotanicalNormal;
@@ -2200,20 +2247,24 @@ treeMaterial.onBeforeCompile = (shader) => {
         vCanopyOuter = clamp(length(position.xz) / 3.2, 0.0, 1.0);
 
         vec4 baseWorld = modelMatrix * vec4(transformed, 1.0);
+        float distTreeSway = length(baseWorld.xz - uCameraPos.xz);
+        bool isFoliageVert = (uv.y > 0.5 || uv.x < 0.5);
         float tW = uTime * uWindSpeed;
-
         // Synchronized rolling wind waves across trees & grass (matching coastal_countryside_3d_scene.html)
         float wave1 = sin(baseWorld.x * 0.14 + baseWorld.z * 0.12 + tW * 2.4);
-        float wave2 = cos(baseWorld.x * 0.35 - baseWorld.z * 0.28 + tW * 3.6) * 0.45;
+        float wave2 = (distTreeSway < 85.0)
+            ? cos(baseWorld.x * 0.35 - baseWorld.z * 0.28 + tW * 3.6) * 0.45 * (1.0 - smoothstep(60.0, 85.0, distTreeSway))
+            : 0.0;
         float heightFactor = pow(clamp(vTreeHeight / 12.0, 0.0, 1.2), 1.35);
         float trunkSway = (wave1 + wave2 * 0.5) * 0.22 * heightFactor;
         transformed.x += trunkSway;
         transformed.z += trunkSway * 0.60;
 
-        bool isFoliageVert = (uv.y > 0.5 || uv.x < 0.5);
         if (isFoliageVert) {
             float boughWave = (wave1 + wave2) * 0.15 * (0.30 + 0.70 * vCanopyOuter);
-            float leafFlutter = sin(tW * 4.2 + position.x * 2.6 + position.y * 1.8 + position.z * 2.6) * 0.045 * (0.3 + 0.7 * vCanopyOuter);
+            float leafFlutter = (distTreeSway < 65.0)
+                ? sin(tW * 4.2 + position.x * 2.6 + position.y * 1.8 + position.z * 2.6) * 0.045 * (0.3 + 0.7 * vCanopyOuter) * (1.0 - smoothstep(45.0, 65.0, distTreeSway))
+                : 0.0;
             transformed.x += boughWave + leafFlutter;
             transformed.z += (boughWave + leafFlutter) * 0.65;
             transformed.y -= abs(boughWave) * 0.10;
@@ -2234,8 +2285,12 @@ treeMaterial.onBeforeCompile = (shader) => {
 
     shader.fragmentShader = `
         uniform sampler2D uFoliageMap;
+        uniform vec3 uCameraPos;
         uniform vec3 uSunDir;
         uniform vec3 uSunColor;
+        uniform vec3 uSkyColor;
+        uniform vec3 uSkyTopColor;
+        uniform float uHazeStrength;
         varying vec3 vTreeWorldPos;
         varying vec3 vTreeWorldNormal;
         varying vec3 vBotanicalNormal;
@@ -2244,6 +2299,7 @@ treeMaterial.onBeforeCompile = (shader) => {
         varying float vTreeWindWave;
         varying vec2 vFoliageUv;
         ${SHARED_TERRAIN_GLSL}
+        ${BABYLON_HAZE_GLSL}
     ` + shader.fragmentShader;
 
     // Prevent DoubleSide backface normal inversion on volumetric foliage cards while preserving 3D view-space lighting!
@@ -2270,19 +2326,22 @@ treeMaterial.onBeforeCompile = (shader) => {
         float winterTreeFactor = clamp(wTreeZone[4] + wTreeZone[2] * smoothstep(11.0, 18.0, vTreeWorldPos.y), 0.0, 1.0);
 
         if (isFoliage) {
-            if (texelColor.a < 0.36) discard;
+            float distTreeCam = length(vTreeWorldPos.xz - uCameraPos.xz);
+            float alphaBoost = 1.0 + clamp(distTreeCam / 260.0, 0.0, 0.55);
+            if (texelColor.a * alphaBoost < 0.36) discard;
             vec3 viewDir = normalize(cameraPosition - vTreeWorldPos);
             vec3 sunDir = normalize(uSunDir);
             vec3 worldNorm = normalize(vTreeWorldNormal);
 
-            // Light-angle-dependent sun & subsurface backlit illumination + rolling wind-wave flow sheen
+            // Light-angle-dependent sun & subsurface backlit illumination + rolling wind-wave flow sheen + Babylon radial canopy AO
             float sunDot = max(dot(worldNorm, sunDir), 0.0);
-            float backLight = pow(max(dot(-viewDir, sunDir), 0.0), 2.2);
+            float backLight = pow(max(dot(-viewDir, sunDir), 0.0), 2.4);
             float outerTip = 0.35 + 0.65 * vCanopyOuter;
-            vec3 sss = uSunColor * (backLight * 0.34 + sunDot * 0.18) * linearTexel * outerTip;
+            float canopyAO = mix(0.64, 1.05, vCanopyOuter);
+            vec3 sss = uSunColor * (backLight * 0.38 + sunDot * 0.18) * linearTexel * outerTip;
             vec3 halfVec = normalize(sunDir + viewDir);
             float specSheen = pow(max(dot(worldNorm, halfVec), 0.0), 14.0) * sunDot * vCanopyOuter;
-            vec3 treeBaseColor = (linearTexel * diffuseColor.rgb + sss + uSunColor * specSheen * 0.08) * (0.90 + vTreeWindWave * 0.20 * vCanopyOuter);
+            vec3 treeBaseColor = (linearTexel * diffuseColor.rgb * canopyAO + sss + uSunColor * specSheen * 0.08) * (0.90 + vTreeWindWave * 0.20 * vCanopyOuter);
 
             // Winter snow accumulation on conifer boughs, tiers & foliage canopy
             if (winterTreeFactor > 0.01) {
@@ -2308,6 +2367,14 @@ treeMaterial.onBeforeCompile = (shader) => {
         }
         `
     );
+
+    shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <tonemapping_fragment>',
+        `
+        gl_FragColor.rgb = applyBabylonAerialHaze(gl_FragColor.rgb, vTreeWorldPos, uCameraPos, uSunDir, uSunColor, uSkyColor, uSkyTopColor, uHazeStrength);
+        #include <tonemapping_fragment>
+        `
+    );
 };
 
 // ============================================================================
@@ -2328,6 +2395,7 @@ const villageMat = new THREE.MeshStandardMaterial({
     metalness: 0.04,
     envMapIntensity: GROUND_ENV_MAP_INTENSITY,
     side: THREE.DoubleSide,
+    fog: false,
     map: vInitAtlas ? vInitAtlas.albedo : null,
     normalMap: vInitAtlas ? vInitAtlas.normal : null,
     normalScale: new THREE.Vector2(1.35, 1.35),
@@ -2341,6 +2409,10 @@ villageMat.onBeforeCompile = (shader) => {
     shader.uniforms.uSpawnZone = terrainUniforms.uSpawnZone;
     shader.uniforms.uSunDir = terrainUniforms.uSunDir;
     shader.uniforms.uSunColor = terrainUniforms.uSunColor;
+    shader.uniforms.uSkyColor = terrainUniforms.uSkyColor;
+    shader.uniforms.uSkyTopColor = terrainUniforms.uSkyTopColor;
+    shader.uniforms.uCameraPos = terrainUniforms.uCameraPos;
+    shader.uniforms.uHazeStrength = terrainUniforms.uHazeStrength;
 
     shader.vertexShader = `
         varying vec3 vBldgWorldPos;
@@ -2363,11 +2435,16 @@ villageMat.onBeforeCompile = (shader) => {
     shader.fragmentShader = `
         uniform vec3 uSunDir;
         uniform vec3 uSunColor;
+        uniform vec3 uSkyColor;
+        uniform vec3 uSkyTopColor;
+        uniform vec3 uCameraPos;
+        uniform float uHazeStrength;
         varying vec3 vBldgWorldPos;
         varying vec3 vBldgWorldNormal;
         varying vec3 vBldgModelPos;
         varying vec2 vBldgUv;
         ${SHARED_TERRAIN_GLSL}
+        ${BABYLON_HAZE_GLSL}
     ` + shader.fragmentShader;
 
     shader.fragmentShader = shader.fragmentShader.replace(
@@ -2416,6 +2493,17 @@ villageMat.onBeforeCompile = (shader) => {
                 diffuseColor.rgb = mix(diffuseColor.rgb, ledgeSnowColor, ledgeSnow);
             }
         }
+        // Babylon-style wall-foot dampness & ground contact AO
+        float wallFoot = 1.0 - smoothstep(0.0, 1.35, max(0.0, vBldgModelPos.y));
+        diffuseColor.rgb *= mix(1.0, 0.72, wallFoot * 0.75);
+        `
+    );
+
+    shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <tonemapping_fragment>',
+        `
+        gl_FragColor.rgb = applyBabylonAerialHaze(gl_FragColor.rgb, vBldgWorldPos, uCameraPos, uSunDir, uSunColor, uSkyColor, uSkyTopColor, uHazeStrength);
+        #include <tonemapping_fragment>
         `
     );
 };
@@ -2426,11 +2514,18 @@ const rockMat = new THREE.MeshStandardMaterial({
     roughness: 0.90,
     metalness: 0.03,
     envMapIntensity: GROUND_ENV_MAP_INTENSITY,
-    side: THREE.DoubleSide
+    side: THREE.DoubleSide,
+    fog: false
 });
 
 // Mossy weathered craggy boulders: fractured stone faces, crevice AO, lichen mottling & patchy moss
 rockMat.onBeforeCompile = (shader) => {
+    shader.uniforms.uCameraPos = terrainUniforms.uCameraPos;
+    shader.uniforms.uSunDir = terrainUniforms.uSunDir;
+    shader.uniforms.uSunColor = terrainUniforms.uSunColor;
+    shader.uniforms.uSkyColor = terrainUniforms.uSkyColor;
+    shader.uniforms.uSkyTopColor = terrainUniforms.uSkyTopColor;
+    shader.uniforms.uHazeStrength = terrainUniforms.uHazeStrength;
     shader.vertexShader = 'varying vec3 vRockWN;\nvarying vec3 vRockWP;\n' + shader.vertexShader.replace(
         '#include <begin_vertex>',
         `#include <begin_vertex>
@@ -2439,6 +2534,13 @@ rockMat.onBeforeCompile = (shader) => {
     );
     shader.fragmentShader = `varying vec3 vRockWN;
         varying vec3 vRockWP;
+        uniform vec3 uCameraPos;
+        uniform vec3 uSunDir;
+        uniform vec3 uSunColor;
+        uniform vec3 uSkyColor;
+        uniform vec3 uSkyTopColor;
+        uniform float uHazeStrength;
+        ${BABYLON_HAZE_GLSL}
         float rockHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
         float rockNoise(vec2 p) {
             vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -2485,6 +2587,12 @@ rockMat.onBeforeCompile = (shader) => {
         vec3 sunlitMoss = vec3(0.155, 0.210, 0.045);
         vec3 mossCol = mix(deepMoss, sunlitMoss, microN * 0.65 + fineN * 0.35);
         diffuseColor.rgb = mix(stone, mossCol, mossAmt * 0.78);
+        `
+    ).replace(
+        '#include <tonemapping_fragment>',
+        `
+        gl_FragColor.rgb = applyBabylonAerialHaze(gl_FragColor.rgb, vRockWP, uCameraPos, uSunDir, uSunColor, uSkyColor, uSkyTopColor, uHazeStrength);
+        #include <tonemapping_fragment>
         `
     );
 };
@@ -8647,7 +8755,8 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
         roughness: 0.86,
         metalness: 0.0,
         side: THREE.DoubleSide,
-        envMapIntensity: GROUND_ENV_MAP_INTENSITY
+        envMapIntensity: GROUND_ENV_MAP_INTENSITY,
+        fog: false
     });
 
     mat.onBeforeCompile = (shader) => {
@@ -8667,6 +8776,8 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
         shader.uniforms.uSunDir = grassUniforms.uSunDir;
         shader.uniforms.uSunColor = grassUniforms.uSunColor;
         shader.uniforms.uSkyColor = grassUniforms.uSkyColor;
+        shader.uniforms.uSkyTopColor = terrainUniforms.uSkyTopColor;
+        shader.uniforms.uHazeStrength = terrainUniforms.uHazeStrength;
         shader.uniforms.uPatchSize = { value: patchSize };
         shader.uniforms.uMinRadius = { value: minRadius };
         shader.uniforms.uMaxRadius = { value: maxRadius };
@@ -8687,6 +8798,7 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             varying vec2 vGrassAtlasUv;
             varying vec3 vGrassWorldPos;
             varying float vGrassHeightFrac;
+            varying float vGrassDistCam;
             varying vec3 vTerrainNormalUp;
             varying vec4 vGrassZoneWeights;
             varying vec4 vGrassZoneWeightsExt;
@@ -8850,15 +8962,22 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             );
             vGrassHeightFrac = uv.y;
 
-            float windT = uTime * uWindSpeed;
-            // Rolling wind waves shared with terrain & trees
-            float wave1 = sin(worldXZ.x * 0.14 + worldXZ.y * 0.12 + windT * 2.4);
-            float wave2 = cos(worldXZ.x * 0.35 - worldXZ.y * 0.28 + windT * 3.6) * 0.45;
-            float windWave = (wave1 + wave2) * pow(max(uv.y, 0.0), 1.65) * 0.38;
+            float windWave = 0.0;
+` + (isBillboard ? `` : `
+            if (distFromCam < 65.0) {
+                float windT = uTime * uWindSpeed;
+                float wave1 = sin(worldXZ.x * 0.14 + worldXZ.y * 0.12 + windT * 2.4);
+                float wave2 = cos(worldXZ.x * 0.35 - worldXZ.y * 0.28 + windT * 3.6) * 0.45;
+                windWave = (wave1 + wave2) * pow(max(uv.y, 0.0), 1.65) * 0.38 * (1.0 - smoothstep(48.0, 65.0, distFromCam));
+            }
+`) + `
 
             vec3 localP = transformed;
-            localP.xz *= (0.85 + 0.30 * sizeVar) * smoothstep(0.24, 0.65, totalMask);
-            localP.y *= (heightVar * totalMask);
+            float distWidthBoost = 1.0 + smoothstep(32.0, 180.0, distFromCam) * 1.85;
+            float outerTaper = (uMaxRadius > 120.0) ? (1.0 - smoothstep(uMaxRadius * 0.62, uMaxRadius, distFromCam) * 0.72) : 1.0;
+            localP.xz *= (0.85 + 0.30 * sizeVar) * smoothstep(0.24, 0.65, totalMask) * distWidthBoost;
+            localP.y *= (heightVar * totalMask * outerTaper);
+            vGrassDistCam = distFromCam;
 
             vec3 rotP;
 ` + (isBillboard ? `
@@ -8893,16 +9012,21 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
         shader.fragmentShader = `
             uniform sampler2D uGrassAtlas;
             uniform sampler2D uGrassEdgeAtlas;
+            uniform vec3 uCameraPos;
             uniform vec3 uSunDir;
             uniform vec3 uSunColor;
             uniform vec3 uSkyColor;
+            uniform vec3 uSkyTopColor;
+            uniform float uHazeStrength;
             varying vec2 vGrassAtlasUv;
             varying vec3 vGrassWorldPos;
             varying float vGrassHeightFrac;
+            varying float vGrassDistCam;
             varying vec3 vTerrainNormalUp;
             varying vec4 vGrassZoneWeights;
             varying vec4 vGrassZoneWeightsExt;
             varying vec4 vGrassZoneWeightsExt2;
+            ${BABYLON_HAZE_GLSL}
         ` + shader.fragmentShader;
 
         // Keep grass normal aligned with terrain surface normal on both front and back faces!
@@ -8918,7 +9042,8 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             '#include <map_fragment>',
             `
             vec4 texelColor = texture2D(uGrassAtlas, vGrassAtlasUv);
-            if (texelColor.a < 0.42) discard;
+            float alphaBoost = 1.0 + clamp(vGrassDistCam / 130.0, 0.0, 0.80);
+            if (texelColor.a * alphaBoost < 0.40) discard;
 
             // Convert grass atlas from sRGB to linear space
             vec3 bladeLinear = pow(max(texelColor.rgb, vec3(0.001)), vec3(2.2));
@@ -8998,10 +9123,21 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             float sssVariety = mix(0.25, 1.35, macroWave * 0.65 + microRand * 0.35);
 
             vec3 sssColor = mix(bladeLinear * 2.0, uSunColor * 1.5, 0.40);
-            vec3 sss = sssColor * backLight * edgeAndTip * sssVariety * 0.90;
+            float distSssFade = 1.0 - smoothstep(45.0, 180.0, vGrassDistCam) * 0.75;
+            vec3 sss = sssColor * backLight * edgeAndTip * sssVariety * 0.90 * distSssFade;
             float grassAO = mix(0.45, 1.0, smoothstep(0.0, 0.58, vGrassHeightFrac));
+            float distGroundBlend = smoothstep(45.0, 220.0, vGrassDistCam) * 0.72;
+            vec3 finalBlade = mix(bladeLinear * grassAO, groundRootCol * 1.25, distGroundBlend);
 
-            diffuseColor.rgb = bladeLinear * grassAO + sss;
+            diffuseColor.rgb = finalBlade + sss;
+            `
+        );
+
+        shader.fragmentShader = shader.fragmentShader.replace(
+            '#include <tonemapping_fragment>',
+            `
+            gl_FragColor.rgb = applyBabylonAerialHaze(gl_FragColor.rgb, vGrassWorldPos, uCameraPos, uSunDir, uSunColor, uSkyColor, uSkyTopColor, uHazeStrength);
+            #include <tonemapping_fragment>
             `
         );
     };
@@ -9023,8 +9159,185 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
 // ============================================================================
 const CHUNK_SIZE = 80;
 const CHUNK_SEGS = 32;
-const VIEW_RADIUS = 4; // 9x9 = 81 chunks (320m radius) - covers visual range with fog transition
-const UNLOAD_RADIUS = 5; // Hysteresis buffer: only dispose chunks when player is >= 5 chunks (400m) away
+const VIEW_RADIUS = 5; // 11x11 = 121 chunks (400m radius) + FarTerrainRing out to 4500m
+const UNLOAD_RADIUS = 6; // Hysteresis buffer: only dispose chunks when player is >= 6 chunks (480m) away
+
+const _tvLushGrass = new THREE.Color(0x283e1c);
+const _tvDryGrass  = new THREE.Color(0x565026);
+const _tvSunlitGrass = new THREE.Color(0x405828);
+const _tvMudRoad   = new THREE.Color(0x3e3224);
+const _tvWetRut    = new THREE.Color(0x221a12);
+const _tvCliffRock = new THREE.Color(0x585652);
+const _tvMountain  = new THREE.Color(0x3c4852);
+const _tvDesertSand = new THREE.Color(0xc4a88c);
+const _tvDesertDune = new THREE.Color(0xd8c3ab);
+const _tvSandstone  = new THREE.Color(0x9a745c);
+const _tvDesertOasisGrass = new THREE.Color(0x567e32);
+const _tvAlpineSnow = new THREE.Color(0xeaf2fa);
+const _tvHeather    = new THREE.Color(0x644c22);
+const _tvTempCol = new THREE.Color();
+const _tvTempDirtCol = new THREE.Color();
+const _tvScratchA = new THREE.Color();
+const _tvScratchB = new THREE.Color();
+
+function sampleTerrainVertexColor(wx, wz, wy, n, outArr, offset) {
+    const slope = 1.0 - n.y;
+    const fieldNoise = fbm3((wx + seedOffset.x) * 0.014, (wz + seedOffset.z) * 0.014) * 0.5 + 0.5;
+    const roadF = getRoadFactor(wx, wz);
+    const weights = getZoneWeights(wx, wz);
+    let red = 0, green = 0, blue = 0;
+
+    for (let currentZoneIndex = 0; currentZoneIndex < weights.length; currentZoneIndex++) {
+        if (weights[currentZoneIndex] === 0) continue;
+        if (currentZoneIndex === 1) {
+            _tvTempCol.copy(_tvDesertSand).lerp(_tvDesertDune, smoothstep(0.20, 0.80, fieldNoise));
+            if (wy < -0.3) {
+                const oasisGreenery = 1.0 - smoothstep(-1.9, -0.3, wy);
+                _tvTempCol.lerp(_tvDesertOasisGrass, oasisGreenery * 0.85);
+            }
+            if (roadF > 0.01) {
+                _tvTempDirtCol.setHex(0x8c6239);
+                _tvTempCol.lerp(_tvTempDirtCol, Math.min(1.0, roadF * 1.1));
+            }
+            if (slope > 0.16) {
+                _tvTempCol.lerp(_tvSandstone, Math.min(1.0, (slope - 0.16) * 4.2));
+            }
+        } else if (currentZoneIndex === 2) {
+            _tvTempCol.copy(_tvLushGrass).lerp(_tvSunlitGrass, smoothstep(0.15, 0.65, fieldNoise) * 0.65);
+            if (roadF > 0.01) {
+                _tvTempDirtCol.setHex(0x4a4c50);
+                _tvTempCol.lerp(_tvTempDirtCol, Math.min(1.0, roadF * 1.1));
+            }
+            if (slope > 0.15) {
+                _tvTempCol.lerp(_tvMountain, Math.min(1.0, (slope - 0.15) * 4.5));
+            }
+            if (wy > 13.5) {
+                const snowBlend = Math.min(1.0, (wy - 13.5) / 8.0) * (1.0 - smoothstep(0.32, 0.58, slope) * 0.7);
+                _tvTempCol.lerp(_tvAlpineSnow, snowBlend);
+            }
+        } else if (currentZoneIndex === 3) {
+            _tvTempCol.copy(_tvLushGrass).lerp(_tvSunlitGrass, smoothstep(0.10, 0.60, fieldNoise) * 0.75);
+            _tvTempCol.lerp(_tvDryGrass, smoothstep(0.55, 0.92, fieldNoise) * 0.78);
+            if (wy > 9.0) {
+                _tvTempCol.lerp(_tvHeather, Math.min(1.0, (wy - 9.0) / 9.0) * 0.75);
+            }
+            if (roadF > 0.01) {
+                const distFromCenter = getRoadDistance(wx, wz);
+                const rutDist = Math.abs(distFromCenter - 1.35);
+                const isRut = rutDist < 0.55 ? 0.75 : 0.0;
+                _tvTempDirtCol.copy(_tvMudRoad).lerp(_tvWetRut, isRut);
+                _tvTempCol.lerp(_tvTempDirtCol, Math.min(1.0, roadF * 1.1));
+            }
+            if (slope > 0.20) {
+                _tvTempCol.lerp(_tvCliffRock, Math.min(1.0, (slope - 0.20) * 4.5));
+            }
+        } else if (currentZoneIndex === 4) {
+            _tvTempCol.setHex(0xd0e0ec).lerp(_tvAlpineSnow, smoothstep(0.15, 0.75, fieldNoise));
+            if (roadF > 0.01) {
+                const distFromCenter = getRoadDistance(wx, wz);
+                const rutDist = Math.abs(distFromCenter - 1.35);
+                const isRut = rutDist < 0.55 ? 0.85 : 0.0;
+                _tvTempDirtCol.setHex(0x505860).lerp(_tvScratchA.setHex(0x282c30), isRut);
+                _tvTempCol.lerp(_tvTempDirtCol, Math.min(1.0, roadF * 1.1));
+            }
+            if (slope > 0.16) {
+                _tvTempCol.lerp(_tvScratchA.setHex(0x38342e), Math.min(1.0, (slope - 0.16) * 3.5));
+            }
+            if (slope > 0.28) {
+                _tvTempCol.lerp(_tvMountain, Math.min(1.0, (slope - 0.28) * 4.5));
+            }
+        } else if (currentZoneIndex === 5) {
+            _tvTempCol.setHex(0x365820).lerp(_tvLushGrass, smoothstep(0.12, 0.65, fieldNoise));
+            _tvTempCol.lerp(_tvSunlitGrass, smoothstep(0.60, 0.95, fieldNoise) * 0.6);
+            if (roadF > 0.01) {
+                const distFromCenter = getRoadDistance(wx, wz);
+                const rutDist = Math.abs(distFromCenter - 1.35);
+                const isRut = rutDist < 0.55 ? 0.85 : 0.0;
+                _tvTempDirtCol.setHex(0x423220).lerp(_tvScratchA.setHex(0x24180e), isRut);
+                _tvTempCol.lerp(_tvTempDirtCol, Math.min(1.0, roadF * 1.1));
+            }
+            if (slope > 0.16) {
+                _tvTempCol.lerp(_tvScratchA.setHex(0x4c3c28), Math.min(1.0, (slope - 0.16) * 4.0));
+            }
+        } else if (currentZoneIndex === 6) {
+            _tvTempCol.setHex(0xb44426).lerp(_tvScratchA.setHex(0xd46842), smoothstep(0.15, 0.75, fieldNoise));
+            if (roadF > 0.01) {
+                _tvTempDirtCol.setHex(0x8c341b);
+                _tvTempCol.lerp(_tvTempDirtCol, Math.min(1.0, roadF * 1.1));
+            }
+            if (slope > 0.14) {
+                _tvTempCol.lerp(_tvScratchA.setHex(0x7a220e), Math.min(1.0, (slope - 0.14) * 4.2));
+            }
+        } else if (currentZoneIndex === 7) {
+            _tvTempCol.setHex(0x8c5438).lerp(_tvScratchA.setHex(0xa86e50), smoothstep(0.15, 0.75, fieldNoise));
+            if (roadF > 0.01) {
+                _tvTempDirtCol.setHex(0x5c3420);
+                _tvTempCol.lerp(_tvTempDirtCol, Math.min(1.0, roadF * 1.1));
+            }
+            if (slope > 0.12) {
+                _tvTempCol.lerp(_tvScratchA.setHex(0x6e2a18), Math.min(1.0, (slope - 0.12) * 4.5));
+            }
+        } else if (currentZoneIndex === 8) {
+            _tvTempCol.setHex(0xd4aa66).lerp(_tvScratchA.setHex(0xebb874), smoothstep(0.12, 0.70, fieldNoise));
+            if (roadF > 0.01) {
+                _tvTempDirtCol.setHex(0xa07842);
+                _tvTempCol.lerp(_tvTempDirtCol, Math.min(1.0, roadF * 1.1));
+            }
+            if (slope > 0.16) {
+                _tvTempCol.lerp(_tvScratchA.setHex(0xc29c60), Math.min(1.0, (slope - 0.16) * 4.0));
+            }
+        } else if (currentZoneIndex === 9) {
+            _tvTempCol.setHex(0x1e421a).lerp(_tvScratchA.setHex(0x2d6824), smoothstep(0.10, 0.65, fieldNoise));
+            if (roadF > 0.01) {
+                _tvTempDirtCol.setHex(0x381e0e);
+                _tvTempCol.lerp(_tvTempDirtCol, Math.min(1.0, roadF * 1.1));
+            }
+            if (slope > 0.15) {
+                _tvTempCol.lerp(_tvScratchA.setHex(0x3c4832), Math.min(1.0, (slope - 0.15) * 4.2));
+            }
+        } else if (currentZoneIndex === 10) {
+            _tvTempCol.setHex(0x5c6838).lerp(_tvScratchA.setHex(0xa89268), smoothstep(0.32, 0.85, fieldNoise));
+            if (roadF > 0.01) {
+                _tvTempDirtCol.setHex(0xd2c4aa);
+                _tvTempCol.lerp(_tvTempDirtCol, Math.min(1.0, roadF * 1.1));
+            }
+            if (slope > 0.14) {
+                _tvTempCol.lerp(_tvScratchA.setHex(0xdcd4c4), Math.min(1.0, (slope - 0.14) * 4.2));
+            }
+        } else if (currentZoneIndex === 11) {
+            _tvTempCol.setHex(0x465c2c).lerp(_tvScratchA.setHex(0x7c7040), smoothstep(0.35, 0.88, fieldNoise));
+            if (roadF > 0.01) {
+                _tvTempDirtCol.setHex(0x52504c);
+                _tvTempCol.lerp(_tvTempDirtCol, Math.min(1.0, roadF * 1.1));
+            }
+            if (slope > 0.15) {
+                _tvTempCol.lerp(_tvScratchA.setHex(0xc2b092), Math.min(1.0, (slope - 0.15) * 4.2));
+            }
+        } else {
+            _tvTempCol.copy(_tvLushGrass).lerp(_tvSunlitGrass, smoothstep(0.10, 0.60, fieldNoise) * 0.75);
+            _tvTempCol.lerp(_tvDryGrass, smoothstep(0.58, 0.94, fieldNoise) * 0.82);
+            if (roadF > 0.01) {
+                const distFromCenter = getRoadDistance(wx, wz);
+                const rutDist = Math.abs(distFromCenter - 1.35);
+                const isRut = rutDist < 0.55 ? 0.75 : 0.0;
+                _tvTempDirtCol.copy(_tvMudRoad).lerp(_tvWetRut, isRut);
+                _tvTempCol.lerp(_tvTempDirtCol, Math.min(1.0, roadF * 1.1));
+            }
+            if (slope > 0.22) {
+                _tvTempCol.lerp(_tvCliffRock, Math.min(1.0, (slope - 0.22) * 4.5));
+            }
+            if (wy > 12.0) {
+                _tvTempCol.lerp(_tvMountain, Math.min(1.0, (wy - 12.0) / 12.0) * 0.75);
+            }
+        }
+        red += _tvTempCol.r * weights[currentZoneIndex];
+        green += _tvTempCol.g * weights[currentZoneIndex];
+        blue += _tvTempCol.b * weights[currentZoneIndex];
+    }
+    outArr[offset] = red;
+    outArr[offset + 1] = green;
+    outArr[offset + 2] = blue;
+}
 
 // Non-blocking asynchronous chunk streaming queue
 var chunkLoadQueue = [];
@@ -9060,22 +9373,6 @@ class TerrainChunk {
         const count = pos.count;
         const colors = new Float32Array(count * 3);
 
-        const colLushGrass = new THREE.Color(0x283e1c);
-        const colDryGrass  = new THREE.Color(0x565026);
-        const colSunlitGrass = new THREE.Color(0x405828);
-        const colMudRoad   = new THREE.Color(0x3e3224);
-        const colWetRut    = new THREE.Color(0x221a12);
-        const colCliffRock = new THREE.Color(0x585652);
-        const colMountain  = new THREE.Color(0x3c4852);
-        const colDesertSand = new THREE.Color(0xc4a88c);
-        const colDesertDune = new THREE.Color(0xd8c3ab);
-        const colSandstone  = new THREE.Color(0x9a745c);
-        const colDesertOasisGrass = new THREE.Color(0x567e32);
-        const colAlpineSnow = new THREE.Color(0xeaf2fa);
-        const colHeather    = new THREE.Color(0x644c22);
-        const tempCol = new THREE.Color();
-        const tempDirtCol = new THREE.Color();
-
         const xMin = this.cx * CHUNK_SIZE;
         const zMin = this.cz * CHUNK_SIZE;
 
@@ -9094,180 +9391,7 @@ class TerrainChunk {
             pos.setXYZ(i, lx, meshY, lz);
 
             const n = getTerrainNormal(wx, wz);
-            const slope = 1.0 - n.y;
-            const fieldNoise = fbm3((wx + seedOffset.x) * 0.014, (wz + seedOffset.z) * 0.014) * 0.5 + 0.5;
-            const roadF = getRoadFactor(wx, wz);
-
-            const weights = getZoneWeights(wx, wz);
-            let red = 0, green = 0, blue = 0;
-            for (let currentZoneIndex = 0; currentZoneIndex < weights.length; currentZoneIndex++) {
-                if (weights[currentZoneIndex] === 0) continue;
-                if (currentZoneIndex === 1) {
-                    // Desert zone vertex colors
-                    tempCol.copy(colDesertSand).lerp(colDesertDune, smoothstep(0.20, 0.80, fieldNoise));
-                    if (wy < -0.3) {
-                        const oasisGreenery = 1.0 - smoothstep(-1.9, -0.3, wy);
-                        tempCol.lerp(colDesertOasisGrass, oasisGreenery * 0.85);
-                    }
-                    if (roadF > 0.01) {
-                        tempDirtCol.setHex(0x8c6239);
-                        tempCol.lerp(tempDirtCol, Math.min(1.0, roadF * 1.1));
-                    }
-                    if (slope > 0.16) {
-                        tempCol.lerp(colSandstone, Math.min(1.0, (slope - 0.16) * 4.2));
-                    }
-                } else if (currentZoneIndex === 2) {
-                    // Alpine Mountain zone vertex colors
-                    tempCol.copy(colLushGrass).lerp(colSunlitGrass, smoothstep(0.15, 0.65, fieldNoise) * 0.65);
-                    if (roadF > 0.01) {
-                        tempDirtCol.setHex(0x4a4c50);
-                        tempCol.lerp(tempDirtCol, Math.min(1.0, roadF * 1.1));
-                    }
-                    if (slope > 0.15) {
-                        tempCol.lerp(colMountain, Math.min(1.0, (slope - 0.15) * 4.5));
-                    }
-                    if (wy > 13.5) {
-                        const snowBlend = Math.min(1.0, (wy - 13.5) / 8.0) * (1.0 - smoothstep(0.32, 0.58, slope) * 0.7);
-                        tempCol.lerp(colAlpineSnow, snowBlend);
-                    }
-                } else if (currentZoneIndex === 3) {
-                    // Highland Rolling Hills vertex colors
-                    tempCol.copy(colLushGrass).lerp(colSunlitGrass, smoothstep(0.10, 0.60, fieldNoise) * 0.75);
-                    tempCol.lerp(colDryGrass, smoothstep(0.55, 0.92, fieldNoise) * 0.78);
-                    if (wy > 9.0) {
-                        tempCol.lerp(colHeather, Math.min(1.0, (wy - 9.0) / 9.0) * 0.75);
-                    }
-                    if (roadF > 0.01) {
-                        const distFromCenter = getRoadDistance(wx, wz);
-                        const rutDist = Math.abs(distFromCenter - 1.35);
-                        const isRut = rutDist < 0.55 ? 0.75 : 0.0;
-                        tempDirtCol.copy(colMudRoad).lerp(colWetRut, isRut);
-                        tempCol.lerp(tempDirtCol, Math.min(1.0, roadF * 1.1));
-                    }
-                    if (slope > 0.20) {
-                        tempCol.lerp(colCliffRock, Math.min(1.0, (slope - 0.20) * 4.5));
-                    }
-                } else if (currentZoneIndex === 4) {
-                    // Ardennes Winter vertex colors
-                    tempCol.setHex(0xd0e0ec).lerp(colAlpineSnow, smoothstep(0.15, 0.75, fieldNoise));
-                    if (roadF > 0.01) {
-                        const distFromCenter = getRoadDistance(wx, wz);
-                        const rutDist = Math.abs(distFromCenter - 1.35);
-                        const isRut = rutDist < 0.55 ? 0.85 : 0.0;
-                        tempDirtCol.setHex(0x505860).lerp(new THREE.Color(0x282c30), isRut);
-                        tempCol.lerp(tempDirtCol, Math.min(1.0, roadF * 1.1));
-                    }
-                    if (slope > 0.16) {
-                        tempCol.lerp(new THREE.Color(0x38342e), Math.min(1.0, (slope - 0.16) * 3.5));
-                    }
-                    if (slope > 0.28) {
-                        tempCol.lerp(colMountain, Math.min(1.0, (slope - 0.28) * 4.5));
-                    }
-                } else if (currentZoneIndex === 5) {
-                    // Normandy Bocage vertex colors
-                    tempCol.setHex(0x365820).lerp(colLushGrass, smoothstep(0.12, 0.65, fieldNoise));
-                    tempCol.lerp(colSunlitGrass, smoothstep(0.60, 0.95, fieldNoise) * 0.6);
-                    if (roadF > 0.01) {
-                        const distFromCenter = getRoadDistance(wx, wz);
-                        const rutDist = Math.abs(distFromCenter - 1.35);
-                        const isRut = rutDist < 0.55 ? 0.85 : 0.0;
-                        tempDirtCol.setHex(0x423220).lerp(new THREE.Color(0x24180e), isRut);
-                        tempCol.lerp(tempDirtCol, Math.min(1.0, roadF * 1.1));
-                    }
-                    if (slope > 0.16) {
-                        tempCol.lerp(new THREE.Color(0x4c3c28), Math.min(1.0, (slope - 0.16) * 4.0));
-                    }
-                } else if (currentZoneIndex === 6) {
-                    // Monument Valley vertex colors
-                    tempCol.setHex(0xb44426).lerp(new THREE.Color(0xd46842), smoothstep(0.15, 0.75, fieldNoise));
-                    if (roadF > 0.01) {
-                        tempDirtCol.setHex(0x8c341b);
-                        tempCol.lerp(tempDirtCol, Math.min(1.0, roadF * 1.1));
-                    }
-                    if (slope > 0.14) {
-                        tempCol.lerp(new THREE.Color(0x7a220e), Math.min(1.0, (slope - 0.14) * 4.2));
-                    }
-                } else if (currentZoneIndex === 7) {
-                    // Grand Canyon vertex colors
-                    tempCol.setHex(0x8c5438).lerp(new THREE.Color(0xa86e50), smoothstep(0.15, 0.75, fieldNoise));
-                    if (roadF > 0.01) {
-                        tempDirtCol.setHex(0x5c3420);
-                        tempCol.lerp(tempDirtCol, Math.min(1.0, roadF * 1.1));
-                    }
-                    if (slope > 0.12) {
-                        tempCol.lerp(new THREE.Color(0x6e2a18), Math.min(1.0, (slope - 0.12) * 4.5));
-                    }
-                } else if (currentZoneIndex === 8) {
-                    // Ancient Egypt vertex colors
-                    tempCol.setHex(0xd4aa66).lerp(new THREE.Color(0xebb874), smoothstep(0.12, 0.70, fieldNoise));
-                    if (roadF > 0.01) {
-                        tempDirtCol.setHex(0xa07842);
-                        tempCol.lerp(tempDirtCol, Math.min(1.0, roadF * 1.1));
-                    }
-                    if (slope > 0.16) {
-                        tempCol.lerp(new THREE.Color(0xc29c60), Math.min(1.0, (slope - 0.16) * 4.0));
-                    }
-                } else if (currentZoneIndex === 9) {
-                    // Tropical Jungle vertex colors
-                    tempCol.setHex(0x1e421a).lerp(new THREE.Color(0x2d6824), smoothstep(0.10, 0.65, fieldNoise));
-                    if (roadF > 0.01) {
-                        tempDirtCol.setHex(0x381e0e);
-                        tempCol.lerp(tempDirtCol, Math.min(1.0, roadF * 1.1));
-                    }
-                    if (slope > 0.15) {
-                        tempCol.lerp(new THREE.Color(0x3c4832), Math.min(1.0, (slope - 0.15) * 4.2));
-                    }
-                } else if (currentZoneIndex === 10) {
-                    // Ancient Greece vertex colors (Olive-gold limestone hills & marble Via Sacra)
-                    tempCol.setHex(0x5c6838).lerp(new THREE.Color(0xa89268), smoothstep(0.32, 0.85, fieldNoise));
-                    if (roadF > 0.01) {
-                        tempDirtCol.setHex(0xd2c4aa);
-                        tempCol.lerp(tempDirtCol, Math.min(1.0, roadF * 1.1));
-                    }
-                    if (slope > 0.14) {
-                        tempCol.lerp(new THREE.Color(0xdcd4c4), Math.min(1.0, (slope - 0.14) * 4.2));
-                    }
-                } else if (currentZoneIndex === 11) {
-                    // Ancient Rome vertex colors (Sunlit Latium Campagna & Via Appia basalt road)
-                    tempCol.setHex(0x465c2c).lerp(new THREE.Color(0x7c7040), smoothstep(0.35, 0.88, fieldNoise));
-                    if (roadF > 0.01) {
-                        tempDirtCol.setHex(0x52504c);
-                        tempCol.lerp(tempDirtCol, Math.min(1.0, roadF * 1.1));
-                    }
-                    if (slope > 0.15) {
-                        tempCol.lerp(new THREE.Color(0xc2b092), Math.min(1.0, (slope - 0.15) * 4.2));
-                    }
-                } else {
-                    // Coastal Meadow (default)
-                    tempCol.copy(colLushGrass).lerp(colSunlitGrass, smoothstep(0.10, 0.60, fieldNoise) * 0.75);
-                    tempCol.lerp(colDryGrass, smoothstep(0.58, 0.94, fieldNoise) * 0.82);
-
-                    if (roadF > 0.01) {
-                        const distFromCenter = getRoadDistance(wx, wz);
-                        const rutDist = Math.abs(distFromCenter - 1.35);
-                        const isRut = rutDist < 0.55 ? 0.75 : 0.0;
-                        tempDirtCol.copy(colMudRoad).lerp(colWetRut, isRut);
-                        tempCol.lerp(tempDirtCol, Math.min(1.0, roadF * 1.1));
-                    }
-
-                    if (slope > 0.22) {
-                        const rockBlend = Math.min(1.0, (slope - 0.22) * 4.5);
-                        tempCol.lerp(colCliffRock, rockBlend);
-                    }
-
-                    if (wy > 12.0) {
-                        const mBlend = Math.min(1.0, (wy - 12.0) / 12.0);
-                        tempCol.lerp(colMountain, mBlend * 0.75);
-                    }
-                }
-
-                red += tempCol.r * weights[currentZoneIndex];
-                green += tempCol.g * weights[currentZoneIndex];
-                blue += tempCol.b * weights[currentZoneIndex];
-            }
-            colors[i * 3 + 0] = red;
-            colors[i * 3 + 1] = green;
-            colors[i * 3 + 2] = blue;
+            sampleTerrainVertexColor(wx, wz, wy, n, colors, i * 3);
         }
 
         geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
@@ -10431,6 +10555,666 @@ window.updateTerrainChunks = updateTerrainChunks;
 window.processChunkStreamingQueue = processChunkStreamingQueue;
 
 // ============================================================================
+// 8B. BABYLON-INSPIRED TERRAIN, TREE-TYPE, ROCK & HOUSE FAR LOD SYSTEM
+// ============================================================================
+let farTerrainGroup = null;
+let farMidMesh = null;
+let farOuterMesh = null;
+let farLastSnapX = null;
+let farLastSnapZ = null;
+let farPropLastCX = null;
+let farPropLastCZ = null;
+const farChunkPropCache = new Map();
+
+const farLodMeshes = {
+    conifer: null,
+    cypress: null,
+    broadleaf: null,
+    palm: null,
+    acacia: null,
+    cactus: null,
+    rock: null,
+    house: null,
+    adobe: null,
+    butte: null
+};
+
+function buildFarRingMesh(centerX, centerZ, halfExtent, step, skipInnerHalf, ySkirt, receiveShadow) {
+    const cells = Math.round((halfExtent * 2) / step);
+    const positions = [];
+    const normals = [];
+    const colors = [];
+    const indices = [];
+    const vertIndexMap = new Int32Array((cells + 1) * (cells + 1)).fill(-1);
+    const rgb = [0, 0, 0];
+
+    const getVert = (ix, iz) => {
+        const key = iz * (cells + 1) + ix;
+        if (vertIndexMap[key] !== -1) return vertIndexMap[key];
+        const wx = centerX - halfExtent + ix * step;
+        const wz = centerZ - halfExtent + iz * step;
+        const wy = getTerrainHeight(wx, wz);
+        let meshY = wy;
+        if (wy < -2.25) {
+            meshY -= smoothstep(-2.25, -2.85, wy) * 2.5;
+        }
+        const n = getTerrainNormal(wx, wz);
+        sampleTerrainVertexColor(wx, wz, wy, n, rgb, 0);
+        const idx = positions.length / 3;
+        positions.push(wx, meshY + ySkirt, wz);
+        normals.push(n.x, n.y, n.z);
+        colors.push(rgb[0], rgb[1], rgb[2]);
+        vertIndexMap[key] = idx;
+        return idx;
+    };
+
+    for (let iz = 0; iz < cells; iz++) {
+        const czLocal = -halfExtent + (iz + 0.5) * step;
+        for (let ix = 0; ix < cells; ix++) {
+            const cxLocal = -halfExtent + (ix + 0.5) * step;
+            if (Math.abs(cxLocal) < skipInnerHalf && Math.abs(czLocal) < skipInnerHalf) continue;
+            const v00 = getVert(ix, iz);
+            const v10 = getVert(ix + 1, iz);
+            const v01 = getVert(ix, iz + 1);
+            const v11 = getVert(ix + 1, iz + 1);
+            indices.push(v00, v01, v10);
+            indices.push(v10, v01, v11);
+        }
+    }
+
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+    geo.setIndex(indices);
+
+    const mesh = new THREE.Mesh(geo, terrainMat);
+    mesh.receiveShadow = receiveShadow;
+    mesh.castShadow = false;
+    mesh.frustumCulled = false;
+    return mesh;
+}
+
+function createFarHazedLambertMaterial(options = {}) {
+    const mat = new THREE.MeshLambertMaterial({
+        map: options.map || null,
+        alphaTest: options.alphaTest || 0.0,
+        side: options.side || THREE.FrontSide,
+        vertexColors: Boolean(options.vertexColors),
+        fog: false
+    });
+    const hasWindSway = Boolean(options.windSway);
+    mat.onBeforeCompile = (shader) => {
+        shader.uniforms.uCameraPos = terrainUniforms.uCameraPos;
+        shader.uniforms.uSunDir = terrainUniforms.uSunDir;
+        shader.uniforms.uSunColor = terrainUniforms.uSunColor;
+        shader.uniforms.uSkyColor = terrainUniforms.uSkyColor;
+        shader.uniforms.uSkyTopColor = terrainUniforms.uSkyTopColor;
+        shader.uniforms.uHazeStrength = terrainUniforms.uHazeStrength;
+        if (hasWindSway) {
+            shader.uniforms.uTime = grassUniforms.uTime;
+            shader.uniforms.uWindSpeed = grassUniforms.uWindSpeed;
+        }
+        shader.vertexShader = (hasWindSway ? 'uniform float uTime;\nuniform float uWindSpeed;\n' : '') + 'varying vec3 vFarPropWP;\n' + shader.vertexShader.replace(
+            '#include <begin_vertex>',
+            `#include <begin_vertex>` + (hasWindSway ? `
+            vec3 farBasePos = vec3(0.0);
+            #ifdef USE_INSTANCING
+            farBasePos = (modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+            #else
+            farBasePos = (modelMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+            #endif
+            float farWave = sin(farBasePos.x * 0.14 + farBasePos.z * 0.12 + uTime * uWindSpeed * 2.4);
+            float farH = pow(clamp(transformed.y / 12.0, 0.0, 1.2), 1.35);
+            float farSway = farWave * 0.24 * farH;
+            transformed.x += farSway;
+            transformed.z += farSway * 0.60;` : '') + `
+            vec4 fpWp = vec4(transformed, 1.0);
+            #ifdef USE_INSTANCING
+            fpWp = instanceMatrix * fpWp;
+            #endif
+            vFarPropWP = (modelMatrix * fpWp).xyz;`
+        );
+        shader.fragmentShader = `
+            uniform vec3 uCameraPos;
+            uniform vec3 uSunDir;
+            uniform vec3 uSunColor;
+            uniform vec3 uSkyColor;
+            uniform vec3 uSkyTopColor;
+            uniform float uHazeStrength;
+            varying vec3 vFarPropWP;
+            ${BABYLON_HAZE_GLSL}
+        ` + shader.fragmentShader.replace(
+            '#include <tonemapping_fragment>',
+            `gl_FragColor.rgb = applyBabylonAerialHaze(gl_FragColor.rgb, vFarPropWP, uCameraPos, uSunDir, uSunColor, uSkyColor, uSkyTopColor, uHazeStrength);
+            #include <tonemapping_fragment>`
+        );
+    };
+    return mat;
+}
+
+let _farTreeMat = null;
+function getFarTreeImpostorMaterial() {
+    if (!_farTreeMat) {
+        _farTreeMat = createFarHazedLambertMaterial({
+            map: getBotanicalAtlas(),
+            alphaTest: 0.30,
+            side: THREE.DoubleSide,
+            vertexColors: false
+        });
+    }
+    return _farTreeMat;
+}
+
+let _farSolidMat = null;
+function getFarSolidLodMaterial() {
+    if (!_farSolidMat) {
+        _farSolidMat = createFarHazedLambertMaterial({
+            vertexColors: true,
+            side: THREE.FrontSide
+        });
+    }
+    return _farSolidMat;
+}
+
+function appendCrossedCard(pos, norm, uv, y0, y1, w0, w1, uMin, vMin, uMax, vMax) {
+    const base = pos.length / 3;
+    // Plane A (XY)
+    pos.push(-w0, y0, 0,   w0, y0, 0,   w1, y1, 0,  -w1, y1, 0);
+    norm.push(0, 0.35, 1,  0, 0.35, 1,  0, 0.65, 1,  0, 0.65, 1);
+    uv.push(uMin, vMin,  uMax, vMin,  uMax, vMax,  uMin, vMax);
+    // Plane B (ZY)
+    pos.push(0, y0, -w0,   0, y0, w0,   0, y1, w1,   0, y1, -w1);
+    norm.push(1, 0.35, 0,  1, 0.35, 0,  1, 0.65, 0,  1, 0.65, 0);
+    uv.push(uMin, vMin,  uMax, vMin,  uMax, vMax,  uMin, vMax);
+    return [
+        base + 0, base + 1, base + 2, base + 0, base + 2, base + 3,
+        base + 4, base + 5, base + 6, base + 4, base + 6, base + 7
+    ];
+}
+
+function finalizeCardGeo(pos, norm, uv, idx) {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(norm, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geo.setIndex(idx);
+    return geo;
+}
+
+function buildFarConiferGeo() {
+    // Tapered trunk (Q3) + 3-tier conical needle boughs (Q0: [0..0.5, 0.5..1.0])
+    const pos = [], norm = [], uv = [], idx = [];
+    idx.push(...appendCrossedCard(pos, norm, uv, 0, 5.5, 0.45, 0.25, 0.54, 0.04, 0.96, 0.46));
+    idx.push(...appendCrossedCard(pos, norm, uv, 2.8, 7.8, 3.2, 1.9, 0.02, 0.52, 0.48, 0.98));
+    idx.push(...appendCrossedCard(pos, norm, uv, 6.2, 11.2, 2.3, 1.1, 0.02, 0.52, 0.48, 0.98));
+    idx.push(...appendCrossedCard(pos, norm, uv, 9.5, 13.8, 1.3, 0.2, 0.02, 0.52, 0.48, 0.98));
+    return finalizeCardGeo(pos, norm, uv, idx);
+}
+
+function buildFarCypressGeo() {
+    // Tall columnar Mediterranean cypress silhouette (Q0 needles + Q3 trunk)
+    const pos = [], norm = [], uv = [], idx = [];
+    idx.push(...appendCrossedCard(pos, norm, uv, 0, 2.8, 0.35, 0.25, 0.54, 0.04, 0.96, 0.46));
+    idx.push(...appendCrossedCard(pos, norm, uv, 1.8, 13.6, 1.45, 0.35, 0.02, 0.52, 0.48, 0.98));
+    return finalizeCardGeo(pos, norm, uv, idx);
+}
+
+function buildFarBroadleafGeo() {
+    // Trunk (Q3) + broad rounded deciduous crown (Q1: [0.5..1.0, 0.5..1.0])
+    const pos = [], norm = [], uv = [], idx = [];
+    idx.push(...appendCrossedCard(pos, norm, uv, 0, 5.2, 0.55, 0.35, 0.54, 0.04, 0.96, 0.46));
+    idx.push(...appendCrossedCard(pos, norm, uv, 3.6, 10.6, 3.6, 3.2, 0.52, 0.52, 0.98, 0.98));
+    return finalizeCardGeo(pos, norm, uv, idx);
+}
+
+function buildFarPalmGeo() {
+    // Tall slender trunk (Q3) + high radiating frond crown (Q0/Q2)
+    const pos = [], norm = [], uv = [], idx = [];
+    idx.push(...appendCrossedCard(pos, norm, uv, 0, 10.5, 0.35, 0.22, 0.54, 0.04, 0.96, 0.46));
+    idx.push(...appendCrossedCard(pos, norm, uv, 8.6, 12.6, 3.8, 2.6, 0.02, 0.52, 0.48, 0.98));
+    return finalizeCardGeo(pos, norm, uv, idx);
+}
+
+function buildFarAcaciaGeo() {
+    // Savannah/desert umbrella acacia: trunk (Q3) + wide flat canopy (Q1)
+    const pos = [], norm = [], uv = [], idx = [];
+    idx.push(...appendCrossedCard(pos, norm, uv, 0, 5.8, 0.42, 0.25, 0.54, 0.04, 0.96, 0.46));
+    idx.push(...appendCrossedCard(pos, norm, uv, 5.0, 8.2, 4.4, 4.6, 0.52, 0.52, 0.98, 0.98));
+    return finalizeCardGeo(pos, norm, uv, idx);
+}
+
+function buildFarCactusGeo() {
+    const geo = new THREE.CylinderGeometry(0.32, 0.40, 4.8, 6);
+    geo.translate(0, 2.4, 0);
+    const count = geo.attributes.position.count;
+    const cols = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+        cols[i * 3 + 0] = 0.24;
+        cols[i * 3 + 1] = 0.46;
+        cols[i * 3 + 2] = 0.20;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+    return geo;
+}
+
+function buildFarRockGeo() {
+    const geo = new THREE.DodecahedronGeometry(2.1, 0);
+    const pos = geo.attributes.position;
+    const count = pos.count;
+    const cols = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+        const y = pos.getY(i);
+        pos.setY(i, y * 0.78 + 0.6);
+        const shade = 0.72 + Math.max(0, y) * 0.14;
+        cols[i * 3 + 0] = shade;
+        cols[i * 3 + 1] = shade;
+        cols[i * 3 + 2] = shade;
+    }
+    geo.computeVertexNormals();
+    geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+    return geo;
+}
+
+function buildFarHouseGeo() {
+    // Low-poly pitched-roof house (unit width ~7.5m, wall height 3.4m, roof peak 5.8m)
+    const w = 3.8, d = 3.2, h = 3.4, peak = 5.8;
+    const pos = [
+        // Front/Back/Sides walls
+        -w,0,d,  w,0,d,  w,h,d,  -w,h,d,
+        w,0,-d, -w,0,-d, -w,h,-d, w,h,-d,
+        -w,0,-d, -w,0,d, -w,h,d, -w,h,-d,
+        w,0,d,   w,0,-d, w,h,-d, w,h,d,
+        // Roof slopes
+        -w,h,d,  w,h,d,  w,peak,0,  -w,peak,0,
+        w,h,-d, -w,h,-d, -w,peak,0,  w,peak,0,
+        // Gable triangles
+        -w,h,-d, -w,h,d, -w,peak,0,
+        w,h,d,   w,h,-d, w,peak,0
+    ];
+    const col = [];
+    for (let i = 0; i < 16; i++) col.push(0.76, 0.72, 0.64); // Warm stone/plaster walls
+    for (let i = 0; i < 8; i++) col.push(0.68, 0.28, 0.20);  // Terracotta roof
+    for (let i = 0; i < 6; i++) col.push(0.72, 0.68, 0.60);  // Gables
+    const idx = [
+        0,1,2, 0,2,3,  4,5,6, 4,6,7,  8,9,10, 8,10,11,  12,13,14, 12,14,15,
+        16,17,18, 16,18,19,  20,21,22, 20,22,23,
+        24,25,26,  27,28,29
+    ];
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    geo.setIndex(idx);
+    geo.computeVertexNormals();
+    return geo;
+}
+
+function buildFarAdobeGeo() {
+    const geo = new THREE.BoxGeometry(6.8, 4.8, 6.2);
+    geo.translate(0, 2.4, 0);
+    const count = geo.attributes.position.count;
+    const cols = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+        const y = geo.attributes.position.getY(i);
+        const s = y > 3.5 ? 0.92 : 0.78;
+        cols[i * 3 + 0] = 0.84 * s;
+        cols[i * 3 + 1] = 0.68 * s;
+        cols[i * 3 + 2] = 0.48 * s;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+    return geo;
+}
+
+function buildFarButteGeo() {
+    // Tall tapered Monument Valley sandstone mesa/butte
+    const geo = new THREE.CylinderGeometry(3.8, 7.6, 24.0, 7);
+    geo.translate(0, 12.0, 0);
+    const count = geo.attributes.position.count;
+    const cols = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+        const y = geo.attributes.position.getY(i);
+        const strata = 0.85 + 0.15 * Math.sin(y * 0.9);
+        cols[i * 3 + 0] = 0.72 * strata;
+        cols[i * 3 + 1] = 0.28 * strata;
+        cols[i * 3 + 2] = 0.16 * strata;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
+    return geo;
+}
+
+function ensureFarLodInstancedMeshes(isMobile) {
+    if (!farTerrainGroup) return;
+    const treeCap = isMobile ? 350 : 1200;
+    const specs = [
+        ['conifer',   buildFarConiferGeo,   true,  treeCap],
+        ['cypress',   buildFarCypressGeo,   true,  Math.floor(treeCap * 0.5)],
+        ['broadleaf', buildFarBroadleafGeo, true,  treeCap],
+        ['palm',      buildFarPalmGeo,      true,  Math.floor(treeCap * 0.5)],
+        ['acacia',    buildFarAcaciaGeo,    true,  Math.floor(treeCap * 0.4)],
+        ['cactus',    buildFarCactusGeo,    false, Math.floor(treeCap * 0.3)],
+        ['rock',      buildFarRockGeo,      false, isMobile ? 250 : 750],
+        ['house',     buildFarHouseGeo,     false, isMobile ? 160 : 450],
+        ['adobe',     buildFarAdobeGeo,     false, isMobile ? 80 : 220],
+        ['butte',     buildFarButteGeo,     false, isMobile ? 60 : 180]
+    ];
+    const initCol = new THREE.Color(1, 1, 1);
+    for (let i = 0; i < specs.length; i++) {
+        const [key, geoFn, isCard, cap] = specs[i];
+        if (!farLodMeshes[key]) {
+            const mat = isCard
+                ? createFarHazedLambertMaterial({ map: getBotanicalAtlas(), alphaTest: 0.30, side: THREE.DoubleSide, vertexColors: false, windSway: true })
+                : createFarHazedLambertMaterial({ vertexColors: true, side: THREE.FrontSide });
+            const mesh = new THREE.InstancedMesh(geoFn(), mat, cap);
+            mesh.setColorAt(0, initCol);
+            mesh.instanceColor.needsUpdate = true;
+            mesh.frustumCulled = false;
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            mesh.count = 0;
+            farLodMeshes[key] = mesh;
+            farTerrainGroup.add(mesh);
+        }
+    }
+}
+
+function getFarChunkProps(cx, cz, isMobile) {
+    const key = `${cx},${cz}`;
+    const cached = farChunkPropCache.get(key);
+    if (cached) return cached;
+
+    const rng = createChunkRNG(cx, cz, currentSeed);
+    const xMin = cx * CHUNK_SIZE;
+    const zMin = cz * CHUNK_SIZE;
+    const chunkCenterX = xMin + CHUNK_SIZE * 0.5;
+    const chunkCenterZ = zMin + CHUNK_SIZE * 0.5;
+    const zoneIdx = getZoneIndexAt(chunkCenterX, chunkCenterZ);
+    const distFromSpawn = Math.hypot(chunkCenterX, chunkCenterZ);
+
+    const houses = [];
+    const rocks = [];
+    const trees = [];
+
+    // 1. Exact deterministic village/landmark pass (matching TerrainChunk.populateChunkContent)
+    const isCrossroadsVillage = (cx === 0 && cz === -1);
+    const isEastVillage = (cx === 1 && cz === 1);
+    const isWestVillage = (cx === -1 && cz === 1);
+    const isProceduralVillage = (Math.abs(cx) + Math.abs(cz) >= 3) && ((Math.abs(cx * 11 + cz * 17) % 5) === 0);
+    const isVillage = isCrossroadsVillage || isEastVillage || isWestVillage || isProceduralVillage;
+
+    if (isVillage) {
+        const villageTemplates = [
+            { rx: -16, rz: -14, type: 'cottage', rot: 0.35, scale: 1.05 },
+            { rx: 16, rz: -16, type: 'barn', rot: -0.42, scale: 1.10 },
+            { rx: -15, rz: 15, type: isWestVillage ? 'ruin' : 'townhouse', rot: 1.25, scale: 0.98 },
+            { rx: 18, rz: 16, type: isWestVillage ? 'farmhouse' : 'barn', rot: -1.15, scale: 1.02 },
+            { rx: 0, rz: 2, type: isCrossroadsVillage ? 'townhouse' : 'farmhouse', rot: 0.12, scale: 1.0 },
+            { rx: -1, rz: -26, type: 'wall', rot: 0.05, scale: 1.0 },
+            { rx: 1, rz: 26, type: 'wall', rot: 0.08, scale: 1.0 }
+        ];
+        for (let idx = 0; idx < villageTemplates.length; idx++) {
+            const struct = villageTemplates[idx];
+            let bx = chunkCenterX + struct.rx + (rng() - 0.5) * 4.0;
+            let bz = chunkCenterZ + struct.rz + (rng() - 0.5) * 4.0;
+            bx = THREE.MathUtils.clamp(bx, xMin + 8, xMin + CHUNK_SIZE - 8);
+            bz = THREE.MathUtils.clamp(bz, zMin + 8, zMin + CHUNK_SIZE - 8);
+            if (Math.hypot(bx, bz) < 32) continue;
+            if (Math.hypot(bx + 18, bz - 112) < 24) continue;
+            if (Math.hypot(bx + 19, bz - 22) < 20) continue;
+
+            const baseBy = getTerrainHeight(bx, bz);
+            const norm = getTerrainNormal(bx, bz);
+            const minNormY = (zoneIdx === 2) ? 0.80 : 0.85;
+            if (baseBy < -1.8 || norm.y < minNormY || (zoneIdx === 2 && baseBy > 16.5)) continue;
+            if (struct.type === 'wall' && zoneIdx !== 6 && zoneIdx !== 7) continue;
+
+            let kind = 'house';
+            if (zoneIdx === 1 || zoneIdx === 8) kind = 'adobe';
+            else if (zoneIdx === 6 || zoneIdx === 7) kind = (struct.type === 'wall' || struct.type === 'ruin') ? 'rock' : 'butte';
+            houses.push({ x: bx, y: baseBy, z: bz, rot: struct.rot, scale: struct.scale, kind, zoneIdx });
+        }
+    }
+
+    // 2. Exact deterministic rocks pass
+    const rockProb = (zoneIdx === 6 || zoneIdx === 7) ? (isMobile ? 0.65 : 0.94)
+                   : (zoneIdx === 2 || zoneIdx === 4) ? (isMobile ? 0.55 : 0.90)
+                   : (zoneIdx === 1 || zoneIdx === 3 || zoneIdx === 5 || zoneIdx === 8 || zoneIdx === 10 || zoneIdx === 11) ? (isMobile ? 0.45 : 0.80)
+                   : (isMobile ? 0.35 : 0.70);
+    const maxExtraRocks = (zoneIdx === 6 || zoneIdx === 7) ? (isMobile ? 2 : 4)
+                        : (zoneIdx === 2 || zoneIdx === 4) ? (isMobile ? 2 : 3)
+                        : (isMobile ? 1 : 2);
+    const rockCount = (distFromSpawn > 20 && (!isVillage || zoneIdx === 6 || zoneIdx === 7) && rng() < rockProb)
+        ? (1 + Math.floor(rng() * maxExtraRocks))
+        : 0;
+
+    for (let r = 0; r < rockCount; r++) {
+        const rx = xMin + (0.15 + rng() * 0.70) * CHUNK_SIZE;
+        const rz = zMin + (0.15 + rng() * 0.70) * CHUNK_SIZE;
+        if (Math.hypot(rx, rz) < 26) continue;
+        if (Math.hypot(rx + 19, rz - 22) < 18) continue;
+        if (getRoadFactor(rx, rz) > 0.25) continue;
+        const ry = getTerrainHeight(rx, rz);
+        if (ry < -2.0) continue;
+        const rs = (zoneIdx === 6 || zoneIdx === 7 ? 1.25 : zoneIdx === 2 ? 1.15 : 1.0) + rng() * (zoneIdx === 6 ? 0.85 : 0.50);
+        const rot = rng() * Math.PI * 2;
+        rocks.push({ x: rx, y: ry - 0.2, z: rz, scale: rs, rot, zoneIdx });
+    }
+
+    // 3. Exact deterministic trees pass with exact tree-type classification
+    const forestNoise = fbm3((chunkCenterX + seedOffset.x) * 0.007, (chunkCenterZ + seedOffset.z) * 0.007) * 0.5 + 0.5;
+    let targetTreeCount = 0;
+    if (zoneIdx === 1) {
+        const [zx, zz] = getZoneCenter(chunkCenterX, chunkCenterZ);
+        const distFromOasis = Math.hypot(chunkCenterX - zx - 58.0, chunkCenterZ - zz - 78.0);
+        if (distFromOasis < 95.0) targetTreeCount = 9 + Math.floor(rng() * 7);
+        else if (isVillage) targetTreeCount = 3 + Math.floor(rng() * 4);
+        else if (forestNoise > 0.45) targetTreeCount = 3 + Math.floor(rng() * 4);
+        else targetTreeCount = 1 + Math.floor(rng() * 2);
+    } else if (zoneIdx === 2) {
+        targetTreeCount = isVillage ? (3 + Math.floor(rng() * 3)) : (forestNoise > 0.46 ? (12 + Math.floor(rng() * 8)) : (4 + Math.floor(rng() * 5)));
+    } else if (zoneIdx === 3) {
+        targetTreeCount = isVillage ? (4 + Math.floor(rng() * 3)) : (forestNoise > 0.50 ? (11 + Math.floor(rng() * 7)) : (forestNoise > 0.30 ? (4 + Math.floor(rng() * 4)) : (1 + Math.floor(rng() * 2))));
+    } else if (zoneIdx === 6) {
+        targetTreeCount = isVillage ? (1 + Math.floor(rng() * 3)) : (2 + Math.floor(rng() * 3));
+    } else if (zoneIdx === 8) {
+        targetTreeCount = isVillage ? (5 + Math.floor(rng() * 4)) : (3 + Math.floor(rng() * 4));
+    } else if (zoneIdx === 9) {
+        targetTreeCount = isVillage ? (15 + Math.floor(rng() * 6)) : (forestNoise > 0.35 ? (26 + Math.floor(rng() * 10)) : (19 + Math.floor(rng() * 8)));
+    } else if (zoneIdx === 10 || zoneIdx === 11) {
+        targetTreeCount = isVillage ? (5 + Math.floor(rng() * 4)) : (forestNoise > 0.45 ? (10 + Math.floor(rng() * 6)) : (4 + Math.floor(rng() * 4)));
+    } else {
+        targetTreeCount = isVillage ? (3 + Math.floor(rng() * 3)) : (forestNoise > 0.52 ? (14 + Math.floor(rng() * 9)) : (forestNoise > 0.32 ? (5 + Math.floor(rng() * 5)) : Math.floor(rng() * 3)));
+    }
+    if (isMobile) targetTreeCount = Math.ceil(targetTreeCount * 0.45);
+
+    for (let t = 0; t < targetTreeCount; t++) {
+        const tx = xMin + (0.08 + rng() * 0.84) * CHUNK_SIZE;
+        const tz = zMin + (0.08 + rng() * 0.84) * CHUNK_SIZE;
+        if (Math.hypot(tx, tz) < 20) continue;
+        if (getRoadFactor(tx, tz) > 0.20) continue;
+        const ty = getTerrainHeight(tx, tz);
+        if (ty < -2.4) continue;
+        if (zoneIdx === 2 && ty > 17.0) continue;
+
+        const treeRoll = rng();
+        let cat = 'broadleaf';
+        if (zoneIdx === 1) {
+            const nearOasis = Math.hypot(tx - 58.0, tz - 78.0) < 88.0;
+            if (nearOasis || isVillage || (ty < 1.8 && treeRoll < 0.65)) {
+                if (treeRoll < 0.78 || nearOasis) { rng(); cat = 'palm'; }
+                else cat = 'acacia';
+            } else {
+                if (treeRoll < 0.48) { rng(); cat = 'cactus'; }
+                else cat = 'acacia';
+            }
+        } else if (zoneIdx === 2) {
+            cat = (treeRoll < 0.90) ? 'conifer' : 'broadleaf';
+        } else if (zoneIdx === 3) {
+            if (treeRoll < 0.56) cat = 'broadleaf';
+            else if (treeRoll < 0.72) cat = 'cypress';
+            else cat = 'conifer';
+        } else if (zoneIdx === 4) {
+            cat = (treeRoll < 0.85) ? 'conifer' : 'broadleaf';
+        } else if (zoneIdx === 5) {
+            cat = (treeRoll >= 0.74 && treeRoll < 0.88) ? 'cypress' : 'broadleaf';
+        } else if (zoneIdx === 6) {
+            if (treeRoll < 0.70) cat = 'acacia';
+            else if (sharedCactusGeo) cat = 'cactus';
+            else cat = 'conifer';
+        } else if (zoneIdx === 7) {
+            cat = (treeRoll < 0.78) ? 'conifer' : 'acacia';
+        } else if (zoneIdx === 8) {
+            if (treeRoll < 0.82) { rng(); cat = 'palm'; }
+            else cat = 'acacia';
+        } else if (zoneIdx === 9) {
+            cat = (treeRoll >= 0.62 && treeRoll < 0.76) ? 'palm' : 'broadleaf';
+        } else if (zoneIdx === 10 || zoneIdx === 11) {
+            if (treeRoll < 0.46) cat = 'cypress';
+            else if (treeRoll < 0.76) cat = 'conifer';
+            else cat = 'broadleaf';
+        } else {
+            if (ty < 1.2 && treeRoll < 0.42) cat = 'broadleaf';
+            else if (isVillage) cat = (treeRoll < 0.38) ? 'cypress' : 'broadleaf';
+            else if (forestNoise > 0.52) cat = (treeRoll < 0.68) ? 'conifer' : 'broadleaf';
+            else cat = (treeRoll < 0.62) ? 'conifer' : 'broadleaf';
+        }
+
+        const scale = (cat === 'acacia') ? (0.80 + rng() * 0.45) : (0.85 + rng() * 0.55);
+        const rot = rng() * Math.PI * 2;
+        trees.push({ x: tx, y: ty, z: tz, scale, rot, cat, zoneIdx });
+    }
+
+    const entry = { houses, rocks, trees };
+    farChunkPropCache.set(key, entry);
+    return entry;
+}
+
+function updateFarPropLODs(playerX, playerZ, force, isMobile) {
+    const playerCX = Math.floor(playerX / CHUNK_SIZE);
+    const playerCZ = Math.floor(playerZ / CHUNK_SIZE);
+    if (!force && playerCX === farPropLastCX && playerCZ === farPropLastCZ) return;
+    farPropLastCX = playerCX;
+    farPropLastCZ = playerCZ;
+
+    ensureFarLodInstancedMeshes(isMobile);
+
+    const innerRadius = isMobile ? 2 : VIEW_RADIUS;
+    const outerRadius = isMobile ? 10 : 16; // Up to 1,280m radius for trees, rocks & houses
+    const counts = { conifer: 0, cypress: 0, broadleaf: 0, palm: 0, acacia: 0, cactus: 0, rock: 0, house: 0, adobe: 0, butte: 0 };
+    const dummy = new THREE.Object3D();
+    const col = new THREE.Color();
+
+    // Evict stale cache entries outside outerRadius + 3
+    for (const [k] of farChunkPropCache.entries()) {
+        const [cxStr, czStr] = k.split(',');
+        if (Math.abs(Number(cxStr) - playerCX) > outerRadius + 3 || Math.abs(Number(czStr) - playerCZ) > outerRadius + 3) {
+            farChunkPropCache.delete(k);
+        }
+    }
+
+    for (let dx = -outerRadius; dx <= outerRadius; dx++) {
+        for (let dz = -outerRadius; dz <= outerRadius; dz++) {
+            if (Math.abs(dx) <= innerRadius && Math.abs(dz) <= innerRadius) continue;
+            const props = getFarChunkProps(playerCX + dx, playerCZ + dz, isMobile);
+
+            for (let i = 0; i < props.trees.length; i++) {
+                const tr = props.trees[i];
+                const mesh = farLodMeshes[tr.cat];
+                if (!mesh || counts[tr.cat] >= mesh.instanceMatrix.count) continue;
+                dummy.position.set(tr.x, tr.y - 0.2, tr.z);
+                dummy.rotation.set(0, tr.rot, 0);
+                dummy.scale.setScalar(tr.scale);
+                dummy.updateMatrix();
+                const idx = counts[tr.cat]++;
+                mesh.setMatrixAt(idx, dummy.matrix);
+                if (tr.zoneIdx === 4) col.setRGB(0.68, 0.78, 0.85);
+                else if (tr.zoneIdx === 9) col.setRGB(0.45, 0.62, 0.34);
+                else col.setRGB(0.75, 0.82, 0.72);
+                mesh.setColorAt(idx, col);
+            }
+
+            for (let i = 0; i < props.rocks.length; i++) {
+                const rk = props.rocks[i];
+                const mesh = farLodMeshes.rock;
+                if (!mesh || counts.rock >= mesh.instanceMatrix.count) continue;
+                dummy.position.set(rk.x, rk.y, rk.z);
+                dummy.rotation.set(0, rk.rot, 0);
+                dummy.scale.setScalar(rk.scale);
+                dummy.updateMatrix();
+                const idx = counts.rock++;
+                mesh.setMatrixAt(idx, dummy.matrix);
+                if (rk.zoneIdx === 6) col.setHex(0xb84a2a);
+                else if (rk.zoneIdx === 7) col.setHex(0x8e4c34);
+                else if (rk.zoneIdx === 1 || rk.zoneIdx === 8) col.setHex(0xc4945e);
+                else if (rk.zoneIdx === 10) col.setHex(0xd8d2c6);
+                else if (rk.zoneIdx === 2 || rk.zoneIdx === 4) col.setHex(0x6e7680);
+                else col.setHex(0x6e6a60);
+                mesh.setColorAt(idx, col);
+            }
+
+            for (let i = 0; i < props.houses.length; i++) {
+                const hs = props.houses[i];
+                const mesh = farLodMeshes[hs.kind];
+                if (!mesh || counts[hs.kind] >= mesh.instanceMatrix.count) continue;
+                dummy.position.set(hs.x, hs.y - 0.1, hs.z);
+                dummy.rotation.set(0, hs.rot, 0);
+                dummy.scale.setScalar(hs.scale);
+                dummy.updateMatrix();
+                const idx = counts[hs.kind]++;
+                mesh.setMatrixAt(idx, dummy.matrix);
+                col.setRGB(1.0, 1.0, 1.0);
+                mesh.setColorAt(idx, col);
+            }
+        }
+    }
+
+    for (const key of Object.keys(farLodMeshes)) {
+        const mesh = farLodMeshes[key];
+        if (!mesh) continue;
+        mesh.count = counts[key];
+        mesh.instanceMatrix.needsUpdate = true;
+        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    }
+}
+
+function updateFarTerrainAndTrees(playerX, playerZ, force = false) {
+    if (environmentMode === 'studio' || !envGroup) return;
+    const isMobile = (typeof window.isMobileBrowser === "function" && window.isMobileBrowser()) || (typeof window.isMobileDevice === "function" && window.isMobileDevice());
+
+    if (!farTerrainGroup) {
+        farTerrainGroup = new THREE.Group();
+        envGroup.add(farTerrainGroup);
+    }
+
+    updateFarPropLODs(playerX, playerZ, force, isMobile);
+
+    const snapStep = CHUNK_SIZE * 2; // 160m snap prevents terrain vertex swimming
+    const snapX = Math.round(playerX / snapStep) * snapStep;
+    const snapZ = Math.round(playerZ / snapStep) * snapStep;
+    if (!force && snapX === farLastSnapX && snapZ === farLastSnapZ) return;
+    farLastSnapX = snapX;
+    farLastSnapZ = snapZ;
+
+    if (farMidMesh) {
+        farTerrainGroup.remove(farMidMesh);
+        farMidMesh.geometry.dispose();
+        farMidMesh = null;
+    }
+    if (farOuterMesh) {
+        farTerrainGroup.remove(farOuterMesh);
+        farOuterMesh.geometry.dispose();
+        farOuterMesh = null;
+    }
+
+    const currentViewRadius = isMobile ? 2 : VIEW_RADIUS;
+    const innerSkip = Math.max(80, currentViewRadius * CHUNK_SIZE - 24);
+    farMidMesh = buildFarRingMesh(snapX, snapZ, 1280, 24, innerSkip, -0.45, true);
+    farOuterMesh = buildFarRingMesh(snapX, snapZ, isMobile ? 2800 : 4480, 128, 1152, -1.6, false);
+    farTerrainGroup.add(farMidMesh);
+    farTerrainGroup.add(farOuterMesh);
+}
+window.updateFarTerrainAndTrees = updateFarTerrainAndTrees;
+
+// ============================================================================
 // 9. TREE DESTRUCTION & PERSISTENCE
 // ============================================================================
 function hitTree(tree, hitDir, force = 3.5, isRemote = false) {
@@ -10573,6 +11357,7 @@ function initEnvironment(scene) {
 }
 
 function createZoneWaterMaterial() {
+    const rippleTex = (typeof window.createWaterRippleTexture === 'function') ? window.createWaterRippleTexture() : null;
     return new THREE.ShaderMaterial({
         uniforms: {
             uTime: { value: 0 },
@@ -10585,22 +11370,32 @@ function createZoneWaterMaterial() {
             uSpawnZone: terrainUniforms.uSpawnZone,
             uSunDir: terrainUniforms.uSunDir,
             uSunColor: terrainUniforms.uSunColor,
-            uSkyColor: terrainUniforms.uSkyColor
+            uSkyColor: terrainUniforms.uSkyColor,
+            uSkyTopColor: terrainUniforms.uSkyTopColor,
+            uHazeStrength: terrainUniforms.uHazeStrength,
+            tRippleMap: { value: rippleTex },
+            tReflection: { value: null },
+            uReflectVP: { value: new THREE.Matrix4() },
+            uHasReflection: { value: 0.0 }
         },
         transparent: true,
         depthWrite: false,
+        fog: false,
         vertexShader: `
             uniform float uTime;
+            uniform mat4 uReflectVP;
             varying vec3 vWorldPos;
             varying float vWaveHeight;
+            varying vec4 vReflClip;
             void main() {
                 vec4 wp = modelMatrix * vec4(position, 1.0);
-                float w1 = sin(wp.x * 0.032 + uTime * 1.45) * cos(wp.z * 0.026 + uTime * 1.15) * 0.24;
-                float w2 = sin(wp.x * 0.085 - wp.z * 0.065 + uTime * 2.15) * 0.10;
-                float w3 = cos(wp.z * 0.16 + uTime * 2.85) * 0.05;
+                float w1 = sin(wp.x * 0.032 + uTime * 1.45) * cos(wp.z * 0.026 + uTime * 1.15) * 0.22;
+                float w2 = sin(wp.x * 0.085 - wp.z * 0.065 + uTime * 2.15) * 0.09;
+                float w3 = cos(wp.z * 0.16 + uTime * 2.85) * 0.04;
                 wp.y += w1 + w2 + w3;
                 vWaveHeight = w1 + w2 + w3;
                 vWorldPos = wp.xyz;
+                vReflClip = uReflectVP * vec4(wp.x, -2.5, wp.z, 1.0);
                 gl_Position = projectionMatrix * viewMatrix * wp;
             }
         `,
@@ -10609,9 +11404,16 @@ function createZoneWaterMaterial() {
             uniform vec3 uSunDir;
             uniform vec3 uSunColor;
             uniform vec3 uSkyColor;
+            uniform vec3 uSkyTopColor;
+            uniform float uHazeStrength;
+            uniform sampler2D tRippleMap;
+            uniform sampler2D tReflection;
+            uniform float uHasReflection;
             varying vec3 vWorldPos;
             varying float vWaveHeight;
+            varying vec4 vReflClip;
             ${SHARED_TERRAIN_GLSL}
+            ${BABYLON_HAZE_GLSL}
 
             void main() {
                 float terrainY = getTerrainHeight_gpu(vWorldPos.x, vWorldPos.z);
@@ -10619,22 +11421,35 @@ function createZoneWaterMaterial() {
                 if (waterDepth < -0.25) discard;
 
                 vec2 p = vWorldPos.xz;
-                float n1 = valueNoise2D_gpu(p * 0.18 + vec2(uTime * 0.45, uTime * 0.32));
-                float n2 = valueNoise2D_gpu(p * 0.52 - vec2(uTime * 0.65, uTime * 0.48));
-                float n3 = valueNoise2D_gpu(p * 1.35 + vec2(uTime * 1.10, -uTime * 0.85));
+                float distToCam = length(p - cameraPosition.xz);
 
-                vec3 N = normalize(vec3(
-                    (n1 * 0.45 + n2 * 0.35 + n3 * 0.20) * 0.28,
-                    1.0,
-                    (n2 * 0.45 - n1 * 0.35 + n3 * 0.20) * 0.28
-                ));
+                // Babylon-inspired 4-scale LEAN/Stokes ripple sampling (43m, 11.7m, 3.1m, 0.83m)
+                vec4 r0 = texture2D(tRippleMap, p / 43.0  + vec2( uTime * 0.014,  uTime * 0.009));
+                vec4 r1 = texture2D(tRippleMap, p / 11.7  + vec2(-uTime * 0.024,  uTime * 0.018));
+                vec4 r2 = texture2D(tRippleMap, p / 3.1   + vec2( uTime * 0.045, -uTime * 0.032));
+                vec4 r3 = texture2D(tRippleMap, p / 0.83  + vec2(-uTime * 0.070, -uTime * 0.055));
 
+                float detailFade = 1.0 - smoothstep(120.0, 900.0, distToCam);
+                vec2 slope = (r0.rg - 0.5) * 0.16
+                           + (r1.rg - 0.5) * 0.24
+                           + (r2.rg - 0.5) * (0.28 * (0.25 + 0.75 * detailFade))
+                           + (r3.rg - 0.5) * (0.20 * detailFade);
+                float slopeVar = r0.b * 0.2 + r1.b * 0.3 + r2.b * 0.3 + r3.b * 0.2;
+
+                vec3 N = normalize(vec3(-slope.x * 1.15, 1.0, -slope.y * 1.15));
                 vec3 V = normalize(cameraPosition - vWorldPos);
                 vec3 L = normalize(uSunDir);
                 vec3 H = normalize(L + V);
+                vec3 R = reflect(-V, N);
 
-                float fresnel = pow(1.0 - max(dot(N, V), 0.0), 4.0);
-                float spec = pow(max(dot(N, H), 0.0), 180.0) * 2.6 + pow(max(dot(N, H), 0.0), 28.0) * 0.38;
+                // Schlick Fresnel (Babylon water.js: 0.02 + 0.98 * (1 - NdotV)^5)
+                float NdotV = max(dot(N, V), 0.0);
+                float fresnel = 0.02 + 0.98 * pow(1.0 - NdotV, 5.0);
+
+                // Dual-lobe sun glitter modulated by LEAN slope variance
+                float sunVis = smoothstep(-0.04, 0.14, L.y);
+                float sharpPow = mix(280.0, 120.0, clamp(slopeVar, 0.0, 1.0));
+                float spec = (pow(max(dot(N, H), 0.0), sharpPow) * 3.2 + pow(max(dot(N, H), 0.0), 32.0) * 0.35) * sunVis;
 
                 // Zone-adapted water colors (turquoise desert oasis, glacial alpine tarn, coastal sea)
                 vec3 deepCol = vec3(0.02, 0.12, 0.24);
@@ -10676,26 +11491,51 @@ function createZoneWaterMaterial() {
                 float depthFactor = clamp(waterDepth / 9.0, 0.0, 1.0);
                 vec3 waterCol = mix(shallowCol, midCol, smoothstep(0.0, 0.45, depthFactor));
                 waterCol = mix(waterCol, deepCol, smoothstep(0.35, 1.0, depthFactor));
+                // Lit turbid scattering
+                float dayLit = clamp(L.y * 1.4 + 0.35, 0.15, 1.15);
+                waterCol *= dayLit;
 
-                vec3 skyRefl = mix(uSkyColor * 0.85, uSunColor * 0.95, 0.22);
-                waterCol = mix(waterCol, skyRefl, clamp(fresnel * 0.72 + 0.08, 0.0, 0.85));
+                // Analytical sky reflection fallback
+                float skyGrad = clamp(R.y * 0.7 + 0.15, 0.0, 1.0);
+                vec3 skyRefl = mix(uSkyColor * 0.92, uSkyTopColor * 0.85, skyGrad);
+                skyRefl += uSunColor * pow(max(dot(R, L), 0.0), 10.0) * 0.35 * sunVis;
+
+                // Babylon-style planar reflection with 4-tap anisotropic wave-jittered lookup
+                vec3 envRefl = skyRefl;
+                if (uHasReflection > 0.5 && vReflClip.w > 0.05) {
+                    vec2 baseUV = (vReflClip.xy / vReflClip.w) * 0.5 + 0.5;
+                    vec2 distort = N.xz * mix(0.055, 0.018, clamp(distToCam / 400.0, 0.0, 1.0));
+                    vec2 uvR = baseUV + distort;
+                    float edgeFade = smoothstep(0.0, 0.06, uvR.x) * smoothstep(1.0, 0.94, uvR.x)
+                                   * smoothstep(0.0, 0.06, uvR.y) * smoothstep(1.0, 0.94, uvR.y);
+                    if (edgeFade > 0.01) {
+                        vec2 j1 = vec2(0.0022, 0.0045);
+                        vec2 j2 = vec2(-0.0022, 0.0025);
+                        vec3 reflTex = (
+                            texture2D(tReflection, clamp(uvR + j1, 0.002, 0.998)).rgb +
+                            texture2D(tReflection, clamp(uvR - j1, 0.002, 0.998)).rgb +
+                            texture2D(tReflection, clamp(uvR + j2, 0.002, 0.998)).rgb +
+                            texture2D(tReflection, clamp(uvR - j2, 0.002, 0.998)).rgb
+                        ) * 0.25;
+                        envRefl = mix(skyRefl, reflTex, edgeFade * 0.92);
+                    }
+                }
+
+                waterCol = mix(waterCol, envRefl, clamp(fresnel * 0.92 + 0.04, 0.0, 0.96));
                 waterCol += uSunColor * spec;
 
-                float foamNoise = n1 * 0.5 + n2 * 0.5;
-                float surfWave = sin(waterDepth * 6.5 - uTime * 3.2 + foamNoise * 2.8);
+                float foamNoise = (r1.a - 0.5) * 0.6 + (r2.a - 0.5) * 0.4 + 0.5;
+                float surfWave = sin(waterDepth * 6.5 - uTime * 3.2 + foamNoise * 3.2);
                 float primaryBreaker = (1.0 - smoothstep(0.0, 1.15, abs(waterDepth))) * smoothstep(0.20, 0.75, surfWave + 0.35);
                 float secondaryRipple = smoothstep(0.4, 2.2, waterDepth) * (1.0 - smoothstep(2.2, 4.0, waterDepth)) * smoothstep(0.62, 0.92, surfWave);
-                float whitecap = smoothstep(0.24, 0.38, vWaveHeight + n2 * 0.14) * smoothstep(1.5, 5.0, waterDepth) * 0.45;
-                float totalFoam = clamp(primaryBreaker * 0.92 + secondaryRipple * 0.48 + whitecap, 0.0, 1.0);
+                float whitecap = smoothstep(0.22, 0.36, vWaveHeight + (r2.a - 0.5) * 0.16) * smoothstep(1.5, 5.0, waterDepth) * 0.42;
+                float totalFoam = clamp(primaryBreaker * 0.90 + secondaryRipple * 0.45 + whitecap, 0.0, 1.0);
 
-                vec3 foamColor = mix(vec3(0.88, 0.93, 0.96), uSunColor, 0.25);
+                vec3 foamColor = mix(vec3(0.88, 0.93, 0.96), uSunColor, 0.25) * dayLit;
                 waterCol = mix(waterCol, foamColor, totalFoam);
 
                 float shoreAlpha = smoothstep(-0.20, 0.45, waterDepth);
-                float dist = length(vWorldPos.xz - cameraPosition.xz);
-                float fogF = 1.0 - exp(-0.00085 * 0.00085 * dist * dist);
-                vec3 fogTarget = mix(uSkyColor, vec3(0.76, 0.82, 0.86), 0.35);
-                waterCol = mix(waterCol, fogTarget, clamp(fogF, 0.0, 1.0));
+                waterCol = applyBabylonAerialHaze(waterCol, vWorldPos, cameraPosition, uSunDir, uSunColor, uSkyColor, uSkyTopColor, uHazeStrength);
 
                 gl_FragColor = vec4(waterCol, clamp(shoreAlpha * 0.94 + totalFoam * 0.06, 0.0, 0.98));
             }
@@ -10704,7 +11544,7 @@ function createZoneWaterMaterial() {
 }
 
 function createCoastalOceanMesh() {
-    const oceanGeo = new THREE.PlaneGeometry(3600, 2800, 128, 128);
+    const oceanGeo = new THREE.PlaneGeometry(10000, 10000, 160, 160);
     oceanGeo.rotateX(-Math.PI / 2);
     const oceanMat = createZoneWaterMaterial();
     const oceanMesh = new THREE.Mesh(oceanGeo, oceanMat);
@@ -11298,10 +12138,10 @@ function buildEnvironment(scene) {
 
         const isMobile = (typeof window.isMobileBrowser === "function" && window.isMobileBrowser()) || (typeof window.isMobileDevice === "function" && window.isMobileDevice());
         const tuftCount = isMobile ? 5000 : 16000;
-        const midCount  = isMobile ? 3500 : 10000;
-        const farPatchSize = isMobile ? 384.0 : 760.0;
-        const farMaxRadius = isMobile ? 195.0 : 380.0;
-        const farCount     = isMobile ? 0 : 16000;
+        const midCount  = isMobile ? 4500 : 16000;
+        const farPatchSize = isMobile ? 300.0 : 460.0;
+        const farMaxRadius = isMobile ? 150.0 : 230.0;
+        const farCount     = isMobile ? 0 : 45000;
 
         grassLOD0Mesh = createTexturedToroidalGrass(tuftGeo, tuftCount, 96.0, 0.0, 48.0, false);
         grassLOD0MidMesh = createTexturedToroidalGrass(tuftGeo, midCount, 192.0, 48.0, 98.0, false);
@@ -11335,7 +12175,13 @@ function buildEnvironment(scene) {
     setWorldSeed(currentSeed, currentZone);
     rebuildZoneStaticProps();
 
+    farLastSnapX = null;
+    farLastSnapZ = null;
+    farPropLastCX = null;
+    farPropLastCZ = null;
+    farChunkPropCache.clear();
     updateTerrainChunks(0, 0, true);
+    updateFarTerrainAndTrees(0, 0, true);
     if (typeof window.spawnZoneEnemies === 'function') {
         window.spawnZoneEnemies();
     } else if (typeof window.spawnInitialFieldEnemies === 'function') {
@@ -11354,6 +12200,9 @@ function updateEnvironment(dt, tankState) {
         terrainUniforms.uSunDir.value.copy(window.celestialLighting.sunDirection.value);
         terrainUniforms.uSunColor.value.copy(window.celestialLighting.sunColor.value);
         terrainUniforms.uSkyColor.value.copy(window.celestialLighting.skyColor.value);
+        if (window.celestialLighting.skyTopColor) {
+            terrainUniforms.uSkyTopColor.value.copy(window.celestialLighting.skyTopColor.value);
+        }
     }
 
     const focus = (window.playerMode === 'soldier' && window.playerSoldier) ? window.playerSoldier : tankState;
@@ -11369,9 +12218,10 @@ function updateEnvironment(dt, tankState) {
 
     const cam = window.activeCamera;
     const cx = (cam && cam.position && !isNaN(cam.position.x)) ? cam.position.x : px;
+    const cy = (cam && cam.position && !isNaN(cam.position.y)) ? cam.position.y : 5.0;
     const cz = (cam && cam.position && !isNaN(cam.position.z)) ? cam.position.z : pz;
 
-    terrainUniforms.uCameraPos.value.set(cx, 0, cz);
+    terrainUniforms.uCameraPos.value.set(cx, cy, cz);
     grassUniforms.uCameraPos.value.set(cx, 0, cz);
 
     if (cam) {
@@ -11411,6 +12261,7 @@ function updateEnvironment(dt, tankState) {
     terrainUniforms.uBuildingCount.value = nearBldgs.length;
 
     updateTerrainChunks(px, pz);
+    updateFarTerrainAndTrees(px, pz);
     processChunkStreamingQueue(3.5);
     updateBuildingInteriors(px, pz);
 

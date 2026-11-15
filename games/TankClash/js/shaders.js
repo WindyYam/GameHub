@@ -3697,7 +3697,7 @@ function createCloudNoiseTexture() {
 }
 
 function createMaldiveSkyDome() {
-    const skyGeo = new THREE.SphereGeometry(720, 64, 32);
+    const skyGeo = new THREE.SphereGeometry(9000, 64, 32);
     const skyMat = new THREE.ShaderMaterial({
         vertexShader: TIGER_SKY_VERTEX_SHADER,
         fragmentShader: TIGER_SKY_FRAGMENT_SHADER,
@@ -3716,8 +3716,72 @@ function createMaldiveSkyDome() {
         extensions: { derivatives: true }
     });
     const skyMesh = new THREE.Mesh(skyGeo, skyMat);
+    skyMesh.renderOrder = -100;
+    skyMesh.frustumCulled = false;
     return { skyMesh, skyMat };
 }
+
+// Babylon-inspired multi-directional Stokes-like ripple/LEAN normal & height map (512x512 tileable)
+// RGBA = (slopeX * 0.5 + 0.5, slopeZ * 0.5 + 0.5, slopeVariance, height * 0.5 + 0.5)
+let _sharedWaterRippleTex = null;
+function createWaterRippleTexture() {
+    if (_sharedWaterRippleTex) return _sharedWaterRippleTex;
+    const size = 256;
+    const data = new Uint8Array(size * size * 4);
+    const numWaves = 40;
+    const waves = [];
+    let seed = 1337;
+    const rand = () => {
+        seed = (seed * 1664525 + 1013904223) >>> 0;
+        return seed / 4294967296;
+    };
+    for (let i = 0; i < numWaves; i++) {
+        const angle = rand() * Math.PI * 2;
+        const freq = 1 + Math.floor(rand() * 7);
+        const kx = Math.round(Math.cos(angle) * freq);
+        const kz = Math.round(Math.sin(angle) * freq);
+        if (kx === 0 && kz === 0) continue;
+        const kLen = Math.hypot(kx, kz);
+        const amp = (0.42 / Math.pow(kLen, 1.15)) * (0.65 + 0.7 * rand());
+        const phase = rand() * Math.PI * 2;
+        waves.push({ kx, kz, amp, phase });
+    }
+
+    const twoPi = Math.PI * 2;
+    for (let y = 0; y < size; y++) {
+        const v = y / size;
+        for (let x = 0; x < size; x++) {
+            const u = x / size;
+            let sx = 0, sz = 0, h = 0;
+            for (let i = 0; i < waves.length; i++) {
+                const w = waves[i];
+                const ph = twoPi * (w.kx * u + w.kz * v) + w.phase;
+                const s = Math.sin(ph);
+                const c = Math.cos(ph);
+                // Slightly peaked Stokes-like trochoidal crest
+                h += w.amp * (s + 0.18 * Math.sin(ph * 2.0));
+                sx += w.amp * w.kx * (c + 0.36 * Math.cos(ph * 2.0));
+                sz += w.amp * w.kz * (c + 0.36 * Math.cos(ph * 2.0));
+            }
+            const slopeMagSq = sx * sx + sz * sz;
+            const idx = (y * size + x) * 4;
+            data[idx + 0] = Math.max(0, Math.min(255, Math.round((sx * 0.14 + 0.5) * 255)));
+            data[idx + 1] = Math.max(0, Math.min(255, Math.round((sz * 0.14 + 0.5) * 255)));
+            data[idx + 2] = Math.max(0, Math.min(255, Math.round(Math.min(1.0, slopeMagSq * 0.08) * 255)));
+            data[idx + 3] = Math.max(0, Math.min(255, Math.round((h * 0.35 + 0.5) * 255)));
+        }
+    }
+    const tex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+    tex.wrapS = THREE.RepeatWrapping;
+    tex.wrapT = THREE.RepeatWrapping;
+    tex.minFilter = THREE.LinearMipmapLinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.generateMipmaps = true;
+    tex.needsUpdate = true;
+    _sharedWaterRippleTex = tex;
+    return tex;
+}
+window.createWaterRippleTexture = createWaterRippleTexture;
 
 // Procedural Oak / Ash Pioneer Tool Wood Handle Texture
 function createWoodTexture() {
