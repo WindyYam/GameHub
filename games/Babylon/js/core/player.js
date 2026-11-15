@@ -445,12 +445,14 @@ export function createPlayer(ctx) {
   }
   function onPointerDown(e) {
     if (!state.active) return;
-    if (e.pointerType === 'touch') {
+    if (e.pointerType === 'touch' || e.pointerType === 'pen') {
+      e.preventDefault();
       if (lookPointerId === null) {
         lookPointerId = e.pointerId;
         dragging = true;
         lastX = e.clientX;
         lastY = e.clientY;
+        if (canvas.setPointerCapture) try { canvas.setPointerCapture(e.pointerId); } catch {}
       }
       return;
     }
@@ -479,17 +481,30 @@ export function createPlayer(ctx) {
       const dy = e.clientY - lastY;
       lastX = e.clientX;
       lastY = e.clientY;
-      state.camYaw -= dx * 0.0055;
-      state.camPitch = M.clamp(state.camPitch + dy * 0.0045, minPitch, 1.15);
+      const sensX = (e.pointerType === 'touch' || e.pointerType === 'pen') ? 0.0068 : 0.0055;
+      const sensY = (e.pointerType === 'touch' || e.pointerType === 'pen') ? 0.0055 : 0.0045;
+      state.camYaw -= dx * sensX;
+      state.camPitch = M.clamp(state.camPitch + dy * sensY, minPitch, 1.15);
     }
   }
   function onPointerUp(e) {
-    if (e.pointerType === 'touch') {
-      if (e.pointerId === lookPointerId) { dragging = false; lookPointerId = null; }
+    if (e.pointerType === 'touch' || e.pointerType === 'pen') {
+      if (e.pointerId === lookPointerId) {
+        dragging = false;
+        lookPointerId = null;
+        if (canvas.releasePointerCapture) try { canvas.releasePointerCapture(e.pointerId); } catch {}
+      }
       return;
     }
     if (e.button === 0) { dragging = false; lookPointerId = null; }
     else if (e.button === 2) rightMouseDown = false;
+  }
+  function onPointerCancel(e) {
+    if (e.pointerId === lookPointerId) {
+      dragging = false;
+      lookPointerId = null;
+    }
+    rightMouseDown = false;
   }
   function onContextMenu(e) {
     if (state.active) e.preventDefault();
@@ -505,6 +520,9 @@ export function createPlayer(ctx) {
   canvas.addEventListener('pointerdown', onPointerDown);
   window.addEventListener('pointermove', onPointerMove);
   window.addEventListener('pointerup', onPointerUp);
+  window.addEventListener('pointercancel', onPointerCancel);
+  window.addEventListener('blur', () => { dragging = false; lookPointerId = null; rightMouseDown = false; keys.clear(); });
+  canvas.addEventListener('touchmove', (e) => { if (state.active) e.preventDefault(); }, { passive: false });
   canvas.addEventListener('contextmenu', onContextMenu);
   canvas.addEventListener('wheel', onWheel, { passive: false });
 
