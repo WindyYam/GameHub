@@ -321,7 +321,7 @@ export async function create(ctx) {
   scene.add(sky.mesh, sky.stars);
 
   // ---- cascades ------------------------------------------------------------------------------------------------------
-  const mapSize = ctx.quality.shadowMapSize;
+  const mapSize = ctx.flags.web ? Math.min(ctx.quality.shadowMapSize, 2048) : ctx.quality.shadowMapSize;
   const cascades = [];
   for (let i = 0; i < 4; i++) {
     const light = new THREE.DirectionalLight(0xffffff, 0);
@@ -571,9 +571,15 @@ export async function create(ctx) {
     const ru = shadowState.reuse, sub = frame.sub || 0;
     const chain = shadowState.canReuse && sub > 0 && ru && ru.rendered && ru.tFrame === frame.tFrame && ru.sub === sub - 1 && ru.dir.dot(Ld) > 0.99995 && !override;
     shadowState.reuse = { tFrame: frame.tFrame, sub, dir: chain ? ru.dir : Ld.clone(), rendered: false };
+    const rtThrottle = ctx.flags.web && ctx.player && ctx.player.state.active && shadowPasses > 2;
+    const periods = [1, 3, 6, 10];
     for (let i = 0; i < 4; i++) {
       const c = cascades[i], f = list[i], R = f.radius, texel = (2 * R) / mapSize;
       if (chain && c.radius >= REUSE_RADIUS && c.kind === f.kind && c.radius === R && c.center.distanceTo(_c.fromArray(f.center)) < 0.05 * R) { c.reused = true; continue; }
+      if (rtThrottle && i > 0 && (shadowPasses % periods[i]) !== 0 && c.radius > 0 && c.kind === f.kind && Math.abs(c.radius - R) < 0.25 * R && c.center.distanceTo(_c.fromArray(f.center)) < 0.22 * R) {
+        c.reused = true;
+        continue;
+      }
       c.reused = false;
       // snap the centre to whole texels along the map's axes (and to whole metres along the light), so the
       // texel grid is fixed in the world while the camera moves

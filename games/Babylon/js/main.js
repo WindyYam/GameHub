@@ -118,11 +118,12 @@ async function boot() {
     stats,
     /** Per-frame state, rewritten by ctx.update() for every sub-frame. */
     frame: {
-      t: 0, tFrame: 0, sub: 0, subCount: 1, shot: null, shotIndex: 0, shotT: 0, shotK: 0, inTransition: false,
+      t: 0, animTime: 0, tFrame: 0, sub: 0, subCount: 1, shot: null, shotIndex: 0, shotT: 0, shotK: 0, inTransition: false,
       camera: { pos: [0, 100, 300], look: [0, 0, 0], up: [0, 1, 0], fov: 50, near: 0.3, far: 40000 },
       lightSpec: { a: 'golden', b: 'golden', k: 0 }, light: null,
       fog: null, lod: { fixed: null, scale: 1 }, shadow: { radius: null }, debug: false,
     },
+    animTime: 0,
     update: null,
   };
   window.CTX = ctx;
@@ -138,7 +139,7 @@ async function boot() {
   let updateModules = () => {};
   ctx.update = function update(t, o = {}) {
     const f = ctx.frame, film = ctx.film, ov = film.override;
-    f.t = t; f.tFrame = o.tFrame ?? t; f.sub = o.sub ?? 0; f.subCount = o.subCount ?? 1;
+    f.t = t; f.animTime = (flags.web && ctx.animTime > 0) ? ctx.animTime : t; f.tFrame = o.tFrame ?? t; f.sub = o.sub ?? 0; f.subCount = o.subCount ?? 1;
     const sa = film.shotAt(t);
     f.shot = sa.shot; f.shotIndex = sa.index; f.shotT = sa.local; f.shotK = sa.k; f.inTransition = sa.inTransition;
     f.camera = film.poseAt(t);
@@ -178,9 +179,32 @@ async function boot() {
   const flagWarn = (msg) => { stats.warnings.push(msg); console.warn('[engine] ' + msg); };
   for (const n of [...flags.only, ...flags.skip]) if (!names.includes(n) && !MODULES.includes(n)) flagWarn(`flag only/skip names '${n}', which is not a module in js/modules/index.js (scratch modules need with=${n})`);
   for (const n of flags.stub) if (n !== 'all' && !subsystemNames.includes(n)) flagWarn(`flag stub names '${n}', which is not a subsystem (${subsystemNames.join(' ')})`);
-  updateModules = await loadModules(ctx, names);
+  // In web/game mode, only build core spawn modules immediately and stream the rest during play
+  const CORE_MODULES = new Set(['terrain', 'waterbodies', 'walls', 'ishtar', 'streets']);
+  const useStreaming = Boolean(flags.web && !flags.only.length && !flags.with.length);
+  const defer = useStreaming ? new Set(names.filter((n) => !CORE_MODULES.has(n))) : null;
+  const bootProfile = {
+    streaming: useStreaming,
+    coreBuildMs: 0,
+    finalizeMs: 0,
+    octreeMs: 0,
+    warmupMs: 0,
+    streamedModules: {},
+  };
+  stats.bootProfile = bootProfile;
+
+  const tMod0 = performance.now();
+  updateModules = await loadModules(ctx, names, { defer });
+  bootProfile.coreBuildMs = Math.round(performance.now() - tMod0);
+
+  const tFin0 = performance.now();
   ctx.geom.finalize();
+  bootProfile.finalizeMs = Math.round(performance.now() - tFin0);
+
+  const tOct0 = performance.now();
   ctx.octree = createOctree(ctx);
+  bootProfile.octreeMs = Math.round(performance.now() - tOct0);
+
   ctx.player = createPlayer(ctx);
   ctx.player.setActive(false);
   const reportAdopted = (adopted, when) => {
@@ -189,6 +213,25 @@ async function boot() {
     stats.warnings.push(msg); console.warn('[engine] ' + msg);
   };
   reportAdopted(ctx.materials.adopt(scene), 'at the end of boot');
+
+  ctx.streamRemainingCount = () => updateModules.streamRemaining ? updateModules.streamRemaining() : 0;
+  ctx.streamQueueNames = () => updateModules.streamQueueNames ? updateModules.streamQueueNames() : [];
+  ctx.streamNext = async () => {
+    if (!updateModules.streamNext) return null;
+    const ts = performance.now();
+    const res = await updateModules.streamNext();
+    if (!res) return null;
+    // Yield a frame between build() and GPU finalize/octree sync so gameplay stays responsive
+    await new Promise((r) => requestAnimationFrame(r));
+    const tf = performance.now();
+    ctx.geom.finalize();
+    ctx.materials.adopt(scene);
+    if (ctx.octree) ctx.octree.syncNewMeshes();
+    const finalizeMs = Math.round(performance.now() - tf);
+    const totalMs = Math.round(performance.now() - ts);
+    bootProfile.streamedModules[res.name] = { buildMs: res.ms, finalizeMs, totalMs };
+    return { ...res, finalizeMs, totalMs };
+  };
 
   // ---- page API used by render.mjs ---------------------------------------------------------------
   /** Render film time t (seconds) to the canvas. opts: { sub: sub-frames, tag: debug label }. Pure in t. */
@@ -214,9 +257,12 @@ async function boot() {
   window.FILM = { duration: ctx.film.duration, fps: ctx.film.fps, shots: ctx.film.shots.map((s) => ({ n: s.n, id: s.id, name: s.name, mode: s.mode, t0: s.t0, t1: s.t1, mid: s.mid })) };
   installDebug(ctx);
 
-  window.renderAt(flags.t || 0); // warm-up: compiles the programs in view
+  const tWarm0 = performance.now();
+  if (!flags.web) window.renderAt(flags.t || 0); // warm-up: compiles the programs in view
+  bootProfile.warmupMs = Math.round(performance.now() - tWarm0);
   window.refreshStats();
   stats.bootMs = Math.round(performance.now() - t0);
+  console.info('[engine] boot profile:', JSON.stringify(bootProfile), 'total bootMs:', stats.bootMs);
   stats.ready = true;
   window.READY = true;
 }

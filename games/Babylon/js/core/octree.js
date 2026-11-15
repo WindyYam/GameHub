@@ -1,9 +1,10 @@
-// js/core/octree.js — 3D Spatial Octree, hierarchical frustum/distance culling, and adaptive LOD manager.
+// js/core/octree.js — 3D Spatial Octree, hierarchical frustum/distance/Hi-Z occlusion culling, and adaptive LOD manager.
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js';
+import { createOcclusion } from './occlusion.js';
 
 const MAX_ITEMS = 12;
 const MAX_DEPTH = 7;
-const SHADOW_BUBBLE = 160; // keep nearby meshes visible even behind camera so shadows fall into view
+const SHADOW_BUBBLE = 85; // keep nearby meshes visible even behind camera so shadows fall into view
 
 class OctreeNode {
   constructor(bounds, depth = 0) {
@@ -68,14 +69,15 @@ class OctreeNode {
 
 export function createOctree(ctx) {
   const rootGroup = ctx.geom.root;
+  const occlusion = createOcclusion(ctx);
   const _frustum = new THREE.Frustum();
   const _projScreen = new THREE.Matrix4();
   const _box = new THREE.Box3();
   const _camPos = new THREE.Vector3();
 
   const worldBounds = new THREE.Box3(
-    new THREE.Vector3(-5500, -120, -5500),
-    new THREE.Vector3(5500, 400, 5500)
+    new THREE.Vector3(-7500, -250, -7500),
+    new THREE.Vector3(7500, 600, 7500)
   );
 
   let root = new OctreeNode(worldBounds.clone(), 0);
@@ -86,17 +88,20 @@ export function createOctree(ctx) {
   // Adaptive performance & LOD state
   const state = {
     enabled: true,
-    lodScale: 1.0,
-    maxDrawDist: 3800,
+    occlusionEnabled: true,
+    lodScale: 1.15,
+    maxDrawDist: 2200,
     fps: 60,
     avgFrameMs: 16.6,
     lastTime: performance.now(),
     totalMeshes: 0,
     visibleMeshes: 0,
     culledMeshes: 0,
+    occludedMeshes: 0,
     nodesVisited: 0,
     nodesCulled: 0,
   };
+  let lastChildCount = -1;
 
   function computeMeshBox(mesh) {
     const g = mesh.geometry;
@@ -159,28 +164,34 @@ export function createOctree(ctx) {
     if (dtMs <= 0 || dtMs > 500) return;
     state.avgFrameMs = state.avgFrameMs * 0.9 + dtMs * 0.1;
     state.fps = Math.round(1000 / Math.max(1, state.avgFrameMs));
-    // Adaptive LOD scale: relax at >=52fps, tighten if <38fps
-    if (state.avgFrameMs > 26) {
-      state.lodScale = Math.min(2.2, state.lodScale + 0.03);
-      state.maxDrawDist = Math.max(1800, state.maxDrawDist - 60);
-    } else if (state.avgFrameMs < 19) {
+    // Adaptive LOD scale: relax at >=52fps, tighten if <42fps
+    if (state.avgFrameMs > 24) {
+      state.lodScale = Math.min(2.4, state.lodScale + 0.04);
+      state.maxDrawDist = Math.max(1200, state.maxDrawDist - 70);
+    } else if (state.avgFrameMs < 18.5) {
       state.lodScale = Math.max(1.0, state.lodScale - 0.02);
-      state.maxDrawDist = Math.min(4200, state.maxDrawDist + 40);
+      state.maxDrawDist = Math.min(3000, state.maxDrawDist + 40);
     }
   }
 
-  function cullNode(node, maxDist) {
+  function cullNode(node, maxDist, useOcc) {
     state.nodesVisited++;
     const dist = node.bounds.distanceToPoint(_camPos);
     if (dist > maxDist) {
       state.nodesCulled++;
-      hideSubtree(node);
+      hideSubtree(node, false);
       return;
     }
     // Outside frustum AND outside nearby shadow-caster bubble -> cull entire octree branch
     if (dist > SHADOW_BUBBLE && !_frustum.intersectsBox(node.bounds)) {
       state.nodesCulled++;
-      hideSubtree(node);
+      hideSubtree(node, false);
+      return;
+    }
+    // Hierarchical-Z Occlusion Culling for entire octree branch
+    if (useOcc && dist > SHADOW_BUBBLE && occlusion.isOccluded(_projScreen, node.bounds, _camPos.x, _camPos.y, _camPos.z)) {
+      state.nodesCulled++;
+      hideSubtree(node, true);
       return;
     }
     for (const it of node.items) {
@@ -191,26 +202,32 @@ export function createOctree(ctx) {
         m.visible = false;
         hiddenByOctree.add(m);
         state.culledMeshes++;
+      } else if (useOcc && d > SHADOW_BUBBLE && occlusion.isOccluded(_projScreen, it.box, _camPos.x, _camPos.y, _camPos.z)) {
+        m.visible = false;
+        hiddenByOctree.add(m);
+        state.culledMeshes++;
+        state.occludedMeshes++;
       } else {
         state.visibleMeshes++;
       }
     }
     if (node.children) {
-      for (const ch of node.children) cullNode(ch, maxDist);
+      for (const ch of node.children) cullNode(ch, maxDist, useOcc);
     }
   }
 
-  function hideSubtree(node) {
+  function hideSubtree(node, occluded) {
     for (const it of node.items) {
       const m = it.mesh;
       if (m.parent && m.visible) {
         m.visible = false;
         hiddenByOctree.add(m);
         state.culledMeshes++;
+        if (occluded) state.occludedMeshes++;
       }
     }
     if (node.children) {
-      for (const ch of node.children) hideSubtree(ch);
+      for (const ch of node.children) hideSubtree(ch, occluded);
     }
   }
 
@@ -220,12 +237,17 @@ export function createOctree(ctx) {
     state.lastTime = now;
 
     if (!state.enabled) return;
-    syncNewMeshes();
+    if (rootGroup.children.length !== lastChildCount) {
+      lastChildCount = rootGroup.children.length;
+      syncNewMeshes();
+    }
 
     camera.updateMatrixWorld();
     _projScreen.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     _frustum.setFromProjectionMatrix(_projScreen);
     _camPos.copy(camera.position);
+
+    const useOcc = state.occlusionEnabled && occlusion.prepare(_projScreen, _camPos.x, _camPos.y, _camPos.z);
 
     // High aerial views need a larger far draw distance than ground-level 3rd-person play
     const camHeight = Math.max(0, _camPos.y);
@@ -233,10 +255,11 @@ export function createOctree(ctx) {
 
     state.visibleMeshes = 0;
     state.culledMeshes = 0;
+    state.occludedMeshes = 0;
     state.nodesVisited = 0;
     state.nodesCulled = 0;
 
-    cullNode(root, maxDist);
+    cullNode(root, maxDist, useOcc);
   }
 
   /** Spatial query for meshes intersecting an AABB (e.g., for local collision/inspection). */

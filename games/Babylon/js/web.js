@@ -19,7 +19,7 @@ const title = (s) => String(s).toLowerCase().replace(/\b\w/g, (c) => c.toUpperCa
 
 // ---- detail tier --------------------------------------------------------------------------------------------------
 const TIERS = {
-  full: { q: 'final', maxDpr: 1.5, label: 'Full detail', short: 'Full', other: 'light',
+  full: { q: 'final', maxDpr: 1.15, label: 'Full detail', short: 'Full', other: 'light',
     note: 'Full detail draws every house, palm, boat and person. It needs a recent graphics chip with about 3 GB of memory.' },
   light: { q: 'draft', maxDpr: 1, label: 'Light detail', short: 'Light', other: 'full',
     note: 'Light detail draws fewer people, palms and props and smaller textures, for phones and older computers.' },
@@ -99,13 +99,10 @@ async function start() {
   const shots = film.shots, D = film.duration - 1 / 120;
   const modeIds = Object.keys(ctx.world.lighting.modes);
 
-  // compile the programs of every shot now, so playback does not stall at the first view of each
-  for (let i = 0; i < shots.length; i++) {
-    setProgress(`Preparing the ${title(shots[i].name).replace('Night', 'night pass')} shot`, i, shots.length);
-    await frameWait();
-    window.renderAt(shots[i].mid);
-  }
-  setProgress('Ready', shots.length, shots.length);
+  // Skip pre-rendering all 10 aerial/night shots at boot; warm up only the spawn view once ready
+  setProgress('Preparing spawn view', 0, 1);
+  await frameWait();
+  setProgress('Ready', 1, 1);
 
   // ---- player & game state --------------------------------------------------------------------------------------
   const saved = Number(store.get('babylon-t')); store.del('babylon-t');
@@ -115,26 +112,26 @@ async function start() {
   let pinned = null;                                   // light mode pinned by the viewer, or null = the film's light
   const free = { on: false, pos: new THREE.Vector3(), target: new THREE.Vector3(), fov: 50, look: false };
 
-  // Day-night cycle state (0..1 -> full 24h cycle over 120s at 1x)
-  let dayTime = 0.14;
+  // Day-night cycle state (0..1 -> full 24h cycle over 150s at 1x, with an extended night phase)
+  let dayTime = 0.10;
   let dayRunning = true;
   let daySpeed = 1;
-  const DAY_CYCLE_SEC = 120;
+  const DAY_CYCLE_SEC = 150;
 
   function dayNightSpec(u) {
     u = ((u % 1) + 1) % 1;
-    if (u < 0.25) return { a: 'morning', b: 'afternoon', k: u / 0.25 };
-    if (u < 0.50) return { a: 'afternoon', b: 'golden', k: (u - 0.25) / 0.25 };
-    if (u < 0.70) return { a: 'golden', b: 'blue', k: (u - 0.50) / 0.20 };
-    if (u < 0.86) return { a: 'blue', b: 'blue', k: 0 };
-    return { a: 'blue', b: 'morning', k: (u - 0.86) / 0.14, wrapDawn: true };
+    if (u < 0.16) return { a: 'morning', b: 'afternoon', k: u / 0.16 };
+    if (u < 0.34) return { a: 'afternoon', b: 'golden', k: (u - 0.16) / 0.18 };
+    if (u < 0.50) return { a: 'golden', b: 'blue', k: (u - 0.34) / 0.16 };
+    if (u < 0.88) return { a: 'blue', b: 'blue', k: 0 };
+    return { a: 'blue', b: 'morning', k: (u - 0.88) / 0.12, wrapDawn: true };
   }
   function formatTimeOfDay(u) {
     u = ((u % 1) + 1) % 1;
     const h24 = (6.5 + u * 24) % 24;
     const hh = String(Math.floor(h24)).padStart(2, '0');
     const mm = String(Math.floor((h24 % 1) * 60)).padStart(2, '0');
-    const phase = u < 0.20 ? 'Morning' : u < 0.45 ? 'Afternoon' : u < 0.56 ? 'Golden Hour' : u < 0.70 ? 'Dusk' : u < 0.88 ? 'Night' : 'Dawn';
+    const phase = u < 0.14 ? 'Morning' : u < 0.30 ? 'Afternoon' : u < 0.40 ? 'Golden Hour' : u < 0.50 ? 'Dusk' : u < 0.88 ? 'Night' : 'Dawn';
     return `${hh}:${mm} · ${phase}`;
   }
 
@@ -203,13 +200,21 @@ async function start() {
   });
   if (octToggle && ctx.octree) octToggle.addEventListener('click', () => {
     ctx.octree.state.enabled = !ctx.octree.state.enabled;
+    ctx.octree.state.occlusionEnabled = ctx.octree.state.enabled;
     if (!ctx.octree.state.enabled) ctx.octree.restore();
     octToggle.textContent = ctx.octree.state.enabled ? 'Octree On' : 'Octree Off';
     octToggle.classList.toggle('on', ctx.octree.state.enabled);
   });
   if (glideBtn && ctx.player) glideBtn.addEventListener('click', () => {
     ctx.player.state.glide = !ctx.player.state.glide;
+    if (ctx.player.state.glide) {
+      ctx.player.state.vel.y = 0;
+      const gy = ctx.ground.height(ctx.player.state.pos.x, ctx.player.state.pos.z);
+      if (ctx.player.state.pos.y <= gy + 0.5) ctx.player.state.pos.y = gy + 2.2;
+      ctx.player.state.onGround = false;
+    }
     glideBtn.classList.toggle('on', ctx.player.state.glide);
+    glideBtn.textContent = ctx.player.state.glide ? 'Flying' : 'Fly';
   });
   detailBtn.querySelector('.long').textContent = TIERS[tier].label;
   detailBtn.querySelector('.short').textContent = TIERS[tier].short;
@@ -461,12 +466,38 @@ async function start() {
 
   // ---- loop -----------------------------------------------------------------------------------------------------
   let hudTick = 0;
+  let streamingBusy = false;
+  let nextStreamAt = performance.now() + 600;
+  const totalStreamCount = ctx.streamRemainingCount ? ctx.streamRemainingCount() : 0;
+
+  function stepStreaming(now, dt) {
+    if (streamingBusy || !ctx.streamNext || !ctx.streamRemainingCount || ctx.streamRemainingCount() <= 0) return;
+    if (now < nextStreamAt) return;
+    // If the frame is still heavy (e.g. shader compilation), defer slightly up to 1.2s
+    if (dt > 0.032 && now < nextStreamAt + 1200) return;
+    streamingBusy = true;
+    ctx.streamNext().then((res) => {
+      const cost = res ? res.totalMs : 100;
+      nextStreamAt = performance.now() + Math.max(350, Math.min(2500, cost * 2.5));
+      if (res && ctx.streamRemainingCount() === 0 && window.STATS && window.STATS.bootProfile) {
+        console.info('[engine] all streamed modules loaded:', JSON.stringify(window.STATS.bootProfile.streamedModules));
+      }
+    }).catch(() => {
+      nextStreamAt = performance.now() + 500;
+    }).finally(() => {
+      streamingBusy = false;
+      if (!gameMode) dirty = true;
+    });
+  }
+
   function loop(now) {
     requestAnimationFrame(loop);
     if (lost) return;
     const dt = clamp((now - last) / 1000, 0, 0.1);
     last = now;
+    stepStreaming(now, dt);
     if (gameMode && ctx.player) {
+      ctx.animTime = (ctx.animTime || 0) + dt;
       if (dayRunning) {
         dayTime = (dayTime + (dt * daySpeed) / DAY_CYCLE_SEC) % 1;
       }
@@ -485,10 +516,17 @@ async function start() {
         hudTick = 0;
         if (todLabel) todLabel.textContent = formatTimeOfDay(dayTime);
         if (todSlider && document.activeElement !== todSlider) todSlider.value = String(Math.round(dayTime * 1000));
-        if (glideBtn) glideBtn.classList.toggle('on', ctx.player.state.glide);
+        if (glideBtn) {
+          glideBtn.classList.toggle('on', ctx.player.state.glide);
+          glideBtn.textContent = ctx.player.state.glide ? 'Flying' : 'Fly';
+        }
         if (octStats && ctx.octree) {
           const os = ctx.octree.state;
-          octStats.textContent = `Octree: ${os.visibleMeshes}/${os.totalMeshes} · LOD: ${ctx.octree.lodScale.toFixed(2)}x · ${os.fps} FPS`;
+          const rem = ctx.streamRemainingCount ? ctx.streamRemainingCount() : 0;
+          const streamStr = rem > 0 && totalStreamCount > 0 ? ` · Streaming: ${totalStreamCount - rem}/${totalStreamCount}` : '';
+          octStats.textContent = os.enabled
+            ? `Octree: ${os.visibleMeshes}/${os.totalMeshes} (Occ: ${os.occludedMeshes}) · LOD: ${ctx.octree.lodScale.toFixed(2)}x · ${os.fps} FPS${streamStr}`
+            : `Octree: Off (${os.totalMeshes}) · LOD: 1.00x · ${os.fps} FPS${streamStr}`;
         }
       }
       return;
@@ -501,7 +539,13 @@ async function start() {
   }
   syncModeUi();
   syncPlay();
-  if (!gameMode) { window.renderAt(t); syncUi(); }
+  if (gameMode && ctx.player) {
+    const pose = ctx.player.update(0);
+    if (pose) film.setOverride({ pos: pose.pos, look: pose.look, fov: pose.fov, mode: dayNightSpec(dayTime) });
+    window.renderAt(t);
+  } else {
+    window.renderAt(t); syncUi();
+  }
   L.root.classList.add('done');
   setTimeout(() => { L.root.hidden = true; }, reduceMotion ? 0 : 900);
   wake();

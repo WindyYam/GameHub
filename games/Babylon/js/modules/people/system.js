@@ -80,6 +80,11 @@ export function createSystem(ctx) {
 
   const kinds = { human, quad, bird };
   const figures = [];
+  const dynamicFigures = [];
+  const staticCells = new Map();
+  const CELL_SIZE = 64;
+  const CELL_RADIUS = 46; // sqrt(32^2 + 32^2) ~ 45.3
+  let gridDirty = true;
   const cannedCache = new Map();
   const P = makePose(), bones = new Float32Array(NB * 12);
   const S = { x: 0, y: 0, z: 0, az: 0, s: 0, moving: true, pitch: 0, hide: false, bank: 0 };
@@ -119,26 +124,62 @@ export function createSystem(ctx) {
     if (!f.B) f.B = WHITE; if (!f.C) f.C = WHITE; if (!f.D) f.D = WHITE; if (!f.hair) f.hair = 0;
     f.cr = cannedFor(f);
     figures.push(f);
+    if (f.move) dynamicFigures.push(f);
+    else gridDirty = true;
     return f;
+  }
+
+  function rebuildStaticGrid() {
+    staticCells.clear();
+    for (let i = 0; i < figures.length; i++) {
+      const f = figures[i];
+      if (f.move) continue;
+      const gx = Math.floor(f.x / CELL_SIZE);
+      const gz = Math.floor(f.z / CELL_SIZE);
+      const key = gx * 65536 + gz;
+      let cell = staticCells.get(key);
+      if (!cell) {
+        cell = { cx: (gx + 0.5) * CELL_SIZE, cz: (gz + 0.5) * CELL_SIZE, list: [] };
+        staticCells.set(key, cell);
+      }
+      cell.list.push(f);
+    }
+    gridDirty = false;
   }
 
   const stats = { near: 0, mid: 0, far: 0, posed: 0, shown: 0 };
   function update(frame) {
-    const t = frame.t, cam = frame.camera.pos, cx = cam[0], cy = cam[1], cz = cam[2];
+    if (gridDirty) rebuildStaticGrid();
+    const t = frame.animTime ?? frame.t;
+    const cam = frame.camera.pos, look = frame.camera.look;
+    const cx = cam[0], cy = cam[1], cz = cam[2];
+    let fx = look[0] - cx, fy = look[1] - cy, fz = look[2] - cz;
+    const fl = Math.hypot(fx, fy, fz) || 1;
+    fx /= fl; fy /= fl; fz /= fl;
+    const fovDeg = frame.camera.fov || 50;
+    const aspect = Math.max(1.8, (ctx.size.width || 1280) / (ctx.size.height || 720));
+    const coneRad = Math.atan(Math.tan(fovDeg * Math.PI / 360) * aspect) + 0.28;
+    const minCos = Math.cos(Math.min(Math.PI * 0.49, coneRad));
+
     // a level of detail changes over the sub-frames of a frame, not in one step
     const jit = frame.subCount > 1 ? 1 + 0.08 * ((frame.sub + 0.5) / frame.subCount - 0.5) : 1;
     rig.begin();
     const dark = frame.light && frame.light.night > 0.97 ? 0.35 : 1;             // at night nothing far from a lamp can be seen
+    const maxAnyDist = 900 * dark;
     let near = 0, mid = 0, far = 0, posed = 0;
-    for (let i = 0, n = figures.length; i < n; i++) {
-      const f = figures[i];
-      if (t < f.t0 || t >= f.t1) continue;
+
+    function processFigure(f) {
+      if (t < f.t0 || t >= f.t1) return;
       S.pitch = 0; S.moving = true; S.s = 0; S.hide = false; S.bank = 0;
-      if (f.move) { f.move(t, S, f); if (S.hide) continue; } else { S.x = f.x; S.y = f.y; S.z = f.z; S.az = f.az; }
-      const dx = S.x - cx, dy = S.y - cy, dz = S.z - cz, d = Math.sqrt(dx * dx + dy * dy + dz * dz) * jit * (f.lodScale || 1);
+      if (f.move) { f.move(t, S, f); if (S.hide) return; } else { S.x = f.x; S.y = f.y; S.z = f.z; S.az = f.az; }
+      const dx = S.x - cx, dy = S.y - cy, dz = S.z - cz;
+      const dRaw = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      // Frustum cone cull for visible assets only (keep <=18m for nearby shadow casters)
+      if (dRaw > 18 && (dx * fx + dy * fy + dz * fz) < dRaw * minCos) return;
+      const d = dRaw * jit * (f.lodScale || 1);
       const kind = kinds[f.kind], dist = kind.dist;
       const nl = dist.length;
-      if (d > dist[nl - 1] * dark) continue;
+      if (d > dist[nl - 1] * dark) return;
       let lod = 0; while (d >= dist[lod]) lod++;
       let row = -1;
       if (d < kind.poseDist) {
@@ -152,6 +193,23 @@ export function createSystem(ctx) {
       kind.sets[lod].push(S.x, S.y, S.z, S.az, f.scale, row, f.mask, f.A, f.B, f.C, f.D, f.E || f.B, f.hair, S.pitch);
       if (lod === 0) near++; else if (lod === nl - 1 && nl > 1) far++; else mid++;
     }
+
+    // 1. Dynamic figures (walkers, birds, animals)
+    for (let i = 0, n = dynamicFigures.length; i < n; i++) {
+      processFigure(dynamicFigures[i]);
+    }
+    // 2. Static figures grouped by 64m spatial cells (skip entire off-screen / out-of-range cells)
+    for (const cell of staticCells.values()) {
+      const cdx = cell.cx - cx, cdy = -cy, cdz = cell.cz - cz;
+      const cd = Math.hypot(cdx, cdy, cdz);
+      if (cd > maxAnyDist + CELL_RADIUS) continue;
+      if (cd > CELL_RADIUS + 18 && (cdx * fx + cdy * fy + cdz * fz) < cd * minCos - CELL_RADIUS) continue;
+      const list = cell.list;
+      for (let i = 0, n = list.length; i < n; i++) {
+        processFigure(list[i]);
+      }
+    }
+
     rig.commit();
     stats.near = near; stats.mid = mid; stats.far = far; stats.posed = posed; stats.shown = near + mid + far;
   }

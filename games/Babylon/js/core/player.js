@@ -1,11 +1,14 @@
-// js/core/player.js — 3D Third-Person Player character, physics/collision, camera, and landmark teleports.
+// js/core/player.js — 3D Third-Person Player character (high-detail rigged human), physics/collision, camera, and landmarks.
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js';
 import * as M from './mathx.js';
+import { createRig, makePose, clearPose, fk, NB } from '../modules/people/rig.js';
+import { buildHuman, SKEL, B, bit, poseWalk, poseStand, poseArms } from '../modules/people/human.js';
 
 const PLAYER_RADIUS = 0.45;
 const WALK_SPEED = 5.8;
 const SPRINT_SPEED = 13.5;
-const GLIDE_SPEED = 36.0;
+const FLIGHT_SPEED = 36.0;
+const BOOST_SPEED = 72.0;
 const GRAVITY = -22.0;
 const JUMP_VEL = 8.8;
 const STEP_UP_MAX = 1.35;
@@ -38,107 +41,282 @@ function pushOutOfPolygon(x, z, ring, radius) {
   return [bestX, bestZ];
 }
 
-function createCharacterMesh(ctx) {
-  const mat = (name, hex) => ctx.materials.register(
-    new THREE.MeshLambertMaterial({ name: 'player:' + name, color: hex }),
-    { owner: 'player' }
-  );
+function createHeroCharacter(ctx) {
+  const group = new THREE.Group();
+  group.name = 'player-character';
+  ctx.scene.add(group);
 
-  const skinM = mat('skin', 0xc98a5b);
-  const hairM = mat('hair', 0x241913);
-  const linenM = mat('linen', 0xe8dec9);
-  const lapisM = mat('lapis', 0x26489a);
-  const goldM = mat('gold', 0xd9aa45);
-  const leatherM = mat('leather', 0x5c3c24);
-  const woodM = mat('wood', 0x6e4a2b);
+  const pctx = Object.create(ctx);
+  pctx.module = { group };
 
-  const root = new THREE.Group();
-  root.name = 'player-character';
-
-  const body = new THREE.Group();
-  root.add(body);
-
-  // Legs (pivoted at hip y = 0.82)
-  const makeLeg = (xOff) => {
-    const piv = new THREE.Group();
-    piv.position.set(xOff, 0.82, 0);
-    const upper = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.44, 0.17), skinM);
-    upper.position.y = -0.22;
-    const shin = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.36, 0.15), skinM);
-    shin.position.y = -0.58;
-    const sandal = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.06, 0.24), leatherM);
-    sandal.position.set(0, -0.79, 0.04);
-    piv.add(upper, shin, sandal);
-    return piv;
+  const rig = createRig(pctx, { rows: 4, tag: 'player' });
+  const C = (id, k = 1) => {
+    const c = ctx.materials.color(id);
+    return [c.r * k, c.g * k, c.b * k];
   };
-  const legL = makeLeg(-0.11);
-  const legR = makeLeg(0.11);
-  body.add(legL, legR);
-
-  // Tunic / Skirt
-  const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.24, 0.48, 8), linenM);
-  skirt.position.y = 0.72;
-  body.add(skirt);
-
-  // Torso
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.48, 0.22), linenM);
-  torso.position.y = 1.12;
-  body.add(torso);
-
-  // Lapis & Gold Sash / Belt
-  const belt = new THREE.Mesh(new THREE.BoxGeometry(0.40, 0.10, 0.24), lapisM);
-  belt.position.y = 0.92;
-  const trim = new THREE.Mesh(new THREE.BoxGeometry(0.41, 0.03, 0.25), goldM);
-  trim.position.y = 0.96;
-  const shoulderSash = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.46, 0.24), lapisM);
-  shoulderSash.position.set(-0.08, 1.14, 0);
-  shoulderSash.rotation.z = -0.32;
-  body.add(belt, trim, shoulderSash);
-
-  // Head + Beard + Headband
-  const headGroup = new THREE.Group();
-  headGroup.position.y = 1.49;
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.24, 0.22), skinM);
-  const hair = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.14, 0.24), hairM);
-  hair.position.set(0, 0.08, -0.02);
-  const beard = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.13, 0.12), hairM);
-  beard.position.set(0, -0.09, 0.08);
-  const band = new THREE.Mesh(new THREE.BoxGeometry(0.245, 0.045, 0.245), goldM);
-  band.position.y = 0.07;
-  headGroup.add(head, hair, beard, band);
-  body.add(headGroup);
-
-  // Arms (pivoted at shoulder y = 1.32)
-  const makeArm = (xOff, withStaff) => {
-    const piv = new THREE.Group();
-    piv.position.set(xOff, 1.32, 0);
-    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.52, 0.12), skinM);
-    arm.position.y = -0.24;
-    piv.add(arm);
-    if (withStaff) {
-      const staff = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.024, 1.55, 6), woodM);
-      staff.position.set(0, -0.22, 0.18);
-      staff.rotation.x = 0.18;
-      const finial = new THREE.Mesh(new THREE.SphereGeometry(0.04, 6, 6), goldM);
-      finial.position.set(0, 0.55, 0.04);
-      staff.add(finial);
-      piv.add(staff);
-    }
-    return piv;
+  const tones = {
+    wood: C('palmWood'),
+    pottery: C('bakedBrickRed', 1.05),
+    potteryPale: C('bakedBrickBuff'),
+    bronze: C('bronze'),
+    reed: C('reedMat'),
+    gold: C('gold'),
+    leather: C('woolBrown', 0.8),
+    sack: C('woolDark', 1.2),
+    dates: C('woolBrown', 0.7),
+    hide: C('woolCream', 0.95),
   };
-  const armL = makeArm(-0.26, false);
-  const armR = makeArm(0.26, true);
-  body.add(armL, armR);
 
-  root.traverse((o) => {
-    if (o.isMesh) {
-      o.castShadow = true;
-      o.receiveShadow = true;
-    }
+  const cloth = rig.material('woolCream', 'player-hero-cloth', { roughness: 0.92, relief: 0.7, detail: 0.8 });
+  const geo = buildHuman(0, tones).toGeometry(THREE);
+  const set = rig.set({
+    name: 'player-hero',
+    geometry: geo,
+    material: cloth,
+    capacity: 1,
+    castShadow: true,
+    shadowTexel: 0.3,
+    reflect: true,
   });
 
-  ctx.scene.add(root);
-  return { root, body, headGroup, armL, armR, legL, legR };
+  const row = rig.alloc();
+  const P = makePose();
+  const bones = new Float32Array(SKEL.n * 12);
+
+  // Superman appearance: royal blue suit, crimson red cape/boots, gold belt accent, short black hair
+  const mask = bit('tunic', 'hairShort');
+  const A = [0.06, 0.22, 0.72];
+  const Bcol = [0.80, 0.08, 0.08];
+  const Ccol = C('skin', 0.96);
+  const Dcol = [0.95, 0.78, 0.16];
+  const Ecol = [0.80, 0.08, 0.08];
+  const hair = 0.02;
+  const scale = 1.04;
+
+  // Dynamic flowing red cape attached to shoulders (character faces -Z, back is +Z in local space)
+  // Top edge (v=0) tucks into the collar/shoulders (z ~ 0.065) so there is zero gap from any angle
+  const CAPE_COLS = 8, CAPE_ROWS = 10;
+  const capeGeo = new THREE.PlaneGeometry(0.62, 1.32, CAPE_COLS, CAPE_ROWS);
+  const capePos = capeGeo.attributes.position;
+  const capeBase = new Float32Array(capePos.array.length);
+  for (let i = 0; i < capePos.count; i++) {
+    const u = capePos.getX(i) / 0.62;               // -0.5..0.5
+    const v = 0.5 - capePos.getY(i) / 1.32;         // 0 at top (shoulders) .. 1 at hem
+    const shoulderCurve = 1 - (2 * u) * (2 * u);    // 1 at spine, 0 at shoulder tips
+    const x = u * (0.36 + v * 0.48);
+    const y = -v * 1.30 - (1 - shoulderCurve) * 0.03 * (1 - v);
+    const z = 0.065 + (1 - v) * 0.015 * shoulderCurve + Math.sin(Math.min(1, v * 3.5) * Math.PI * 0.5) * 0.06 + v * 0.09;
+    capePos.setXYZ(i, x, y, z);
+    capeBase[i * 3] = x; capeBase[i * 3 + 1] = y; capeBase[i * 3 + 2] = z;
+  }
+  capeGeo.computeVertexNormals();
+  const capeMat = new THREE.MeshStandardMaterial({
+    name: 'player-cape',
+    color: 0xc41016,
+    roughness: 0.76,
+    metalness: 0.04,
+    side: THREE.DoubleSide,
+  });
+  ctx.materials.register(capeMat, { owner: 'player', noVariation: true });
+  const capeMesh = new THREE.Mesh(capeGeo, capeMat);
+  capeMesh.castShadow = true;
+
+  // Superman chest emblem (gold diamond crest on front -Z chest)
+  const emblemGeo = new THREE.OctahedronGeometry(0.10, 0);
+  emblemGeo.scale(1.15, 0.95, 0.25);
+  const emblemMat = new THREE.MeshStandardMaterial({
+    name: 'player-emblem',
+    color: 0xf4c418,
+    emissive: 0x3a1800,
+    roughness: 0.35,
+    metalness: 0.25,
+  });
+  ctx.materials.register(emblemMat, { owner: 'player', noVariation: true });
+  const emblemMesh = new THREE.Mesh(emblemGeo, emblemMat);
+  emblemMesh.position.set(0, -0.15, -0.128);
+
+  const torsoPivot = new THREE.Group();
+  const shoulderPivot = new THREE.Group();
+  shoulderPivot.position.set(0, 1.43 * scale, 0);
+  shoulderPivot.scale.setScalar(scale);
+  shoulderPivot.add(capeMesh);
+  shoulderPivot.add(emblemMesh);
+  torsoPivot.add(shoulderPivot);
+  group.add(torsoPivot);
+
+  // Secondary Attack VFX: twin HDR crimson Heat Vision laser beams + impact glow
+  const laserMat = new THREE.MeshBasicMaterial({
+    name: 'player-laser',
+    color: new THREE.Color(5.5, 0.35, 0.1),
+    transparent: true,
+    opacity: 0.9,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  ctx.materials.register(laserMat, { owner: 'player', skipHooks: true });
+  const laserCoreMat = new THREE.MeshBasicMaterial({
+    name: 'player-laser-core',
+    color: new THREE.Color(9.0, 5.0, 1.8),
+    transparent: true,
+    opacity: 0.98,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  ctx.materials.register(laserCoreMat, { owner: 'player', skipHooks: true });
+
+  const laserCylGeo = new THREE.CylinderGeometry(0.045, 0.045, 1, 8, 1, true);
+  laserCylGeo.translate(0, 0.5, 0);
+  laserCylGeo.rotateX(Math.PI * 0.5);
+  const laserCoreGeo = new THREE.CylinderGeometry(0.018, 0.018, 1, 6, 1, true);
+  laserCoreGeo.translate(0, 0.5, 0);
+  laserCoreGeo.rotateX(Math.PI * 0.5);
+
+  const laserGroup = new THREE.Group();
+  laserGroup.visible = false;
+  const laserBeamL = new THREE.Mesh(laserCylGeo, laserMat);
+  const laserBeamR = new THREE.Mesh(laserCylGeo, laserMat);
+  const laserCoreL = new THREE.Mesh(laserCoreGeo, laserCoreMat);
+  const laserCoreR = new THREE.Mesh(laserCoreGeo, laserCoreMat);
+  const impactMesh = new THREE.Mesh(new THREE.SphereGeometry(0.45, 10, 8), laserCoreMat);
+  for (const m of [laserBeamL, laserBeamR, laserCoreL, laserCoreR, impactMesh]) {
+    m.frustumCulled = false;
+  }
+  laserGroup.add(laserBeamL, laserBeamR, laserCoreL, laserCoreR, impactMesh);
+  group.add(laserGroup);
+
+  function animateCape(flying, boost, speed, timeSec) {
+    const flow = flying ? M.clamp(0.45 + speed / BOOST_SPEED, 0.45, 1.35) : M.clamp(0.08 + speed / SPRINT_SPEED * 0.35, 0.08, 0.45);
+    const freq = flying ? (boost ? 18.0 : 12.0) : (4.0 + speed * 0.45);
+    for (let i = 0; i < capePos.count; i++) {
+      const bx = capeBase[i * 3];
+      const by = capeBase[i * 3 + 1];
+      const bz = capeBase[i * 3 + 2];
+      const v = Math.min(1, -by / 1.32);
+      const wave1 = Math.sin(timeSec * freq - v * 6.5 + bx * 3.0) * (0.04 + 0.14 * flow) * v * v;
+      const wave2 = Math.cos(timeSec * (freq * 0.7) - v * 4.2 - bx * 2.5) * 0.06 * flow * v;
+      if (flying) {
+        // When pitched forward (-flightPitch), local -Y streams behind feet and +Z is upward above his back
+        capePos.setXYZ(i, bx + wave2 * 0.6, by, bz + v * 0.18 * flow + wave1);
+      } else {
+        capePos.setXYZ(i, bx + wave2 * 0.5, by, bz + v * 0.24 * flow + wave1);
+      }
+    }
+    capePos.needsUpdate = true;
+    capeGeo.computeVertexNormals();
+  }
+
+  const _eyeL = new THREE.Vector3(), _eyeR = new THREE.Vector3();
+  const _upAxis = new THREE.Vector3(0, 1, 0);
+
+  function updatePose(pos, facingYaw, speed, walkPhase, timeSec, onGround, inWater, visible, flying, boost, flightPitch, punchPhase, laserTarget) {
+    group.visible = visible;
+    if (!visible) return;
+
+    clearPose(P);
+    let pitch = 0;
+    if (flying && !inWater) {
+      if (speed > 1.5) {
+        // Iconic horizontal head-first Superman flying pose (negative pitch tilts +Y toward -Z forward)
+        pitch = -flightPitch;
+        P.rx[B.ARM_R] = 3.04;
+        P.rz[B.ARM_R] = -0.06;
+        P.rx[B.FORE_R] = 0.06;
+        if (boost) {
+          P.rx[B.ARM_L] = 3.02;
+          P.rz[B.ARM_L] = 0.06;
+          P.rx[B.FORE_L] = 0.06;
+        } else {
+          P.rx[B.ARM_L] = -0.15;
+          P.rz[B.ARM_L] = -0.16;
+          P.rx[B.FORE_L] = 0.42;
+        }
+        P.rx[B.HEAD] = 0.85;
+        P.rx[B.THIGH_L] = -0.06;
+        P.rx[B.THIGH_R] = 0.04;
+        P.rx[B.SHIN_L] = -0.10;
+      } else {
+        // Heroic mid-air hover
+        pitch = -flightPitch;
+        poseStand(P, timeSec, 0.3);
+        P.rx[B.ARM_L] = 0.12;
+        P.rz[B.ARM_L] = -0.16;
+        P.rx[B.ARM_R] = 0.12;
+        P.rz[B.ARM_R] = 0.16;
+      }
+    } else if (inWater) {
+      pitch = -0.65;
+      poseWalk(P, walkPhase * 1.2, 0.55, 0.1, 0);
+      P.rx[B.ARM_L] = 1.1 + Math.sin(walkPhase * 1.2) * 0.7;
+      P.rx[B.ARM_R] = 1.1 - Math.sin(walkPhase * 1.2) * 0.7;
+    } else if (!onGround) {
+      poseWalk(P, walkPhase, 0.35, 0.08, 0);
+      P.rx[B.ARM_L] = 0.55;
+      P.rx[B.ARM_R] = 0.35;
+      P.rx[B.THIGH_L] = 0.45;
+      P.rx[B.SHIN_L] = -0.65;
+    } else if (speed > 0.25) {
+      const amp = M.clamp(0.32 + (speed / SPRINT_SPEED) * 0.25, 0.32, 0.58);
+      const lean = M.clamp((speed / SPRINT_SPEED) * 0.12, 0.03, 0.12);
+      poseWalk(P, walkPhase, amp, lean, 0);
+    } else {
+      poseStand(P, timeSec, 0.3);
+    }
+
+    // Primary Attack: Heroic Right-Hook / Straight Punch overlay
+    if (punchPhase > 0) {
+      const swing = Math.sin(Math.min(1, punchPhase * 1.35) * Math.PI);
+      P.ry[B.SPINE] -= 0.42 * swing;
+      P.ry[B.CHEST] -= 0.35 * swing;
+      P.rx[B.ARM_R] = 1.65 * swing;
+      P.rz[B.ARM_R] = -0.10 * swing;
+      P.rx[B.FORE_R] = 0.12;
+      P.rx[B.ARM_L] = -0.55 * swing;
+      P.rx[B.FORE_L] = 1.15 * swing;
+    }
+
+    fk(SKEL, P, bones);
+    rig.write(row, bones);
+    set.n = 0;
+    const azDeg = 180 - facingYaw * M.RAD;
+    set.push(pos.x, pos.y, pos.z, azDeg, scale, row, mask, A, Bcol, Ccol, Dcol, Ecol, hair, pitch);
+    rig.commit();
+
+    // Match rig.js exactly: R = Ry(facingYaw - PI) * Rx(pitch), plus spine lean for flush shoulder contact
+    torsoPivot.position.copy(pos);
+    torsoPivot.rotation.set(pitch, facingYaw - Math.PI, 0, 'YXZ');
+    shoulderPivot.rotation.x = (P.rx[B.SPINE] || 0) + (P.rx[B.CHEST] || 0);
+    animateCape(flying && !inWater, boost, speed, timeSec);
+
+    // Secondary Attack: Twin Heat Vision laser beams from Superman's eyes
+    if (laserTarget) {
+      torsoPivot.updateMatrixWorld(true);
+      const isFlyPose = flying && !inWater && speed > 1.5;
+      const eyeY = (isFlyPose ? 1.58 : 1.61) * scale;
+      const eyeZ = (isFlyPose ? -0.02 : -0.10) * scale;
+      const eyeHalf = 0.036 * scale;
+      _eyeL.set(-eyeHalf, eyeY, eyeZ).applyMatrix4(torsoPivot.matrixWorld);
+      _eyeR.set(eyeHalf, eyeY, eyeZ).applyMatrix4(torsoPivot.matrixWorld);
+
+      const dL = _eyeL.distanceTo(laserTarget);
+      const dR = _eyeR.distanceTo(laserTarget);
+      laserBeamL.position.copy(_eyeL); laserBeamL.lookAt(laserTarget); laserBeamL.scale.set(1, 1, dL);
+      laserCoreL.position.copy(_eyeL); laserCoreL.lookAt(laserTarget); laserCoreL.scale.set(1, 1, dL);
+      laserBeamR.position.copy(_eyeR); laserBeamR.lookAt(laserTarget); laserBeamR.scale.set(1, 1, dR);
+      laserCoreR.position.copy(_eyeR); laserCoreR.lookAt(laserTarget); laserCoreR.scale.set(1, 1, dR);
+
+      const pulse = 0.85 + 0.25 * Math.sin(timeSec * 42);
+      impactMesh.position.copy(laserTarget);
+      impactMesh.scale.setScalar(pulse);
+      laserMat.opacity = 0.78 + 0.18 * Math.sin(timeSec * 36);
+      laserGroup.visible = true;
+    } else {
+      laserGroup.visible = false;
+    }
+  }
+
+  return { group, updatePose };
 }
 
 function buildLandmarks(ctx) {
@@ -146,12 +324,9 @@ function buildLandmarks(ctx) {
   const ishtar = gates.find((g) => /ishtar/i.test(g.name)) || { x: 345.8, z: -716.2 };
   const monCenter = (id, dx = 0, dz = 0) => {
     const m = ctx.world.monuments.find((q) => q.id === id);
-    if (!m) return null;
-    if (m.footprint) {
-      const [cx, cz] = ringCenter(m.footprint);
-      return [cx + dx, cz + dz];
-    }
-    return null;
+    if (!m || !Array.isArray(m.footprint)) return null;
+    const [cx, cz] = ringCenter(m.footprint);
+    return [cx + dx, cz + dz];
   };
 
   const list = [
@@ -165,7 +340,6 @@ function buildLandmarks(ctx) {
   const esag = monCenter('esagila', 70, 0);
   if (esag) list.push({ id: 'esagila', name: 'Esagila', x: esag[0], z: esag[1], yaw: -Math.PI / 2 });
 
-  // Euphrates bridge or river bank
   const br = ctx.world.bridge;
   if (br && br.from && br.to) {
     list.push({ id: 'bridge', name: 'Euphrates Bridge', x: (br.from[0] + br.to[0]) * 0.5, z: (br.from[1] + br.to[1]) * 0.5, yaw: Math.PI / 2 });
@@ -176,7 +350,7 @@ function buildLandmarks(ctx) {
 }
 
 export function createPlayer(ctx) {
-  const rig = createCharacterMesh(ctx);
+  const hero = createHeroCharacter(ctx);
   const landmarks = buildLandmarks(ctx);
   const spawn = landmarks[0];
 
@@ -191,29 +365,63 @@ export function createPlayer(ctx) {
     onGround: true,
     inWater: false,
     glide: false,
+    flightPitch: 0,
+    punchTimer: 0,
+    laserActive: false,
     speed: 0,
-    animPhase: 0,
+    walkPhase: 0,
+    timeSec: 0,
   };
 
-  // Input state
   const keys = new Set();
+  const _laserTarget = new THREE.Vector3();
   let dragging = false, lastX = 0, lastY = 0;
   let wakeCooldown = 0;
+  let lastSpaceMs = 0;
+  let rightMouseDown = false;
+
+  function triggerPunch() {
+    if (state.punchTimer <= 0.05) {
+      state.punchTimer = 0.34;
+    }
+  }
 
   function isTypingTarget(el) {
     return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
   }
 
+  function toggleFlight() {
+    state.glide = !state.glide;
+    if (state.glide) {
+      state.vel.y = 0;
+      const gy = ctx.ground.height(state.pos.x, state.pos.z);
+      if (state.pos.y <= gy + 0.5) state.pos.y = gy + 2.2;
+      state.onGround = false;
+    }
+  }
+
   function onKeyDown(e) {
     if (!state.active || isTypingTarget(e.target)) return;
     const k = e.code;
+    const firstPress = !keys.has(k);
     keys.add(k);
-    if (k === 'Space' && state.onGround && !state.inWater) {
+    if (k === 'Space' && firstPress) {
       e.preventDefault();
-      state.vel.y = JUMP_VEL;
-      state.onGround = false;
-    } else if (k === 'KeyF') {
-      state.glide = !state.glide;
+      const nowMs = performance.now();
+      if (nowMs - lastSpaceMs < 280) {
+        toggleFlight();
+        lastSpaceMs = 0;
+      } else {
+        lastSpaceMs = nowMs;
+        if (!state.glide && state.onGround && !state.inWater) {
+          state.vel.y = JUMP_VEL;
+          state.onGround = false;
+        }
+      }
+    } else if (k === 'KeyF' && firstPress) {
+      toggleFlight();
+    } else if ((k === 'KeyJ' || k === 'Digit1') && firstPress) {
+      triggerPunch();
     }
   }
   function onKeyUp(e) {
@@ -221,28 +429,49 @@ export function createPlayer(ctx) {
   }
 
   const canvas = ctx.canvas;
+  function requestLock() {
+    if (!state.active || document.pointerLockElement === canvas || !canvas.requestPointerLock) return;
+    try {
+      const p = canvas.requestPointerLock();
+      if (p && p.catch) p.catch(() => {});
+    } catch { /* ignore if blocked */ }
+  }
   function onPointerDown(e) {
-    if (!state.active || e.button !== 0) return;
-    dragging = true;
-    lastX = e.clientX;
-    lastY = e.clientY;
+    if (!state.active) return;
+    if (e.button === 0) {
+      if (document.pointerLockElement === canvas) {
+        triggerPunch();
+      } else {
+        requestLock();
+        dragging = true;
+        lastX = e.clientX;
+        lastY = e.clientY;
+      }
+    } else if (e.button === 2) {
+      rightMouseDown = true;
+    }
   }
   function onPointerMove(e) {
     if (!state.active) return;
+    const minPitch = state.glide ? -0.85 : -0.18;
     if (document.pointerLockElement === canvas) {
       state.camYaw -= e.movementX * 0.0032;
-      state.camPitch = M.clamp(state.camPitch + e.movementY * 0.0028, -0.18, 1.15);
+      state.camPitch = M.clamp(state.camPitch + e.movementY * 0.0028, minPitch, 1.15);
     } else if (dragging) {
       const dx = e.clientX - lastX;
       const dy = e.clientY - lastY;
       lastX = e.clientX;
       lastY = e.clientY;
       state.camYaw -= dx * 0.0055;
-      state.camPitch = M.clamp(state.camPitch + dy * 0.0045, -0.18, 1.15);
+      state.camPitch = M.clamp(state.camPitch + dy * 0.0045, minPitch, 1.15);
     }
   }
-  function onPointerUp() {
-    dragging = false;
+  function onPointerUp(e) {
+    if (e.button === 0) dragging = false;
+    else if (e.button === 2) rightMouseDown = false;
+  }
+  function onContextMenu(e) {
+    if (state.active) e.preventDefault();
   }
   function onWheel(e) {
     if (!state.active) return;
@@ -255,6 +484,7 @@ export function createPlayer(ctx) {
   canvas.addEventListener('pointerdown', onPointerDown);
   window.addEventListener('pointermove', onPointerMove);
   window.addEventListener('pointerup', onPointerUp);
+  canvas.addEventListener('contextmenu', onContextMenu);
   canvas.addEventListener('wheel', onWheel, { passive: false });
 
   function teleport(idOrLandmark) {
@@ -271,13 +501,11 @@ export function createPlayer(ctx) {
   }
 
   function resolveCollisions(nx, nz, curGroundY) {
-    // 1. Check built houses nearby
     const houses = ctx.layout.housesNear(nx, nz, 28);
     for (const h of houses) {
       if (!ctx.layout.isBuilt(h)) continue;
       const pushed = pushOutOfPolygon(nx, nz, h.footprint, PLAYER_RADIUS);
       if (pushed) {
-        // Allow stepping into open courtyards if somehow inside, otherwise slide along outer wall
         const inCourt = h.courts && h.courts.some((c) => M.pointInPolygon(nx, nz, c));
         if (!inCourt) {
           nx = pushed[0];
@@ -285,8 +513,6 @@ export function createPlayer(ctx) {
         }
       }
     }
-
-    // 2. Check terrain step height (avoid walking straight through sheer walls/cliffs)
     const nextG = ctx.ground.height(nx, nz);
     if (!state.glide && state.onGround && nextG - curGroundY > STEP_UP_MAX) {
       return [state.pos.x, state.pos.z];
@@ -296,65 +522,82 @@ export function createPlayer(ctx) {
 
   function update(dt) {
     if (!state.active) {
-      rig.root.visible = false;
+      hero.group.visible = false;
       return null;
     }
-    rig.root.visible = true;
     dt = Math.min(dt, 0.05);
+    state.timeSec += dt;
 
-    // Camera-relative movement input (camYaw = 0 looks toward +Z)
     let fwdInput = 0, strafeInput = 0;
     if (keys.has('KeyW') || keys.has('ArrowUp')) fwdInput += 1;
     if (keys.has('KeyS') || keys.has('ArrowDown')) fwdInput -= 1;
     if (keys.has('KeyA') || keys.has('ArrowLeft')) strafeInput += 1;
     if (keys.has('KeyD') || keys.has('ArrowRight')) strafeInput -= 1;
 
-    // Optional keyboard orbit Q/E
     if (keys.has('KeyQ')) state.camYaw += 1.9 * dt;
     if (keys.has('KeyE')) state.camYaw -= 1.9 * dt;
 
     const moving = fwdInput !== 0 || strafeInput !== 0;
     const sprint = keys.has('ShiftLeft') || keys.has('ShiftRight');
-    const targetSpeed = moving ? (state.glide ? GLIDE_SPEED : sprint ? SPRINT_SPEED : WALK_SPEED) : 0;
+    const flying = state.glide;
+    const targetSpeed = moving ? (flying ? (sprint ? BOOST_SPEED : FLIGHT_SPEED) : (sprint ? SPRINT_SPEED : WALK_SPEED)) : 0;
 
+    let moveDirY = 0;
     if (moving) {
       const sinY = Math.sin(state.camYaw), cosY = Math.cos(state.camYaw);
-      // forward = (sinY, cosY), right = (-cosY, sinY)
       let mx = fwdInput * sinY + strafeInput * cosY;
       let mz = fwdInput * cosY - strafeInput * sinY;
       const mLen = Math.hypot(mx, mz) || 1;
       mx /= mLen; mz /= mLen;
 
-      state.speed = M.lerp(state.speed, targetSpeed, 1 - Math.exp(-12 * dt));
-      const nx = state.pos.x + mx * state.speed * dt;
-      const nz = state.pos.z + mz * state.speed * dt;
+      if (flying) {
+        // Look pitch controls 3D climb/dive when flying forward/back
+        moveDirY = -Math.sin(state.camPitch) * fwdInput;
+      }
+
+      state.speed = M.lerp(state.speed, targetSpeed, 1 - Math.exp(-(flying ? 7 : 12) * dt));
+      const horizFactor = flying ? Math.max(0.25, Math.cos(state.camPitch * 0.7)) : 1;
+      const nx = state.pos.x + mx * state.speed * horizFactor * dt;
+      const nz = state.pos.z + mz * state.speed * horizFactor * dt;
 
       const curG = ctx.ground.height(state.pos.x, state.pos.z);
-      const [rx, rz] = resolveCollisions(nx, nz, curG);
+      const [rx, rz] = (flying && state.pos.y > curG + 4.5) ? [nx, nz] : resolveCollisions(nx, nz, curG);
       state.pos.x = M.clamp(rx, -4200, 4200);
       state.pos.z = M.clamp(rz, -4200, 4200);
 
-      // Smoothly rotate character toward movement vector
       const targetYaw = Math.atan2(mx, mz);
       let diff = targetYaw - state.facingYaw;
       while (diff > Math.PI) diff -= Math.PI * 2;
       while (diff < -Math.PI) diff += Math.PI * 2;
       state.facingYaw += diff * (1 - Math.exp(-14 * dt));
     } else {
-      state.speed = M.lerp(state.speed, 0, 1 - Math.exp(-14 * dt));
+      state.speed = M.lerp(state.speed, 0, 1 - Math.exp(-(flying ? 5 : 14) * dt));
     }
 
-    // Vertical physics & water
     const groundY = ctx.ground.height(state.pos.x, state.pos.z);
     const waterLevel = ctx.ground.waterLevel;
     const isWater = ctx.ground.isWater(state.pos.x, state.pos.z);
     const swimSurface = waterLevel - 0.85;
-    state.inWater = isWater && groundY < waterLevel - 0.65;
+    state.inWater = !flying && isWater && groundY < waterLevel - 0.65;
 
-    if (state.inWater) {
+    if (flying) {
+      let vertThrust = 0;
+      if (keys.has('Space')) vertThrust += sprint ? 32 : 20;
+      if (keys.has('KeyC') || keys.has('ControlLeft') || keys.has('ControlRight')) vertThrust -= sprint ? 32 : 20;
+      state.vel.y = M.lerp(state.vel.y, vertThrust + moveDirY * state.speed, 1 - Math.exp(-8 * dt));
+      state.pos.y = M.clamp(state.pos.y + state.vel.y * dt, groundY + 0.35, 950);
+      state.onGround = false;
+      const horizSpeed = state.speed * Math.max(0.25, Math.cos(state.camPitch * 0.7));
+      const climbAngle = Math.atan2(state.vel.y, Math.max(2.0, horizSpeed));
+      const targetFlightPitch = state.speed > 1.5
+        ? M.clamp(Math.PI * 0.5 - climbAngle, 0.35, 2.55)
+        : M.clamp(0.06 - state.vel.y * 0.012, -0.22, 0.28);
+      state.flightPitch = M.lerp(state.flightPitch, targetFlightPitch, 1 - Math.exp(-10 * dt));
+    } else if (state.inWater) {
       state.vel.y = 0;
       state.pos.y = M.lerp(state.pos.y, swimSurface, 1 - Math.exp(-8 * dt));
       state.onGround = true;
+      state.flightPitch = M.lerp(state.flightPitch, 0, 1 - Math.exp(-10 * dt));
       wakeCooldown -= dt;
       if (state.speed > 0.8 && wakeCooldown <= 0 && ctx.water && ctx.water.addWake) {
         wakeCooldown = 0.25;
@@ -363,6 +606,7 @@ export function createPlayer(ctx) {
     } else {
       state.vel.y += GRAVITY * dt;
       state.pos.y += state.vel.y * dt;
+      state.flightPitch = M.lerp(state.flightPitch, 0, 1 - Math.exp(-10 * dt));
       if (state.pos.y <= groundY) {
         state.pos.y = groundY;
         state.vel.y = 0;
@@ -372,63 +616,69 @@ export function createPlayer(ctx) {
       }
     }
 
-    // Animate character rig
-    rig.root.position.copy(state.pos);
-    rig.root.rotation.y = state.facingYaw;
-    const runRatio = M.clamp(state.speed / WALK_SPEED, 0, 1.8);
     if (state.speed > 0.25) {
-      state.animPhase += dt * (4.5 + state.speed * 0.75);
-      const s = Math.sin(state.animPhase);
-      const amp = M.clamp(0.45 * runRatio, 0, 0.85);
-      if (state.inWater) {
-        rig.body.rotation.x = 0.55;
-        rig.legL.rotation.x = s * 0.5;
-        rig.legR.rotation.x = -s * 0.5;
-        rig.armL.rotation.x = -0.8 + s * 0.7;
-        rig.armR.rotation.x = -0.8 - s * 0.7;
-      } else {
-        rig.body.rotation.x = 0.06 * runRatio;
-        rig.body.position.y = Math.abs(Math.cos(state.animPhase)) * 0.06 * Math.min(1, runRatio);
-        rig.legL.rotation.x = s * amp;
-        rig.legR.rotation.x = -s * amp;
-        rig.armL.rotation.x = -s * amp * 0.85;
-        rig.armR.rotation.x = s * amp * 0.65;
-      }
-    } else {
-      state.animPhase += dt * 1.8;
-      rig.body.rotation.x = M.lerp(rig.body.rotation.x, 0, 1 - Math.exp(-10 * dt));
-      rig.body.position.y = Math.sin(state.animPhase) * 0.015;
-      rig.legL.rotation.x = M.lerp(rig.legL.rotation.x, 0, 1 - Math.exp(-10 * dt));
-      rig.legR.rotation.x = M.lerp(rig.legR.rotation.x, 0, 1 - Math.exp(-10 * dt));
-      rig.armL.rotation.x = M.lerp(rig.armL.rotation.x, 0, 1 - Math.exp(-10 * dt));
-      rig.armR.rotation.x = M.lerp(rig.armR.rotation.x, 0, 1 - Math.exp(-10 * dt));
+      state.walkPhase += (state.speed * dt * Math.PI * 2) / 1.45;
     }
 
-    // Compute third-person camera pose
-    const targetY = state.pos.y + 1.45;
+    if (state.punchTimer > 0) state.punchTimer = Math.max(0, state.punchTimer - dt);
+    const punchPhase = state.punchTimer > 0 ? 1 - state.punchTimer / 0.34 : 0;
+
+    state.laserActive = rightMouseDown || keys.has('KeyK') || keys.has('Digit2');
+    let laserTarget = null;
+    if (state.laserActive) {
+      // Aim laser along camera look ray (yaw = state.camYaw, pitch = -state.camPitch)
+      const aimCos = Math.cos(state.camPitch);
+      const aimX = Math.sin(state.camYaw) * aimCos;
+      const aimY = -Math.sin(state.camPitch);
+      const aimZ = Math.cos(state.camYaw) * aimCos;
+      // Face aim direction when firing laser while stationary/hovering
+      if (!moving) {
+        let diff = state.camYaw - state.facingYaw;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        state.facingYaw += diff * (1 - Math.exp(-16 * dt));
+      }
+      const ox = state.pos.x, oy = state.pos.y + (flying && state.speed > 1.5 ? 0.65 : 1.65), oz = state.pos.z;
+      let hitDist = 160;
+      for (let d = 2; d <= 160; d += 2.5) {
+        const px = ox + aimX * d, py = oy + aimY * d, pz = oz + aimZ * d;
+        const surfY = Math.max(ctx.ground.height(px, pz), ctx.ground.isWater(px, pz) ? ctx.ground.waterLevel : -999);
+        if (py <= surfY) { hitDist = d; break; }
+      }
+      _laserTarget.set(ox + aimX * hitDist, oy + aimY * hitDist, oz + aimZ * hitDist);
+      laserTarget = _laserTarget;
+    }
+
+    hero.updatePose(state.pos, state.facingYaw, state.speed, state.walkPhase, state.timeSec, state.onGround, state.inWater, state.active, flying, sprint && flying, state.flightPitch, punchPhase, laserTarget);
+
+    const targetY = state.pos.y + (flying && state.speed > 1.5 ? 0.65 : 1.45);
     const horiz = Math.cos(state.camPitch) * state.camDist;
     const vert = Math.sin(state.camPitch) * state.camDist;
     const camX = state.pos.x - Math.sin(state.camYaw) * horiz;
     const camZ = state.pos.z - Math.cos(state.camYaw) * horiz;
     const minCamY = ctx.ground.height(camX, camZ) + 0.75;
     const camY = Math.max(minCamY, targetY + vert);
+    const dynFov = flying ? 54 + M.clamp((state.speed / BOOST_SPEED) * 12, 0, 12) : 54;
 
     return {
       pos: [camX, camY, camZ],
       look: [state.pos.x, targetY, state.pos.z],
-      fov: 54,
+      fov: dynFov,
     };
   }
 
   return {
     state,
-    rig,
+    rig: hero,
     landmarks,
     teleport,
     update,
     setActive(v) {
       state.active = !!v;
-      rig.root.visible = state.active;
+      hero.group.visible = state.active;
+      if (!state.active && document.pointerLockElement === canvas && document.exitPointerLock) {
+        try { document.exitPointerLock(); } catch { /* ignore */ }
+      }
     },
   };
 }

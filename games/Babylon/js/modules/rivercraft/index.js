@@ -401,7 +401,7 @@ export default {
     const matrixOf = (p, scale) => { _e.set((p.pitch || 0) * D, -p.headingDeg * D, (p.roll || 0) * D, 'YXZ'); _q.setFromEuler(_e); _p.set(p.x, p.y, p.z); _s.set(scale, scale, scale); return _m.compose(_p, _q, _s); };
     const stats = { near: 0, far: 0 };
     const update = (frame) => {
-      const t = frame.t, cam = frame.camera.pos;
+      const t = frame.animTime ?? frame.t, cam = frame.camera.pos;
       const hp = heroPose(t);
       if (hp) {
         const far = heroFar >= 0 && Math.hypot(hp.x - cam[0], hp.y - cam[1], hp.z - cam[2]) > 450;

@@ -8120,7 +8120,7 @@ async function create(ctx) {
   scene.add(sky.mesh, sky.stars);
 
   // ---- cascades ------------------------------------------------------------------------------------------------------
-  const mapSize = ctx.quality.shadowMapSize;
+  const mapSize = ctx.flags.web ? Math.min(ctx.quality.shadowMapSize, 2048) : ctx.quality.shadowMapSize;
   const cascades = [];
   for (let i = 0; i < 4; i++) {
     const light = new THREE.DirectionalLight(0xffffff, 0);
@@ -8370,9 +8370,15 @@ async function create(ctx) {
     const ru = shadowState.reuse, sub = frame.sub || 0;
     const chain = shadowState.canReuse && sub > 0 && ru && ru.rendered && ru.tFrame === frame.tFrame && ru.sub === sub - 1 && ru.dir.dot(Ld) > 0.99995 && !override;
     shadowState.reuse = { tFrame: frame.tFrame, sub, dir: chain ? ru.dir : Ld.clone(), rendered: false };
+    const rtThrottle = ctx.flags.web && ctx.player && ctx.player.state.active && shadowPasses > 2;
+    const periods = [1, 3, 6, 10];
     for (let i = 0; i < 4; i++) {
       const c = cascades[i], f = list[i], R = f.radius, texel = (2 * R) / mapSize;
       if (chain && c.radius >= REUSE_RADIUS && c.kind === f.kind && c.radius === R && c.center.distanceTo(_c.fromArray(f.center)) < 0.05 * R) { c.reused = true; continue; }
+      if (rtThrottle && i > 0 && (shadowPasses % periods[i]) !== 0 && c.radius > 0 && c.kind === f.kind && Math.abs(c.radius - R) < 0.25 * R && c.center.distanceTo(_c.fromArray(f.center)) < 0.22 * R) {
+        c.reused = true;
+        continue;
+      }
       c.reused = false;
       // snap the centre to whole texels along the map's axes (and to whole metres along the light), so the
       // texel grid is fixed in the world while the camera moves
@@ -9012,7 +9018,7 @@ async function create(ctx) {
     module: { course: COURSE, brick: BRICK },
     /** Per-frame: shared uniforms and night-driven emitters. Called by the engine before every sub-frame render. */
     update(frame) {
-      uniforms.uBTime.value = frame.t;
+      uniforms.uBTime.value = frame.animTime ?? frame.t;
       if (nightDriven.length) {
         const night = frame.light && typeof frame.light.night === 'number' ? frame.light.night : 0;
         for (const n of nightDriven) n.material.emissiveIntensity = n.base * (n.day + (1 - n.day) * night);
@@ -9286,13 +9292,312 @@ function halton(index, base) {
 Object.assign(module.exports, { DEG, RAD, TAU, clamp, lerp, invLerp, remap, smoothstep, smootherstep, easeInOut, mod, angleDiffDeg, lerp3, azToDir, dirToAz, dirFromAzEl, rotateXZ, localToWorld, worldToLocal, rightOf, isClosedRing, openRing, closeRing, polygonArea, isClockwise, polygonCentroid, bbox, inBBox, pointInPolygon, distToSegment, nearestOnPolyline, distToPolyline, distToRing, signedDistToPolygon, polylineLength, chainage, pointAlong, valueAlong, resamplePolyline, offsetPolyline, rectRing, catmullRom, halton });
 
   };
+  __modules["js/core/occlusion.js"] = function (module, exports, __require, __import, __resolve) {
+// js/core/occlusion.js — Conservative Software Hi-Z Occlusion Culler (128x72 depth pyramid).
+const M = __require('js/core/mathx.js');
+
+const W = 128;
+const H = 72;
+
+function createOcclusion(ctx) {
+  // Build mip chain: L0 (128x72), L1 (64x36), L2 (32x18), L3 (16x9), L4 (8x5)
+  const mips = [];
+  let mw = W, mh = H;
+  while (mw >= 8 && mh >= 4) {
+    mips.push({ w: mw, h: mh, buf: new Float32Array(mw * mh) });
+    if (mw === 8) break;
+    mw = Math.ceil(mw / 2);
+    mh = Math.ceil(mh / 2);
+  }
+  const L0 = mips[0].buf;
+
+  // Pre-collect static wall & monument occluder AABBs (shrunk conservatively)
+  const staticOccluders = [];
+  if (ctx.world) {
+    // Monuments (etemenanki, southPalace, esagila, etc.)
+    for (const mon of ctx.world.monuments || []) {
+      const fp = mon.footprint;
+      if (!Array.isArray(fp) || fp.length < 3) continue;
+      let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
+      for (const p of fp) {
+        if (p[0] < x0) x0 = p[0];
+        if (p[0] > x1) x1 = p[0];
+        if (p[1] < z0) z0 = p[1];
+        if (p[1] > z1) z1 = p[1];
+      }
+      const d = mon.dims || {};
+      const top = d.wallTopLevel || d.wallTop || d.summitLevel || ((d.floorLevel || 4) + (d.wallHeight || d.height || 12));
+      const base = d.floorLevel ?? ctx.ground.height((x0 + x1) * 0.5, (z0 + z1) * 0.5);
+      // Shrink conservatively by 2m horizontally and 1.2m vertically
+      if (x1 - x0 > 8 && z1 - z0 > 8 && top - base > 4) {
+        staticOccluders.push([x0 + 2, base, z0 + 2, x1 - 2, top - 1.2, z1 - 2]);
+      }
+    }
+
+    // Inner wall segments
+    const iw = ctx.world.innerWalls;
+    if (iw && iw.profile) {
+      const addWallLine = (line, thick, h) => {
+        if (!line || line.length < 2) return;
+        const hw = Math.max(1.5, thick * 0.35);
+        for (let i = 0; i < line.length - 1; i++) {
+          const a = line[i], b = line[i + 1];
+          const mx = (a[0] + b[0]) * 0.5, mz = (a[1] + b[1]) * 0.5;
+          const gy = ctx.ground.height(mx, mz);
+          const x0 = Math.min(a[0], b[0]) - hw, x1 = Math.max(a[0], b[0]) + hw;
+          const z0 = Math.min(a[1], b[1]) - hw, z1 = Math.max(a[1], b[1]) + hw;
+          staticOccluders.push([x0, gy - 1, z0, x1, gy + h * 0.85, z1]);
+        }
+      };
+      const pr = iw.profile;
+      const tIn = (pr.imgurEnlil && pr.imgurEnlil.thickness) || 6.5;
+      const hIn = (pr.imgurEnlil && pr.imgurEnlil.height) || 14;
+      const tOut = (pr.nemettiEnlil && pr.nemettiEnlil.thickness) || 3.7;
+      const hOut = (pr.nemettiEnlil && pr.nemettiEnlil.height) || 10;
+      for (const side of ['east', 'west']) {
+        if (!iw[side]) continue;
+        addWallLine(iw[side].innerLine, tIn, hIn);
+        addWallLine(iw[side].outerLine, tOut, hOut);
+      }
+    }
+  }
+
+  // Scratch arrays for projecting 8 box corners
+  const sx = new Float32Array(8);
+  const sy = new Float32Array(8);
+  const sz = new Float32Array(8);
+  const sw = new Float32Array(8);
+
+  function projectBox(m, x0, y0, z0, x1, y1, z1) {
+    const m0 = m[0], m1 = m[1], m2 = m[2], m3 = m[3];
+    const m4 = m[4], m5 = m[5], m6 = m[6], m7 = m[7];
+    const m8 = m[8], m9 = m[9], m10 = m[10], m11 = m[11];
+    const m12 = m[12], m13 = m[13], m14 = m[14], m15 = m[15];
+
+    for (let i = 0; i < 8; i++) {
+      const x = (i & 1) ? x1 : x0;
+      const y = (i & 2) ? y1 : y0;
+      const z = (i & 4) ? z1 : z0;
+      const cw = m3 * x + m7 * y + m11 * z + m15;
+      if (cw <= 0.05) return false;
+      const invW = 1 / cw;
+      const cx = (m0 * x + m4 * y + m8 * z + m12) * invW;
+      const cy = (m1 * x + m5 * y + m9 * z + m13) * invW;
+      const cz = (m2 * x + m6 * y + m10 * z + m14) * invW;
+      sx[i] = (cx * 0.5 + 0.5) * W;
+      sy[i] = (cy * 0.5 + 0.5) * H;
+      sz[i] = cz * 0.5 + 0.5;
+      sw[i] = cw;
+    }
+    return true;
+  }
+
+  function rasterTri(i0, i1, i2) {
+    const x0 = sx[i0], y0 = sy[i0], z0 = sz[i0];
+    const x1 = sx[i1], y1 = sy[i1], z1 = sz[i1];
+    const x2 = sx[i2], y2 = sy[i2], z2 = sz[i2];
+
+    const area = (x1 - x0) * (y2 - y0) - (y1 - y0) * (x2 - x0);
+    if (Math.abs(area) < 0.25) return;
+    const invA = 1 / area;
+
+    const minX = Math.max(0, Math.floor(Math.min(x0, x1, x2)));
+    const maxX = Math.min(W - 1, Math.ceil(Math.max(x0, x1, x2)));
+    const minY = Math.max(0, Math.floor(Math.min(y0, y1, y2)));
+    const maxY = Math.min(H - 1, Math.ceil(Math.max(y0, y1, y2)));
+    if (minX > maxX || minY > maxY) return;
+
+    const sgn = area > 0 ? 1 : -1;
+    const dx12 = (y1 - y2) * sgn, dy12 = (x2 - x1) * sgn;
+    const dx20 = (y2 - y0) * sgn, dy20 = (x0 - x2) * sgn;
+    const dx01 = (y0 - y1) * sgn, dy01 = (x1 - x0) * sgn;
+
+    for (let py = minY; py <= maxY; py++) {
+      const cy = py + 0.5;
+      const rowOff = py * W;
+      for (let px = minX; px <= maxX; px++) {
+        const cx = px + 0.5;
+        const w0 = ((cx - x1) * (y2 - y1) - (cy - y1) * (x2 - x1)) * sgn;
+        if (w0 < 0) continue;
+        const w1 = ((cx - x2) * (y0 - y2) - (cy - y2) * (x0 - x2)) * sgn;
+        if (w1 < 0) continue;
+        const w2 = ((cx - x0) * (y1 - y0) - (cy - y0) * (x1 - x0)) * sgn;
+        if (w2 < 0) continue;
+
+        const b0 = (w0 * sgn) * invA;
+        const b1 = (w1 * sgn) * invA;
+        const b2 = 1 - b0 - b1;
+        const z = b0 * z0 + b1 * z1 + b2 * z2;
+        if (z < L0[rowOff + px]) L0[rowOff + px] = z;
+      }
+    }
+  }
+
+  function rasterBox(pm, camX, camY, camZ, x0, y0, z0, x1, y1, z1) {
+    if (!projectBox(pm, x0, y0, z0, x1, y1, z1)) return;
+    // Rasterize only the front-facing faces of the AABB
+    // Corner indices: bit0=x(0/1), bit1=y(0/2), bit2=z(0/4)
+    if (camX < x0) { rasterTri(0, 4, 6); rasterTri(0, 6, 2); }
+    else if (camX > x1) { rasterTri(1, 3, 7); rasterTri(1, 7, 5); }
+    if (camY < y0) { rasterTri(0, 1, 5); rasterTri(0, 5, 4); }
+    else if (camY > y1) { rasterTri(2, 6, 7); rasterTri(2, 7, 3); }
+    if (camZ < z0) { rasterTri(0, 2, 3); rasterTri(0, 3, 1); }
+    else if (camZ > z1) { rasterTri(4, 5, 7); rasterTri(4, 7, 6); }
+  }
+
+  function buildPyramid() {
+    for (let l = 1; l < mips.length; l++) {
+      const prev = mips[l - 1], cur = mips[l];
+      const pw = prev.w, ph = prev.h, pb = prev.buf;
+      const cw = cur.w, ch = cur.h, cb = cur.buf;
+      for (let y = 0; y < ch; y++) {
+        const py0 = y * 2, py1 = Math.min(ph - 1, py0 + 1);
+        for (let x = 0; x < cw; x++) {
+          const px0 = x * 2, px1 = Math.min(pw - 1, px0 + 1);
+          const d00 = pb[py0 * pw + px0];
+          const d10 = pb[py0 * pw + px1];
+          const d01 = pb[py1 * pw + px0];
+          const d11 = pb[py1 * pw + px1];
+          cb[y * cw + x] = Math.max(d00, d10, d01, d11);
+        }
+      }
+    }
+  }
+
+  let active = false;
+  const activeBoxes = [];
+
+  function prepare(projScreenMatrix, camX, camY, camZ) {
+    const gy = ctx.ground ? ctx.ground.height(camX, camZ) : 0;
+    // High aerial cameras see over walls/houses; disable occlusion culling above 45m AGL
+    if (camY - gy > 45) {
+      active = false;
+      return false;
+    }
+    active = true;
+    L0.fill(1.0);
+    activeBoxes.length = 0;
+
+    // Gather nearby house occluders (conservative inner box)
+    if (ctx.layout && ctx.layout.housesNear) {
+      const houses = ctx.layout.housesNear(camX, camZ, 240);
+      for (let i = 0; i < houses.length; i++) {
+        const h = houses[i];
+        if (!ctx.layout.isBuilt(h) || !h.footprint) continue;
+        const fp = h.footprint;
+        let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
+        for (let k = 0; k < fp.length; k++) {
+          const p = fp[k];
+          if (p[0] < x0) x0 = p[0];
+          if (p[0] > x1) x1 = p[0];
+          if (p[1] < z0) z0 = p[1];
+          if (p[1] > z1) z1 = p[1];
+        }
+        const dx = (x1 - x0) * 0.15, dz = (z1 - z0) * 0.15;
+        const top = (h.roofLevel || (h.groundLevel + 4.5)) - 0.5;
+        const base = h.groundLevel ?? gy;
+        if (top - base > 2.5 && x1 - x0 > 4 && z1 - z0 > 4) {
+          const cx = (x0 + x1) * 0.5, cz = (z0 + z1) * 0.5;
+          const d2 = (cx - camX) * (cx - camX) + (cz - camZ) * (cz - camZ);
+          if (d2 > 25) {
+            activeBoxes.push({ d2, box: [x0 + dx, base, z0 + dz, x1 - dx, top, z1 - dz] });
+          }
+        }
+      }
+    }
+
+    // Gather nearby static wall/monument occluders
+    for (let i = 0; i < staticOccluders.length; i++) {
+      const b = staticOccluders[i];
+      const cx = (b[0] + b[3]) * 0.5, cz = (b[2] + b[5]) * 0.5;
+      const d2 = (cx - camX) * (cx - camX) + (cz - camZ) * (cz - camZ);
+      if (d2 < 900 * 900) {
+        activeBoxes.push({ d2, box: b });
+      }
+    }
+
+    // Sort front-to-back and rasterize top ~100 closest occluders
+    activeBoxes.sort((a, b) => a.d2 - b.d2);
+    const pm = projScreenMatrix.elements;
+    const count = Math.min(activeBoxes.length, 100);
+    for (let i = 0; i < count; i++) {
+      const b = activeBoxes[i].box;
+      if (camX >= b[0] && camX <= b[3] && camY >= b[1] && camY <= b[4] && camZ >= b[2] && camZ <= b[5]) continue;
+      rasterBox(pm, camX, camY, camZ, b[0], b[1], b[2], b[3], b[4], b[5]);
+    }
+
+    buildPyramid();
+    return true;
+  }
+
+  /** Returns true if the given world-space AABB is completely occluded by closer geometry. */
+  function isOccluded(projScreenMatrix, box, camX, camY, camZ) {
+    if (!active) return false;
+    const min = box.min, max = box.max;
+    // Never cull if camera is inside or very close to the AABB
+    if (camX >= min.x - 16 && camX <= max.x + 16 &&
+        camY >= min.y - 16 && camY <= max.y + 16 &&
+        camZ >= min.z - 16 && camZ <= max.z + 16) {
+      return false;
+    }
+
+    if (!projectBox(projScreenMatrix.elements, min.x, min.y, min.z, max.x, max.y, max.z)) {
+      return false;
+    }
+
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, minZ = Infinity;
+    for (let i = 0; i < 8; i++) {
+      if (sx[i] < minX) minX = sx[i];
+      if (sx[i] > maxX) maxX = sx[i];
+      if (sy[i] < minY) minY = sy[i];
+      if (sy[i] > maxY) maxY = sy[i];
+      if (sz[i] < minZ) minZ = sz[i];
+    }
+
+    const x0 = Math.max(0, Math.floor(minX));
+    const x1 = Math.min(W - 1, Math.floor(maxX));
+    const y0 = Math.max(0, Math.floor(minY));
+    const y1 = Math.min(H - 1, Math.floor(maxY));
+    if (x0 > x1 || y0 > y1) return false;
+
+    const span = Math.max(x1 - x0 + 1, y1 - y0 + 1);
+    let level = 0;
+    while (level < mips.length - 1 && (span >> level) > 2) level++;
+
+    const mip = mips[level];
+    const mw = mip.w, mh = mip.h, buf = mip.buf;
+    const mx0 = Math.max(0, x0 >> level), mx1 = Math.min(mw - 1, x1 >> level);
+    const my0 = Math.max(0, y0 >> level), my1 = Math.min(mh - 1, y1 >> level);
+
+    let hiZ = 0;
+    for (let y = my0; y <= my1; y++) {
+      const row = y * mw;
+      for (let x = mx0; x <= mx1; x++) {
+        const d = buf[row + x];
+        if (d > hiZ) hiZ = d;
+      }
+    }
+
+    return minZ > hiZ + 0.0025;
+  }
+
+  return {
+    prepare,
+    isOccluded,
+    get occluderCount() { return Math.min(activeBoxes.length, 100); },
+  };
+}
+Object.assign(module.exports, { createOcclusion });
+
+  };
   __modules["js/core/octree.js"] = function (module, exports, __require, __import, __resolve) {
-// js/core/octree.js — 3D Spatial Octree, hierarchical frustum/distance culling, and adaptive LOD manager.
+// js/core/octree.js — 3D Spatial Octree, hierarchical frustum/distance/Hi-Z occlusion culling, and adaptive LOD manager.
 const THREE = __require('https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js');
+const { createOcclusion } = __require('js/core/occlusion.js');
 
 const MAX_ITEMS = 12;
 const MAX_DEPTH = 7;
-const SHADOW_BUBBLE = 160; // keep nearby meshes visible even behind camera so shadows fall into view
+const SHADOW_BUBBLE = 85; // keep nearby meshes visible even behind camera so shadows fall into view
 
 class OctreeNode {
   constructor(bounds, depth = 0) {
@@ -9357,14 +9662,15 @@ class OctreeNode {
 
 function createOctree(ctx) {
   const rootGroup = ctx.geom.root;
+  const occlusion = createOcclusion(ctx);
   const _frustum = new THREE.Frustum();
   const _projScreen = new THREE.Matrix4();
   const _box = new THREE.Box3();
   const _camPos = new THREE.Vector3();
 
   const worldBounds = new THREE.Box3(
-    new THREE.Vector3(-5500, -120, -5500),
-    new THREE.Vector3(5500, 400, 5500)
+    new THREE.Vector3(-7500, -250, -7500),
+    new THREE.Vector3(7500, 600, 7500)
   );
 
   let root = new OctreeNode(worldBounds.clone(), 0);
@@ -9375,17 +9681,20 @@ function createOctree(ctx) {
   // Adaptive performance & LOD state
   const state = {
     enabled: true,
-    lodScale: 1.0,
-    maxDrawDist: 3800,
+    occlusionEnabled: true,
+    lodScale: 1.15,
+    maxDrawDist: 2200,
     fps: 60,
     avgFrameMs: 16.6,
     lastTime: performance.now(),
     totalMeshes: 0,
     visibleMeshes: 0,
     culledMeshes: 0,
+    occludedMeshes: 0,
     nodesVisited: 0,
     nodesCulled: 0,
   };
+  let lastChildCount = -1;
 
   function computeMeshBox(mesh) {
     const g = mesh.geometry;
@@ -9448,28 +9757,34 @@ function createOctree(ctx) {
     if (dtMs <= 0 || dtMs > 500) return;
     state.avgFrameMs = state.avgFrameMs * 0.9 + dtMs * 0.1;
     state.fps = Math.round(1000 / Math.max(1, state.avgFrameMs));
-    // Adaptive LOD scale: relax at >=52fps, tighten if <38fps
-    if (state.avgFrameMs > 26) {
-      state.lodScale = Math.min(2.2, state.lodScale + 0.03);
-      state.maxDrawDist = Math.max(1800, state.maxDrawDist - 60);
-    } else if (state.avgFrameMs < 19) {
+    // Adaptive LOD scale: relax at >=52fps, tighten if <42fps
+    if (state.avgFrameMs > 24) {
+      state.lodScale = Math.min(2.4, state.lodScale + 0.04);
+      state.maxDrawDist = Math.max(1200, state.maxDrawDist - 70);
+    } else if (state.avgFrameMs < 18.5) {
       state.lodScale = Math.max(1.0, state.lodScale - 0.02);
-      state.maxDrawDist = Math.min(4200, state.maxDrawDist + 40);
+      state.maxDrawDist = Math.min(3000, state.maxDrawDist + 40);
     }
   }
 
-  function cullNode(node, maxDist) {
+  function cullNode(node, maxDist, useOcc) {
     state.nodesVisited++;
     const dist = node.bounds.distanceToPoint(_camPos);
     if (dist > maxDist) {
       state.nodesCulled++;
-      hideSubtree(node);
+      hideSubtree(node, false);
       return;
     }
     // Outside frustum AND outside nearby shadow-caster bubble -> cull entire octree branch
     if (dist > SHADOW_BUBBLE && !_frustum.intersectsBox(node.bounds)) {
       state.nodesCulled++;
-      hideSubtree(node);
+      hideSubtree(node, false);
+      return;
+    }
+    // Hierarchical-Z Occlusion Culling for entire octree branch
+    if (useOcc && dist > SHADOW_BUBBLE && occlusion.isOccluded(_projScreen, node.bounds, _camPos.x, _camPos.y, _camPos.z)) {
+      state.nodesCulled++;
+      hideSubtree(node, true);
       return;
     }
     for (const it of node.items) {
@@ -9480,26 +9795,32 @@ function createOctree(ctx) {
         m.visible = false;
         hiddenByOctree.add(m);
         state.culledMeshes++;
+      } else if (useOcc && d > SHADOW_BUBBLE && occlusion.isOccluded(_projScreen, it.box, _camPos.x, _camPos.y, _camPos.z)) {
+        m.visible = false;
+        hiddenByOctree.add(m);
+        state.culledMeshes++;
+        state.occludedMeshes++;
       } else {
         state.visibleMeshes++;
       }
     }
     if (node.children) {
-      for (const ch of node.children) cullNode(ch, maxDist);
+      for (const ch of node.children) cullNode(ch, maxDist, useOcc);
     }
   }
 
-  function hideSubtree(node) {
+  function hideSubtree(node, occluded) {
     for (const it of node.items) {
       const m = it.mesh;
       if (m.parent && m.visible) {
         m.visible = false;
         hiddenByOctree.add(m);
         state.culledMeshes++;
+        if (occluded) state.occludedMeshes++;
       }
     }
     if (node.children) {
-      for (const ch of node.children) hideSubtree(ch);
+      for (const ch of node.children) hideSubtree(ch, occluded);
     }
   }
 
@@ -9509,12 +9830,17 @@ function createOctree(ctx) {
     state.lastTime = now;
 
     if (!state.enabled) return;
-    syncNewMeshes();
+    if (rootGroup.children.length !== lastChildCount) {
+      lastChildCount = rootGroup.children.length;
+      syncNewMeshes();
+    }
 
     camera.updateMatrixWorld();
     _projScreen.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     _frustum.setFromProjectionMatrix(_projScreen);
     _camPos.copy(camera.position);
+
+    const useOcc = state.occlusionEnabled && occlusion.prepare(_projScreen, _camPos.x, _camPos.y, _camPos.z);
 
     // High aerial views need a larger far draw distance than ground-level 3rd-person play
     const camHeight = Math.max(0, _camPos.y);
@@ -9522,10 +9848,11 @@ function createOctree(ctx) {
 
     state.visibleMeshes = 0;
     state.culledMeshes = 0;
+    state.occludedMeshes = 0;
     state.nodesVisited = 0;
     state.nodesCulled = 0;
 
-    cullNode(root, maxDist);
+    cullNode(root, maxDist, useOcc);
   }
 
   /** Spatial query for meshes intersecting an AABB (e.g., for local collision/inspection). */
@@ -9554,14 +9881,17 @@ Object.assign(module.exports, { createOctree });
 
   };
   __modules["js/core/player.js"] = function (module, exports, __require, __import, __resolve) {
-// js/core/player.js — 3D Third-Person Player character, physics/collision, camera, and landmark teleports.
+// js/core/player.js — 3D Third-Person Player character (high-detail rigged human), physics/collision, camera, and landmarks.
 const THREE = __require('https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js');
 const M = __require('js/core/mathx.js');
+const { createRig, makePose, clearPose, fk, NB } = __require('js/modules/people/rig.js');
+const { buildHuman, SKEL, B, bit, poseWalk, poseStand, poseArms } = __require('js/modules/people/human.js');
 
 const PLAYER_RADIUS = 0.45;
 const WALK_SPEED = 5.8;
 const SPRINT_SPEED = 13.5;
-const GLIDE_SPEED = 36.0;
+const FLIGHT_SPEED = 36.0;
+const BOOST_SPEED = 72.0;
 const GRAVITY = -22.0;
 const JUMP_VEL = 8.8;
 const STEP_UP_MAX = 1.35;
@@ -9594,107 +9924,282 @@ function pushOutOfPolygon(x, z, ring, radius) {
   return [bestX, bestZ];
 }
 
-function createCharacterMesh(ctx) {
-  const mat = (name, hex) => ctx.materials.register(
-    new THREE.MeshLambertMaterial({ name: 'player:' + name, color: hex }),
-    { owner: 'player' }
-  );
+function createHeroCharacter(ctx) {
+  const group = new THREE.Group();
+  group.name = 'player-character';
+  ctx.scene.add(group);
 
-  const skinM = mat('skin', 0xc98a5b);
-  const hairM = mat('hair', 0x241913);
-  const linenM = mat('linen', 0xe8dec9);
-  const lapisM = mat('lapis', 0x26489a);
-  const goldM = mat('gold', 0xd9aa45);
-  const leatherM = mat('leather', 0x5c3c24);
-  const woodM = mat('wood', 0x6e4a2b);
+  const pctx = Object.create(ctx);
+  pctx.module = { group };
 
-  const root = new THREE.Group();
-  root.name = 'player-character';
-
-  const body = new THREE.Group();
-  root.add(body);
-
-  // Legs (pivoted at hip y = 0.82)
-  const makeLeg = (xOff) => {
-    const piv = new THREE.Group();
-    piv.position.set(xOff, 0.82, 0);
-    const upper = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.44, 0.17), skinM);
-    upper.position.y = -0.22;
-    const shin = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.36, 0.15), skinM);
-    shin.position.y = -0.58;
-    const sandal = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.06, 0.24), leatherM);
-    sandal.position.set(0, -0.79, 0.04);
-    piv.add(upper, shin, sandal);
-    return piv;
+  const rig = createRig(pctx, { rows: 4, tag: 'player' });
+  const C = (id, k = 1) => {
+    const c = ctx.materials.color(id);
+    return [c.r * k, c.g * k, c.b * k];
   };
-  const legL = makeLeg(-0.11);
-  const legR = makeLeg(0.11);
-  body.add(legL, legR);
-
-  // Tunic / Skirt
-  const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.24, 0.48, 8), linenM);
-  skirt.position.y = 0.72;
-  body.add(skirt);
-
-  // Torso
-  const torso = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.48, 0.22), linenM);
-  torso.position.y = 1.12;
-  body.add(torso);
-
-  // Lapis & Gold Sash / Belt
-  const belt = new THREE.Mesh(new THREE.BoxGeometry(0.40, 0.10, 0.24), lapisM);
-  belt.position.y = 0.92;
-  const trim = new THREE.Mesh(new THREE.BoxGeometry(0.41, 0.03, 0.25), goldM);
-  trim.position.y = 0.96;
-  const shoulderSash = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.46, 0.24), lapisM);
-  shoulderSash.position.set(-0.08, 1.14, 0);
-  shoulderSash.rotation.z = -0.32;
-  body.add(belt, trim, shoulderSash);
-
-  // Head + Beard + Headband
-  const headGroup = new THREE.Group();
-  headGroup.position.y = 1.49;
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.24, 0.22), skinM);
-  const hair = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.14, 0.24), hairM);
-  hair.position.set(0, 0.08, -0.02);
-  const beard = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.13, 0.12), hairM);
-  beard.position.set(0, -0.09, 0.08);
-  const band = new THREE.Mesh(new THREE.BoxGeometry(0.245, 0.045, 0.245), goldM);
-  band.position.y = 0.07;
-  headGroup.add(head, hair, beard, band);
-  body.add(headGroup);
-
-  // Arms (pivoted at shoulder y = 1.32)
-  const makeArm = (xOff, withStaff) => {
-    const piv = new THREE.Group();
-    piv.position.set(xOff, 1.32, 0);
-    const arm = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.52, 0.12), skinM);
-    arm.position.y = -0.24;
-    piv.add(arm);
-    if (withStaff) {
-      const staff = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.024, 1.55, 6), woodM);
-      staff.position.set(0, -0.22, 0.18);
-      staff.rotation.x = 0.18;
-      const finial = new THREE.Mesh(new THREE.SphereGeometry(0.04, 6, 6), goldM);
-      finial.position.set(0, 0.55, 0.04);
-      staff.add(finial);
-      piv.add(staff);
-    }
-    return piv;
+  const tones = {
+    wood: C('palmWood'),
+    pottery: C('bakedBrickRed', 1.05),
+    potteryPale: C('bakedBrickBuff'),
+    bronze: C('bronze'),
+    reed: C('reedMat'),
+    gold: C('gold'),
+    leather: C('woolBrown', 0.8),
+    sack: C('woolDark', 1.2),
+    dates: C('woolBrown', 0.7),
+    hide: C('woolCream', 0.95),
   };
-  const armL = makeArm(-0.26, false);
-  const armR = makeArm(0.26, true);
-  body.add(armL, armR);
 
-  root.traverse((o) => {
-    if (o.isMesh) {
-      o.castShadow = true;
-      o.receiveShadow = true;
-    }
+  const cloth = rig.material('woolCream', 'player-hero-cloth', { roughness: 0.92, relief: 0.7, detail: 0.8 });
+  const geo = buildHuman(0, tones).toGeometry(THREE);
+  const set = rig.set({
+    name: 'player-hero',
+    geometry: geo,
+    material: cloth,
+    capacity: 1,
+    castShadow: true,
+    shadowTexel: 0.3,
+    reflect: true,
   });
 
-  ctx.scene.add(root);
-  return { root, body, headGroup, armL, armR, legL, legR };
+  const row = rig.alloc();
+  const P = makePose();
+  const bones = new Float32Array(SKEL.n * 12);
+
+  // Superman appearance: royal blue suit, crimson red cape/boots, gold belt accent, short black hair
+  const mask = bit('tunic', 'hairShort');
+  const A = [0.06, 0.22, 0.72];
+  const Bcol = [0.80, 0.08, 0.08];
+  const Ccol = C('skin', 0.96);
+  const Dcol = [0.95, 0.78, 0.16];
+  const Ecol = [0.80, 0.08, 0.08];
+  const hair = 0.02;
+  const scale = 1.04;
+
+  // Dynamic flowing red cape attached to shoulders (character faces -Z, back is +Z in local space)
+  // Top edge (v=0) tucks into the collar/shoulders (z ~ 0.065) so there is zero gap from any angle
+  const CAPE_COLS = 8, CAPE_ROWS = 10;
+  const capeGeo = new THREE.PlaneGeometry(0.62, 1.32, CAPE_COLS, CAPE_ROWS);
+  const capePos = capeGeo.attributes.position;
+  const capeBase = new Float32Array(capePos.array.length);
+  for (let i = 0; i < capePos.count; i++) {
+    const u = capePos.getX(i) / 0.62;               // -0.5..0.5
+    const v = 0.5 - capePos.getY(i) / 1.32;         // 0 at top (shoulders) .. 1 at hem
+    const shoulderCurve = 1 - (2 * u) * (2 * u);    // 1 at spine, 0 at shoulder tips
+    const x = u * (0.36 + v * 0.48);
+    const y = -v * 1.30 - (1 - shoulderCurve) * 0.03 * (1 - v);
+    const z = 0.065 + (1 - v) * 0.015 * shoulderCurve + Math.sin(Math.min(1, v * 3.5) * Math.PI * 0.5) * 0.06 + v * 0.09;
+    capePos.setXYZ(i, x, y, z);
+    capeBase[i * 3] = x; capeBase[i * 3 + 1] = y; capeBase[i * 3 + 2] = z;
+  }
+  capeGeo.computeVertexNormals();
+  const capeMat = new THREE.MeshStandardMaterial({
+    name: 'player-cape',
+    color: 0xc41016,
+    roughness: 0.76,
+    metalness: 0.04,
+    side: THREE.DoubleSide,
+  });
+  ctx.materials.register(capeMat, { owner: 'player', noVariation: true });
+  const capeMesh = new THREE.Mesh(capeGeo, capeMat);
+  capeMesh.castShadow = true;
+
+  // Superman chest emblem (gold diamond crest on front -Z chest)
+  const emblemGeo = new THREE.OctahedronGeometry(0.10, 0);
+  emblemGeo.scale(1.15, 0.95, 0.25);
+  const emblemMat = new THREE.MeshStandardMaterial({
+    name: 'player-emblem',
+    color: 0xf4c418,
+    emissive: 0x3a1800,
+    roughness: 0.35,
+    metalness: 0.25,
+  });
+  ctx.materials.register(emblemMat, { owner: 'player', noVariation: true });
+  const emblemMesh = new THREE.Mesh(emblemGeo, emblemMat);
+  emblemMesh.position.set(0, -0.15, -0.128);
+
+  const torsoPivot = new THREE.Group();
+  const shoulderPivot = new THREE.Group();
+  shoulderPivot.position.set(0, 1.43 * scale, 0);
+  shoulderPivot.scale.setScalar(scale);
+  shoulderPivot.add(capeMesh);
+  shoulderPivot.add(emblemMesh);
+  torsoPivot.add(shoulderPivot);
+  group.add(torsoPivot);
+
+  // Secondary Attack VFX: twin HDR crimson Heat Vision laser beams + impact glow
+  const laserMat = new THREE.MeshBasicMaterial({
+    name: 'player-laser',
+    color: new THREE.Color(5.5, 0.35, 0.1),
+    transparent: true,
+    opacity: 0.9,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  ctx.materials.register(laserMat, { owner: 'player', skipHooks: true });
+  const laserCoreMat = new THREE.MeshBasicMaterial({
+    name: 'player-laser-core',
+    color: new THREE.Color(9.0, 5.0, 1.8),
+    transparent: true,
+    opacity: 0.98,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  ctx.materials.register(laserCoreMat, { owner: 'player', skipHooks: true });
+
+  const laserCylGeo = new THREE.CylinderGeometry(0.045, 0.045, 1, 8, 1, true);
+  laserCylGeo.translate(0, 0.5, 0);
+  laserCylGeo.rotateX(Math.PI * 0.5);
+  const laserCoreGeo = new THREE.CylinderGeometry(0.018, 0.018, 1, 6, 1, true);
+  laserCoreGeo.translate(0, 0.5, 0);
+  laserCoreGeo.rotateX(Math.PI * 0.5);
+
+  const laserGroup = new THREE.Group();
+  laserGroup.visible = false;
+  const laserBeamL = new THREE.Mesh(laserCylGeo, laserMat);
+  const laserBeamR = new THREE.Mesh(laserCylGeo, laserMat);
+  const laserCoreL = new THREE.Mesh(laserCoreGeo, laserCoreMat);
+  const laserCoreR = new THREE.Mesh(laserCoreGeo, laserCoreMat);
+  const impactMesh = new THREE.Mesh(new THREE.SphereGeometry(0.45, 10, 8), laserCoreMat);
+  for (const m of [laserBeamL, laserBeamR, laserCoreL, laserCoreR, impactMesh]) {
+    m.frustumCulled = false;
+  }
+  laserGroup.add(laserBeamL, laserBeamR, laserCoreL, laserCoreR, impactMesh);
+  group.add(laserGroup);
+
+  function animateCape(flying, boost, speed, timeSec) {
+    const flow = flying ? M.clamp(0.45 + speed / BOOST_SPEED, 0.45, 1.35) : M.clamp(0.08 + speed / SPRINT_SPEED * 0.35, 0.08, 0.45);
+    const freq = flying ? (boost ? 18.0 : 12.0) : (4.0 + speed * 0.45);
+    for (let i = 0; i < capePos.count; i++) {
+      const bx = capeBase[i * 3];
+      const by = capeBase[i * 3 + 1];
+      const bz = capeBase[i * 3 + 2];
+      const v = Math.min(1, -by / 1.32);
+      const wave1 = Math.sin(timeSec * freq - v * 6.5 + bx * 3.0) * (0.04 + 0.14 * flow) * v * v;
+      const wave2 = Math.cos(timeSec * (freq * 0.7) - v * 4.2 - bx * 2.5) * 0.06 * flow * v;
+      if (flying) {
+        // When pitched forward (-flightPitch), local -Y streams behind feet and +Z is upward above his back
+        capePos.setXYZ(i, bx + wave2 * 0.6, by, bz + v * 0.18 * flow + wave1);
+      } else {
+        capePos.setXYZ(i, bx + wave2 * 0.5, by, bz + v * 0.24 * flow + wave1);
+      }
+    }
+    capePos.needsUpdate = true;
+    capeGeo.computeVertexNormals();
+  }
+
+  const _eyeL = new THREE.Vector3(), _eyeR = new THREE.Vector3();
+  const _upAxis = new THREE.Vector3(0, 1, 0);
+
+  function updatePose(pos, facingYaw, speed, walkPhase, timeSec, onGround, inWater, visible, flying, boost, flightPitch, punchPhase, laserTarget) {
+    group.visible = visible;
+    if (!visible) return;
+
+    clearPose(P);
+    let pitch = 0;
+    if (flying && !inWater) {
+      if (speed > 1.5) {
+        // Iconic horizontal head-first Superman flying pose (negative pitch tilts +Y toward -Z forward)
+        pitch = -flightPitch;
+        P.rx[B.ARM_R] = 3.04;
+        P.rz[B.ARM_R] = -0.06;
+        P.rx[B.FORE_R] = 0.06;
+        if (boost) {
+          P.rx[B.ARM_L] = 3.02;
+          P.rz[B.ARM_L] = 0.06;
+          P.rx[B.FORE_L] = 0.06;
+        } else {
+          P.rx[B.ARM_L] = -0.15;
+          P.rz[B.ARM_L] = -0.16;
+          P.rx[B.FORE_L] = 0.42;
+        }
+        P.rx[B.HEAD] = 0.85;
+        P.rx[B.THIGH_L] = -0.06;
+        P.rx[B.THIGH_R] = 0.04;
+        P.rx[B.SHIN_L] = -0.10;
+      } else {
+        // Heroic mid-air hover
+        pitch = -flightPitch;
+        poseStand(P, timeSec, 0.3);
+        P.rx[B.ARM_L] = 0.12;
+        P.rz[B.ARM_L] = -0.16;
+        P.rx[B.ARM_R] = 0.12;
+        P.rz[B.ARM_R] = 0.16;
+      }
+    } else if (inWater) {
+      pitch = -0.65;
+      poseWalk(P, walkPhase * 1.2, 0.55, 0.1, 0);
+      P.rx[B.ARM_L] = 1.1 + Math.sin(walkPhase * 1.2) * 0.7;
+      P.rx[B.ARM_R] = 1.1 - Math.sin(walkPhase * 1.2) * 0.7;
+    } else if (!onGround) {
+      poseWalk(P, walkPhase, 0.35, 0.08, 0);
+      P.rx[B.ARM_L] = 0.55;
+      P.rx[B.ARM_R] = 0.35;
+      P.rx[B.THIGH_L] = 0.45;
+      P.rx[B.SHIN_L] = -0.65;
+    } else if (speed > 0.25) {
+      const amp = M.clamp(0.32 + (speed / SPRINT_SPEED) * 0.25, 0.32, 0.58);
+      const lean = M.clamp((speed / SPRINT_SPEED) * 0.12, 0.03, 0.12);
+      poseWalk(P, walkPhase, amp, lean, 0);
+    } else {
+      poseStand(P, timeSec, 0.3);
+    }
+
+    // Primary Attack: Heroic Right-Hook / Straight Punch overlay
+    if (punchPhase > 0) {
+      const swing = Math.sin(Math.min(1, punchPhase * 1.35) * Math.PI);
+      P.ry[B.SPINE] -= 0.42 * swing;
+      P.ry[B.CHEST] -= 0.35 * swing;
+      P.rx[B.ARM_R] = 1.65 * swing;
+      P.rz[B.ARM_R] = -0.10 * swing;
+      P.rx[B.FORE_R] = 0.12;
+      P.rx[B.ARM_L] = -0.55 * swing;
+      P.rx[B.FORE_L] = 1.15 * swing;
+    }
+
+    fk(SKEL, P, bones);
+    rig.write(row, bones);
+    set.n = 0;
+    const azDeg = 180 - facingYaw * M.RAD;
+    set.push(pos.x, pos.y, pos.z, azDeg, scale, row, mask, A, Bcol, Ccol, Dcol, Ecol, hair, pitch);
+    rig.commit();
+
+    // Match rig.js exactly: R = Ry(facingYaw - PI) * Rx(pitch), plus spine lean for flush shoulder contact
+    torsoPivot.position.copy(pos);
+    torsoPivot.rotation.set(pitch, facingYaw - Math.PI, 0, 'YXZ');
+    shoulderPivot.rotation.x = (P.rx[B.SPINE] || 0) + (P.rx[B.CHEST] || 0);
+    animateCape(flying && !inWater, boost, speed, timeSec);
+
+    // Secondary Attack: Twin Heat Vision laser beams from Superman's eyes
+    if (laserTarget) {
+      torsoPivot.updateMatrixWorld(true);
+      const isFlyPose = flying && !inWater && speed > 1.5;
+      const eyeY = (isFlyPose ? 1.58 : 1.61) * scale;
+      const eyeZ = (isFlyPose ? -0.02 : -0.10) * scale;
+      const eyeHalf = 0.036 * scale;
+      _eyeL.set(-eyeHalf, eyeY, eyeZ).applyMatrix4(torsoPivot.matrixWorld);
+      _eyeR.set(eyeHalf, eyeY, eyeZ).applyMatrix4(torsoPivot.matrixWorld);
+
+      const dL = _eyeL.distanceTo(laserTarget);
+      const dR = _eyeR.distanceTo(laserTarget);
+      laserBeamL.position.copy(_eyeL); laserBeamL.lookAt(laserTarget); laserBeamL.scale.set(1, 1, dL);
+      laserCoreL.position.copy(_eyeL); laserCoreL.lookAt(laserTarget); laserCoreL.scale.set(1, 1, dL);
+      laserBeamR.position.copy(_eyeR); laserBeamR.lookAt(laserTarget); laserBeamR.scale.set(1, 1, dR);
+      laserCoreR.position.copy(_eyeR); laserCoreR.lookAt(laserTarget); laserCoreR.scale.set(1, 1, dR);
+
+      const pulse = 0.85 + 0.25 * Math.sin(timeSec * 42);
+      impactMesh.position.copy(laserTarget);
+      impactMesh.scale.setScalar(pulse);
+      laserMat.opacity = 0.78 + 0.18 * Math.sin(timeSec * 36);
+      laserGroup.visible = true;
+    } else {
+      laserGroup.visible = false;
+    }
+  }
+
+  return { group, updatePose };
 }
 
 function buildLandmarks(ctx) {
@@ -9702,12 +10207,9 @@ function buildLandmarks(ctx) {
   const ishtar = gates.find((g) => /ishtar/i.test(g.name)) || { x: 345.8, z: -716.2 };
   const monCenter = (id, dx = 0, dz = 0) => {
     const m = ctx.world.monuments.find((q) => q.id === id);
-    if (!m) return null;
-    if (m.footprint) {
-      const [cx, cz] = ringCenter(m.footprint);
-      return [cx + dx, cz + dz];
-    }
-    return null;
+    if (!m || !Array.isArray(m.footprint)) return null;
+    const [cx, cz] = ringCenter(m.footprint);
+    return [cx + dx, cz + dz];
   };
 
   const list = [
@@ -9721,7 +10223,6 @@ function buildLandmarks(ctx) {
   const esag = monCenter('esagila', 70, 0);
   if (esag) list.push({ id: 'esagila', name: 'Esagila', x: esag[0], z: esag[1], yaw: -Math.PI / 2 });
 
-  // Euphrates bridge or river bank
   const br = ctx.world.bridge;
   if (br && br.from && br.to) {
     list.push({ id: 'bridge', name: 'Euphrates Bridge', x: (br.from[0] + br.to[0]) * 0.5, z: (br.from[1] + br.to[1]) * 0.5, yaw: Math.PI / 2 });
@@ -9732,7 +10233,7 @@ function buildLandmarks(ctx) {
 }
 
 function createPlayer(ctx) {
-  const rig = createCharacterMesh(ctx);
+  const hero = createHeroCharacter(ctx);
   const landmarks = buildLandmarks(ctx);
   const spawn = landmarks[0];
 
@@ -9747,29 +10248,63 @@ function createPlayer(ctx) {
     onGround: true,
     inWater: false,
     glide: false,
+    flightPitch: 0,
+    punchTimer: 0,
+    laserActive: false,
     speed: 0,
-    animPhase: 0,
+    walkPhase: 0,
+    timeSec: 0,
   };
 
-  // Input state
   const keys = new Set();
+  const _laserTarget = new THREE.Vector3();
   let dragging = false, lastX = 0, lastY = 0;
   let wakeCooldown = 0;
+  let lastSpaceMs = 0;
+  let rightMouseDown = false;
+
+  function triggerPunch() {
+    if (state.punchTimer <= 0.05) {
+      state.punchTimer = 0.34;
+    }
+  }
 
   function isTypingTarget(el) {
     return el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable);
   }
 
+  function toggleFlight() {
+    state.glide = !state.glide;
+    if (state.glide) {
+      state.vel.y = 0;
+      const gy = ctx.ground.height(state.pos.x, state.pos.z);
+      if (state.pos.y <= gy + 0.5) state.pos.y = gy + 2.2;
+      state.onGround = false;
+    }
+  }
+
   function onKeyDown(e) {
     if (!state.active || isTypingTarget(e.target)) return;
     const k = e.code;
+    const firstPress = !keys.has(k);
     keys.add(k);
-    if (k === 'Space' && state.onGround && !state.inWater) {
+    if (k === 'Space' && firstPress) {
       e.preventDefault();
-      state.vel.y = JUMP_VEL;
-      state.onGround = false;
-    } else if (k === 'KeyF') {
-      state.glide = !state.glide;
+      const nowMs = performance.now();
+      if (nowMs - lastSpaceMs < 280) {
+        toggleFlight();
+        lastSpaceMs = 0;
+      } else {
+        lastSpaceMs = nowMs;
+        if (!state.glide && state.onGround && !state.inWater) {
+          state.vel.y = JUMP_VEL;
+          state.onGround = false;
+        }
+      }
+    } else if (k === 'KeyF' && firstPress) {
+      toggleFlight();
+    } else if ((k === 'KeyJ' || k === 'Digit1') && firstPress) {
+      triggerPunch();
     }
   }
   function onKeyUp(e) {
@@ -9777,28 +10312,49 @@ function createPlayer(ctx) {
   }
 
   const canvas = ctx.canvas;
+  function requestLock() {
+    if (!state.active || document.pointerLockElement === canvas || !canvas.requestPointerLock) return;
+    try {
+      const p = canvas.requestPointerLock();
+      if (p && p.catch) p.catch(() => {});
+    } catch { /* ignore if blocked */ }
+  }
   function onPointerDown(e) {
-    if (!state.active || e.button !== 0) return;
-    dragging = true;
-    lastX = e.clientX;
-    lastY = e.clientY;
+    if (!state.active) return;
+    if (e.button === 0) {
+      if (document.pointerLockElement === canvas) {
+        triggerPunch();
+      } else {
+        requestLock();
+        dragging = true;
+        lastX = e.clientX;
+        lastY = e.clientY;
+      }
+    } else if (e.button === 2) {
+      rightMouseDown = true;
+    }
   }
   function onPointerMove(e) {
     if (!state.active) return;
+    const minPitch = state.glide ? -0.85 : -0.18;
     if (document.pointerLockElement === canvas) {
       state.camYaw -= e.movementX * 0.0032;
-      state.camPitch = M.clamp(state.camPitch + e.movementY * 0.0028, -0.18, 1.15);
+      state.camPitch = M.clamp(state.camPitch + e.movementY * 0.0028, minPitch, 1.15);
     } else if (dragging) {
       const dx = e.clientX - lastX;
       const dy = e.clientY - lastY;
       lastX = e.clientX;
       lastY = e.clientY;
       state.camYaw -= dx * 0.0055;
-      state.camPitch = M.clamp(state.camPitch + dy * 0.0045, -0.18, 1.15);
+      state.camPitch = M.clamp(state.camPitch + dy * 0.0045, minPitch, 1.15);
     }
   }
-  function onPointerUp() {
-    dragging = false;
+  function onPointerUp(e) {
+    if (e.button === 0) dragging = false;
+    else if (e.button === 2) rightMouseDown = false;
+  }
+  function onContextMenu(e) {
+    if (state.active) e.preventDefault();
   }
   function onWheel(e) {
     if (!state.active) return;
@@ -9811,6 +10367,7 @@ function createPlayer(ctx) {
   canvas.addEventListener('pointerdown', onPointerDown);
   window.addEventListener('pointermove', onPointerMove);
   window.addEventListener('pointerup', onPointerUp);
+  canvas.addEventListener('contextmenu', onContextMenu);
   canvas.addEventListener('wheel', onWheel, { passive: false });
 
   function teleport(idOrLandmark) {
@@ -9827,13 +10384,11 @@ function createPlayer(ctx) {
   }
 
   function resolveCollisions(nx, nz, curGroundY) {
-    // 1. Check built houses nearby
     const houses = ctx.layout.housesNear(nx, nz, 28);
     for (const h of houses) {
       if (!ctx.layout.isBuilt(h)) continue;
       const pushed = pushOutOfPolygon(nx, nz, h.footprint, PLAYER_RADIUS);
       if (pushed) {
-        // Allow stepping into open courtyards if somehow inside, otherwise slide along outer wall
         const inCourt = h.courts && h.courts.some((c) => M.pointInPolygon(nx, nz, c));
         if (!inCourt) {
           nx = pushed[0];
@@ -9841,8 +10396,6 @@ function createPlayer(ctx) {
         }
       }
     }
-
-    // 2. Check terrain step height (avoid walking straight through sheer walls/cliffs)
     const nextG = ctx.ground.height(nx, nz);
     if (!state.glide && state.onGround && nextG - curGroundY > STEP_UP_MAX) {
       return [state.pos.x, state.pos.z];
@@ -9852,65 +10405,82 @@ function createPlayer(ctx) {
 
   function update(dt) {
     if (!state.active) {
-      rig.root.visible = false;
+      hero.group.visible = false;
       return null;
     }
-    rig.root.visible = true;
     dt = Math.min(dt, 0.05);
+    state.timeSec += dt;
 
-    // Camera-relative movement input (camYaw = 0 looks toward +Z)
     let fwdInput = 0, strafeInput = 0;
     if (keys.has('KeyW') || keys.has('ArrowUp')) fwdInput += 1;
     if (keys.has('KeyS') || keys.has('ArrowDown')) fwdInput -= 1;
     if (keys.has('KeyA') || keys.has('ArrowLeft')) strafeInput += 1;
     if (keys.has('KeyD') || keys.has('ArrowRight')) strafeInput -= 1;
 
-    // Optional keyboard orbit Q/E
     if (keys.has('KeyQ')) state.camYaw += 1.9 * dt;
     if (keys.has('KeyE')) state.camYaw -= 1.9 * dt;
 
     const moving = fwdInput !== 0 || strafeInput !== 0;
     const sprint = keys.has('ShiftLeft') || keys.has('ShiftRight');
-    const targetSpeed = moving ? (state.glide ? GLIDE_SPEED : sprint ? SPRINT_SPEED : WALK_SPEED) : 0;
+    const flying = state.glide;
+    const targetSpeed = moving ? (flying ? (sprint ? BOOST_SPEED : FLIGHT_SPEED) : (sprint ? SPRINT_SPEED : WALK_SPEED)) : 0;
 
+    let moveDirY = 0;
     if (moving) {
       const sinY = Math.sin(state.camYaw), cosY = Math.cos(state.camYaw);
-      // forward = (sinY, cosY), right = (-cosY, sinY)
       let mx = fwdInput * sinY + strafeInput * cosY;
       let mz = fwdInput * cosY - strafeInput * sinY;
       const mLen = Math.hypot(mx, mz) || 1;
       mx /= mLen; mz /= mLen;
 
-      state.speed = M.lerp(state.speed, targetSpeed, 1 - Math.exp(-12 * dt));
-      const nx = state.pos.x + mx * state.speed * dt;
-      const nz = state.pos.z + mz * state.speed * dt;
+      if (flying) {
+        // Look pitch controls 3D climb/dive when flying forward/back
+        moveDirY = -Math.sin(state.camPitch) * fwdInput;
+      }
+
+      state.speed = M.lerp(state.speed, targetSpeed, 1 - Math.exp(-(flying ? 7 : 12) * dt));
+      const horizFactor = flying ? Math.max(0.25, Math.cos(state.camPitch * 0.7)) : 1;
+      const nx = state.pos.x + mx * state.speed * horizFactor * dt;
+      const nz = state.pos.z + mz * state.speed * horizFactor * dt;
 
       const curG = ctx.ground.height(state.pos.x, state.pos.z);
-      const [rx, rz] = resolveCollisions(nx, nz, curG);
+      const [rx, rz] = (flying && state.pos.y > curG + 4.5) ? [nx, nz] : resolveCollisions(nx, nz, curG);
       state.pos.x = M.clamp(rx, -4200, 4200);
       state.pos.z = M.clamp(rz, -4200, 4200);
 
-      // Smoothly rotate character toward movement vector
       const targetYaw = Math.atan2(mx, mz);
       let diff = targetYaw - state.facingYaw;
       while (diff > Math.PI) diff -= Math.PI * 2;
       while (diff < -Math.PI) diff += Math.PI * 2;
       state.facingYaw += diff * (1 - Math.exp(-14 * dt));
     } else {
-      state.speed = M.lerp(state.speed, 0, 1 - Math.exp(-14 * dt));
+      state.speed = M.lerp(state.speed, 0, 1 - Math.exp(-(flying ? 5 : 14) * dt));
     }
 
-    // Vertical physics & water
     const groundY = ctx.ground.height(state.pos.x, state.pos.z);
     const waterLevel = ctx.ground.waterLevel;
     const isWater = ctx.ground.isWater(state.pos.x, state.pos.z);
     const swimSurface = waterLevel - 0.85;
-    state.inWater = isWater && groundY < waterLevel - 0.65;
+    state.inWater = !flying && isWater && groundY < waterLevel - 0.65;
 
-    if (state.inWater) {
+    if (flying) {
+      let vertThrust = 0;
+      if (keys.has('Space')) vertThrust += sprint ? 32 : 20;
+      if (keys.has('KeyC') || keys.has('ControlLeft') || keys.has('ControlRight')) vertThrust -= sprint ? 32 : 20;
+      state.vel.y = M.lerp(state.vel.y, vertThrust + moveDirY * state.speed, 1 - Math.exp(-8 * dt));
+      state.pos.y = M.clamp(state.pos.y + state.vel.y * dt, groundY + 0.35, 950);
+      state.onGround = false;
+      const horizSpeed = state.speed * Math.max(0.25, Math.cos(state.camPitch * 0.7));
+      const climbAngle = Math.atan2(state.vel.y, Math.max(2.0, horizSpeed));
+      const targetFlightPitch = state.speed > 1.5
+        ? M.clamp(Math.PI * 0.5 - climbAngle, 0.35, 2.55)
+        : M.clamp(0.06 - state.vel.y * 0.012, -0.22, 0.28);
+      state.flightPitch = M.lerp(state.flightPitch, targetFlightPitch, 1 - Math.exp(-10 * dt));
+    } else if (state.inWater) {
       state.vel.y = 0;
       state.pos.y = M.lerp(state.pos.y, swimSurface, 1 - Math.exp(-8 * dt));
       state.onGround = true;
+      state.flightPitch = M.lerp(state.flightPitch, 0, 1 - Math.exp(-10 * dt));
       wakeCooldown -= dt;
       if (state.speed > 0.8 && wakeCooldown <= 0 && ctx.water && ctx.water.addWake) {
         wakeCooldown = 0.25;
@@ -9919,6 +10489,7 @@ function createPlayer(ctx) {
     } else {
       state.vel.y += GRAVITY * dt;
       state.pos.y += state.vel.y * dt;
+      state.flightPitch = M.lerp(state.flightPitch, 0, 1 - Math.exp(-10 * dt));
       if (state.pos.y <= groundY) {
         state.pos.y = groundY;
         state.vel.y = 0;
@@ -9928,63 +10499,69 @@ function createPlayer(ctx) {
       }
     }
 
-    // Animate character rig
-    rig.root.position.copy(state.pos);
-    rig.root.rotation.y = state.facingYaw;
-    const runRatio = M.clamp(state.speed / WALK_SPEED, 0, 1.8);
     if (state.speed > 0.25) {
-      state.animPhase += dt * (4.5 + state.speed * 0.75);
-      const s = Math.sin(state.animPhase);
-      const amp = M.clamp(0.45 * runRatio, 0, 0.85);
-      if (state.inWater) {
-        rig.body.rotation.x = 0.55;
-        rig.legL.rotation.x = s * 0.5;
-        rig.legR.rotation.x = -s * 0.5;
-        rig.armL.rotation.x = -0.8 + s * 0.7;
-        rig.armR.rotation.x = -0.8 - s * 0.7;
-      } else {
-        rig.body.rotation.x = 0.06 * runRatio;
-        rig.body.position.y = Math.abs(Math.cos(state.animPhase)) * 0.06 * Math.min(1, runRatio);
-        rig.legL.rotation.x = s * amp;
-        rig.legR.rotation.x = -s * amp;
-        rig.armL.rotation.x = -s * amp * 0.85;
-        rig.armR.rotation.x = s * amp * 0.65;
-      }
-    } else {
-      state.animPhase += dt * 1.8;
-      rig.body.rotation.x = M.lerp(rig.body.rotation.x, 0, 1 - Math.exp(-10 * dt));
-      rig.body.position.y = Math.sin(state.animPhase) * 0.015;
-      rig.legL.rotation.x = M.lerp(rig.legL.rotation.x, 0, 1 - Math.exp(-10 * dt));
-      rig.legR.rotation.x = M.lerp(rig.legR.rotation.x, 0, 1 - Math.exp(-10 * dt));
-      rig.armL.rotation.x = M.lerp(rig.armL.rotation.x, 0, 1 - Math.exp(-10 * dt));
-      rig.armR.rotation.x = M.lerp(rig.armR.rotation.x, 0, 1 - Math.exp(-10 * dt));
+      state.walkPhase += (state.speed * dt * Math.PI * 2) / 1.45;
     }
 
-    // Compute third-person camera pose
-    const targetY = state.pos.y + 1.45;
+    if (state.punchTimer > 0) state.punchTimer = Math.max(0, state.punchTimer - dt);
+    const punchPhase = state.punchTimer > 0 ? 1 - state.punchTimer / 0.34 : 0;
+
+    state.laserActive = rightMouseDown || keys.has('KeyK') || keys.has('Digit2');
+    let laserTarget = null;
+    if (state.laserActive) {
+      // Aim laser along camera look ray (yaw = state.camYaw, pitch = -state.camPitch)
+      const aimCos = Math.cos(state.camPitch);
+      const aimX = Math.sin(state.camYaw) * aimCos;
+      const aimY = -Math.sin(state.camPitch);
+      const aimZ = Math.cos(state.camYaw) * aimCos;
+      // Face aim direction when firing laser while stationary/hovering
+      if (!moving) {
+        let diff = state.camYaw - state.facingYaw;
+        while (diff > Math.PI) diff -= Math.PI * 2;
+        while (diff < -Math.PI) diff += Math.PI * 2;
+        state.facingYaw += diff * (1 - Math.exp(-16 * dt));
+      }
+      const ox = state.pos.x, oy = state.pos.y + (flying && state.speed > 1.5 ? 0.65 : 1.65), oz = state.pos.z;
+      let hitDist = 160;
+      for (let d = 2; d <= 160; d += 2.5) {
+        const px = ox + aimX * d, py = oy + aimY * d, pz = oz + aimZ * d;
+        const surfY = Math.max(ctx.ground.height(px, pz), ctx.ground.isWater(px, pz) ? ctx.ground.waterLevel : -999);
+        if (py <= surfY) { hitDist = d; break; }
+      }
+      _laserTarget.set(ox + aimX * hitDist, oy + aimY * hitDist, oz + aimZ * hitDist);
+      laserTarget = _laserTarget;
+    }
+
+    hero.updatePose(state.pos, state.facingYaw, state.speed, state.walkPhase, state.timeSec, state.onGround, state.inWater, state.active, flying, sprint && flying, state.flightPitch, punchPhase, laserTarget);
+
+    const targetY = state.pos.y + (flying && state.speed > 1.5 ? 0.65 : 1.45);
     const horiz = Math.cos(state.camPitch) * state.camDist;
     const vert = Math.sin(state.camPitch) * state.camDist;
     const camX = state.pos.x - Math.sin(state.camYaw) * horiz;
     const camZ = state.pos.z - Math.cos(state.camYaw) * horiz;
     const minCamY = ctx.ground.height(camX, camZ) + 0.75;
     const camY = Math.max(minCamY, targetY + vert);
+    const dynFov = flying ? 54 + M.clamp((state.speed / BOOST_SPEED) * 12, 0, 12) : 54;
 
     return {
       pos: [camX, camY, camZ],
       look: [state.pos.x, targetY, state.pos.z],
-      fov: 54,
+      fov: dynFov,
     };
   }
 
   return {
     state,
-    rig,
+    rig: hero,
     landmarks,
     teleport,
     update,
     setActive(v) {
       state.active = !!v;
-      rig.root.visible = state.active;
+      hero.group.visible = state.active;
+      if (!state.active && document.pointerLockElement === canvas && document.exitPointerLock) {
+        try { document.exitPointerLock(); } catch { /* ignore */ }
+      }
     },
   };
 }
@@ -10333,7 +10910,7 @@ async function create(ctx) {
   // ---- render targets ----------------------------------------------------------------------------------------
   const depthTexture = new THREE.DepthTexture(1, 1, THREE.UnsignedIntType);   // 24-bit, ENGINE.md 13
   depthTexture.minFilter = depthTexture.magFilter = THREE.NearestFilter; depthTexture.name = 'post.depth';
-  const rtScene = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4, depthBuffer: true, depthTexture });
+  const rtScene = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: ctx.flags.web ? 2 : 4, depthBuffer: true, depthTexture });
   const rtAccum = new THREE.WebGLRenderTarget(1, 1, { type: floatTargets ? THREE.FloatType : THREE.HalfFloatType, depthBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
   const aoOpts = { type: THREE.HalfFloatType, format: THREE.RGFormat, depthBuffer: false, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter };
   const rtAO = new THREE.WebGLRenderTarget(1, 1, aoOpts), rtAOTmp = new THREE.WebGLRenderTarget(1, 1, aoOpts);
@@ -10359,7 +10936,7 @@ async function create(ctx) {
   const depthU = { tDepth: { value: depthTexture }, uProj: { value: new THREE.Vector4() }, uZ: { value: new THREE.Vector3() } };
   const resU = { value: new THREE.Vector2(1, 1) }, invResU = { value: new THREE.Vector2(1, 1) };
 
-  const AO_QUALITY = { slices: 3, steps: 8 };
+  const AO_QUALITY = ctx.flags.web ? { slices: 2, steps: 4 } : { slices: 3, steps: 8 };
   const aoMat = fsMaterial(AO_FRAG, { ...depthU, uRes: resU, uRadius: { value: 2 }, uProjScale: { value: 1 }, uMaxPx: { value: 64 }, uFade: { value: new THREE.Vector2(350, 800) }, uPower: { value: 1.6 }, uShape: { value: new THREE.Vector3(0.7, 1.7, 0.15) }, uDebug: { value: 0 }, uNoise: { value: new THREE.Vector2() } },
     { defines: { AO_SLICES: AO_QUALITY.slices, AO_STEPS: AO_QUALITY.steps } });
   const aoBlurMat = fsMaterial(AO_BLUR_FRAG, { tAO: { value: null }, uStep: { value: new THREE.Vector2() } });
@@ -10852,8 +11429,9 @@ function countObject(root) {
   return { tris, draws, instances };
 }
 
-async function loadModules(ctx, names) {
+async function loadModules(ctx, names, opts = {}) {
   const { flags, stats } = ctx;
+  const deferSet = opts.defer instanceof Set ? opts.defer : null;
   const listing = await listModulesDir();
   const loaded = [];
   for (const name of names) {
@@ -10919,9 +11497,10 @@ async function loadModules(ctx, names) {
   ctx.geom.owner = null;
   ctx.layout.freeze();
 
-  // phase 2: build, in list order
-  for (const m of loaded) {
-    if (m.rec.status === 'error') continue;
+  const updaters = [];
+
+  async function buildOne(m) {
+    if (m.rec.status === 'error') return false;
     const t0 = now();
     try {
       ctx.geom.owner = m.name;
@@ -10940,6 +11519,7 @@ async function loadModules(ctx, names) {
       // contract checks that are cheap to make here
       let lights = 0; m.group.traverse((o) => { if (o.isLight) lights++; });
       if (lights) { const msg = `module ${m.name} added ${lights} THREE light(s) to the scene: use ctx.lighting.addFireLight() (lights change every shader program)`; stats.warnings.push(msg); console.warn('[engine] ' + msg); }
+      if (typeof m.result.update === 'function') updaters.push(m);
     } catch (e) {
       m.rec.status = 'error'; m.rec.error = errText(e);
       stats.errors.push(`module ${m.name} (build): ${m.rec.error}`);
@@ -10952,11 +11532,23 @@ async function loadModules(ctx, names) {
     m.rec.tris = Math.round(own.tris + g.tris + g.instancedTris);
     m.rec.draws = own.draws + g.draws;
     m.rec.instances = own.instances + g.instances;
+    return m.rec.status === 'ok';
   }
 
-  const updaters = loaded.filter((m) => m.rec.status === 'ok' && typeof m.result.update === 'function');
+  // phase 2: build immediate modules in list order; queue deferred ones for runtime streaming
+  const deferredQueue = [];
+  for (const m of loaded) {
+    if (m.rec.status === 'error') continue;
+    if (deferSet && deferSet.has(m.name)) {
+      m.rec.status = 'deferred';
+      deferredQueue.push(m);
+      continue;
+    }
+    await buildOne(m);
+  }
+
   /** Per-frame update of every module (isolated: a module that throws is disabled and reported once). */
-  return function updateModules(frame) {
+  function updateModules(frame) {
     for (const m of updaters) {
       if (m.dead) continue;
       try { ctx.geom.owner = m.name; m.result.update(frame); }
@@ -10967,7 +11559,21 @@ async function loadModules(ctx, names) {
       }
     }
     ctx.geom.owner = null;
+  }
+
+  updateModules.streamRemaining = () => deferredQueue.length;
+  updateModules.streamQueueNames = () => deferredQueue.map((m) => m.name);
+  updateModules.streamNext = async () => {
+    while (deferredQueue.length) {
+      const m = deferredQueue.shift();
+      if (m.rec.status === 'error') continue;
+      await buildOne(m);
+      return { name: m.name, ms: m.rec.ms, status: m.rec.status, remaining: deferredQueue.length };
+    }
+    return null;
   };
+
+  return updateModules;
 }
 Object.assign(module.exports, { SUBSYSTEMS, CLAIM_KEYS, loadSubsystems, loadModules });
 
@@ -11480,6 +12086,7 @@ uniform sampler2D tNoise;
 uniform vec4 uCloudA;     // layer A: streak direction (x, z), feature length along / across the streak (km)
 uniform vec4 uCloudB;     // layer B
 uniform vec4 uCloudP;     // threshold A, threshold B, opacity, drift (km)
+uniform float uCloudTime; // continuous time (seconds) for internal cloud morphing
 uniform vec4 uNight;      // night 0..1, milky way amount, moon amount, afterglow amount
 float bblVN( vec2 x ) {
 	vec2 i = floor( x ), f = fract( x );
@@ -11492,27 +12099,36 @@ vec2 bblCloudPlane( vec3 d, float h ) {
 	float s = max( d.y, - 0.01 );
 	return d.xz * ( - R * s + sqrt( R * R * s * s + 2.0 * R * h + h * h ) );
 }
-float bblCirrus( vec3 d, float h, vec4 lay, float th, float seed ) {
+float bblCirrus( vec3 d, float h, vec4 lay, float th, float seed, float speedMul ) {
 	vec2 p = bblCloudPlane( d, h );
 	float fine = clamp( 55.0 / max( length( p ), 1.0 ), 0.0, 1.0 );       // far away the small octaves would only shimmer
-	p += lay.xy * uCloudP.w;
-	vec2 q0 = vec2( dot( p, lay.xy ) / lay.z, dot( p, vec2( - lay.y, lay.x ) ) / lay.w ) + seed;
+	p += lay.xy * ( uCloudP.w * speedMul );
+	vec2 perp = vec2( - lay.y, lay.x );
+	vec2 q0 = vec2( dot( p, lay.xy ) / lay.z, dot( p, perp ) / lay.w ) + seed;
 	vec2 q = q0;
-	float field = bblVN( q * 0.21 + 3.7 );                                   // where the bands are
-	vec2 w = vec2( bblVN( q * 0.55 + 31.7 ), bblVN( q * 0.55 + 58.3 ) ) - 0.5;
-	q += w * vec2( 1.2, 1.6 );
+	float mt = uCloudTime * 0.018 * speedMul;
+	float field = bblVN( q * 0.21 + vec2( 3.7 + mt * 0.35, 3.7 - mt * 0.15 ) ); // evolving cloud bands
+	vec2 w = vec2(
+		bblVN( q * 0.55 + vec2( 31.7 + mt, 12.1 - mt * 0.6 ) ),
+		bblVN( q * 0.55 + vec2( 58.3 - mt * 0.7, 41.9 + mt * 0.8 ) )
+	) - 0.5;
+	q += w * vec2( 1.35, 1.8 );
 	float f = 0.0, a = 0.5;
-	for ( int i = 0; i < 5; i ++ ) { f += a * mix( 0.5, bblVN( q ), i < 3 ? 1.0 : fine ); q = q * vec2( 1.93, 2.27 ) + 19.7; a *= 0.45; }
-	f += ( field - 0.5 ) * 0.7;
-	float dens = smoothstep( th - 0.01, th + 0.22, f );
+	for ( int i = 0; i < 5; i ++ ) {
+		f += a * mix( 0.5, bblVN( q + vec2( mt * ( 0.4 + 0.15 * float( i ) ), - mt * 0.2 ) ), i < 3 ? 1.0 : fine );
+		q = q * vec2( 1.93, 2.27 ) + 19.7;
+		a *= 0.45;
+	}
+	f += ( field - 0.5 ) * 0.72;
+	float dens = smoothstep( th - 0.02, th + 0.24, f );
 	// fibres along the streak comb the edges: cirrus has no outline
-	float fib = bblVN( vec2( q0.x * 1.3, q0.y * 9.0 ) + 71.3 ) * 0.65 + bblVN( vec2( q0.x * 2.9, q0.y * 23.0 ) + 13.1 ) * 0.35;
+	float fib = bblVN( vec2( q0.x * 1.3 + mt * 0.5, q0.y * 9.0 ) + 71.3 ) * 0.65 + bblVN( vec2( q0.x * 2.9 - mt * 0.4, q0.y * 23.0 ) + 13.1 ) * 0.35;
 	return clamp( dens * ( 0.45 + 1.1 * mix( 0.5, fib, fine ) ), 0.0, 1.0 );
 }
 // both layers: x = combined opacity 0..1, y = density of the lower layer alone
 vec2 bblClouds( vec3 d ) {
-	float a = bblCirrus( d, 8.5, uCloudA, uCloudP.x, 0.0 );
-	float b = bblCirrus( d, 11.5, uCloudB, uCloudP.y, 43.0 ) * 0.7;
+	float a = bblCirrus( d, 8.5, uCloudA, uCloudP.x, 0.0, 1.0 );
+	float b = bblCirrus( d, 11.5, uCloudB, uCloudP.y, 43.0, 0.58 ) * 0.72;
 	return vec2( 1.0 - ( 1.0 - a ) * ( 1.0 - b ), a );
 }
 // afterglow: x = weight 0..1, y = radial coordinate (0 core .. 1 edge and beyond) around the sun's place below the horizon.
@@ -11705,6 +12321,7 @@ function createSky(ctx, aerialUniforms) {
     tNoise: { value: noise },
     uCloudA: { value: new THREE.Vector4(dirA[0], dirA[1], 9.0, 1.4) }, uCloudB: { value: new THREE.Vector4(dirB[0], dirB[1], 16.0, 2.5) },
     uCloudP: { value: new THREE.Vector4(0.5, 0.52, 0.8, 0) },
+    uCloudTime: { value: 0 },
     uNight: { value: new THREE.Vector4(0, 0, 0, 0) },
     uZenith: { value: col() }, uMid: { value: col() }, uHorizon: { value: col() }, uTowardSun: { value: col() },
     uSunDisc: { value: col() }, uAureole: { value: col() }, uSunP: { value: new THREE.Vector4(0.0058, 0.8, 0.045, 0) }, uDip: { value: 0 },
@@ -11734,7 +12351,7 @@ function createSky(ctx, aerialUniforms) {
   starGeo.setAttribute('position', new THREE.BufferAttribute(aPos, 3));
   starGeo.setAttribute('aStar', new THREE.BufferAttribute(aStar, 4));
   starGeo.setAttribute('aTint', new THREE.BufferAttribute(aTint, 3));
-  const starU = { uBSunDir: aerialUniforms.uBSunDir, uBTime: ctx.materials.uniforms.uBTime, uPx: { value: 1 }, uStar: { value: 0 }, tNoise: U.tNoise, uCloudA: U.uCloudA, uCloudB: U.uCloudB, uCloudP: U.uCloudP, uNight: U.uNight };
+  const starU = { uBSunDir: aerialUniforms.uBSunDir, uBTime: ctx.materials.uniforms.uBTime, uPx: { value: 1 }, uStar: { value: 0 }, tNoise: U.tNoise, uCloudA: U.uCloudA, uCloudB: U.uCloudB, uCloudP: U.uCloudP, uCloudTime: U.uCloudTime, uNight: U.uNight };
   const starMat = new THREE.ShaderMaterial({ name: 'sky-stars', vertexShader: STAR_VERT, fragmentShader: STAR_FRAG, uniforms: starU, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: true, fog: false, toneMapped: false });
   ctx.materials.register(starMat, { owner: 'lighting', skipHooks: true });
   const stars = new THREE.Points(starGeo, starMat);
@@ -11765,9 +12382,11 @@ function createSky(ctx, aerialUniforms) {
       U.uNight.value.set(state.night, state.stars, state.moonAmount, state.afterglow);
       U.uAfter0.value.copy(state.after[0]); U.uAfter1.value.copy(state.after[1]); U.uAfter2.value.copy(state.after[2]); U.uAfter3.value.copy(state.after[3]);
       U.uCloudLit.value.copy(state.cloudColor); U.uCloudShade.value.copy(state.cloudShade); U.uCloudGlow.value.copy(state.cloudGlow);
-      const t = frame ? frame.t : 0;
+      const t = ctx.flags.web ? performance.now() * 0.001 : (frame ? frame.t : 0);
       const cn = coverToNoise(state.cloudCover);
-      U.uCloudP.value.set(cloudThreshold(cn * 0.75), cloudThreshold(cn * 0.45), state.cloudOpacity, 4 + 0.03 * t);
+      const drift = ctx.flags.web ? 4 + 0.14 * t : 4 + 0.03 * t;
+      U.uCloudP.value.set(cloudThreshold(cn * 0.75), cloudThreshold(cn * 0.45), state.cloudOpacity, drift);
+      U.uCloudTime.value = t;
       starU.uStar.value = state.stars; stars.visible = state.stars > 0.003;
       starU.uPx.value = Math.max(1, (ctx.post && ctx.post.height ? ctx.post.height : ctx.size.height * ctx.size.dpr) / 1080);
     },
@@ -15726,7 +16345,7 @@ async function create(ctx) {
     bodyNight: 0.6,                // the same by night, as a share of bodyGain: dark water that carries the reflections
     lowSun: 1.8,                   // extra gain on the DIRECT light in the body when the key light is at the horizon (1 = none), fading out by 30 degrees
     foam: { width: 0.55, strength: 0.5, silt: 0.42, shallow: 0.5, color: [0.84, 0.82, 0.77] },
-    reflection: { enabled: true, scale: 0.5, fovScale: 1.2, maxHeight: 650, fadeFrom: 420, clipBias: 0.03, samples: 4, everySubFrame: false },
+    reflection: { enabled: true, scale: ctx.flags.web ? 0.38 : 0.5, fovScale: 1.2, maxHeight: 650, fadeFrom: 420, clipBias: 0.03, samples: ctx.flags.web ? 0 : 4, everySubFrame: false },
     wakes: { enabled: true, size: quality.draft ? 1024 : 2048, autoBoats: true },
     shore: { texel: quality.draft ? 2.5 : 1.0, pad: 60 },
     debug: 0,                      // 1 shadow factor, 2 unresolved sigma x5, 3 light on the water, 4 reflection, 5 glitter, 6 slope, 7 shore map, 8 wake map, 9 Fresnel, 10 body, 11 drift / calm
@@ -16304,6 +16923,7 @@ async function create(ctx) {
     const r = water.reflection; r.texture = reflRT.texture; r.depthTexture = depth; r.width = w; r.height = h;
     U.tBWRefl.value = reflRT.texture; U.tBWReflDepth.value = depth;
   }
+  let reflFrame = 0;
   function renderReflection(frame) {
     const R = settings.reflection, r = water.reflection;
     if (!R.enabled || !surfaces.length) { r.enabled = false; U.uBWRefl.value.x = 0; return; }
@@ -16311,6 +16931,11 @@ async function create(ctx) {
     // never samples a target left over from another frame (frames may be rendered in any order).
     if (frame.sub === 0) reflDone = false;
     if (reflDone && !R.everySubFrame) return;
+    if (ctx.flags.web && ctx.player && ctx.player.state.active && r.renders > 1 && (reflFrame++ % 3) !== 0 && r.texture) {
+      reflDone = true;
+      r.skipped++;
+      return;
+    }
     const cam = ctx.camera; cam.updateMatrixWorld();
     const h = cam.position.y - level;
     if (!(h > 0.02)) { r.enabled = false; U.uBWRefl.value.x = 0; return; }
@@ -16882,11 +17507,12 @@ async function boot() {
     stats,
     /** Per-frame state, rewritten by ctx.update() for every sub-frame. */
     frame: {
-      t: 0, tFrame: 0, sub: 0, subCount: 1, shot: null, shotIndex: 0, shotT: 0, shotK: 0, inTransition: false,
+      t: 0, animTime: 0, tFrame: 0, sub: 0, subCount: 1, shot: null, shotIndex: 0, shotT: 0, shotK: 0, inTransition: false,
       camera: { pos: [0, 100, 300], look: [0, 0, 0], up: [0, 1, 0], fov: 50, near: 0.3, far: 40000 },
       lightSpec: { a: 'golden', b: 'golden', k: 0 }, light: null,
       fog: null, lod: { fixed: null, scale: 1 }, shadow: { radius: null }, debug: false,
     },
+    animTime: 0,
     update: null,
   };
   window.CTX = ctx;
@@ -16902,7 +17528,7 @@ async function boot() {
   let updateModules = () => {};
   ctx.update = function update(t, o = {}) {
     const f = ctx.frame, film = ctx.film, ov = film.override;
-    f.t = t; f.tFrame = o.tFrame ?? t; f.sub = o.sub ?? 0; f.subCount = o.subCount ?? 1;
+    f.t = t; f.animTime = (flags.web && ctx.animTime > 0) ? ctx.animTime : t; f.tFrame = o.tFrame ?? t; f.sub = o.sub ?? 0; f.subCount = o.subCount ?? 1;
     const sa = film.shotAt(t);
     f.shot = sa.shot; f.shotIndex = sa.index; f.shotT = sa.local; f.shotK = sa.k; f.inTransition = sa.inTransition;
     f.camera = film.poseAt(t);
@@ -16942,9 +17568,32 @@ async function boot() {
   const flagWarn = (msg) => { stats.warnings.push(msg); console.warn('[engine] ' + msg); };
   for (const n of [...flags.only, ...flags.skip]) if (!names.includes(n) && !MODULES.includes(n)) flagWarn(`flag only/skip names '${n}', which is not a module in js/modules/index.js (scratch modules need with=${n})`);
   for (const n of flags.stub) if (n !== 'all' && !subsystemNames.includes(n)) flagWarn(`flag stub names '${n}', which is not a subsystem (${subsystemNames.join(' ')})`);
-  updateModules = await loadModules(ctx, names);
+  // In web/game mode, only build core spawn modules immediately and stream the rest during play
+  const CORE_MODULES = new Set(['terrain', 'waterbodies', 'walls', 'ishtar', 'streets']);
+  const useStreaming = Boolean(flags.web && !flags.only.length && !flags.with.length);
+  const defer = useStreaming ? new Set(names.filter((n) => !CORE_MODULES.has(n))) : null;
+  const bootProfile = {
+    streaming: useStreaming,
+    coreBuildMs: 0,
+    finalizeMs: 0,
+    octreeMs: 0,
+    warmupMs: 0,
+    streamedModules: {},
+  };
+  stats.bootProfile = bootProfile;
+
+  const tMod0 = performance.now();
+  updateModules = await loadModules(ctx, names, { defer });
+  bootProfile.coreBuildMs = Math.round(performance.now() - tMod0);
+
+  const tFin0 = performance.now();
   ctx.geom.finalize();
+  bootProfile.finalizeMs = Math.round(performance.now() - tFin0);
+
+  const tOct0 = performance.now();
   ctx.octree = createOctree(ctx);
+  bootProfile.octreeMs = Math.round(performance.now() - tOct0);
+
   ctx.player = createPlayer(ctx);
   ctx.player.setActive(false);
   const reportAdopted = (adopted, when) => {
@@ -16953,6 +17602,25 @@ async function boot() {
     stats.warnings.push(msg); console.warn('[engine] ' + msg);
   };
   reportAdopted(ctx.materials.adopt(scene), 'at the end of boot');
+
+  ctx.streamRemainingCount = () => updateModules.streamRemaining ? updateModules.streamRemaining() : 0;
+  ctx.streamQueueNames = () => updateModules.streamQueueNames ? updateModules.streamQueueNames() : [];
+  ctx.streamNext = async () => {
+    if (!updateModules.streamNext) return null;
+    const ts = performance.now();
+    const res = await updateModules.streamNext();
+    if (!res) return null;
+    // Yield a frame between build() and GPU finalize/octree sync so gameplay stays responsive
+    await new Promise((r) => requestAnimationFrame(r));
+    const tf = performance.now();
+    ctx.geom.finalize();
+    ctx.materials.adopt(scene);
+    if (ctx.octree) ctx.octree.syncNewMeshes();
+    const finalizeMs = Math.round(performance.now() - tf);
+    const totalMs = Math.round(performance.now() - ts);
+    bootProfile.streamedModules[res.name] = { buildMs: res.ms, finalizeMs, totalMs };
+    return { ...res, finalizeMs, totalMs };
+  };
 
   // ---- page API used by render.mjs ---------------------------------------------------------------
   /** Render film time t (seconds) to the canvas. opts: { sub: sub-frames, tag: debug label }. Pure in t. */
@@ -16978,9 +17646,12 @@ async function boot() {
   window.FILM = { duration: ctx.film.duration, fps: ctx.film.fps, shots: ctx.film.shots.map((s) => ({ n: s.n, id: s.id, name: s.name, mode: s.mode, t0: s.t0, t1: s.t1, mid: s.mid })) };
   installDebug(ctx);
 
-  window.renderAt(flags.t || 0); // warm-up: compiles the programs in view
+  const tWarm0 = performance.now();
+  if (!flags.web) window.renderAt(flags.t || 0); // warm-up: compiles the programs in view
+  bootProfile.warmupMs = Math.round(performance.now() - tWarm0);
   window.refreshStats();
   stats.bootMs = Math.round(performance.now() - t0);
+  console.info('[engine] boot profile:', JSON.stringify(bootProfile), 'total bootMs:', stats.bootMs);
   stats.ready = true;
   window.READY = true;
 }
@@ -29809,19 +30480,20 @@ const POSITION_DEPTH = /* glsl */ `
 transformed = ( pplSkin() * vec4( transformed, 1.0 ) ).xyz * pplOn();
 `;
 
-function createRig(ctx, { rows = 1024 } = {}) {
+function createRig(ctx, { rows = 1024, tag = 'people' } = {}) {
   const THREE = ctx.THREE, W = NB * 3;
+  const skinFlag = tag === 'people' ? 'pplSkin' : tag + 'Skin';
   const data = new Float32Array(W * rows * 4);
   const tex = new THREE.DataTexture(data, W, rows, THREE.RGBAFormat, THREE.FloatType);
   tex.minFilter = tex.magFilter = THREE.NearestFilter; tex.generateMipmaps = false; tex.flipY = false; tex.needsUpdate = true;
-  tex.name = 'people:bones';
+  tex.name = tag + ':bones';
   const uniform = { value: tex };
   // identity in every row, so an unwritten row is a rest pose and never a collapsed figure
   for (let r = 0; r < rows; r++) for (let b = 0; b < NB; b++) { const o = (r * W + b * 3) * 4; data[o] = 1; data[o + 5] = 1; data[o + 10] = 1; }
 
   ctx.materials.addHook({
-    name: 'people-skin', order: 20,
-    filter: (m, info) => !!info.pplSkin,
+    name: tag + '-skin', order: 20,
+    filter: (m, info) => !!info[skinFlag],
     shader(shader, m, renderer, patch) {
       patch.uniforms({ uPplBones: uniform });
       patch.vertex.header(HEADER);
@@ -29832,13 +30504,13 @@ function createRig(ctx, { rows = 1024 } = {}) {
   });
 
   const depth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
-  depth.name = 'people:depth';
+  depth.name = tag + ':depth';
   depth.onBeforeCompile = (shader) => {
     shader.uniforms.uPplBones = uniform;
     shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\n' + HEADER).replace('#include <begin_vertex>', '#include <begin_vertex>\n' + POSITION_DEPTH);
   };
-  depth.customProgramCacheKey = () => 'people-depth-1';
-  ctx.materials.register(depth, { owner: 'people', depth: true, skipHooks: true });
+  depth.customProgramCacheKey = () => tag + '-depth-1';
+  ctx.materials.register(depth, { owner: tag, depth: true, skipHooks: true });
 
   let cannedEnd = 0, next = 0, overflow = 0;
   const sets = [];
@@ -29846,7 +30518,7 @@ function createRig(ctx, { rows = 1024 } = {}) {
   const rig = {
     rows, data, tex, uniform, depth,
     /** A material for skinned figures: a white variant of a palette id (its texture rides in the rest pose). */
-    material(id, name, opts = {}) { return ctx.materials.variant(id, { name, color: 0xffffff, ...opts, info: { pplSkin: true } }); },
+    material(id, name, opts = {}) { return ctx.materials.variant(id, { name, color: 0xffffff, ...opts, info: { [skinFlag]: true } }); },
     /** Reserve a row for a pose that never changes (written once). */
     canned(bones) { const r = cannedEnd++; rig.write(r, bones); next = cannedEnd; return r; },
     get cannedEnd() { return cannedEnd; },
@@ -30059,9 +30731,16 @@ function createStage(ctx, sys, cast) {
     const dir = v >= 0 ? 1 : -1;
     f.base = f.base || 'walk';
     f.move = (t, S) => {
-      const s = s0 + v * (t - tRef);
-      S.moving = s > 0.05 && s < path.len - 0.05;
-      pathAt(path, s, dir, S);
+      const raw = s0 + v * (t - tRef);
+      let s = raw, effDir = dir;
+      if (raw < 0 || raw > path.len) {
+        const period = path.len * 2;
+        const m = ((raw % period) + period) % period;
+        if (m <= path.len) { s = m; effDir = dir; }
+        else { s = period - m; effDir = -dir; }
+      }
+      S.moving = path.len > 0.1;
+      pathAt(path, s, effDir, S);
       S.s = Math.abs(v) * t;
     };
     f.x = path.pts[0]; f.y = path.pts[1]; f.z = path.pts[2];
@@ -30187,6 +30866,11 @@ function createSystem(ctx) {
 
   const kinds = { human, quad, bird };
   const figures = [];
+  const dynamicFigures = [];
+  const staticCells = new Map();
+  const CELL_SIZE = 64;
+  const CELL_RADIUS = 46; // sqrt(32^2 + 32^2) ~ 45.3
+  let gridDirty = true;
   const cannedCache = new Map();
   const P = makePose(), bones = new Float32Array(NB * 12);
   const S = { x: 0, y: 0, z: 0, az: 0, s: 0, moving: true, pitch: 0, hide: false, bank: 0 };
@@ -30226,26 +30910,62 @@ function createSystem(ctx) {
     if (!f.B) f.B = WHITE; if (!f.C) f.C = WHITE; if (!f.D) f.D = WHITE; if (!f.hair) f.hair = 0;
     f.cr = cannedFor(f);
     figures.push(f);
+    if (f.move) dynamicFigures.push(f);
+    else gridDirty = true;
     return f;
+  }
+
+  function rebuildStaticGrid() {
+    staticCells.clear();
+    for (let i = 0; i < figures.length; i++) {
+      const f = figures[i];
+      if (f.move) continue;
+      const gx = Math.floor(f.x / CELL_SIZE);
+      const gz = Math.floor(f.z / CELL_SIZE);
+      const key = gx * 65536 + gz;
+      let cell = staticCells.get(key);
+      if (!cell) {
+        cell = { cx: (gx + 0.5) * CELL_SIZE, cz: (gz + 0.5) * CELL_SIZE, list: [] };
+        staticCells.set(key, cell);
+      }
+      cell.list.push(f);
+    }
+    gridDirty = false;
   }
 
   const stats = { near: 0, mid: 0, far: 0, posed: 0, shown: 0 };
   function update(frame) {
-    const t = frame.t, cam = frame.camera.pos, cx = cam[0], cy = cam[1], cz = cam[2];
+    if (gridDirty) rebuildStaticGrid();
+    const t = frame.animTime ?? frame.t;
+    const cam = frame.camera.pos, look = frame.camera.look;
+    const cx = cam[0], cy = cam[1], cz = cam[2];
+    let fx = look[0] - cx, fy = look[1] - cy, fz = look[2] - cz;
+    const fl = Math.hypot(fx, fy, fz) || 1;
+    fx /= fl; fy /= fl; fz /= fl;
+    const fovDeg = frame.camera.fov || 50;
+    const aspect = Math.max(1.8, (ctx.size.width || 1280) / (ctx.size.height || 720));
+    const coneRad = Math.atan(Math.tan(fovDeg * Math.PI / 360) * aspect) + 0.28;
+    const minCos = Math.cos(Math.min(Math.PI * 0.49, coneRad));
+
     // a level of detail changes over the sub-frames of a frame, not in one step
     const jit = frame.subCount > 1 ? 1 + 0.08 * ((frame.sub + 0.5) / frame.subCount - 0.5) : 1;
     rig.begin();
     const dark = frame.light && frame.light.night > 0.97 ? 0.35 : 1;             // at night nothing far from a lamp can be seen
+    const maxAnyDist = 900 * dark;
     let near = 0, mid = 0, far = 0, posed = 0;
-    for (let i = 0, n = figures.length; i < n; i++) {
-      const f = figures[i];
-      if (t < f.t0 || t >= f.t1) continue;
+
+    function processFigure(f) {
+      if (t < f.t0 || t >= f.t1) return;
       S.pitch = 0; S.moving = true; S.s = 0; S.hide = false; S.bank = 0;
-      if (f.move) { f.move(t, S, f); if (S.hide) continue; } else { S.x = f.x; S.y = f.y; S.z = f.z; S.az = f.az; }
-      const dx = S.x - cx, dy = S.y - cy, dz = S.z - cz, d = Math.sqrt(dx * dx + dy * dy + dz * dz) * jit * (f.lodScale || 1);
+      if (f.move) { f.move(t, S, f); if (S.hide) return; } else { S.x = f.x; S.y = f.y; S.z = f.z; S.az = f.az; }
+      const dx = S.x - cx, dy = S.y - cy, dz = S.z - cz;
+      const dRaw = Math.sqrt(dx * dx + dy * dy + dz * dz);
+      // Frustum cone cull for visible assets only (keep <=18m for nearby shadow casters)
+      if (dRaw > 18 && (dx * fx + dy * fy + dz * fz) < dRaw * minCos) return;
+      const d = dRaw * jit * (f.lodScale || 1);
       const kind = kinds[f.kind], dist = kind.dist;
       const nl = dist.length;
-      if (d > dist[nl - 1] * dark) continue;
+      if (d > dist[nl - 1] * dark) return;
       let lod = 0; while (d >= dist[lod]) lod++;
       let row = -1;
       if (d < kind.poseDist) {
@@ -30259,6 +30979,23 @@ function createSystem(ctx) {
       kind.sets[lod].push(S.x, S.y, S.z, S.az, f.scale, row, f.mask, f.A, f.B, f.C, f.D, f.E || f.B, f.hair, S.pitch);
       if (lod === 0) near++; else if (lod === nl - 1 && nl > 1) far++; else mid++;
     }
+
+    // 1. Dynamic figures (walkers, birds, animals)
+    for (let i = 0, n = dynamicFigures.length; i < n; i++) {
+      processFigure(dynamicFigures[i]);
+    }
+    // 2. Static figures grouped by 64m spatial cells (skip entire off-screen / out-of-range cells)
+    for (const cell of staticCells.values()) {
+      const cdx = cell.cx - cx, cdy = -cy, cdz = cell.cz - cz;
+      const cd = Math.hypot(cdx, cdy, cdz);
+      if (cd > maxAnyDist + CELL_RADIUS) continue;
+      if (cd > CELL_RADIUS + 18 && (cdx * fx + cdy * fy + cdz * fz) < cd * minCos - CELL_RADIUS) continue;
+      const list = cell.list;
+      for (let i = 0, n = list.length; i < n; i++) {
+        processFigure(list[i]);
+      }
+    }
+
     rig.commit();
     stats.near = near; stats.mid = mid; stats.far = far; stats.posed = posed; stats.shown = near + mid + far;
   }
@@ -31491,7 +32228,7 @@ module.exports.default = {
     const matrixOf = (p, scale) => { _e.set((p.pitch || 0) * D, -p.headingDeg * D, (p.roll || 0) * D, 'YXZ'); _q.setFromEuler(_e); _p.set(p.x, p.y, p.z); _s.set(scale, scale, scale); return _m.compose(_p, _q, _s); };
     const stats = { near: 0, far: 0 };
     const update = (frame) => {
-      const t = frame.t, cam = frame.camera.pos;
+      const t = frame.animTime ?? frame.t, cam = frame.camera.pos;
       const hp = heroPose(t);
       if (hp) {
         const far = heroFar >= 0 && Math.hypot(hp.x - cam[0], hp.y - cam[1], hp.z - cam[2]) > 450;
@@ -32399,8 +33136,12 @@ function lanePose(ctx, river, spec) {
     return { x: p.x + (gx - p.x) * w, z: p.z + (gz - p.z) * w };
   };
   const dirSign = spec.v >= 0 ? 1 : -1;
+  const rLen = river.length || 5000;
+  const sMin = 40, sSpan = Math.max(200, rLen - 80);
   return (t) => {
-    const s = s0 + spec.v * t, p = pos(s), q = pos(s + 2.5 * dirSign);
+    const rawS = s0 + spec.v * t;
+    const s = (rawS >= sMin && rawS <= rLen - 40) ? rawS : sMin + M.mod(rawS - sMin, sSpan);
+    const p = pos(s), q = pos(s + 2.5 * dirSign);
     let hd = M.dirToAz(q.x - p.x, q.z - p.z);
     if (spec.spin) hd += spec.spin * Math.sin(t * 0.37 + spec.seed * 9);        // a quffa turns as it is paddled
     const r = rock(spec.kind, spec.seed, t), lv = water.level;
@@ -32413,9 +33154,17 @@ function ferryPose(ctx, spec) {
   const { water } = ctx, a = spec.from, b = spec.to, d = Math.hypot(b[0] - a[0], b[1] - a[1]), T = d / spec.v, t0 = spec.t - T * (spec.k ?? 0.5);
   const track = M.dirToAz(b[0] - a[0], b[1] - a[1]);
   return (t) => {
-    const k = M.clamp((t - t0) / T, -0.02, 1.02), x = a[0] + (b[0] - a[0]) * k, z = a[1] + (b[1] - a[1]) * k;
-    const moving = k > -0.02 && k < 1.02, r = rock('quffa', spec.seed, t), lv = water.level;
-    return { x, y: lv + (water.heightAt(x, z, t) - lv), z, headingDeg: M.mod(track + (spec.crab || 0) + (moving ? 10 * Math.sin(t * 0.4 + spec.seed * 7) : 0), 360), roll: r.roll, pitch: r.pitch };
+    const rawK = (t - t0) / T;
+    let k = rawK, dir = 1;
+    if (rawK < 0 || rawK > 1) {
+      const m = M.mod(rawK, 2);
+      if (m <= 1) { k = m; dir = 1; }
+      else { k = 2 - m; dir = -1; }
+    }
+    const x = a[0] + (b[0] - a[0]) * k, z = a[1] + (b[1] - a[1]) * k;
+    const r = rock('quffa', spec.seed, t), lv = water.level;
+    const hdBase = dir > 0 ? track : track + 180;
+    return { x, y: lv + (water.heightAt(x, z, t) - lv), z, headingDeg: M.mod(hdBase + (spec.crab || 0) + 10 * Math.sin(t * 0.4 + spec.seed * 7), 360), roll: r.roll, pitch: r.pitch };
   };
 }
 
@@ -41210,7 +41959,7 @@ const title = (s) => String(s).toLowerCase().replace(/\b\w/g, (c) => c.toUpperCa
 
 // ---- detail tier --------------------------------------------------------------------------------------------------
 const TIERS = {
-  full: { q: 'final', maxDpr: 1.5, label: 'Full detail', short: 'Full', other: 'light',
+  full: { q: 'final', maxDpr: 1.15, label: 'Full detail', short: 'Full', other: 'light',
     note: 'Full detail draws every house, palm, boat and person. It needs a recent graphics chip with about 3 GB of memory.' },
   light: { q: 'draft', maxDpr: 1, label: 'Light detail', short: 'Light', other: 'full',
     note: 'Light detail draws fewer people, palms and props and smaller textures, for phones and older computers.' },
@@ -41290,13 +42039,10 @@ async function start() {
   const shots = film.shots, D = film.duration - 1 / 120;
   const modeIds = Object.keys(ctx.world.lighting.modes);
 
-  // compile the programs of every shot now, so playback does not stall at the first view of each
-  for (let i = 0; i < shots.length; i++) {
-    setProgress(`Preparing the ${title(shots[i].name).replace('Night', 'night pass')} shot`, i, shots.length);
-    await frameWait();
-    window.renderAt(shots[i].mid);
-  }
-  setProgress('Ready', shots.length, shots.length);
+  // Skip pre-rendering all 10 aerial/night shots at boot; warm up only the spawn view once ready
+  setProgress('Preparing spawn view', 0, 1);
+  await frameWait();
+  setProgress('Ready', 1, 1);
 
   // ---- player & game state --------------------------------------------------------------------------------------
   const saved = Number(store.get('babylon-t')); store.del('babylon-t');
@@ -41306,26 +42052,26 @@ async function start() {
   let pinned = null;                                   // light mode pinned by the viewer, or null = the film's light
   const free = { on: false, pos: new THREE.Vector3(), target: new THREE.Vector3(), fov: 50, look: false };
 
-  // Day-night cycle state (0..1 -> full 24h cycle over 120s at 1x)
-  let dayTime = 0.14;
+  // Day-night cycle state (0..1 -> full 24h cycle over 150s at 1x, with an extended night phase)
+  let dayTime = 0.10;
   let dayRunning = true;
   let daySpeed = 1;
-  const DAY_CYCLE_SEC = 120;
+  const DAY_CYCLE_SEC = 150;
 
   function dayNightSpec(u) {
     u = ((u % 1) + 1) % 1;
-    if (u < 0.25) return { a: 'morning', b: 'afternoon', k: u / 0.25 };
-    if (u < 0.50) return { a: 'afternoon', b: 'golden', k: (u - 0.25) / 0.25 };
-    if (u < 0.70) return { a: 'golden', b: 'blue', k: (u - 0.50) / 0.20 };
-    if (u < 0.86) return { a: 'blue', b: 'blue', k: 0 };
-    return { a: 'blue', b: 'morning', k: (u - 0.86) / 0.14, wrapDawn: true };
+    if (u < 0.16) return { a: 'morning', b: 'afternoon', k: u / 0.16 };
+    if (u < 0.34) return { a: 'afternoon', b: 'golden', k: (u - 0.16) / 0.18 };
+    if (u < 0.50) return { a: 'golden', b: 'blue', k: (u - 0.34) / 0.16 };
+    if (u < 0.88) return { a: 'blue', b: 'blue', k: 0 };
+    return { a: 'blue', b: 'morning', k: (u - 0.88) / 0.12, wrapDawn: true };
   }
   function formatTimeOfDay(u) {
     u = ((u % 1) + 1) % 1;
     const h24 = (6.5 + u * 24) % 24;
     const hh = String(Math.floor(h24)).padStart(2, '0');
     const mm = String(Math.floor((h24 % 1) * 60)).padStart(2, '0');
-    const phase = u < 0.20 ? 'Morning' : u < 0.45 ? 'Afternoon' : u < 0.56 ? 'Golden Hour' : u < 0.70 ? 'Dusk' : u < 0.88 ? 'Night' : 'Dawn';
+    const phase = u < 0.14 ? 'Morning' : u < 0.30 ? 'Afternoon' : u < 0.40 ? 'Golden Hour' : u < 0.50 ? 'Dusk' : u < 0.88 ? 'Night' : 'Dawn';
     return `${hh}:${mm} · ${phase}`;
   }
 
@@ -41394,13 +42140,21 @@ async function start() {
   });
   if (octToggle && ctx.octree) octToggle.addEventListener('click', () => {
     ctx.octree.state.enabled = !ctx.octree.state.enabled;
+    ctx.octree.state.occlusionEnabled = ctx.octree.state.enabled;
     if (!ctx.octree.state.enabled) ctx.octree.restore();
     octToggle.textContent = ctx.octree.state.enabled ? 'Octree On' : 'Octree Off';
     octToggle.classList.toggle('on', ctx.octree.state.enabled);
   });
   if (glideBtn && ctx.player) glideBtn.addEventListener('click', () => {
     ctx.player.state.glide = !ctx.player.state.glide;
+    if (ctx.player.state.glide) {
+      ctx.player.state.vel.y = 0;
+      const gy = ctx.ground.height(ctx.player.state.pos.x, ctx.player.state.pos.z);
+      if (ctx.player.state.pos.y <= gy + 0.5) ctx.player.state.pos.y = gy + 2.2;
+      ctx.player.state.onGround = false;
+    }
     glideBtn.classList.toggle('on', ctx.player.state.glide);
+    glideBtn.textContent = ctx.player.state.glide ? 'Flying' : 'Fly';
   });
   detailBtn.querySelector('.long').textContent = TIERS[tier].label;
   detailBtn.querySelector('.short').textContent = TIERS[tier].short;
@@ -41652,12 +42406,38 @@ async function start() {
 
   // ---- loop -----------------------------------------------------------------------------------------------------
   let hudTick = 0;
+  let streamingBusy = false;
+  let nextStreamAt = performance.now() + 600;
+  const totalStreamCount = ctx.streamRemainingCount ? ctx.streamRemainingCount() : 0;
+
+  function stepStreaming(now, dt) {
+    if (streamingBusy || !ctx.streamNext || !ctx.streamRemainingCount || ctx.streamRemainingCount() <= 0) return;
+    if (now < nextStreamAt) return;
+    // If the frame is still heavy (e.g. shader compilation), defer slightly up to 1.2s
+    if (dt > 0.032 && now < nextStreamAt + 1200) return;
+    streamingBusy = true;
+    ctx.streamNext().then((res) => {
+      const cost = res ? res.totalMs : 100;
+      nextStreamAt = performance.now() + Math.max(350, Math.min(2500, cost * 2.5));
+      if (res && ctx.streamRemainingCount() === 0 && window.STATS && window.STATS.bootProfile) {
+        console.info('[engine] all streamed modules loaded:', JSON.stringify(window.STATS.bootProfile.streamedModules));
+      }
+    }).catch(() => {
+      nextStreamAt = performance.now() + 500;
+    }).finally(() => {
+      streamingBusy = false;
+      if (!gameMode) dirty = true;
+    });
+  }
+
   function loop(now) {
     requestAnimationFrame(loop);
     if (lost) return;
     const dt = clamp((now - last) / 1000, 0, 0.1);
     last = now;
+    stepStreaming(now, dt);
     if (gameMode && ctx.player) {
+      ctx.animTime = (ctx.animTime || 0) + dt;
       if (dayRunning) {
         dayTime = (dayTime + (dt * daySpeed) / DAY_CYCLE_SEC) % 1;
       }
@@ -41676,10 +42456,17 @@ async function start() {
         hudTick = 0;
         if (todLabel) todLabel.textContent = formatTimeOfDay(dayTime);
         if (todSlider && document.activeElement !== todSlider) todSlider.value = String(Math.round(dayTime * 1000));
-        if (glideBtn) glideBtn.classList.toggle('on', ctx.player.state.glide);
+        if (glideBtn) {
+          glideBtn.classList.toggle('on', ctx.player.state.glide);
+          glideBtn.textContent = ctx.player.state.glide ? 'Flying' : 'Fly';
+        }
         if (octStats && ctx.octree) {
           const os = ctx.octree.state;
-          octStats.textContent = `Octree: ${os.visibleMeshes}/${os.totalMeshes} · LOD: ${ctx.octree.lodScale.toFixed(2)}x · ${os.fps} FPS`;
+          const rem = ctx.streamRemainingCount ? ctx.streamRemainingCount() : 0;
+          const streamStr = rem > 0 && totalStreamCount > 0 ? ` · Streaming: ${totalStreamCount - rem}/${totalStreamCount}` : '';
+          octStats.textContent = os.enabled
+            ? `Octree: ${os.visibleMeshes}/${os.totalMeshes} (Occ: ${os.occludedMeshes}) · LOD: ${ctx.octree.lodScale.toFixed(2)}x · ${os.fps} FPS${streamStr}`
+            : `Octree: Off (${os.totalMeshes}) · LOD: 1.00x · ${os.fps} FPS${streamStr}`;
         }
       }
       return;
@@ -41692,7 +42479,13 @@ async function start() {
   }
   syncModeUi();
   syncPlay();
-  if (!gameMode) { window.renderAt(t); syncUi(); }
+  if (gameMode && ctx.player) {
+    const pose = ctx.player.update(0);
+    if (pose) film.setOverride({ pos: pose.pos, look: pose.look, fov: pose.fov, mode: dayNightSpec(dayTime) });
+    window.renderAt(t);
+  } else {
+    window.renderAt(t); syncUi();
+  }
   L.root.classList.add('done');
   setTimeout(() => { L.root.hidden = true; }, reduceMotion ? 0 : 900);
   wake();

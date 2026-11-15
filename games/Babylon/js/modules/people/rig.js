@@ -57,19 +57,20 @@ const POSITION_DEPTH = /* glsl */ `
 transformed = ( pplSkin() * vec4( transformed, 1.0 ) ).xyz * pplOn();
 `;
 
-export function createRig(ctx, { rows = 1024 } = {}) {
+export function createRig(ctx, { rows = 1024, tag = 'people' } = {}) {
   const THREE = ctx.THREE, W = NB * 3;
+  const skinFlag = tag === 'people' ? 'pplSkin' : tag + 'Skin';
   const data = new Float32Array(W * rows * 4);
   const tex = new THREE.DataTexture(data, W, rows, THREE.RGBAFormat, THREE.FloatType);
   tex.minFilter = tex.magFilter = THREE.NearestFilter; tex.generateMipmaps = false; tex.flipY = false; tex.needsUpdate = true;
-  tex.name = 'people:bones';
+  tex.name = tag + ':bones';
   const uniform = { value: tex };
   // identity in every row, so an unwritten row is a rest pose and never a collapsed figure
   for (let r = 0; r < rows; r++) for (let b = 0; b < NB; b++) { const o = (r * W + b * 3) * 4; data[o] = 1; data[o + 5] = 1; data[o + 10] = 1; }
 
   ctx.materials.addHook({
-    name: 'people-skin', order: 20,
-    filter: (m, info) => !!info.pplSkin,
+    name: tag + '-skin', order: 20,
+    filter: (m, info) => !!info[skinFlag],
     shader(shader, m, renderer, patch) {
       patch.uniforms({ uPplBones: uniform });
       patch.vertex.header(HEADER);
@@ -80,13 +81,13 @@ export function createRig(ctx, { rows = 1024 } = {}) {
   });
 
   const depth = new THREE.MeshDepthMaterial({ depthPacking: THREE.RGBADepthPacking });
-  depth.name = 'people:depth';
+  depth.name = tag + ':depth';
   depth.onBeforeCompile = (shader) => {
     shader.uniforms.uPplBones = uniform;
     shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\n' + HEADER).replace('#include <begin_vertex>', '#include <begin_vertex>\n' + POSITION_DEPTH);
   };
-  depth.customProgramCacheKey = () => 'people-depth-1';
-  ctx.materials.register(depth, { owner: 'people', depth: true, skipHooks: true });
+  depth.customProgramCacheKey = () => tag + '-depth-1';
+  ctx.materials.register(depth, { owner: tag, depth: true, skipHooks: true });
 
   let cannedEnd = 0, next = 0, overflow = 0;
   const sets = [];
@@ -94,7 +95,7 @@ export function createRig(ctx, { rows = 1024 } = {}) {
   const rig = {
     rows, data, tex, uniform, depth,
     /** A material for skinned figures: a white variant of a palette id (its texture rides in the rest pose). */
-    material(id, name, opts = {}) { return ctx.materials.variant(id, { name, color: 0xffffff, ...opts, info: { pplSkin: true } }); },
+    material(id, name, opts = {}) { return ctx.materials.variant(id, { name, color: 0xffffff, ...opts, info: { [skinFlag]: true } }); },
     /** Reserve a row for a pose that never changes (written once). */
     canned(bones) { const r = cannedEnd++; rig.write(r, bones); next = cannedEnd; return r; },
     get cannedEnd() { return cannedEnd; },

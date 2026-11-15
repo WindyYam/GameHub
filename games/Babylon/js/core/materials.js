@@ -442,7 +442,7 @@ export async function create(ctx) {
     module: { course: COURSE, brick: BRICK },
     /** Per-frame: shared uniforms and night-driven emitters. Called by the engine before every sub-frame render. */
     update(frame) {
-      uniforms.uBTime.value = frame.t;
+      uniforms.uBTime.value = frame.animTime ?? frame.t;
       if (nightDriven.length) {
         const night = frame.light && typeof frame.light.night === 'number' ? frame.light.night : 0;
         for (const n of nightDriven) n.material.emissiveIntensity = n.base * (n.day + (1 - n.day) * night);

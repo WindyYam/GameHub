@@ -121,8 +121,12 @@ export function lanePose(ctx, river, spec) {
     return { x: p.x + (gx - p.x) * w, z: p.z + (gz - p.z) * w };
   };
   const dirSign = spec.v >= 0 ? 1 : -1;
+  const rLen = river.length || 5000;
+  const sMin = 40, sSpan = Math.max(200, rLen - 80);
   return (t) => {
-    const s = s0 + spec.v * t, p = pos(s), q = pos(s + 2.5 * dirSign);
+    const rawS = s0 + spec.v * t;
+    const s = (rawS >= sMin && rawS <= rLen - 40) ? rawS : sMin + M.mod(rawS - sMin, sSpan);
+    const p = pos(s), q = pos(s + 2.5 * dirSign);
     let hd = M.dirToAz(q.x - p.x, q.z - p.z);
     if (spec.spin) hd += spec.spin * Math.sin(t * 0.37 + spec.seed * 9);        // a quffa turns as it is paddled
     const r = rock(spec.kind, spec.seed, t), lv = water.level;
@@ -135,9 +139,17 @@ export function ferryPose(ctx, spec) {
   const { water } = ctx, a = spec.from, b = spec.to, d = Math.hypot(b[0] - a[0], b[1] - a[1]), T = d / spec.v, t0 = spec.t - T * (spec.k ?? 0.5);
   const track = M.dirToAz(b[0] - a[0], b[1] - a[1]);
   return (t) => {
-    const k = M.clamp((t - t0) / T, -0.02, 1.02), x = a[0] + (b[0] - a[0]) * k, z = a[1] + (b[1] - a[1]) * k;
-    const moving = k > -0.02 && k < 1.02, r = rock('quffa', spec.seed, t), lv = water.level;
-    return { x, y: lv + (water.heightAt(x, z, t) - lv), z, headingDeg: M.mod(track + (spec.crab || 0) + (moving ? 10 * Math.sin(t * 0.4 + spec.seed * 7) : 0), 360), roll: r.roll, pitch: r.pitch };
+    const rawK = (t - t0) / T;
+    let k = rawK, dir = 1;
+    if (rawK < 0 || rawK > 1) {
+      const m = M.mod(rawK, 2);
+      if (m <= 1) { k = m; dir = 1; }
+      else { k = 2 - m; dir = -1; }
+    }
+    const x = a[0] + (b[0] - a[0]) * k, z = a[1] + (b[1] - a[1]) * k;
+    const r = rock('quffa', spec.seed, t), lv = water.level;
+    const hdBase = dir > 0 ? track : track + 180;
+    return { x, y: lv + (water.heightAt(x, z, t) - lv), z, headingDeg: M.mod(hdBase + (spec.crab || 0) + 10 * Math.sin(t * 0.4 + spec.seed * 7), 360), roll: r.roll, pitch: r.pitch };
   };
 }
 

@@ -15,6 +15,7 @@ uniform sampler2D tNoise;
 uniform vec4 uCloudA;     // layer A: streak direction (x, z), feature length along / across the streak (km)
 uniform vec4 uCloudB;     // layer B
 uniform vec4 uCloudP;     // threshold A, threshold B, opacity, drift (km)
+uniform float uCloudTime; // continuous time (seconds) for internal cloud morphing
 uniform vec4 uNight;      // night 0..1, milky way amount, moon amount, afterglow amount
 float bblVN( vec2 x ) {
 	vec2 i = floor( x ), f = fract( x );
@@ -27,27 +28,36 @@ vec2 bblCloudPlane( vec3 d, float h ) {
 	float s = max( d.y, - 0.01 );
 	return d.xz * ( - R * s + sqrt( R * R * s * s + 2.0 * R * h + h * h ) );
 }
-float bblCirrus( vec3 d, float h, vec4 lay, float th, float seed ) {
+float bblCirrus( vec3 d, float h, vec4 lay, float th, float seed, float speedMul ) {
 	vec2 p = bblCloudPlane( d, h );
 	float fine = clamp( 55.0 / max( length( p ), 1.0 ), 0.0, 1.0 );       // far away the small octaves would only shimmer
-	p += lay.xy * uCloudP.w;
-	vec2 q0 = vec2( dot( p, lay.xy ) / lay.z, dot( p, vec2( - lay.y, lay.x ) ) / lay.w ) + seed;
+	p += lay.xy * ( uCloudP.w * speedMul );
+	vec2 perp = vec2( - lay.y, lay.x );
+	vec2 q0 = vec2( dot( p, lay.xy ) / lay.z, dot( p, perp ) / lay.w ) + seed;
 	vec2 q = q0;
-	float field = bblVN( q * 0.21 + 3.7 );                                   // where the bands are
-	vec2 w = vec2( bblVN( q * 0.55 + 31.7 ), bblVN( q * 0.55 + 58.3 ) ) - 0.5;
-	q += w * vec2( 1.2, 1.6 );
+	float mt = uCloudTime * 0.018 * speedMul;
+	float field = bblVN( q * 0.21 + vec2( 3.7 + mt * 0.35, 3.7 - mt * 0.15 ) ); // evolving cloud bands
+	vec2 w = vec2(
+		bblVN( q * 0.55 + vec2( 31.7 + mt, 12.1 - mt * 0.6 ) ),
+		bblVN( q * 0.55 + vec2( 58.3 - mt * 0.7, 41.9 + mt * 0.8 ) )
+	) - 0.5;
+	q += w * vec2( 1.35, 1.8 );
 	float f = 0.0, a = 0.5;
-	for ( int i = 0; i < 5; i ++ ) { f += a * mix( 0.5, bblVN( q ), i < 3 ? 1.0 : fine ); q = q * vec2( 1.93, 2.27 ) + 19.7; a *= 0.45; }
-	f += ( field - 0.5 ) * 0.7;
-	float dens = smoothstep( th - 0.01, th + 0.22, f );
+	for ( int i = 0; i < 5; i ++ ) {
+		f += a * mix( 0.5, bblVN( q + vec2( mt * ( 0.4 + 0.15 * float( i ) ), - mt * 0.2 ) ), i < 3 ? 1.0 : fine );
+		q = q * vec2( 1.93, 2.27 ) + 19.7;
+		a *= 0.45;
+	}
+	f += ( field - 0.5 ) * 0.72;
+	float dens = smoothstep( th - 0.02, th + 0.24, f );
 	// fibres along the streak comb the edges: cirrus has no outline
-	float fib = bblVN( vec2( q0.x * 1.3, q0.y * 9.0 ) + 71.3 ) * 0.65 + bblVN( vec2( q0.x * 2.9, q0.y * 23.0 ) + 13.1 ) * 0.35;
+	float fib = bblVN( vec2( q0.x * 1.3 + mt * 0.5, q0.y * 9.0 ) + 71.3 ) * 0.65 + bblVN( vec2( q0.x * 2.9 - mt * 0.4, q0.y * 23.0 ) + 13.1 ) * 0.35;
 	return clamp( dens * ( 0.45 + 1.1 * mix( 0.5, fib, fine ) ), 0.0, 1.0 );
 }
 // both layers: x = combined opacity 0..1, y = density of the lower layer alone
 vec2 bblClouds( vec3 d ) {
-	float a = bblCirrus( d, 8.5, uCloudA, uCloudP.x, 0.0 );
-	float b = bblCirrus( d, 11.5, uCloudB, uCloudP.y, 43.0 ) * 0.7;
+	float a = bblCirrus( d, 8.5, uCloudA, uCloudP.x, 0.0, 1.0 );
+	float b = bblCirrus( d, 11.5, uCloudB, uCloudP.y, 43.0, 0.58 ) * 0.72;
 	return vec2( 1.0 - ( 1.0 - a ) * ( 1.0 - b ), a );
 }
 // afterglow: x = weight 0..1, y = radial coordinate (0 core .. 1 edge and beyond) around the sun's place below the horizon.
@@ -240,6 +250,7 @@ export function createSky(ctx, aerialUniforms) {
     tNoise: { value: noise },
     uCloudA: { value: new THREE.Vector4(dirA[0], dirA[1], 9.0, 1.4) }, uCloudB: { value: new THREE.Vector4(dirB[0], dirB[1], 16.0, 2.5) },
     uCloudP: { value: new THREE.Vector4(0.5, 0.52, 0.8, 0) },
+    uCloudTime: { value: 0 },
     uNight: { value: new THREE.Vector4(0, 0, 0, 0) },
     uZenith: { value: col() }, uMid: { value: col() }, uHorizon: { value: col() }, uTowardSun: { value: col() },
     uSunDisc: { value: col() }, uAureole: { value: col() }, uSunP: { value: new THREE.Vector4(0.0058, 0.8, 0.045, 0) }, uDip: { value: 0 },
@@ -269,7 +280,7 @@ export function createSky(ctx, aerialUniforms) {
   starGeo.setAttribute('position', new THREE.BufferAttribute(aPos, 3));
   starGeo.setAttribute('aStar', new THREE.BufferAttribute(aStar, 4));
   starGeo.setAttribute('aTint', new THREE.BufferAttribute(aTint, 3));
-  const starU = { uBSunDir: aerialUniforms.uBSunDir, uBTime: ctx.materials.uniforms.uBTime, uPx: { value: 1 }, uStar: { value: 0 }, tNoise: U.tNoise, uCloudA: U.uCloudA, uCloudB: U.uCloudB, uCloudP: U.uCloudP, uNight: U.uNight };
+  const starU = { uBSunDir: aerialUniforms.uBSunDir, uBTime: ctx.materials.uniforms.uBTime, uPx: { value: 1 }, uStar: { value: 0 }, tNoise: U.tNoise, uCloudA: U.uCloudA, uCloudB: U.uCloudB, uCloudP: U.uCloudP, uCloudTime: U.uCloudTime, uNight: U.uNight };
   const starMat = new THREE.ShaderMaterial({ name: 'sky-stars', vertexShader: STAR_VERT, fragmentShader: STAR_FRAG, uniforms: starU, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, depthTest: true, fog: false, toneMapped: false });
   ctx.materials.register(starMat, { owner: 'lighting', skipHooks: true });
   const stars = new THREE.Points(starGeo, starMat);
@@ -300,9 +311,11 @@ export function createSky(ctx, aerialUniforms) {
       U.uNight.value.set(state.night, state.stars, state.moonAmount, state.afterglow);
       U.uAfter0.value.copy(state.after[0]); U.uAfter1.value.copy(state.after[1]); U.uAfter2.value.copy(state.after[2]); U.uAfter3.value.copy(state.after[3]);
       U.uCloudLit.value.copy(state.cloudColor); U.uCloudShade.value.copy(state.cloudShade); U.uCloudGlow.value.copy(state.cloudGlow);
-      const t = frame ? frame.t : 0;
+      const t = ctx.flags.web ? performance.now() * 0.001 : (frame ? frame.t : 0);
       const cn = coverToNoise(state.cloudCover);
-      U.uCloudP.value.set(cloudThreshold(cn * 0.75), cloudThreshold(cn * 0.45), state.cloudOpacity, 4 + 0.03 * t);
+      const drift = ctx.flags.web ? 4 + 0.14 * t : 4 + 0.03 * t;
+      U.uCloudP.value.set(cloudThreshold(cn * 0.75), cloudThreshold(cn * 0.45), state.cloudOpacity, drift);
+      U.uCloudTime.value = t;
       starU.uStar.value = state.stars; stars.visible = state.stars > 0.003;
       starU.uPx.value = Math.max(1, (ctx.post && ctx.post.height ? ctx.post.height : ctx.size.height * ctx.size.dpr) / 1080);
     },

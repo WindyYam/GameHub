@@ -92,8 +92,9 @@ function countObject(root) {
   return { tris, draws, instances };
 }
 
-export async function loadModules(ctx, names) {
+export async function loadModules(ctx, names, opts = {}) {
   const { flags, stats } = ctx;
+  const deferSet = opts.defer instanceof Set ? opts.defer : null;
   const listing = await listModulesDir();
   const loaded = [];
   for (const name of names) {
@@ -159,9 +160,10 @@ export async function loadModules(ctx, names) {
   ctx.geom.owner = null;
   ctx.layout.freeze();
 
-  // phase 2: build, in list order
-  for (const m of loaded) {
-    if (m.rec.status === 'error') continue;
+  const updaters = [];
+
+  async function buildOne(m) {
+    if (m.rec.status === 'error') return false;
     const t0 = now();
     try {
       ctx.geom.owner = m.name;
@@ -180,6 +182,7 @@ export async function loadModules(ctx, names) {
       // contract checks that are cheap to make here
       let lights = 0; m.group.traverse((o) => { if (o.isLight) lights++; });
       if (lights) { const msg = `module ${m.name} added ${lights} THREE light(s) to the scene: use ctx.lighting.addFireLight() (lights change every shader program)`; stats.warnings.push(msg); console.warn('[engine] ' + msg); }
+      if (typeof m.result.update === 'function') updaters.push(m);
     } catch (e) {
       m.rec.status = 'error'; m.rec.error = errText(e);
       stats.errors.push(`module ${m.name} (build): ${m.rec.error}`);
@@ -192,11 +195,23 @@ export async function loadModules(ctx, names) {
     m.rec.tris = Math.round(own.tris + g.tris + g.instancedTris);
     m.rec.draws = own.draws + g.draws;
     m.rec.instances = own.instances + g.instances;
+    return m.rec.status === 'ok';
   }
 
-  const updaters = loaded.filter((m) => m.rec.status === 'ok' && typeof m.result.update === 'function');
+  // phase 2: build immediate modules in list order; queue deferred ones for runtime streaming
+  const deferredQueue = [];
+  for (const m of loaded) {
+    if (m.rec.status === 'error') continue;
+    if (deferSet && deferSet.has(m.name)) {
+      m.rec.status = 'deferred';
+      deferredQueue.push(m);
+      continue;
+    }
+    await buildOne(m);
+  }
+
   /** Per-frame update of every module (isolated: a module that throws is disabled and reported once). */
-  return function updateModules(frame) {
+  function updateModules(frame) {
     for (const m of updaters) {
       if (m.dead) continue;
       try { ctx.geom.owner = m.name; m.result.update(frame); }
@@ -207,5 +222,19 @@ export async function loadModules(ctx, names) {
       }
     }
     ctx.geom.owner = null;
+  }
+
+  updateModules.streamRemaining = () => deferredQueue.length;
+  updateModules.streamQueueNames = () => deferredQueue.map((m) => m.name);
+  updateModules.streamNext = async () => {
+    while (deferredQueue.length) {
+      const m = deferredQueue.shift();
+      if (m.rec.status === 'error') continue;
+      await buildOne(m);
+      return { name: m.name, ms: m.rec.ms, status: m.rec.status, remaining: deferredQueue.length };
+    }
+    return null;
   };
+
+  return updateModules;
 }

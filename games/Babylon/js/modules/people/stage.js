@@ -69,9 +69,16 @@ export function createStage(ctx, sys, cast) {
     const dir = v >= 0 ? 1 : -1;
     f.base = f.base || 'walk';
     f.move = (t, S) => {
-      const s = s0 + v * (t - tRef);
-      S.moving = s > 0.05 && s < path.len - 0.05;
-      pathAt(path, s, dir, S);
+      const raw = s0 + v * (t - tRef);
+      let s = raw, effDir = dir;
+      if (raw < 0 || raw > path.len) {
+        const period = path.len * 2;
+        const m = ((raw % period) + period) % period;
+        if (m <= path.len) { s = m; effDir = dir; }
+        else { s = period - m; effDir = -dir; }
+      }
+      S.moving = path.len > 0.1;
+      pathAt(path, s, effDir, S);
       S.s = Math.abs(v) * t;
     };
     f.x = path.pts[0]; f.y = path.pts[1]; f.z = path.pts[2];

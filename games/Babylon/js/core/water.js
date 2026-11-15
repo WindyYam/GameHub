@@ -474,7 +474,7 @@ export async function create(ctx) {
     bodyNight: 0.6,                // the same by night, as a share of bodyGain: dark water that carries the reflections
     lowSun: 1.8,                   // extra gain on the DIRECT light in the body when the key light is at the horizon (1 = none), fading out by 30 degrees
     foam: { width: 0.55, strength: 0.5, silt: 0.42, shallow: 0.5, color: [0.84, 0.82, 0.77] },
-    reflection: { enabled: true, scale: 0.5, fovScale: 1.2, maxHeight: 650, fadeFrom: 420, clipBias: 0.03, samples: 4, everySubFrame: false },
+    reflection: { enabled: true, scale: ctx.flags.web ? 0.38 : 0.5, fovScale: 1.2, maxHeight: 650, fadeFrom: 420, clipBias: 0.03, samples: ctx.flags.web ? 0 : 4, everySubFrame: false },
     wakes: { enabled: true, size: quality.draft ? 1024 : 2048, autoBoats: true },
     shore: { texel: quality.draft ? 2.5 : 1.0, pad: 60 },
     debug: 0,                      // 1 shadow factor, 2 unresolved sigma x5, 3 light on the water, 4 reflection, 5 glitter, 6 slope, 7 shore map, 8 wake map, 9 Fresnel, 10 body, 11 drift / calm
@@ -1052,6 +1052,7 @@ export async function create(ctx) {
     const r = water.reflection; r.texture = reflRT.texture; r.depthTexture = depth; r.width = w; r.height = h;
     U.tBWRefl.value = reflRT.texture; U.tBWReflDepth.value = depth;
   }
+  let reflFrame = 0;
   function renderReflection(frame) {
     const R = settings.reflection, r = water.reflection;
     if (!R.enabled || !surfaces.length) { r.enabled = false; U.uBWRefl.value.x = 0; return; }
@@ -1059,6 +1060,11 @@ export async function create(ctx) {
     // never samples a target left over from another frame (frames may be rendered in any order).
     if (frame.sub === 0) reflDone = false;
     if (reflDone && !R.everySubFrame) return;
+    if (ctx.flags.web && ctx.player && ctx.player.state.active && r.renders > 1 && (reflFrame++ % 3) !== 0 && r.texture) {
+      reflDone = true;
+      r.skipped++;
+      return;
+    }
     const cam = ctx.camera; cam.updateMatrixWorld();
     const h = cam.position.y - level;
     if (!(h > 0.02)) { r.enabled = false; U.uBWRefl.value.x = 0; return; }

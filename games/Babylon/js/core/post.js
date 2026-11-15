@@ -339,7 +339,7 @@ export async function create(ctx) {
   // ---- render targets ----------------------------------------------------------------------------------------
   const depthTexture = new THREE.DepthTexture(1, 1, THREE.UnsignedIntType);   // 24-bit, ENGINE.md 13
   depthTexture.minFilter = depthTexture.magFilter = THREE.NearestFilter; depthTexture.name = 'post.depth';
-  const rtScene = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4, depthBuffer: true, depthTexture });
+  const rtScene = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: ctx.flags.web ? 2 : 4, depthBuffer: true, depthTexture });
   const rtAccum = new THREE.WebGLRenderTarget(1, 1, { type: floatTargets ? THREE.FloatType : THREE.HalfFloatType, depthBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter });
   const aoOpts = { type: THREE.HalfFloatType, format: THREE.RGFormat, depthBuffer: false, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter };
   const rtAO = new THREE.WebGLRenderTarget(1, 1, aoOpts), rtAOTmp = new THREE.WebGLRenderTarget(1, 1, aoOpts);
@@ -365,7 +365,7 @@ export async function create(ctx) {
   const depthU = { tDepth: { value: depthTexture }, uProj: { value: new THREE.Vector4() }, uZ: { value: new THREE.Vector3() } };
   const resU = { value: new THREE.Vector2(1, 1) }, invResU = { value: new THREE.Vector2(1, 1) };
 
-  const AO_QUALITY = { slices: 3, steps: 8 };
+  const AO_QUALITY = ctx.flags.web ? { slices: 2, steps: 4 } : { slices: 3, steps: 8 };
   const aoMat = fsMaterial(AO_FRAG, { ...depthU, uRes: resU, uRadius: { value: 2 }, uProjScale: { value: 1 }, uMaxPx: { value: 64 }, uFade: { value: new THREE.Vector2(350, 800) }, uPower: { value: 1.6 }, uShape: { value: new THREE.Vector3(0.7, 1.7, 0.15) }, uDebug: { value: 0 }, uNoise: { value: new THREE.Vector2() } },
     { defines: { AO_SLICES: AO_QUALITY.slices, AO_STEPS: AO_QUALITY.steps } });
   const aoBlurMat = fsMaterial(AO_BLUR_FRAG, { tAO: { value: null }, uStep: { value: new THREE.Vector2() } });
