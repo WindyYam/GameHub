@@ -153,7 +153,35 @@ body.idle #ui { opacity: 0; }
 #game-keys b { color: var(--gold); font-weight: 600; }
 #game-landmarks { display: flex; align-items: center; gap: 4px; overflow-x: auto; flex: 1 1 auto; scrollbar-width: none; }
 #game-landmarks::-webkit-scrollbar { display: none; }
-#game-landmarks[hidden], .game-only[hidden], .film-only[hidden] { display: none !important; }
+#game-landmarks[hidden], .game-only[hidden], .film-only[hidden], #touch-controls[hidden] { display: none !important; }
+
+/* ---- mobile touch controls ------------------------------------------------------------------------------------ */
+#touch-controls {
+  position: fixed; inset: 0; z-index: 4; pointer-events: none; user-select: none; -webkit-user-select: none; touch-action: none;
+}
+#joy-zone {
+  position: fixed; left: max(18px, env(safe-area-inset-left, 0px)); bottom: max(76px, calc(env(safe-area-inset-bottom, 0px) + 72px));
+  width: 116px; height: 116px; border-radius: 50%; pointer-events: auto; touch-action: none;
+  background: rgba(14, 14, 18, 0.42); border: 1.5px solid rgba(255, 255, 255, 0.2);
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px);
+  display: grid; place-items: center;
+}
+#joy-knob {
+  width: 46px; height: 46px; border-radius: 50%; pointer-events: none;
+  background: rgba(232, 200, 136, 0.85); box-shadow: 0 2px 10px rgba(0, 0, 0, 0.4);
+  transform: translate(0px, 0px);
+}
+#touch-actions {
+  position: fixed; right: max(16px, env(safe-area-inset-right, 0px)); bottom: max(76px, calc(env(safe-area-inset-bottom, 0px) + 72px));
+  display: grid; grid-template-columns: repeat(2, 56px); gap: 8px; pointer-events: auto; touch-action: none;
+}
+.tbtn {
+  width: 56px; height: 44px; border-radius: 12px; border: 1px solid rgba(255, 255, 255, 0.22);
+  background: rgba(14, 14, 18, 0.56); color: var(--ink); font: 600 11px/1 var(--sans); letter-spacing: 0.06em; text-transform: uppercase;
+  -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); touch-action: none;
+}
+.tbtn:active, .tbtn.on { background: var(--gold); color: var(--night); border-color: transparent; }
+@media (pointer: coarse) { #game-keys { display: none !important; } }
 
 /* ---- loader --------------------------------------------------------------------------------------------------- */
 #loader { position: fixed; inset: 0; z-index: 10; background: var(--night); transition: opacity 0.8s ease; }
@@ -244,6 +272,18 @@ body.idle #ui { opacity: 0; }
   </div>
 </div>
 
+<div id="touch-controls" hidden>
+  <div id="joy-zone" aria-label="Move joystick"><div id="joy-knob"></div></div>
+  <div id="touch-actions">
+    <button id="tb-punch" class="tbtn" type="button">Punch</button>
+    <button id="tb-laser" class="tbtn" type="button">Laser</button>
+    <button id="tb-up" class="tbtn" type="button">Up</button>
+    <button id="tb-down" class="tbtn" type="button">Down</button>
+    <button id="tb-boost" class="tbtn" type="button">Boost</button>
+    <button id="tb-fly" class="tbtn" type="button">Fly</button>
+  </div>
+</div>
+
 <div id="ui" hidden>
   <div class="row">
     <button id="mode-btn" class="txt on" type="button">Film Mode</button>
@@ -261,6 +301,7 @@ body.idle #ui { opacity: 0; }
     <div id="game-landmarks"></div>
     <button id="glide-btn" class="txt game-only" type="button" title="Toggle Superman flight (F or double-tap Space)">Fly</button>
     <div id="free" class="chip film-only" hidden><span>Free look</span><button id="back" class="txt" type="button">Back to film</button></div>
+    <button id="res-btn" class="txt" type="button" title="Adjust output resolution scale">100%</button>
     <button id="detail" class="txt" type="button"><span class="long">Full detail</span><span class="short">Full</span></button>
     <button id="fs" class="ico" type="button" data-state="enter" aria-label="Full screen" title="Full screen">
       <svg class="i-enter" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 6V2.75A.75.75 0 0 1 2.75 2H6v1.5H3.5V6H2zm8-4h3.25a.75.75 0 0 1 .75.75V6h-1.5V3.5H10V2zM3.5 10v2.5H6V14H2.75a.75.75 0 0 1-.75-.75V10h1.5zm9 0H14v3.25a.75.75 0 0 1-.75.75H10v-1.5h2.5V10z"/></svg>

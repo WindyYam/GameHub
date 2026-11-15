@@ -374,8 +374,9 @@ export function createPlayer(ctx) {
   };
 
   const keys = new Set();
+  const touchInput = { moveX: 0, moveY: 0, boost: false, ascend: false, descend: false, laser: false };
   const _laserTarget = new THREE.Vector3();
-  let dragging = false, lastX = 0, lastY = 0;
+  let dragging = false, lookPointerId = null, lastX = 0, lastY = 0;
   let wakeCooldown = 0;
   let lastSpaceMs = 0;
   let rightMouseDown = false;
@@ -383,6 +384,12 @@ export function createPlayer(ctx) {
   function triggerPunch() {
     if (state.punchTimer <= 0.05) {
       state.punchTimer = 0.34;
+    }
+  }
+  function triggerJump() {
+    if (!state.glide && state.onGround && !state.inWater) {
+      state.vel.y = JUMP_VEL;
+      state.onGround = false;
     }
   }
 
@@ -438,12 +445,22 @@ export function createPlayer(ctx) {
   }
   function onPointerDown(e) {
     if (!state.active) return;
+    if (e.pointerType === 'touch') {
+      if (lookPointerId === null) {
+        lookPointerId = e.pointerId;
+        dragging = true;
+        lastX = e.clientX;
+        lastY = e.clientY;
+      }
+      return;
+    }
     if (e.button === 0) {
       if (document.pointerLockElement === canvas) {
         triggerPunch();
       } else {
         requestLock();
         dragging = true;
+        lookPointerId = e.pointerId;
         lastX = e.clientX;
         lastY = e.clientY;
       }
@@ -457,7 +474,7 @@ export function createPlayer(ctx) {
     if (document.pointerLockElement === canvas) {
       state.camYaw -= e.movementX * 0.0032;
       state.camPitch = M.clamp(state.camPitch + e.movementY * 0.0028, minPitch, 1.15);
-    } else if (dragging) {
+    } else if (dragging && (lookPointerId === null || e.pointerId === lookPointerId)) {
       const dx = e.clientX - lastX;
       const dy = e.clientY - lastY;
       lastX = e.clientX;
@@ -467,7 +484,11 @@ export function createPlayer(ctx) {
     }
   }
   function onPointerUp(e) {
-    if (e.button === 0) dragging = false;
+    if (e.pointerType === 'touch') {
+      if (e.pointerId === lookPointerId) { dragging = false; lookPointerId = null; }
+      return;
+    }
+    if (e.button === 0) { dragging = false; lookPointerId = null; }
     else if (e.button === 2) rightMouseDown = false;
   }
   function onContextMenu(e) {
@@ -528,7 +549,7 @@ export function createPlayer(ctx) {
     dt = Math.min(dt, 0.05);
     state.timeSec += dt;
 
-    let fwdInput = 0, strafeInput = 0;
+    let fwdInput = touchInput.moveY, strafeInput = touchInput.moveX;
     if (keys.has('KeyW') || keys.has('ArrowUp')) fwdInput += 1;
     if (keys.has('KeyS') || keys.has('ArrowDown')) fwdInput -= 1;
     if (keys.has('KeyA') || keys.has('ArrowLeft')) strafeInput += 1;
@@ -537,8 +558,8 @@ export function createPlayer(ctx) {
     if (keys.has('KeyQ')) state.camYaw += 1.9 * dt;
     if (keys.has('KeyE')) state.camYaw -= 1.9 * dt;
 
-    const moving = fwdInput !== 0 || strafeInput !== 0;
-    const sprint = keys.has('ShiftLeft') || keys.has('ShiftRight');
+    const moving = Math.abs(fwdInput) > 0.05 || Math.abs(strafeInput) > 0.05;
+    const sprint = touchInput.boost || keys.has('ShiftLeft') || keys.has('ShiftRight');
     const flying = state.glide;
     const targetSpeed = moving ? (flying ? (sprint ? BOOST_SPEED : FLIGHT_SPEED) : (sprint ? SPRINT_SPEED : WALK_SPEED)) : 0;
 
@@ -582,8 +603,8 @@ export function createPlayer(ctx) {
 
     if (flying) {
       let vertThrust = 0;
-      if (keys.has('Space')) vertThrust += sprint ? 32 : 20;
-      if (keys.has('KeyC') || keys.has('ControlLeft') || keys.has('ControlRight')) vertThrust -= sprint ? 32 : 20;
+      if (touchInput.ascend || keys.has('Space')) vertThrust += sprint ? 32 : 20;
+      if (touchInput.descend || keys.has('KeyC') || keys.has('ControlLeft') || keys.has('ControlRight')) vertThrust -= sprint ? 32 : 20;
       state.vel.y = M.lerp(state.vel.y, vertThrust + moveDirY * state.speed, 1 - Math.exp(-8 * dt));
       state.pos.y = M.clamp(state.pos.y + state.vel.y * dt, groundY + 0.35, 950);
       state.onGround = false;
@@ -623,7 +644,7 @@ export function createPlayer(ctx) {
     if (state.punchTimer > 0) state.punchTimer = Math.max(0, state.punchTimer - dt);
     const punchPhase = state.punchTimer > 0 ? 1 - state.punchTimer / 0.34 : 0;
 
-    state.laserActive = rightMouseDown || keys.has('KeyK') || keys.has('Digit2');
+    state.laserActive = rightMouseDown || touchInput.laser || keys.has('KeyK') || keys.has('Digit2');
     let laserTarget = null;
     if (state.laserActive) {
       // Aim laser along camera look ray (yaw = state.camYaw, pitch = -state.camPitch)
@@ -673,6 +694,10 @@ export function createPlayer(ctx) {
     landmarks,
     teleport,
     update,
+    toggleFlight,
+    triggerPunch,
+    triggerJump,
+    setTouchInput(patch) { Object.assign(touchInput, patch); },
     setActive(v) {
       state.active = !!v;
       hero.group.visible = state.active;

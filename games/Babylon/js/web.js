@@ -165,11 +165,30 @@ async function start() {
     }
   }
 
+  const isTouchDevice = matchMedia('(pointer: coarse)').matches || ('ontouchstart' in window && navigator.maxTouchPoints > 0);
+  const touchControls = $('touch-controls');
+  const resBtn = $('res-btn');
+  const RES_SCALES = [1.0, 0.75, 0.5, 1.25];
+  const savedRes = Number(store.get('babylon-res'));
+  let resScale = RES_SCALES.includes(savedRes) ? savedRes : (isTouchDevice ? 0.75 : 1.0);
+  if (resBtn) {
+    const syncResBtn = () => { resBtn.textContent = `${Math.round(resScale * 100)}%`; };
+    syncResBtn();
+    resBtn.addEventListener('click', () => {
+      const idx = RES_SCALES.indexOf(resScale);
+      resScale = RES_SCALES[(idx + 1) % RES_SCALES.length];
+      store.set('babylon-res', String(resScale));
+      syncResBtn();
+      applySize();
+    });
+  }
+
   function syncModeUi() {
     if (ctx.player) ctx.player.setActive(gameMode);
     if (hudRoot) hudRoot.hidden = gameMode;
     if (gameHud) gameHud.hidden = !gameMode;
-    if (gameKeys) gameKeys.hidden = !gameMode;
+    if (gameKeys) gameKeys.hidden = !gameMode || isTouchDevice;
+    if (touchControls) touchControls.hidden = !gameMode || !isTouchDevice;
     if (gameLandmarks) gameLandmarks.hidden = !gameMode;
     document.querySelectorAll('.film-only').forEach((el) => { el.hidden = gameMode; });
     document.querySelectorAll('.game-only').forEach((el) => { el.hidden = !gameMode; });
@@ -430,9 +449,85 @@ async function start() {
   });
   document.addEventListener('fullscreenchange', () => { fsBtn.dataset.state = document.fullscreenElement ? 'exit' : 'enter'; fsBtn.setAttribute('aria-label', document.fullscreenElement ? 'Leave full screen' : 'Full screen'); });
 
+  // ---- mobile touch joystick & action buttons -------------------------------------------------------------------
+  const joyZone = $('joy-zone'), joyKnob = $('joy-knob');
+  if (joyZone && joyKnob && ctx.player) {
+    let joyPtr = null;
+    const maxR = 40;
+    const updateJoy = (cx, cy) => {
+      const r = joyZone.getBoundingClientRect();
+      const dx = cx - (r.left + r.width * 0.5);
+      const dy = cy - (r.top + r.height * 0.5);
+      const d = Math.hypot(dx, dy);
+      const k = d > maxR ? maxR / d : 1;
+      const nx = dx * k, ny = dy * k;
+      joyKnob.style.transform = `translate(${nx}px, ${ny}px)`;
+      ctx.player.setTouchInput({ moveX: -nx / maxR, moveY: -ny / maxR });
+    };
+    joyZone.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      joyPtr = e.pointerId;
+      if (joyZone.setPointerCapture) try { joyZone.setPointerCapture(e.pointerId); } catch {}
+      updateJoy(e.clientX, e.clientY);
+    });
+    joyZone.addEventListener('pointermove', (e) => {
+      if (e.pointerId !== joyPtr) return;
+      e.preventDefault(); e.stopPropagation();
+      updateJoy(e.clientX, e.clientY);
+    });
+    const endJoy = (e) => {
+      if (e.pointerId !== joyPtr) return;
+      joyPtr = null;
+      joyKnob.style.transform = 'translate(0px, 0px)';
+      ctx.player.setTouchInput({ moveX: 0, moveY: 0 });
+    };
+    joyZone.addEventListener('pointerup', endJoy);
+    joyZone.addEventListener('pointercancel', endJoy);
+
+    const bindHold = (id, key) => {
+      const el = $(id); if (!el) return;
+      el.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); el.classList.add('on'); ctx.player.setTouchInput({ [key]: true }); });
+      const off = (e) => { e.stopPropagation(); el.classList.remove('on'); ctx.player.setTouchInput({ [key]: false }); };
+      el.addEventListener('pointerup', off);
+      el.addEventListener('pointercancel', off);
+    };
+    bindHold('tb-laser', 'laser');
+    bindHold('tb-down', 'descend');
+    const tbPunch = $('tb-punch');
+    if (tbPunch) tbPunch.addEventListener('pointerdown', (e) => { e.preventDefault(); e.stopPropagation(); ctx.player.triggerPunch(); });
+    const tbUp = $('tb-up');
+    if (tbUp) {
+      tbUp.addEventListener('pointerdown', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        tbUp.classList.add('on');
+        if (ctx.player.state.glide) ctx.player.setTouchInput({ ascend: true });
+        else ctx.player.triggerJump();
+      });
+      const offUp = (e) => { e.stopPropagation(); tbUp.classList.remove('on'); ctx.player.setTouchInput({ ascend: false }); };
+      tbUp.addEventListener('pointerup', offUp);
+      tbUp.addEventListener('pointercancel', offUp);
+    }
+    const tbBoost = $('tb-boost');
+    let touchBoost = false;
+    if (tbBoost) tbBoost.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      touchBoost = !touchBoost;
+      tbBoost.classList.toggle('on', touchBoost);
+      ctx.player.setTouchInput({ boost: touchBoost });
+    });
+    const tbFly = $('tb-fly');
+    if (tbFly) tbFly.addEventListener('pointerdown', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      ctx.player.toggleFlight();
+      tbFly.classList.toggle('on', ctx.player.state.glide);
+    });
+  }
+
   let rz = 0;
   function applySize() {
-    const w = innerWidth, h = innerHeight, dpr = Math.min(devicePixelRatio || 1, TIERS[tier].maxDpr);
+    const w = innerWidth, h = innerHeight;
+    const baseDpr = Math.min(devicePixelRatio || 1, TIERS[tier].maxDpr);
+    const dpr = clamp(baseDpr * resScale, 0.4, 2.0);
     if (w === ctx.size.width && h === ctx.size.height && dpr === ctx.size.dpr) return;
     Object.assign(ctx.size, { width: w, height: h, dpr });
     ctx.post.setSize(w, h, dpr);
