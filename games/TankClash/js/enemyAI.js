@@ -19,11 +19,187 @@
     let playerHitsTaken = 0;
     const sessionDestroyedEnemyTanks = new Set();
     const activeEnemyTanks = [];
+    const _tankLodGeoCache = {};
+
+    function mergeLodBucketGeos(geos) {
+        if (geos.length === 1) {
+            geos[0].userData.shared = true;
+            return geos[0];
+        }
+        let totalVerts = 0;
+        let hasColor = false;
+        const normGeos = geos.map((g) => {
+            const ni = g.index ? g.toNonIndexed() : g;
+            if (!ni.attributes.normal) ni.computeVertexNormals();
+            if (ni.attributes.color) hasColor = true;
+            totalVerts += ni.attributes.position.count;
+            return { ni, orig: g };
+        });
+        const pos = new Float32Array(totalVerts * 3);
+        const norm = new Float32Array(totalVerts * 3);
+        const uv = new Float32Array(totalVerts * 2);
+        const col = hasColor ? new Float32Array(totalVerts * 3) : null;
+        let offset = 0;
+        for (let i = 0; i < normGeos.length; i++) {
+            const { ni, orig } = normGeos[i];
+            const p = ni.attributes.position;
+            const n = ni.attributes.normal;
+            const u = ni.attributes.uv;
+            const c = ni.attributes.color;
+            const count = p.count;
+            pos.set(p.array, offset * 3);
+            norm.set(n.array, offset * 3);
+            if (u) {
+                uv.set(u.array, offset * 2);
+            }
+            if (col) {
+                if (c) col.set(c.array, offset * 3);
+                else col.fill(1.0, offset * 3, (offset + count) * 3);
+            }
+            offset += count;
+            if (ni !== orig) ni.dispose();
+            orig.dispose();
+        }
+        const out = new THREE.BufferGeometry();
+        out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        out.setAttribute('normal', new THREE.BufferAttribute(norm, 3));
+        out.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+        if (col) out.setAttribute('color', new THREE.BufferAttribute(col, 3));
+        out.computeBoundingSphere();
+        out.userData.shared = true;
+        return out;
+    }
+
+    function bakeSubtreeLodParts(rootGroup, excludeSet, minSize) {
+        const buckets = new Map();
+        const invRoot = new THREE.Matrix4().copy(rootGroup.matrixWorld).invert();
+        const relMat = new THREE.Matrix4();
+        const instMat = new THREE.Matrix4();
+        const worldScale = new THREE.Vector3();
+        const walk = (node) => {
+            if (!node || excludeSet.has(node) || !node.visible) return;
+            if (node.isMesh && node.geometry) {
+                const mat = Array.isArray(node.material) ? node.material[0] : node.material;
+                if (mat) {
+                    if (!node.geometry.boundingBox) node.geometry.computeBoundingBox();
+                    const bb = node.geometry.boundingBox;
+                    node.getWorldScale(worldScale);
+                    const size = bb ? Math.max(
+                        (bb.max.x - bb.min.x) * Math.abs(worldScale.x),
+                        (bb.max.y - bb.min.y) * Math.abs(worldScale.y),
+                        (bb.max.z - bb.min.z) * Math.abs(worldScale.z)
+                    ) : 1;
+                    if (node.isInstancedMesh) {
+                        if (node.count > 0 && node.count <= 240) {
+                            const step = node.count > 80 ? 2 : 1;
+                            if (!buckets.has(mat)) buckets.set(mat, []);
+                            const arr = buckets.get(mat);
+                            for (let ii = 0; ii < node.count; ii += step) {
+                                node.getMatrixAt(ii, instMat);
+                                relMat.multiplyMatrices(invRoot, node.matrixWorld).multiply(instMat);
+                                const g = node.geometry.clone();
+                                g.applyMatrix4(relMat);
+                                arr.push(g);
+                            }
+                        }
+                    } else if (size >= minSize) {
+                        relMat.multiplyMatrices(invRoot, node.matrixWorld);
+                        const g = node.geometry.clone();
+                        g.applyMatrix4(relMat);
+                        if (!buckets.has(mat)) buckets.set(mat, []);
+                        buckets.get(mat).push(g);
+                    }
+                }
+            }
+            const children = node.children;
+            for (let i = 0; i < children.length; i++) {
+                walk(children[i]);
+            }
+        };
+        walk(rootGroup);
+        const parts = [];
+        buckets.forEach((geos, mat) => {
+            if (geos.length > 0) {
+                parts.push({ geo: mergeLodBucketGeos(geos), mat });
+            }
+        });
+        return parts;
+    }
+
+    function getTankLodTemplate(tankType, model) {
+        const key = (tankType === 'tiger2' || tankType === 'king_tiger') ? 'kingtiger' : (tankType || 'tiger');
+        if (_tankLodGeoCache[key]) return _tankLodGeoCache[key];
+
+        // Bake in neutral origin & orientation so parent world position/rotation never skew relative offsets
+        const parentObj = model.tankRoot.parent;
+        const savedRot = model.tankRoot.rotation.clone();
+        const savedParentRot = parentObj ? parentObj.rotation.clone() : null;
+        const savedParentPos = parentObj ? parentObj.position.clone() : null;
+        if (parentObj) {
+            parentObj.position.set(0, 0, 0);
+            parentObj.rotation.set(0, 0, 0);
+        }
+        model.tankRoot.rotation.set(0, 0, 0);
+        if (parentObj) parentObj.updateMatrixWorld(true);
+        else model.tankRoot.updateMatrixWorld(true);
+
+        const hullExclude = new Set();
+        if (model.turretGroup) hullExclude.add(model.turretGroup);
+        const hullParts = bakeSubtreeLodParts(model.tankRoot, hullExclude, 0.22);
+
+        let turretParts = [];
+        const turretPos = new THREE.Vector3(0, 1.8, 0);
+        let gunParts = [];
+        const gunPos = new THREE.Vector3(0, 0, 0.8);
+
+        if (model.turretGroup) {
+            const invTankRoot = new THREE.Matrix4().copy(model.tankRoot.matrixWorld).invert();
+            const turretRelMat = new THREE.Matrix4().multiplyMatrices(invTankRoot, model.turretGroup.matrixWorld);
+            turretRelMat.decompose(turretPos, new THREE.Quaternion(), new THREE.Vector3());
+
+            const turretExclude = new Set();
+            if (model.gunElevationPivot) turretExclude.add(model.gunElevationPivot);
+            turretParts = bakeSubtreeLodParts(model.turretGroup, turretExclude, 0.15);
+            if (model.gunElevationPivot) {
+                const invTurret = new THREE.Matrix4().copy(model.turretGroup.matrixWorld).invert();
+                const gunRelMat = new THREE.Matrix4().multiplyMatrices(invTurret, model.gunElevationPivot.matrixWorld);
+                gunRelMat.decompose(gunPos, new THREE.Quaternion(), new THREE.Vector3());
+                gunParts = bakeSubtreeLodParts(model.gunElevationPivot, new Set(), 0.08);
+            }
+        }
+
+        model.tankRoot.rotation.copy(savedRot);
+        if (parentObj) {
+            if (savedParentPos) parentObj.position.copy(savedParentPos);
+            if (savedParentRot) parentObj.rotation.copy(savedParentRot);
+            parentObj.updateMatrixWorld(true);
+        } else {
+            model.tankRoot.updateMatrixWorld(true);
+        }
+
+        const tpl = { hullParts, turretParts, turretPos, gunParts, gunPos };
+        _tankLodGeoCache[key] = tpl;
+        return tpl;
+    }
     const MAX_ZONE_ENEMIES = 16;
     const MIN_SPAWN_DIST = 192.0; // 160.0 * 1.2
     const MAX_SPAWN_DIST = 288.0; // 240.0 * 1.2
     const DESPAWN_DIST = 336.0;   // 280.0 * 1.2
     const SPAWN_INTERVAL_SEC = 2.5;
+
+    const _charredWreckMatCache = (typeof WeakMap !== 'undefined') ? new WeakMap() : null;
+    function getCharredWreckMaterial(mat) {
+        if (!mat) return mat;
+        if (_charredWreckMatCache && _charredWreckMatCache.has(mat)) {
+            return _charredWreckMatCache.get(mat);
+        }
+        const copy = (typeof mat.clone === 'function') ? mat.clone() : mat;
+        if (copy && copy.userData) copy.userData.shared = true;
+        if (copy && copy.color && typeof copy.color.setHex === 'function') copy.color.setHex(0x1e242b);
+        if (copy && copy.roughness !== undefined) copy.roughness = 0.95;
+        if (_charredWreckMatCache) _charredWreckMatCache.set(mat, copy);
+        return copy;
+    }
 
     let nextEnemySeq = 1;
     let enemySpawnCooldown = 1.0;
@@ -44,6 +220,8 @@
     const TANK_NEARBY_ENEMY_PROVOKE_RANGE = 75;
     const SOLDIER_NEARBY_ENEMY_PROVOKE_RANGE = 100;
     const TANK_FIRE_PROVOKE_RANGE = 60;
+    const ENEMY_SHOOT_NOTICE_REACT_TIME = 1.0;
+    const ENEMY_HIT_PROVOKE_REACT_TIME = 0.5;
     window.provokeNearbyEnemies = function(source) {
         if (!source || typeof source.x !== 'number' || typeof source.z !== 'number') return;
 
@@ -51,14 +229,17 @@
             const enemy = activeEnemyTanks[i];
             if (!enemy || enemy.isDestroyed || Math.hypot(enemy.x - source.x, enemy.z - source.z) > TANK_NEARBY_ENEMY_PROVOKE_RANGE) continue;
             if (enemy === source) {
-                // Direct target is provoked immediately
-                enemy.wasHitAlert = true;
-                enemy.provokedTimer = Math.max(enemy.provokedTimer || 0, 5.0);
-                enemy.detectionTimer = Math.max(enemy.detectionTimer || 0, 7.0);
-                enemy.state = 'ENGAGING';
+                // Direct target has a 0.5s reaction time before getting provoked (refresh immediately if already alerted)
+                if (enemy.wasHitAlert) {
+                    enemy.provokedTimer = Math.max(enemy.provokedTimer || 0, 5.0);
+                    enemy.detectionTimer = Math.max(enemy.detectionTimer || 0, 7.0);
+                    enemy.state = 'ENGAGING';
+                } else if (typeof enemy.pendingProvokeTimer !== 'number' || enemy.pendingProvokeTimer <= 0 || enemy.pendingProvokeTimer > ENEMY_HIT_PROVOKE_REACT_TIME) {
+                    enemy.pendingProvokeTimer = ENEMY_HIT_PROVOKE_REACT_TIME;
+                }
             } else {
                 // Nearby allies receive a 1.0s delay before getting provoked
-                if (typeof enemy.pendingProvokeTimer !== 'number' || enemy.pendingProvokeTimer <= 0) {
+                if (!enemy.wasHitAlert && (typeof enemy.pendingProvokeTimer !== 'number' || enemy.pendingProvokeTimer <= 0)) {
                     enemy.pendingProvokeTimer = 1.0;
                 }
             }
@@ -69,26 +250,33 @@
             const soldier = enemySoldiers[i];
             if (!soldier || !soldier.isEnemy || soldier.isDead || Math.hypot(soldier.x - source.x, soldier.z - source.z) > SOLDIER_NEARBY_ENEMY_PROVOKE_RANGE) continue;
             if (soldier === source) {
-                // Direct target is provoked immediately
-                soldier.alertOnHitTimer = Math.max(soldier.alertOnHitTimer || 0, 8.0);
-                soldier.provokedTimer = Math.max(soldier.provokedTimer || 0, 5.0);
-                soldier.losTimer = 0;
+                // Direct target has a 0.5s reaction time before getting provoked (refresh immediately if already alerted)
+                if (soldier.alertOnHitTimer > 0) {
+                    soldier.alertOnHitTimer = Math.max(soldier.alertOnHitTimer || 0, 8.0);
+                    soldier.provokedTimer = Math.max(soldier.provokedTimer || 0, 5.0);
+                    soldier.losTimer = 0;
+                } else if (typeof soldier.pendingProvokeTimer !== 'number' || soldier.pendingProvokeTimer <= 0 || soldier.pendingProvokeTimer > ENEMY_HIT_PROVOKE_REACT_TIME) {
+                    soldier.pendingProvokeTimer = ENEMY_HIT_PROVOKE_REACT_TIME;
+                }
             } else {
                 // Nearby allies receive a 1.0s delay before getting provoked
-                if (typeof soldier.pendingProvokeTimer !== 'number' || soldier.pendingProvokeTimer <= 0) {
+                if (!(soldier.alertOnHitTimer > 0) && (typeof soldier.pendingProvokeTimer !== 'number' || soldier.pendingProvokeTimer <= 0)) {
                     soldier.pendingProvokeTimer = 1.0;
                 }
-                // Maintain string signature for test harness
-                soldier.alertOnHitTimer = Math.max(soldier.alertOnHitTimer || 0, 8.0);
             }
         }
     };
 
-    // Track when player fired to dynamically alert nearby enemy crews
+    // Track when player fired to dynamically alert nearby enemy crews (with 1.0s reaction time)
     let lastPlayerFireTime = -999;
+    let playerFireBurstStartTime = -999;
     window.notifyPlayerFired = function() {
-        lastPlayerFireTime = (window.performance && window.performance.now) ? window.performance.now() / 1000 : Date.now() / 1000;
-        // Alert enemy tanks within 60m of the player when they fire.
+        const nowSec = (window.performance && window.performance.now) ? window.performance.now() / 1000 : Date.now() / 1000;
+        if (nowSec - lastPlayerFireTime >= 3.0) {
+            playerFireBurstStartTime = nowSec;
+        }
+        lastPlayerFireTime = nowSec;
+        // Alert enemy tanks within 60m of the player when they fire (after 1.0s reaction time).
         const playerOnFoot = window.playerMode === 'soldier' && window.playerSoldier;
         const pX = playerOnFoot ? window.playerSoldier.x : (window.tankState ? window.tankState.x : 0);
         const pZ = playerOnFoot ? window.playerSoldier.z : (window.tankState ? window.tankState.z : 0);
@@ -96,10 +284,13 @@
             const e = activeEnemyTanks[i];
             if (e.isDestroyed) continue;
             if (Math.hypot(e.x - pX, e.z - pZ) < TANK_FIRE_PROVOKE_RANGE) {
-                e.wasHitAlert = true;
-                e.provokedTimer = 5.0;
-                e.state = 'ENGAGING';
-                e.detectionTimer = Math.max(e.detectionTimer, 1.2);
+                if (e.wasHitAlert) {
+                    e.provokedTimer = 5.0;
+                    e.state = 'ENGAGING';
+                    e.detectionTimer = Math.max(e.detectionTimer, 1.2);
+                } else if (typeof e.pendingProvokeTimer !== 'number' || e.pendingProvokeTimer <= 0) {
+                    e.pendingProvokeTimer = ENEMY_SHOOT_NOTICE_REACT_TIME;
+                }
             }
         }
     };
@@ -278,8 +469,10 @@
 
         if (!model) return null;
 
-        // Apply steel environment reflection map & register major collision meshes
+        // Apply steel environment reflection map, register major collision meshes, and classify detail LOD meshes
         const raycastMeshes = [];
+        const smallDetailMeshes = [];
+        const medDetailMeshes = [];
         model.tankRoot.traverse((obj) => {
             if (!obj.isMesh) return;
             if (obj.geometry) {
@@ -291,8 +484,68 @@
                     raycastMeshes.push(obj);
                     if (window.aimRaycastMeshes) window.aimRaycastMeshes.push(obj);
                 }
+                if (!obj.isInstancedMesh) {
+                    if (size < 0.30) {
+                        obj.castShadow = false;
+                        obj.receiveShadow = false;
+                        smallDetailMeshes.push(obj);
+                    } else if (size < 0.55) {
+                        medDetailMeshes.push(obj);
+                    }
+                }
             }
         });
+
+        // Build baked material-grouped Tank LOD using the exact tank's silhouette and textured materials
+        const lodTpl = getTankLodTemplate(tankType, model);
+        const lodRoot = new THREE.Group();
+        lodRoot.visible = false;
+        for (let i = 0; i < lodTpl.hullParts.length; i++) {
+            const p = lodTpl.hullParts[i];
+            const mesh = new THREE.Mesh(p.geo, p.mat);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            lodRoot.add(mesh);
+            raycastMeshes.push(mesh);
+            if (window.aimRaycastMeshes) window.aimRaycastMeshes.push(mesh);
+        }
+
+        const lodTurret = new THREE.Group();
+        lodTurret.position.copy(lodTpl.turretPos);
+        for (let i = 0; i < lodTpl.turretParts.length; i++) {
+            const p = lodTpl.turretParts[i];
+            const mesh = new THREE.Mesh(p.geo, p.mat);
+            mesh.castShadow = true;
+            mesh.receiveShadow = true;
+            lodTurret.add(mesh);
+            raycastMeshes.push(mesh);
+            if (window.aimRaycastMeshes) window.aimRaycastMeshes.push(mesh);
+        }
+
+        const lodBarrelPivot = new THREE.Group();
+        lodBarrelPivot.position.copy(lodTpl.gunPos);
+        for (let i = 0; i < lodTpl.gunParts.length; i++) {
+            const p = lodTpl.gunParts[i];
+            const mesh = new THREE.Mesh(p.geo, p.mat);
+            mesh.castShadow = false;
+            mesh.receiveShadow = false;
+            lodBarrelPivot.add(mesh);
+        }
+        lodTurret.add(lodBarrelPivot);
+        lodRoot.add(lodTurret);
+        lodRoot.position.copy(model.tankRoot.position);
+        lodRoot.scale.copy(model.tankRoot.scale);
+        enemyRoot.add(lodRoot);
+
+        let initialLodTier = 0;
+        if (window.activeCamera && window.activeCamera.position) {
+            const dSqInit = (x - window.activeCamera.position.x) ** 2 + (z - window.activeCamera.position.z) ** 2;
+            if (dSqInit > 3025) {
+                initialLodTier = 2;
+                model.tankRoot.visible = false;
+                lodRoot.visible = true;
+            }
+        }
 
         // Bold Red Target Cursor hovering high above enemy tank cupola
         const targetCursor = (typeof window.createRedTargetCursor === 'function')
@@ -311,6 +564,12 @@
             enemyRoot,
             model,
             raycastMeshes,
+            smallDetailMeshes,
+            medDetailMeshes,
+            lodRoot,
+            lodTurret,
+            lodBarrelPivot,
+            _lodTier: initialLodTier,
             parentGroup: targetGroup,
             targetCursor,
             x,
@@ -335,8 +594,8 @@
             detectionTimer: 0,
             reloadTimer: 1.5 + Math.random() * (spec.reloadTime || 3.5),
             barrelRecoil: 0,
-            aimErrorYaw: (Math.random() - 0.5) * ((spec.spread || 0.005) * 5.0),
-            aimErrorElev: (Math.random() - 0.5) * ((spec.spread || 0.005) * 3.2),
+            aimErrorYaw: (Math.random() - 0.5) * ((spec.spread || 0.005) * 3.4),
+            aimErrorElev: (Math.random() - 0.5) * ((spec.spread || 0.005) * 2.2),
             aimErrorTimer: 0,
             speed: 0,
             isDestroyed: false,
@@ -356,11 +615,14 @@
                     return;
                 }
 
-                // Alert and detect player on hit until losing track
-                this.wasHitAlert = true;
-                this.provokedTimer = 5.0;
-                this.detectionTimer = Math.max(this.detectionTimer || 0, 7.0);
-                this.state = 'ENGAGING';
+                // Alert and detect player on hit after 0.5s reaction time (or refresh immediately if already alerted)
+                if (this.wasHitAlert) {
+                    this.provokedTimer = 5.0;
+                    this.detectionTimer = Math.max(this.detectionTimer || 0, 7.0);
+                    this.state = 'ENGAGING';
+                } else if (typeof this.pendingProvokeTimer !== 'number' || this.pendingProvokeTimer <= 0 || this.pendingProvokeTimer > ENEMY_HIT_PROVOKE_REACT_TIME) {
+                    this.pendingProvokeTimer = ENEMY_HIT_PROVOKE_REACT_TIME;
+                }
                 if (typeof window.provokeNearbyEnemies === 'function') window.provokeNearbyEnemies(this);
 
                 // Bullets do 0 damage: alert & sparks only, no smoke/damage
@@ -409,25 +671,44 @@
                 }
 
                 // Turret slumps/pops off the turret ring
+                const slumpSign = (Math.random() < 0.5 ? 1 : -1) * 0.28;
                 if (this.model.turretGroup) {
-                    this.model.turretGroup.rotation.z += (Math.random() < 0.5 ? 1 : -1) * 0.28;
+                    this.model.turretGroup.rotation.z += slumpSign;
                     this.model.turretGroup.rotation.x += 0.15;
                     this.model.turretGroup.position.y += 0.22;
                 }
+                if (this.lodTurret) {
+                    this.lodTurret.rotation.z += slumpSign;
+                    this.lodTurret.rotation.x += 0.15;
+                    this.lodTurret.position.y += 0.22;
+                }
+                this._lodTier = -1;
 
-                // Char and soot-blacken the tank exterior on per-tank clones so shared materials stay intact
-                this.model.tankRoot.traverse((obj) => {
-                    if (!obj.isMesh || !obj.material) return;
-                    const isArray = Array.isArray(obj.material);
-                    const owned = (isArray ? obj.material : [obj.material]).map((mat) => {
-                        const copy = mat.clone();
-                        copy.userData.shared = false;
-                        if (copy.color) copy.color.setHex(0x1e242b);
-                        if (copy.roughness !== undefined) copy.roughness = 0.95;
-                        return copy;
+                // Char and soot-blacken using shared charred materials (avoids per-wreck material/shader explosion)
+                const applyCharred = (root) => {
+                    if (!root) return;
+                    root.traverse((obj) => {
+                        if (!obj.isMesh || !obj.material) return;
+                        if (Array.isArray(obj.material)) {
+                            obj.material = obj.material.map(getCharredWreckMaterial);
+                        } else {
+                            obj.material = getCharredWreckMaterial(obj.material);
+                        }
                     });
-                    obj.material = isArray ? owned : owned[0];
-                });
+                };
+                applyCharred(this.model.tankRoot);
+                applyCharred(this.lodRoot);
+
+                if (this.smallDetailMeshes) {
+                    for (let si = 0; si < this.smallDetailMeshes.length; si++) {
+                        this.smallDetailMeshes[si].castShadow = false;
+                    }
+                }
+                if (this.medDetailMeshes) {
+                    for (let mi = 0; mi < this.medDetailMeshes.length; mi++) {
+                        this.medDetailMeshes[mi].castShadow = false;
+                    }
+                }
 
                 // Spawn continuous catastrophic burning plume from engine deck & turret hatch
                 this.burningSmokeTimer = 999999;
@@ -535,6 +816,59 @@
         enemy.enemyRoot.position.set(enemy.x, enemy.y, enemy.z);
         hullGroup.rotation.x = -enemy.pitch;
         hullGroup.rotation.z = enemy.roll;
+        if (enemy.lodRoot) {
+            enemy.lodRoot.position.copy(enemy.model.tankRoot.position);
+            enemy.lodRoot.rotation.set(-enemy.pitch, enemy.model.tankRoot.rotation.y, enemy.roll);
+        }
+    }
+
+    function emitEnemyTankTrackWake(e, dt) {
+        const absSpeed = Math.abs(e.speed);
+        if (absSpeed <= 0.3) return;
+        const waterLvl = (typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5;
+        const groundY = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(e.x, e.z) : e.y;
+        const enemyTrackWidth = (e.tankType === 'kingtiger') ? 1.48 : ((e.tankType === 'tiger') ? 1.38 : 1.20);
+
+        if (groundY < waterLvl - 0.05) {
+            e.waterRippleTimer = (e.waterRippleTimer || 0) + dt;
+            const intensity = Math.min(1.0, absSpeed / 7.0);
+            const rippleInterval = Math.max(0.22, 0.44 - intensity * 0.18);
+            if (e.waterRippleTimer >= rippleInterval && typeof window.spawnWaterRipple === 'function') {
+                e.waterRippleTimer = 0;
+                const fwdSign = Math.sign(e.speed || 1);
+                const bowPos = new THREE.Vector3(
+                    e.x + Math.sin(e.heading) * fwdSign * 1.6,
+                    waterLvl + 0.02,
+                    e.z + Math.cos(e.heading) * fwdSign * 1.6
+                );
+                window.spawnWaterRipple(bowPos, 3.4 + intensity * 1.8, 1.30);
+                [-enemyTrackWidth, enemyTrackWidth].forEach((sideX) => {
+                    const sideOffset = new THREE.Vector3(sideX, 0, -1.5).applyAxisAngle(new THREE.Vector3(0, 1, 0), e.heading);
+                    const sidePos = sideOffset.add(e.enemyRoot.position);
+                    sidePos.y = waterLvl + 0.02;
+                    window.spawnWaterRipple(sidePos, 2.2 + intensity * 1.2, 1.10);
+                });
+            }
+            return;
+        }
+
+        if (typeof window.spawnParticle === 'function' && Math.random() < 1.0 - Math.exp(-4.0 * dt)) {
+            const dustCol = (window.currentZoneConfig && window.currentZoneConfig.trackDustColor) ? window.currentZoneConfig.trackDustColor : 0x5c4d3c;
+            [-enemyTrackWidth, enemyTrackWidth].forEach((sideX) => {
+                const kickOffset = new THREE.Vector3(sideX, -0.85, -2.3).applyAxisAngle(new THREE.Vector3(0, 1, 0), e.heading);
+                const kickPos = kickOffset.add(e.enemyRoot.position);
+                const backDir = new THREE.Vector3(-Math.sin(e.heading), 0, -Math.cos(e.heading));
+                const kickVel = backDir.multiplyScalar(absSpeed * 0.4 + 0.6);
+                kickVel.x += (Math.random() - 0.5) * 1.2;
+                kickVel.y = 0.4 + Math.random() * 0.8;
+                kickVel.z += (Math.random() - 0.5) * 1.2;
+                window.spawnParticle(kickPos, kickVel, dustCol, 0.35, 2.5 + Math.random() * 0.8, 1.1 + Math.random() * 0.6, false, 'dust', {
+                    maxOpacity: 0.70,
+                    drag: 0.91,
+                    buoyancy: -0.08
+                });
+            });
+        }
     }
 
     // ========================================================================
@@ -656,19 +990,67 @@
         }
 
         const nowSec = (window.performance && window.performance.now) ? window.performance.now() / 1000 : Date.now() / 1000;
-        let playerShotRecently = (nowSec - lastPlayerFireTime < 3.0);
+        let playerShotRecently = (nowSec - lastPlayerFireTime < 3.0) && (nowSec - playerFireBurstStartTime >= ENEMY_SHOOT_NOTICE_REACT_TIME);
         if (isInfantry && window.playerSoldier) {
             const ps = window.playerSoldier;
-            playerShotRecently = (nowSec - (ps.lastFireTime || 0) < 3.0) || (nowSec - (ps.lastGrenadeTime || 0) < 3.0);
+            const fireStart = (typeof ps.fireBurstStartTime === 'number') ? ps.fireBurstStartTime : (ps.lastFireTime || 0);
+            const firedGun = Boolean(ps.lastFireTime && (nowSec - ps.lastFireTime < 3.0) && (nowSec - fireStart >= ENEMY_SHOOT_NOTICE_REACT_TIME));
+            const grenSec = ps.lastGrenadeTimeSec || 0;
+            const grenStart = (typeof ps.grenadeBurstStartTime === 'number') ? ps.grenadeBurstStartTime : grenSec;
+            const threwGren = Boolean(grenSec && (nowSec - grenSec < 3.0) && (nowSec - grenStart >= ENEMY_SHOOT_NOTICE_REACT_TIME));
+            playerShotRecently = firedGun || threwGren;
         }
 
         // In infantry mode, player is hard to detect, only in close range (all detection ranges increased by 1.2)
         let maxDetectRange = playerShotRecently ? TANK_FIRE_PROVOKE_RANGE : (isInfantry ? 22 * 1.2 : 120 * 1.2);
         let stealthBuffer = (isInfantry ? 18 : 32) * 1.2;
 
+        const camX = (window.activeCamera && window.activeCamera.position) ? window.activeCamera.position.x : pState.x;
+        const camZ = (window.activeCamera && window.activeCamera.position) ? window.activeCamera.position.z : pState.z;
+
         for (let i = activeEnemyTanks.length - 1; i >= 0; i--) {
             const e = activeEnemyTanks[i];
             if (!e) continue;
+
+            const dxCam = e.x - camX;
+            const dzCam = e.z - camZ;
+            const distSqCam = dxCam * dxCam + dzCam * dzCam;
+
+            // Distance-based detail & shadow LOD culling for both active tanks (38m/55m) and wrecks (22m/38m)
+            if (e.smallDetailMeshes || e.medDetailMeshes || e.lodRoot) {
+                const tier2Sq = e.isDestroyed ? 1444 : 3025; // 38m for wrecks, 55m for active
+                const tier1Sq = e.isDestroyed ? 484 : 1444;  // 22m for wrecks, 38m for active
+                const nextTier = distSqCam > tier2Sq ? 2 : (distSqCam > tier1Sq ? 1 : 0);
+                if (nextTier !== e._lodTier) {
+                    e._lodTier = nextTier;
+                    const useProxy = (nextTier === 2 && Boolean(e.lodRoot));
+                    if (e.model && e.model.tankRoot) e.model.tankRoot.visible = !useProxy;
+                    if (e.lodRoot) e.lodRoot.visible = useProxy;
+                    if (!useProxy) {
+                        const showSmall = nextTier === 0;
+                        if (e.smallDetailMeshes) {
+                            for (let si = 0; si < e.smallDetailMeshes.length; si++) {
+                                e.smallDetailMeshes[si].visible = showSmall;
+                            }
+                        }
+                        if (e.medDetailMeshes) {
+                            for (let mi = 0; mi < e.medDetailMeshes.length; mi++) {
+                                const mm = e.medDetailMeshes[mi];
+                                mm.visible = true;
+                                mm.castShadow = !e.isDestroyed && showSmall;
+                            }
+                        }
+                    }
+                }
+                if (e._lodTier === 2 && e.lodRoot && e.lodRoot.visible) {
+                    if (e.model && e.model.tankRoot) {
+                        e.lodRoot.position.copy(e.model.tankRoot.position);
+                        e.lodRoot.rotation.set(-e.pitch, e.model.tankRoot.rotation.y, e.roll);
+                    }
+                    if (e.lodTurret) e.lodTurret.rotation.y = e.turretYaw;
+                    if (e.lodBarrelPivot) e.lodBarrelPivot.rotation.x = -e.gunElevation;
+                }
+            }
 
             // Animate simple red target cursor hovering above tank
             if (e.targetCursor && !e.isDestroyed) {
@@ -773,18 +1155,19 @@
             targetY = chosenTarget.y;
             targetZ = chosenTarget.z;
             targetDead = chosenTarget.dead;
-            maxDetectRange = playerShotRecently ? TANK_FIRE_PROVOKE_RANGE : (chosenTarget.isInfantry ? 22 * 1.2 : 120 * 1.2);
+            const baseDetectRange = chosenTarget.isInfantry ? 22 * 1.2 : 120 * 1.2;
+            maxDetectRange = playerShotRecently ? Math.max(TANK_FIRE_PROVOKE_RANGE, baseDetectRange) : baseDetectRange;
             stealthBuffer = (chosenTarget.isInfantry ? 18 : 32) * 1.2;
 
             const dx = targetX - e.x;
             const dz = targetZ - e.z;
             const distToPlayer = Math.hypot(dx, dz);
 
+            const isHitAlert = !!(e.wasHitAlert && (e.detectionTimer > 0 || (e.provokedTimer && e.provokedTimer > 0)));
             const clearObstacleSight = checkObstacleLineOfSight(e.x, e.z, targetX, targetZ);
-            const hasLOS = (distToPlayer < 155 * 1.2) && clearObstacleSight;
+            const hasLOS = (distToPlayer < (isHitAlert ? ENEMY_HIT_ALERT_RANGE : 185 * 1.2)) && clearObstacleSight;
             const inDetectRange = (distToPlayer < maxDetectRange);
             const canDetectNormally = hasLOS && inDetectRange;
-            const isHitAlert = !!(e.wasHitAlert && (e.detectionTimer > 0 || (e.provokedTimer && e.provokedTimer > 0)));
 
             if (targetDead) {
                 e.state = 'PATROL';
@@ -965,25 +1348,8 @@
                             e.model.updateTracksGeometry(nowSec * trackAnim * 1.5, nowSec * trackAnim * 1.5);
                         }
 
-                        // Track dust plumes kicked up by wandering enemy tank
-                        if (Math.abs(e.speed) > 0.3 && typeof window.spawnParticle === 'function' && Math.random() < 1.0 - Math.exp(-4.0 * dt)) {
-                            const enemyTrackWidth = (e.tankType === 'kingtiger') ? 1.48 : ((e.tankType === 'tiger') ? 1.38 : 1.20);
-                            const dustCol = (window.currentZoneConfig && window.currentZoneConfig.trackDustColor) ? window.currentZoneConfig.trackDustColor : 0x5c4d3c;
-                            [-enemyTrackWidth, enemyTrackWidth].forEach((sideX) => {
-                                const kickOffset = new THREE.Vector3(sideX, -0.85, -2.3).applyAxisAngle(new THREE.Vector3(0, 1, 0), e.heading);
-                                const kickPos = kickOffset.add(e.enemyRoot.position);
-                                const backDir = new THREE.Vector3(-Math.sin(e.heading), 0, -Math.cos(e.heading));
-                                const kickVel = backDir.multiplyScalar(Math.abs(e.speed) * 0.4 + 0.6);
-                                kickVel.x += (Math.random() - 0.5) * 1.2;
-                                kickVel.y = 0.4 + Math.random() * 0.8;
-                                kickVel.z += (Math.random() - 0.5) * 1.2;
-                                window.spawnParticle(kickPos, kickVel, dustCol, 0.35, 2.5 + Math.random() * 0.8, 1.1 + Math.random() * 0.6, false, 'dust', {
-                                    maxOpacity: 0.70,
-                                    drag: 0.91,
-                                    buoyancy: -0.08
-                                });
-                            });
-                        }
+                        // Track dust plumes / water ripples kicked up by wandering enemy tank
+                        emitEnemyTankTrackWake(e, dt);
                     }
                 }
                 updateEnemyTerrainPose(e, dt);
@@ -998,13 +1364,39 @@
             if (e.aimErrorTimer > 2.8) {
                 e.aimErrorTimer = 0;
                 const spr = (e.spec && typeof e.spec.spread === 'number') ? e.spec.spread : 0.005;
-                e.aimErrorYaw = (Math.random() - 0.5) * (spr * 5.0);
-                e.aimErrorElev = (Math.random() - 0.5) * (spr * 3.2);
+                e.aimErrorYaw = (Math.random() - 0.5) * (spr * 3.4);
+                e.aimErrorElev = (Math.random() - 0.5) * (spr * 2.2);
             }
 
-            // 1. Calculate Target Turret Angle in enemy local space (with crew aim error)
+            // 1. Calculate ballistic aim vector (with hull pitch/roll compensation & target lead)
             const worldAngleToPlayer = Math.atan2(dx, dz);
-            const rawDesiredLocalTurretYaw = normalizeAngle(worldAngleToPlayer - e.heading);
+            const shellSpeed = e.spec.shellVel || 750;
+            const flightTime = distToPlayer / shellSpeed;
+            let leadDx = dx;
+            let leadDz = dz;
+            if (!chosenTarget.isInfantry && !chosenTarget.isFriendly && window.tankState) {
+                const pSpd = window.tankState.speed || 0;
+                const pHdg = window.tankState.heading || 0;
+                leadDx += Math.sin(pHdg) * pSpd * flightTime * 0.75;
+                leadDz += Math.cos(pHdg) * pSpd * flightTime * 0.75;
+            }
+            const leadDist = Math.max(1, Math.hypot(leadDx, leadDz));
+            const dy = (targetY + (isInfantry ? 0.6 : 1.2)) - (e.y + 1.7);
+            const dropMeters = 0.5 * 9.81 * flightTime * flightTime;
+            const worldAimDir = new THREE.Vector3(leadDx, dy + dropMeters, leadDz).normalize();
+
+            // Transform world aim direction into hullGroup local space so terrain pitch/roll doesn't throw off turret yaw/elevation
+            let localAimDir = worldAimDir;
+            if (e.model && e.model.hullGroup) {
+                if (e.model.tankRoot) e.model.tankRoot.updateMatrixWorld(true);
+                const invHullQuat = new THREE.Quaternion();
+                e.model.hullGroup.getWorldQuaternion(invHullQuat).invert();
+                localAimDir = worldAimDir.clone().applyQuaternion(invHullQuat).normalize();
+            } else {
+                localAimDir = worldAimDir.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), -e.heading);
+            }
+
+            const rawDesiredLocalTurretYaw = Math.atan2(localAimDir.x, localAimDir.z);
             const desiredLocalTurretYaw = normalizeAngle(rawDesiredLocalTurretYaw + (e.aimErrorYaw || 0));
 
             // Slew turret towards target with authentic traverse speed (shortest-angle wrap)
@@ -1012,18 +1404,16 @@
                 ? e.spec.turretTurnSpeed
                 : ((e.tankType === 'sherman') ? 1.25 : (e.tankType === 't34' ? 1.00 : (e.tankType === 'kv2' ? 0.45 : 0.85)));
             const turretDelta = normalizeAngle(desiredLocalTurretYaw - e.turretYaw);
-            e.turretYaw = normalizeAngle(e.turretYaw + turretDelta * Math.min(1, dt * turretTurnSpeed * 1.5));
+            e.turretYaw = normalizeAngle(e.turretYaw + turretDelta * Math.min(1, dt * turretTurnSpeed * 1.75));
             if (e.model.turretGroup) e.model.turretGroup.rotation.y = e.turretYaw;
 
-            // 2. Ballistic Gun Pitch / Elevation with drop compensation and sight inaccuracy
-            const dy = (targetY + (isInfantry ? 0.6 : 1.2)) - (e.y + 1.7);
-            const shellSpeed = e.spec.shellVel || 750;
-            const dropCompensation = 0.5 * (9.81 * (distToPlayer / shellSpeed) ** 2) / Math.max(1, distToPlayer);
+            // 2. Ballistic Gun Pitch / Elevation in hull-local frame
+            const baseDesiredElevation = Math.asin(THREE.MathUtils.clamp(localAimDir.y, -0.99, 0.99));
             const desiredElevation = THREE.MathUtils.clamp(
-                Math.atan2(dy, distToPlayer) + dropCompensation + (e.aimErrorElev || 0),
+                baseDesiredElevation + (e.aimErrorElev || 0),
                 -0.15, 0.35
             );
-            e.gunElevation = THREE.MathUtils.lerp(e.gunElevation, desiredElevation, dt * 2.0);
+            e.gunElevation = THREE.MathUtils.lerp(e.gunElevation, desiredElevation, Math.min(1, dt * 3.2));
             if (e.model.gunElevationPivot) e.model.gunElevationPivot.rotation.x = -e.gunElevation;
 
             // 3. Dynamic Combat Maneuvering: Randomly alternate between shooting in place and moving/flanking
@@ -1147,25 +1537,8 @@
                         e.model.updateTracksGeometry(nowSec * trackAnim * 1.5, nowSec * trackAnim * 1.5);
                     }
 
-                    // Track dust plumes kicked up by moving enemy tank
-                    if (Math.abs(e.speed) > 0.3 && typeof window.spawnParticle === 'function' && Math.random() < 1.0 - Math.exp(-4.0 * dt)) {
-                        const enemyTrackWidth = (e.tankType === 'kingtiger') ? 1.48 : ((e.tankType === 'tiger') ? 1.38 : 1.20);
-                        const dustCol = (window.currentZoneConfig && window.currentZoneConfig.trackDustColor) ? window.currentZoneConfig.trackDustColor : 0x5c4d3c;
-                        [-enemyTrackWidth, enemyTrackWidth].forEach((sideX) => {
-                            const kickOffset = new THREE.Vector3(sideX, -0.85, -2.3).applyAxisAngle(new THREE.Vector3(0, 1, 0), e.heading);
-                            const kickPos = kickOffset.add(e.enemyRoot.position);
-                            const backDir = new THREE.Vector3(-Math.sin(e.heading), 0, -Math.cos(e.heading));
-                            const kickVel = backDir.multiplyScalar(Math.abs(e.speed) * 0.4 + 0.6);
-                            kickVel.x += (Math.random() - 0.5) * 1.2;
-                            kickVel.y = 0.4 + Math.random() * 0.8;
-                            kickVel.z += (Math.random() - 0.5) * 1.2;
-                            window.spawnParticle(kickPos, kickVel, dustCol, 0.35, 2.5 + Math.random() * 0.8, 1.1 + Math.random() * 0.6, false, 'dust', {
-                                maxOpacity: 0.70,
-                                drag: 0.91,
-                                buoyancy: -0.08
-                            });
-                        });
-                    }
+                    // Track dust plumes / water ripples kicked up by moving enemy tank
+                    emitEnemyTankTrackWake(e, dt);
                 }
             }
 
@@ -1182,11 +1555,11 @@
             // 5. Fire Main Cannon when roughly aligned on player
             e.reloadTimer -= dt;
             const yawError = Math.abs(normalizeAngle(e.turretYaw - rawDesiredLocalTurretYaw));
-            const elevError = Math.abs(e.gunElevation - (Math.atan2(dy, distToPlayer) + dropCompensation));
+            const elevError = Math.abs(e.gunElevation - baseDesiredElevation);
 
             // Standard AI firing logic: cannon must be aligned with target (yaw and pitch error within tolerance),
             // reload cycle must be completed, line of sight must be unobstructed, and target must be alive
-            if (yawError < 0.22 && elevError < 0.16 && e.reloadTimer <= 0 && hasLOS && !targetDead) {
+            if (yawError < 0.10 && elevError < 0.08 && e.reloadTimer <= 0 && hasLOS && !targetDead) {
                 // FIRE MAIN CANNON!
                 e.reloadTimer = (e.spec.reloadTime || 4.2) + Math.random() * 0.8;
                 e.barrelRecoil = e.spec.recoilOffset || 0.45;
@@ -1220,8 +1593,8 @@
 
                 // Re-randomize aim error for subsequent shots based on tank precision
                 const shotSpr = (e.spec && typeof e.spec.spread === 'number') ? e.spec.spread : 0.005;
-                e.aimErrorYaw = (Math.random() - 0.5) * (shotSpr * 5.5);
-                e.aimErrorElev = (Math.random() - 0.5) * (shotSpr * 3.8);
+                e.aimErrorYaw = (Math.random() - 0.5) * (shotSpr * 3.8);
+                e.aimErrorElev = (Math.random() - 0.5) * (shotSpr * 2.5);
                 e.aimErrorTimer = 0;
 
                 // Dynamic Muzzle Flash Light

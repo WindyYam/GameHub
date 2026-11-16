@@ -740,6 +740,7 @@ const celestialLighting = {
     sunColor:     { value: new THREE.Color(0xfff1db) },
     skyColor:     { value: new THREE.Color(0x3a7bd5) },
     groundColor:  { value: new THREE.Color(0x3f4e3d) },
+    sssStrength:  { value: 1.0 },
     time:         { value: 0.0 }
 };
 window.celestialLighting = celestialLighting;
@@ -1393,6 +1394,179 @@ function createHaltonSmokeMaterial(colorHex = 0x94a3b8) {
     return mat;
 }
 
+let _billboardSmokeGeo = null;
+function createBillboardSmokeGeometry() {
+    if (_billboardSmokeGeo) return _billboardSmokeGeo;
+    _billboardSmokeGeo = new THREE.PlaneGeometry(3.4, 3.4);
+    return _billboardSmokeGeo;
+}
+
+function createOpaqueBillboardSmokeMaterial(colorHex = 0x94a3b8) {
+    const diffuseTex = getSmokeDiffuseTexture();
+    const normalTex = getSmokeNormalTexture();
+    const color = (colorHex && colorHex.isColor) ? colorHex.clone() : new THREE.Color(colorHex);
+
+    const mat = new THREE.ShaderMaterial({
+        uniforms: {
+            diffuse:         { value: color },
+            opacity:         { value: 0.88 },
+            uAgeProgress:    { value: 0.0 },
+            uRoll:           { value: 0.0 },
+            smokeDiffuseMap: { value: diffuseTex },
+            smokeNormalMap:  { value: normalTex },
+            uTime:           celestialLighting.time,
+            sunDirection:    celestialLighting.sunDirection,
+            sunColor:        celestialLighting.sunColor,
+            skyColor:        celestialLighting.skyColor,
+            groundColor:     celestialLighting.groundColor
+        },
+        vertexShader: `
+            uniform float uRoll;
+            uniform vec3 sunDirection;
+            varying vec2 vUv;
+            varying vec3 vViewSunDir;
+            varying vec3 vViewUpDir;
+
+            void main() {
+                vUv = uv;
+                vec4 mvCenter = modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+                float scale = length(vec3(modelMatrix[0][0], modelMatrix[0][1], modelMatrix[0][2]));
+                float c = cos(uRoll);
+                float s = sin(uRoll);
+                vec2 rotated = vec2(position.x * c - position.y * s, position.x * s + position.y * c);
+                mvCenter.xy += rotated * scale;
+                vViewSunDir = normalize((viewMatrix * vec4(sunDirection, 0.0)).xyz);
+                vViewUpDir = normalize((viewMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
+                gl_Position = projectionMatrix * mvCenter;
+            }
+        `,
+        fragmentShader: `
+            uniform vec3 diffuse;
+            uniform float opacity;
+            uniform float uAgeProgress;
+            uniform float uRoll;
+            uniform sampler2D smokeDiffuseMap;
+            uniform sampler2D smokeNormalMap;
+            uniform float uTime;
+            uniform vec3 sunColor;
+            uniform vec3 skyColor;
+            uniform vec3 groundColor;
+
+            varying vec2 vUv;
+            varying vec3 vViewSunDir;
+            varying vec3 vViewUpDir;
+
+            float hash21(vec2 p) {
+                p = fract(p * vec2(123.34, 456.21));
+                p += dot(p, p + 45.32);
+                return fract(p.x * p.y);
+            }
+
+            float noise2D(vec2 p) {
+                vec2 i = floor(p);
+                vec2 f = fract(p);
+                f = f * f * (3.0 - 2.0 * f);
+                float a = hash21(i);
+                float b = hash21(i + vec2(1.0, 0.0));
+                float c = hash21(i + vec2(0.0, 1.0));
+                float d = hash21(i + vec2(1.0, 1.0));
+                return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+            }
+
+            void main() {
+                vec2 p = vUv * 2.0 - 1.0;
+                float r2 = dot(p, p);
+                if (r2 > 1.0) discard;
+
+                vec2 scrollUv = vUv * 0.85 + vec2(uTime * 0.018, -uAgeProgress * 0.25);
+                vec2 fineUv = vUv * 2.2 + vec2(-uTime * 0.028 + uRoll * 0.31, -uAgeProgress * 0.42);
+                vec4 smokeDiff = texture2D(smokeDiffuseMap, scrollUv);
+                vec4 smokeFine = texture2D(smokeDiffuseMap, fineUv);
+                vec3 normTex = texture2D(smokeNormalMap, scrollUv).xyz * 2.0 - 1.0;
+
+                // Angular cauliflower lobes + soft noise breakup for dust-like feathered perimeter
+                float ang = atan(p.y, p.x);
+                float lobes = sin(ang * 3.0 + uRoll * 2.1 + uAgeProgress * 1.6) * 0.07
+                            + cos(ang * 5.0 - uRoll * 1.7 + uTime * 0.35) * 0.045;
+                float fineJitter = (noise2D(vUv * 8.0 + vec2(uRoll * 4.0, -uAgeProgress * 2.0)) - 0.5) * 0.10;
+                float texBreakup = (smokeDiff.a * 0.6 + smokeFine.r * 0.4 - 0.5) * 0.16;
+
+                float r = sqrt(r2);
+                float warpedR = r + lobes + fineJitter + texBreakup;
+                float radial = 1.0 - smoothstep(0.18, 0.98, warpedR);
+                float edgeFeather = pow(radial, 1.25);
+                float finalDensity = clamp(edgeFeather * mix(0.70, 1.45, smokeDiff.a) * opacity * 2.4, 0.0, 1.0);
+                if (finalDensity < 0.015) discard;
+
+                vec3 sphereNorm = vec3(p.x, p.y, sqrt(max(0.0, 1.0 - r2)));
+                vec3 puffSlope = vec3(normTex.xy * 0.80 + vec2(smokeDiff.r - 0.5, smokeFine.r - 0.5) * 0.45, normTex.z * 0.40);
+                vec3 viewNorm = normalize(sphereNorm + puffSlope);
+
+                // Forward & back Mie scattering (matching dust shader's sunlit halo)
+                float cosTheta = clamp(-vViewSunDir.z, -1.0, 1.0);
+                float g1 = 0.72;
+                float mieForward = (1.0 - g1 * g1) / pow(1.0 + g1 * g1 - 2.0 * g1 * cosTheta, 1.5) / 12.56637;
+                float g2 = -0.18;
+                float mieBack = (1.0 - g2 * g2) / pow(1.0 + g2 * g2 - 2.0 * g2 * cosTheta, 1.5) / 12.56637;
+                float miePhase = mix(mieForward, mieBack, 0.20) * 3.14159;
+
+                // Soft wrap lighting & sun illumination (matching dust)
+                float NdotL = dot(viewNorm, vViewSunDir);
+                float wrapL = clamp((NdotL + 0.65) / 1.65, 0.0, 1.0);
+                float creviceAO = mix(0.55, 1.15, smokeDiff.g * 0.6 + smokeDiff.r * 0.4);
+                vec3 directLight = sunColor * (wrapL * 0.85 + miePhase * 0.65) * creviceAO;
+
+                // World-up hemisphere ambient
+                float upFactor = clamp(dot(viewNorm, vViewUpDir) * 0.5 + 0.5, 0.0, 1.0);
+                vec3 ambientLight = mix(groundColor * 0.58, skyColor * 0.84, upFactor);
+
+                // Subtle rim glow on backlit/grazing edges
+                float rim = pow(1.0 - clamp(viewNorm.z, 0.0, 1.0), 2.2);
+                vec3 rimGlow = sunColor * rim * (miePhase * 0.55 + 0.16);
+
+                vec3 noisyDiffuse = diffuse * mix(vec3(0.68), vec3(1.32), smokeDiff.r * 0.7 + smokeFine.r * 0.3);
+                noisyDiffuse = mix(noisyDiffuse, noisyDiffuse * 0.72, smokeDiff.b * 0.38);
+
+                vec3 finalColor = noisyDiffuse * (directLight + ambientLight) + rimGlow * 0.45;
+                float coreMask = (1.0 - smoothstep(0.05, 0.52, r)) * clamp(opacity * 1.4, 0.0, 1.0);
+                float smoothAlpha = clamp(max(smoothstep(0.015, 0.62, finalDensity) * 0.90, coreMask), 0.0, 1.0);
+                gl_FragColor = vec4(finalColor, smoothAlpha);
+            }
+        `,
+        transparent: true,
+        depthWrite: false,
+        depthTest: true,
+        blending: THREE.NormalBlending
+    });
+
+    Object.defineProperty(mat, 'opacity', {
+        get() { return this.uniforms.opacity.value; },
+        set(v) { this.uniforms.opacity.value = v; }
+    });
+
+    Object.defineProperty(mat, 'color', {
+        get() { return this.uniforms.diffuse.value; },
+        set(v) {
+            if (typeof v === 'number') this.uniforms.diffuse.value.setHex(v);
+            else if (v && v.isColor) this.uniforms.diffuse.value.copy(v);
+        }
+    });
+
+    // Preserve live celestialLighting uniform references when prewarm/pooling calls .clone()
+    const baseClone = mat.clone.bind(mat);
+    mat.clone = function() {
+        const cloned = baseClone();
+        cloned.uniforms.uTime = celestialLighting.time;
+        cloned.uniforms.sunDirection = celestialLighting.sunDirection;
+        cloned.uniforms.sunColor = celestialLighting.sunColor;
+        cloned.uniforms.skyColor = celestialLighting.skyColor;
+        cloned.uniforms.groundColor = celestialLighting.groundColor;
+        return cloned;
+    };
+
+    return mat;
+}
+
 
 
 // ============================================================================
@@ -1890,8 +2064,8 @@ function createGrassMaterial() {
                 vec3 viewNorm = normalize(vViewDir);
                 float fresnel = pow(1.0 - abs(dot(vNormal, viewNorm)), 2.2);
                 vec3 sunDir = normalize(sunDirection);
-                float backLight = pow(max(dot(-viewNorm, sunDir), 0.0), 2.2);
-                vec3 sss = sunColor * backLight * fresnel * smoothstep(0.15, 1.0, vUv.y) * 0.75;
+                float backLight = pow(max(dot(-viewNorm, sunDir), 0.0), 2.05);
+                vec3 sss = sunColor * backLight * (0.15 + 0.85 * fresnel) * smoothstep(0.12, 0.95, vUv.y) * 0.95;
                 
                 vec3 finalColor = bladeColor * (skyColor * 0.38 + 0.30) + sss;
 
@@ -2279,7 +2453,7 @@ function createBotanicalFoliageAtlas() {
 
     // ------------------------------------------------------------------------
     // Q0: Top-Left (0..256, 0..256 in canvas = UV [0..0.5, 0.5..1.0])
-    // Conifer Needle Bough Spray (Radiating woody twigs + dense pine/spruce needles)
+    // Conifer Needle Bough Spray (Radiating woody twigs + crisp separated pine/spruce needles)
     // ------------------------------------------------------------------------
     ctx.save();
     ctx.beginPath();
@@ -2299,9 +2473,9 @@ function createBotanicalFoliageAtlas() {
         { x0: 128, y0: 85,  x1: 178, y1: 20,  w: 2.4 }
     ];
 
-    // Pass 1: Deep interior shadow needles (AO base)
+    // Pass 1: Interior shadow needles with natural gaps
     subTwigs.forEach(tw => {
-        const steps = 38;
+        const steps = 26;
         const dx = tw.x1 - tw.x0;
         const dy = tw.y1 - tw.y0;
         const twigAng = Math.atan2(dy, dx);
@@ -2310,25 +2484,64 @@ function createBotanicalFoliageAtlas() {
             const t = s / steps;
             const bx = tw.x0 + dx * t;
             const by = tw.y0 + dy * t;
-            const needleLen = (22 + (1.0 - t * 0.45) * 18) * (tw.w / 4.5);
+            const needleLen = (20 + (1.0 - t * 0.45) * 16) * (tw.w / 4.5);
 
             for (let side = -1; side <= 1; side += 2) {
-                for (let n = 0; n < 4; n++) {
-                    const spread = (0.32 + bRand() * 0.65) * side;
+                for (let n = 0; n < 3; n++) {
+                    if (bRand() < 0.18) continue;
+                    const spread = (0.34 + bRand() * 0.62) * side;
                     const ang = twigAng + spread;
-                    const len = needleLen * (0.65 + bRand() * 0.45);
-                    ctx.strokeStyle = `rgba(${18 + Math.floor(bRand() * 14)}, ${38 + Math.floor(bRand() * 20)}, ${16 + Math.floor(bRand() * 12)}, 0.95)`;
-                    ctx.lineWidth = 2.4;
+                    const len = needleLen * (0.62 + bRand() * 0.45);
+                    const nx = bx + Math.cos(ang) * len;
+                    const ny = by + Math.sin(ang) * len;
+                    ctx.strokeStyle = `rgba(${18 + Math.floor(bRand() * 14)}, ${38 + Math.floor(bRand() * 20)}, ${16 + Math.floor(bRand() * 12)}, 1.0)`;
+                    ctx.lineWidth = 2.0;
                     ctx.beginPath();
                     ctx.moveTo(bx, by);
-                    ctx.lineTo(bx + Math.cos(ang) * len, by + Math.sin(ang) * len);
+                    ctx.lineTo(nx, ny);
                     ctx.stroke();
                 }
             }
         }
     });
 
-    // Draw woody stems over base shadow needles
+    // Pass 2: Lush mid-tone and sunlit outer conifer needles (crisp silhouette)
+    subTwigs.forEach(tw => {
+        const steps = 32;
+        const dx = tw.x1 - tw.x0;
+        const dy = tw.y1 - tw.y0;
+        const twigAng = Math.atan2(dy, dx);
+
+        for (let s = 0; s <= steps; s++) {
+            const t = s / steps;
+            const bx = tw.x0 + dx * t;
+            const by = tw.y0 + dy * t;
+            const needleLen = (18 + (1.0 - t * 0.4) * 15) * (tw.w / 4.5);
+
+            for (let side = -1; side <= 1; side += 2) {
+                for (let n = 0; n < 3; n++) {
+                    if (bRand() < 0.14) continue;
+                    const spread = (0.24 + bRand() * 0.70) * side;
+                    const ang = twigAng + spread;
+                    const len = needleLen * (0.58 + bRand() * 0.5);
+                    const isSunTip = (t > 0.45 && n >= 2) || bRand() > 0.65;
+                    const r = isSunTip ? (68 + Math.floor(bRand() * 35)) : (36 + Math.floor(bRand() * 22));
+                    const g = isSunTip ? (118 + Math.floor(bRand() * 38)) : (72 + Math.floor(bRand() * 28));
+                    const b = isSunTip ? (34 + Math.floor(bRand() * 20)) : (24 + Math.floor(bRand() * 16));
+                    const nx = bx + Math.cos(ang) * len;
+                    const ny = by + Math.sin(ang) * len;
+                    ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, 1.0)`;
+                    ctx.lineWidth = isSunTip ? 1.4 : 1.8;
+                    ctx.beginPath();
+                    ctx.moveTo(bx, by);
+                    ctx.lineTo(nx, ny);
+                    ctx.stroke();
+                }
+            }
+        }
+    });
+
+    // Draw woody stems ("bones") on top so they remain visible
     subTwigs.forEach(tw => {
         ctx.strokeStyle = '#3d281a';
         ctx.lineWidth = tw.w;
@@ -2338,44 +2551,11 @@ function createBotanicalFoliageAtlas() {
         ctx.lineTo(tw.x1, tw.y1);
         ctx.stroke();
     });
-
-    // Pass 2: Lush mid-tone and sunlit outer conifer needles
-    subTwigs.forEach(tw => {
-        const steps = 46;
-        const dx = tw.x1 - tw.x0;
-        const dy = tw.y1 - tw.y0;
-        const twigAng = Math.atan2(dy, dx);
-
-        for (let s = 0; s <= steps; s++) {
-            const t = s / steps;
-            const bx = tw.x0 + dx * t;
-            const by = tw.y0 + dy * t;
-            const needleLen = (20 + (1.0 - t * 0.4) * 16) * (tw.w / 4.5);
-
-            for (let side = -1; side <= 1; side += 2) {
-                for (let n = 0; n < 5; n++) {
-                    const spread = (0.22 + bRand() * 0.72) * side;
-                    const ang = twigAng + spread;
-                    const len = needleLen * (0.6 + bRand() * 0.5);
-                    const isSunTip = (t > 0.45 && n >= 3) || bRand() > 0.68;
-                    const r = isSunTip ? (68 + Math.floor(bRand() * 35)) : (36 + Math.floor(bRand() * 22));
-                    const g = isSunTip ? (118 + Math.floor(bRand() * 38)) : (72 + Math.floor(bRand() * 28));
-                    const b = isSunTip ? (34 + Math.floor(bRand() * 20)) : (24 + Math.floor(bRand() * 16));
-                    ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, 0.96)`;
-                    ctx.lineWidth = isSunTip ? 1.6 : 2.0;
-                    ctx.beginPath();
-                    ctx.moveTo(bx, by);
-                    ctx.lineTo(bx + Math.cos(ang) * len, by + Math.sin(ang) * len);
-                    ctx.stroke();
-                }
-            }
-        }
-    });
     ctx.restore();
 
     // ------------------------------------------------------------------------
     // Q1: Top-Right (256..512, 0..256 in canvas = UV [0.5..1.0, 0.5..1.0])
-    // Broadleaf Deciduous Leaf Cluster (Oak/Beech/Birch overlapping leaves)
+    // Broadleaf Deciduous Leaf Cluster (Crisp separated leaves + exposed woody bone twigs)
     // ------------------------------------------------------------------------
     ctx.save();
     ctx.beginPath();
@@ -2383,65 +2563,92 @@ function createBotanicalFoliageAtlas() {
     ctx.clip();
 
     function drawLeaf(cx, cy, radius, angle, rCol, gCol, bCol) {
+        // Albedo leaf with crisp pointed silhouette & subtle dark edge separation
         ctx.save();
         ctx.translate(cx, cy);
         ctx.rotate(angle);
-        ctx.fillStyle = `rgba(${rCol}, ${gCol}, ${bCol}, 0.98)`;
+        ctx.fillStyle = `rgba(${rCol}, ${gCol}, ${bCol}, 1.0)`;
         ctx.beginPath();
-        ctx.moveTo(0, -radius);
-        ctx.bezierCurveTo(radius * 0.82, -radius * 0.55, radius * 0.88, radius * 0.45, 0, radius);
-        ctx.bezierCurveTo(-radius * 0.88, radius * 0.45, -radius * 0.82, -radius * 0.55, 0, -radius);
+        ctx.moveTo(0, -radius * 1.15);
+        ctx.bezierCurveTo(radius * 0.72, -radius * 0.52, radius * 0.78, radius * 0.42, 0, radius * 0.92);
+        ctx.bezierCurveTo(-radius * 0.78, radius * 0.42, -radius * 0.72, -radius * 0.52, 0, -radius * 1.15);
         ctx.closePath();
         ctx.fill();
 
-        // Subtle leaf midrib vein highlight
-        ctx.strokeStyle = `rgba(${Math.min(255, rCol + 28)}, ${Math.min(255, gCol + 32)}, ${Math.min(255, bCol + 14)}, 0.55)`;
+        // Crisp dark outline for clear leaf-to-leaf cut-off separation
+        ctx.strokeStyle = `rgba(${Math.max(8, rCol - 24)}, ${Math.max(14, gCol - 32)}, ${Math.max(6, bCol - 12)}, 0.85)`;
         ctx.lineWidth = 1.0;
+        ctx.stroke();
+
+        // Leaf midrib vein ("bone")
+        ctx.strokeStyle = `rgba(${Math.max(18, rCol - 10)}, ${Math.max(26, gCol - 14)}, ${Math.max(12, bCol - 6)}, 0.75)`;
+        ctx.lineWidth = 1.1;
         ctx.beginPath();
-        ctx.moveTo(0, -radius * 0.75);
-        ctx.lineTo(0, radius * 0.85);
+        ctx.moveTo(0, -radius * 0.72);
+        ctx.lineTo(0, radius * 0.95);
         ctx.stroke();
         ctx.restore();
     }
 
-    // Multi-lobed botanical branchlet (5 distinct leaf sub-clusters with natural sky gaps)
+    // Multi-lobed botanical branchlet with clear woody twig skeleton ("bone") & sky gaps
     const q1Cx = half + 128;
-    const q1Cy = 128;
     const subLobes = [
-        { x: q1Cx,      y: 148, r: 58 }, // Central lower-mid lobe
-        { x: q1Cx - 52, y: 136, r: 52 }, // Left spreading lobe
-        { x: q1Cx + 52, y: 134, r: 52 }, // Right spreading lobe
-        { x: q1Cx - 26, y: 80,  r: 48 }, // Upper-left crown lobe
-        { x: q1Cx + 28, y: 78,  r: 48 }  // Upper-right crown lobe
+        { x: q1Cx,      y: 136, r: 46 }, // Central lower-mid lobe
+        { x: q1Cx - 58, y: 142, r: 42 }, // Left spreading lobe
+        { x: q1Cx + 58, y: 140, r: 42 }, // Right spreading lobe
+        { x: q1Cx - 34, y: 74,  r: 40 }, // Upper-left crown lobe
+        { x: q1Cx + 36, y: 72,  r: 40 }  // Upper-right crown lobe
     ];
 
-    ctx.strokeStyle = '#38291d';
-    ctx.lineWidth = 3.2;
-    subLobes.forEach(lb => {
+    const q1Twigs = [
+        { x0: q1Cx, y0: 238, x1: q1Cx,      y1: 120, w: 5.2 },
+        { x0: q1Cx, y0: 196, x1: q1Cx - 58, y1: 142, w: 3.8 },
+        { x0: q1Cx, y0: 192, x1: q1Cx + 58, y1: 140, w: 3.8 },
+        { x0: q1Cx, y0: 146, x1: q1Cx - 34, y1: 74,  w: 3.2 },
+        { x0: q1Cx, y0: 144, x1: q1Cx + 36, y1: 72,  w: 3.2 }
+    ];
+
+    // Draw woody branchlet skeleton before leaves
+    q1Twigs.forEach(tw => {
+        ctx.strokeStyle = '#3c2a1c';
+        ctx.lineWidth = tw.w;
+        ctx.lineCap = 'round';
         ctx.beginPath();
-        ctx.moveTo(q1Cx, 224);
-        ctx.lineTo(lb.x, lb.y);
+        ctx.moveTo(tw.x0, tw.y0);
+        ctx.lineTo(tw.x1, tw.y1);
         ctx.stroke();
     });
 
-    // 340 layered leaves distributed across the 5 organic sub-lobes
-    const leafCount = 340;
+    // ~135 well-separated leaves distributed across the 5 sub-lobes with clear sky gaps
+    const leafCount = 135;
     for (let i = 0; i < leafCount; i++) {
         const layerFrac = i / leafCount;
         const lb = subLobes[i % subLobes.length];
-        const ang = bRand() * Math.PI * 2;
-        const dist = Math.pow(bRand(), 0.62) * lb.r;
+        const ang = (i / (leafCount / subLobes.length)) * 2.39996 + bRand() * 0.45;
+        const distNorm = Math.pow(bRand(), 0.52);
+        const dist = distNorm * lb.r;
         const lx = lb.x + Math.cos(ang) * dist;
         const ly = lb.y + Math.sin(ang) * dist;
         const heightNorm = Math.max(0, Math.min(1, (220 - ly) / 180));
 
-        const leafRad = 10 + bRand() * 10 * (1.0 - (dist / lb.r) * 0.2);
-        const shade = layerFrac * 0.55 + heightNorm * 0.30 + (dist / lb.r) * 0.15;
+        const leafRad = 7.8 + bRand() * 6.5 * (1.0 - distNorm * 0.18);
+        const shade = layerFrac * 0.50 + heightNorm * 0.30 + distNorm * 0.20;
         const r = Math.floor(24 + shade * 68 + (bRand() - 0.5) * 14);
         const g = Math.floor(48 + shade * 92 + (bRand() - 0.5) * 18);
         const b = Math.floor(15 + shade * 26 + (bRand() - 0.5) * 8);
-        drawLeaf(lx, ly, leafRad, ang + Math.PI * 0.5 + (bRand() - 0.5) * 0.7, r, g, b);
+        drawLeaf(lx, ly, leafRad, ang + Math.PI * 0.5 + (bRand() - 0.5) * 0.55, r, g, b);
     }
+
+    // Re-draw primary woody stem & fork bones over inner leaves
+    q1Twigs.forEach(tw => {
+        ctx.strokeStyle = '#3c2a1c';
+        ctx.lineWidth = tw.w * 0.78;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(tw.x0, tw.y0);
+        ctx.lineTo(tw.x1, tw.y1);
+        ctx.stroke();
+    });
     ctx.restore();
 
     // ------------------------------------------------------------------------
@@ -2455,18 +2662,37 @@ function createBotanicalFoliageAtlas() {
 
     const q2Cx = 128;
     const q2Cy = half + 128;
-    for (let i = 0; i < 290; i++) {
-        const layerFrac = i / 290;
-        const ang = bRand() * Math.PI * 2;
-        const dist = Math.pow(bRand(), 0.55) * 104;
+    const q2Twigs = [
+        { x0: q2Cx, y0: size - 16, x1: q2Cx,      y1: q2Cy - 26, w: 4.5 },
+        { x0: q2Cx, y0: size - 48, x1: q2Cx - 54, y1: q2Cy - 8,  w: 3.4 },
+        { x0: q2Cx, y0: size - 48, x1: q2Cx + 54, y1: q2Cy - 10, w: 3.4 },
+        { x0: q2Cx, y0: size - 80, x1: q2Cx - 36, y1: q2Cy - 58, w: 2.8 },
+        { x0: q2Cx, y0: size - 80, x1: q2Cx + 36, y1: q2Cy - 56, w: 2.8 }
+    ];
+    q2Twigs.forEach(tw => {
+        ctx.strokeStyle = '#3b291b';
+        ctx.lineWidth = tw.w;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(tw.x0, tw.y0);
+        ctx.lineTo(tw.x1, tw.y1);
+        ctx.stroke();
+    });
+
+    for (let i = 0; i < 125; i++) {
+        const layerFrac = i / 125;
+        const ang = i * 2.39996 + bRand() * 0.4;
+        const distNorm = Math.pow(bRand(), 0.55);
+        const dist = distNorm * 98;
         const lx = q2Cx + Math.cos(ang) * dist;
         const ly = q2Cy + Math.sin(ang) * dist;
-        const shade = layerFrac * 0.65 + (dist / 104) * 0.35;
+        const shade = layerFrac * 0.65 + distNorm * 0.35;
         const r = Math.floor(32 + shade * 82 + (bRand() - 0.5) * 15);
         const g = Math.floor(58 + shade * 98 + (bRand() - 0.5) * 18);
         const b = Math.floor(20 + shade * 28 + (bRand() - 0.5) * 10);
-        drawLeaf(lx, ly, 10 + bRand() * 10, ang + Math.PI * 0.5, r, g, b);
+        drawLeaf(lx, ly, 8.0 + bRand() * 6.5, ang + Math.PI * 0.5, r, g, b);
     }
+
     // Delicate white/cream hawthorn blossom clusters on outer bush tips
     for (let f = 0; f < 34; f++) {
         const ang = bRand() * Math.PI * 2;
@@ -2474,7 +2700,7 @@ function createBotanicalFoliageAtlas() {
         const fx = q2Cx + Math.cos(ang) * dist;
         const fy = q2Cy + Math.sin(ang) * dist;
         const isYellow = (f % 3 === 0);
-        ctx.fillStyle = isYellow ? 'rgba(252, 224, 72, 0.95)' : 'rgba(248, 250, 242, 0.94)';
+        ctx.fillStyle = isYellow ? 'rgba(252, 224, 72, 1.0)' : 'rgba(248, 250, 242, 1.0)';
         for (let p = 0; p < 5; p++) {
             const pa = (p / 5) * Math.PI * 2;
             ctx.beginPath();
@@ -2547,7 +2773,7 @@ let _grassTuftEdgeTex = null;
 function createGrassTuftAtlasTexture() {
     if (_grassTuftAtlasTex && _grassTuftEdgeTex) return _grassTuftAtlasTex;
 
-    const width = 512;
+    const width = 1280; // 10 columns x 128px
     const height = 256;
     const colW = 128;
     const canvas = document.createElement('canvas');
@@ -2569,7 +2795,8 @@ function createGrassTuftAtlasTexture() {
         return (gSeed - 1) / 2147483646;
     }
 
-    for (let col = 0; col < 4; col++) {
+    // Cols 4-9: Lupine, Pampas Grass, Sunflower, Lavender, Poppy, Cornflower
+    for (let col = 0; col < 10; col++) {
         const xOffset = col * colW;
         ctx.save();
         ctx.beginPath();
@@ -2722,6 +2949,150 @@ function createGrassTuftAtlasTexture() {
                 ctx.arc(fl.x, fl.y, fl.r * 0.25, 0, Math.PI * 2);
                 ctx.fill();
             });
+        }
+
+        // Columns 4..9: extra wild flower / ornamental grass species
+        if (col >= 4) {
+            const cx = xOffset + colW * 0.5;
+            const stem = (x0, y0, x1, y1, color, w) => {
+                const mx = (x0 + x1) * 0.5 + (gRand() - 0.5) * 8;
+                const my = (y0 + y1) * 0.5;
+                ctx.strokeStyle = color;
+                ctx.lineWidth = w;
+                ctx.lineCap = 'round';
+                ctx.beginPath();
+                ctx.moveTo(x0, y0);
+                ctx.quadraticCurveTo(mx, my, x1, y1);
+                ctx.stroke();
+                edgeCtx.strokeStyle = 'rgba(255,255,255,0.7)';
+                edgeCtx.lineWidth = 0.8;
+                edgeCtx.beginPath();
+                edgeCtx.moveTo(x0, y0);
+                edgeCtx.quadraticCurveTo(mx, my, x1, y1);
+                edgeCtx.stroke();
+            };
+            const blob = (x, y, rx, ry, rot, color) => {
+                ctx.fillStyle = color;
+                ctx.save();
+                ctx.translate(x, y);
+                ctx.rotate(rot);
+                ctx.beginPath();
+                ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+                edgeCtx.strokeStyle = 'rgba(255,255,255,0.75)';
+                edgeCtx.lineWidth = 1.0;
+                edgeCtx.save();
+                edgeCtx.translate(x, y);
+                edgeCtx.rotate(rot);
+                edgeCtx.beginPath();
+                edgeCtx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+                edgeCtx.stroke();
+                edgeCtx.restore();
+            };
+            // Spiky raceme: florets along the top portion of a stem
+            const spike = (x0, tipX, tipY, palette, floretR, startFrac) => {
+                stem(x0, height + 4, tipX, tipY, '#3f6b25', 2.2);
+                const len = height - tipY;
+                const n = 16;
+                for (let i = 0; i < n; i++) {
+                    const t = startFrac + (1 - startFrac) * (i / (n - 1));
+                    const px = x0 + (tipX - x0) * t + (gRand() - 0.5) * 3;
+                    const py = height - len * t;
+                    const r = floretR * (1.15 - 0.7 * (i / (n - 1)));
+                    blob(px - r * 0.5, py, r, r * 0.8, gRand() * 3, palette[Math.floor(gRand() * palette.length)]);
+                    blob(px + r * 0.5, py + r * 0.4, r, r * 0.8, gRand() * 3, palette[Math.floor(gRand() * palette.length)]);
+                }
+            };
+
+            if (col === 4) {
+                // Lupine: tall multi-coloured spires
+                const pal = ['#6d3fc4', '#8a5be0', '#4b5fd1', '#c06ad6', '#e2a6ef'];
+                spike(cx - 30, cx - 36, 62, pal, 5.0, 0.35);
+                spike(cx,      cx + 2,  34, pal, 5.6, 0.32);
+                spike(cx + 28, cx + 34, 74, pal, 4.8, 0.38);
+            } else if (col === 5) {
+                // Pampas grass: tall arching stalks with cream feathery plumes
+                // Fountain of long arching sawgrass leaves at the base
+                for (let l = 0; l < 16; l++) {
+                    const side = (l / 15 - 0.5) * 2;
+                    const lx0 = cx + side * 10;
+                    const lx1 = cx + side * (34 + gRand() * 22);
+                    const ly1 = height * (0.30 + gRand() * 0.30);
+                    stem(lx0, height + 4, lx1, ly1, l % 3 ? '#7f9448' : '#a3b062', 2.4);
+                }
+                // Feathery plumes: dense fine droopy strands in a tapered teardrop (never clipped at top)
+                [[-24, 40, 74], [2, 16, 84], [26, 34, 70], [-8, 52, 62]].forEach(([dx, topY, L]) => {
+                    const tx = cx + dx;
+                    stem(cx + dx * 0.3, height + 4, tx, topY + L * 0.4, '#b4ad78', 1.8);
+                    for (let s = 0; s < 150; s++) {
+                        const t = Math.pow(gRand(), 0.85);
+                        const py = topY + t * L;
+                        const maxW = 19 * Math.sin(Math.PI * Math.min(1, Math.pow(t, 0.7) * 0.92 + 0.04));
+                        const side = (gRand() - 0.5) * 2;
+                        const ex = tx + side * maxW + (dx > 0 ? 3 : -2);
+                        const ey = py + 7 + gRand() * 12;
+                        const sx0 = tx + (dx > 0 ? 1.5 : -1) * t * 2;
+                        const light = gRand();
+                        const col2 = light > 0.7 ? 'rgba(226,213,184,0.95)' : (light > 0.3 ? 'rgba(204,188,152,0.92)' : 'rgba(172,152,112,0.9)');
+                        ctx.strokeStyle = col2;
+                        ctx.lineWidth = 0.9 + gRand() * 0.8;
+                        ctx.lineCap = 'round';
+                        ctx.beginPath();
+                        ctx.moveTo(sx0, py);
+                        ctx.quadraticCurveTo(tx + side * maxW * 0.9, py - 2, ex, ey);
+                        ctx.stroke();
+                        edgeCtx.strokeStyle = 'rgba(255,255,255,0.6)';
+                        edgeCtx.lineWidth = 0.7;
+                        edgeCtx.beginPath();
+                        edgeCtx.moveTo(sx0, py);
+                        edgeCtx.quadraticCurveTo(tx + side * maxW * 0.9, py - 2, ex, ey);
+                        edgeCtx.stroke();
+                    }
+                });
+            } else if (col === 6) {
+                // Sunflower: large golden heads on stout stems
+                [[-24, 70, 24], [20, 108, 21]].forEach(([dx, hy, r]) => {
+                    const fx = cx + dx;
+                    stem(fx * 0.5 + cx * 0.5, height + 4, fx, hy, '#3d6b1e', 4.0);
+                    blob(fx - 12, hy + 52, 12, 5, -0.5, '#3f7a22');
+                    blob(fx + 12, hy + 74, 12, 5, 0.5, '#3f7a22');
+                    for (let p = 0; p < 16; p++) {
+                        const pa = (p / 16) * Math.PI * 2;
+                        blob(fx + Math.cos(pa) * r * 0.72, hy + Math.sin(pa) * r * 0.72, r * 0.36, r * 0.16, pa, p % 2 ? '#fbbf24' : '#f59e0b');
+                    }
+                    blob(fx, hy, r * 0.5, r * 0.5, 0, '#4a2c0a');
+                    blob(fx, hy, r * 0.28, r * 0.28, 0, '#2b1906');
+                });
+            } else if (col === 7) {
+                // Lavender: slender grey-green stems with dense violet spikes
+                [-36, -20, -6, 8, 22, 36].forEach((dx, i) => {
+                    const tipY = 52 + (i % 3) * 18 + gRand() * 10;
+                    spike(cx + dx * 0.6, cx + dx * 1.2, tipY, ['#7c5cc4', '#9b7ae0', '#b79af0', '#6a4bb0'], 3.0, 0.45);
+                });
+            } else if (col === 8) {
+                // Poppy: scarlet cup blossoms
+                [[-28, 80], [-4, 56], [22, 92], [34, 64]].forEach(([dx, hy]) => {
+                    const fx = cx + dx;
+                    stem(cx + dx * 0.3, height + 4, fx, hy + 6, '#4c7a2c', 1.8);
+                    for (let p = 0; p < 4; p++) {
+                        const pa = (p / 4) * Math.PI * 2 + 0.4;
+                        blob(fx + Math.cos(pa) * 6, hy + Math.sin(pa) * 5, 8, 7, pa, p % 2 ? '#e11d2e' : '#f43f4a');
+                    }
+                    blob(fx, hy, 3.2, 3.2, 0, '#1a0a0a');
+                });
+            } else if (col === 9) {
+                // Cornflower: star-shaped sky-blue heads
+                [[-30, 90], [-12, 62], [8, 98], [26, 70], [38, 106]].forEach(([dx, hy]) => {
+                    const fx = cx + dx;
+                    stem(cx + dx * 0.4, height + 4, fx, hy + 4, '#5d8a3a', 1.6);
+                    for (let p = 0; p < 8; p++) {
+                        const pa = (p / 8) * Math.PI * 2;
+                        blob(fx + Math.cos(pa) * 6, hy + Math.sin(pa) * 6, 5.6, 2.2, pa, '#3b6fe0');
+                    }
+                    blob(fx, hy, 3.0, 3.0, 0, '#2a2f8f');
+                });
+            }
         }
 
         ctx.restore();
@@ -3347,6 +3718,7 @@ const TIGER_SKY_FRAGMENT_SHADER = `
     uniform float uTime;
     uniform float uCloudCoverage;
     uniform sampler2D uCloudTex;
+    uniform samplerCube uStarTex;
     varying vec3 vWorldPos;
 
     float hash(vec2 p) {
@@ -3373,14 +3745,22 @@ const TIGER_SKY_FRAGMENT_SHADER = `
     }
 
     float noise(vec3 p) {
-        vec2 i = floor(p.xy);
-        vec2 f = fract(p.xy);
+        vec3 i = floor(p);
+        vec3 f = fract(p);
         f = f * f * (3.0 - 2.0 * f);
-        float a = hash(i);
-        float b = hash(i + vec2(1.0, 0.0));
-        float c = hash(i + vec2(0.0, 1.0));
-        float d = hash(i + vec2(1.0, 1.0));
-        return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+        float n000 = hash(i);
+        float n100 = hash(i + vec3(1.0, 0.0, 0.0));
+        float n010 = hash(i + vec3(0.0, 1.0, 0.0));
+        float n110 = hash(i + vec3(1.0, 1.0, 0.0));
+        float n001 = hash(i + vec3(0.0, 0.0, 1.0));
+        float n101 = hash(i + vec3(1.0, 0.0, 1.0));
+        float n011 = hash(i + vec3(0.0, 1.0, 1.0));
+        float n111 = hash(i + vec3(1.0, 1.0, 1.0));
+        float nx00 = mix(n000, n100, f.x);
+        float nx10 = mix(n010, n110, f.x);
+        float nx01 = mix(n001, n101, f.x);
+        float nx11 = mix(n011, n111, f.x);
+        return mix(mix(nx00, nx10, f.y), mix(nx01, nx11, f.y), f.z);
     }
 
     float fbm(vec3 p) {
@@ -3434,7 +3814,7 @@ const TIGER_SKY_FRAGMENT_SHADER = `
     // Puffy cumulus density from a pre-baked 512x512 tileable noise texture:
     // R = large cloud masses, G = smooth billowing lobes, B = fine feathery edge wisps.
     float sampleCloudDensity(vec2 uv, float detailWeight) {
-        vec2 wind = vec2(uTime * 0.018, uTime * 0.0065);
+        vec2 wind = vec2(uTime * 0.012, uTime * 0.0042);
         mat2 rot1 = mat2(0.80, 0.60, -0.60, 0.80);
         mat2 rot2 = mat2(0.60, -0.80, 0.80, 0.60);
 
@@ -3443,15 +3823,15 @@ const TIGER_SKY_FRAGMENT_SHADER = `
 
         // Subtle domain warp breaks up grid alignment
         vec2 warp = vec2(masses - 0.5, texture2D(uCloudTex, baseUV * 0.7 + vec2(0.41, 0.23)).r - 0.5) * 0.14;
-        float billow = texture2D(uCloudTex, (rot1 * uv) * 0.42 - wind * 1.15 + warp + vec2(0.37, 0.61)).g;
-        float wisp   = texture2D(uCloudTex, (rot2 * uv) * 0.92 + wind * 1.65 + warp * 0.5 + vec2(0.73, 0.19)).b;
+        float billow = texture2D(uCloudTex, (rot1 * uv) * 0.42 - wind * 0.45 + warp + vec2(0.37, 0.61)).g;
+        float wisp   = texture2D(uCloudTex, (rot2 * uv) * 0.92 + wind * 0.65 + warp * 0.5 + vec2(0.73, 0.19)).b;
 
         // Smoothly attenuate high-frequency wisps near the horizon to eliminate aliasing
-        float erosion = (1.0 - billow) * (0.26 * mix(0.35, 1.0, detailWeight))
-                      + (1.0 - wisp) * (0.14 * detailWeight);
-        float baseShape = masses * 0.86 + billow * 0.14;
-        float threshold = mix(0.64, 0.40, uCloudCoverage);
-        return smoothstep(threshold - 0.05, threshold + 0.22, baseShape - erosion * 0.55);
+        float erosion = (1.0 - billow) * (0.18 * mix(0.35, 1.0, detailWeight))
+                      + (1.0 - wisp) * (0.08 * detailWeight);
+        float baseShape = masses * 0.80 + billow * 0.20;
+        float threshold = mix(0.60, 0.38, uCloudCoverage);
+        return smoothstep(threshold - 0.06, threshold + 0.22, baseShape - erosion * 0.45);
     }
     float sampleCloudDensity(vec2 uv) {
         return sampleCloudDensity(uv, 1.0);
@@ -3467,53 +3847,45 @@ const TIGER_SKY_FRAGMENT_SHADER = `
             -skySin * dir.x + skyCos * dir.y,
             dir.z
         );
-        float dustDenominator = starDir.y + 0.18;
-        dustDenominator = abs(dustDenominator) < 0.02
-            ? (dustDenominator < 0.0 ? -0.02 : 0.02)
-            : dustDenominator;
-        float starDenominator = starDir.y + 0.15;
-        starDenominator = abs(starDenominator) < 0.02
-            ? (starDenominator < 0.0 ? -0.02 : 0.02)
-            : starDenominator;
-        vec2 dustUV = starDir.xz / dustDenominator * 320.0;
-        float dustFootprint = max(fwidth(dustUV.x), fwidth(dustUV.y));
-        float dustSampling = 1.0 - smoothstep(0.5, 1.0, dustFootprint);
-        vec2 starBaseUV = starDir.xz / starDenominator;
-        float starBaseFootprint = max(fwidth(starBaseUV.x), fwidth(starBaseUV.y));
 
         float sunAlt = uSunDir.y;
         float dayFactor = smoothstep(-0.12, 0.25, sunAlt);
         float twilightFactor = smoothstep(-0.22, 0.08, sunAlt) * (1.0 - smoothstep(0.05, 0.38, sunAlt));
         float nightFactor = 1.0 - smoothstep(-0.18, 0.05, sunAlt);
 
-        // Rayleigh-Mie realistic coastal sky gradient
-        vec3 dayZenith = vec3(0.045, 0.34, 0.76);
+        // Rayleigh-Mie realistic coastal sky gradient (Maldive-calibrated deep cobalt day & twilight zenith vs fiery horizon)
+        vec3 dayZenith = vec3(0.010, 0.11, 0.42);
         vec3 sunsetZenith = vec3(0.08, 0.12, 0.32);
         vec3 nightZenith = vec3(0.005, 0.012, 0.038);
 
         vec3 zenithCol = mix(nightZenith, dayZenith, dayFactor);
-        zenithCol = mix(zenithCol, sunsetZenith, twilightFactor * 0.85);
+        zenithCol = mix(zenithCol, sunsetZenith, twilightFactor * 0.88);
 
-        vec3 horizonCol = uSkyHorizonColor;
+        float sunDot = max(dot(dir, uSunDir), 0.0);
+        vec3 horizonCol = mix(uSkyHorizonColor, vec3(1.0, 0.42, 0.14), twilightFactor * pow(sunDot, 1.8) * 0.42);
 
         if (dir.y < -0.05) {
             gl_FragColor = vec4(horizonCol, 1.0);
             return;
         }
-        float horizonVisibility = smoothstep(-0.05, 0.04, dir.y);
-        float horizonGlow = pow(1.0 - y, 2.8);
+        float horizonVisibility = smoothstep(-0.05, 0.03, dir.y);
+        float horizonGlow = pow(1.0 - y, mix(5.2, 3.6, twilightFactor));
         vec3 skyCol = mix(zenithCol, horizonCol, horizonGlow);
 
-        // Mie forward scattering around the sun
-        float sunDot = max(dot(dir, uSunDir), 0.0);
-        vec3 mieTint = mix(vec3(1.0, 0.36, 0.10), vec3(1.0, 0.92, 0.78), smoothstep(-0.05, 0.35, sunAlt));
-        float mieScatter = pow(sunDot, 5.0) * (0.30 + 0.70 * twilightFactor) * smoothstep(-0.18, 0.2, sunAlt) * horizonVisibility;
-        skyCol += mieTint * mieScatter * (0.25 + 0.75 * horizonGlow);
+        // Mie forward scattering around the sun (warm red-orange aureole at sunrise/sunset)
+        vec3 mieTint = mix(vec3(1.0, 0.34, 0.08), vec3(1.0, 0.94, 0.80), smoothstep(0.0, 0.35, sunAlt));
+        float mieScatter = (pow(sunDot, 5.0) * (0.45 + 1.35 * twilightFactor) + pow(sunDot, 2.4) * 0.60 * twilightFactor) * smoothstep(-0.14, 0.18, sunAlt) * horizonVisibility;
+        skyCol += mieTint * mieScatter * (0.42 + 0.58 * horizonGlow);
 
-        // Solar disc + soft corona
-        float sunDisc = smoothstep(0.99945, 0.99985, dot(dir, uSunDir));
-        float sunCorona = pow(sunDot, 180.0) * 1.1;
-        skyCol += (sunDisc * 8.0 + sunCorona) * mieTint * smoothstep(-0.08, 0.02, sunAlt) * horizonVisibility;
+        // Solar disc + soft corona (blazing core with rich red-orange aureole, strong at sunrise/sunset)
+        float sunDisc = smoothstep(0.99925, 0.99975, dot(dir, uSunDir));
+        float sunCorona = pow(sunDot, 90.0) * (2.8 + 2.4 * twilightFactor) + pow(sunDot, 22.0) * (0.45 + 0.95 * twilightFactor);
+        vec3 discTint = mix(vec3(1.0, 0.32, 0.08), mieTint, smoothstep(0.0, 0.30, sunAlt));
+        vec3 coreTint = mix(discTint, vec3(1.0, 0.72, 0.34), sunDisc * 0.75);
+        float sunDiscPower = mix(22.0, 18.0, smoothstep(0.0, 0.30, sunAlt));
+        vec3 sunInnerCore = pow(sunDisc, 2.0) * vec3(1.0, 0.88, 0.60) * (10.0 + 6.0 * twilightFactor);
+        vec3 sunEmission = (sunDisc * sunDiscPower * coreTint + sunInnerCore + sunCorona * discTint) * smoothstep(-0.06, 0.015, sunAlt) * horizonVisibility;
+        skyCol += sunEmission;
 
         // Nighttime Milky Way Galaxy Belt, Nebulae, Starfield & Moon
         if (nightFactor > 0.01 && dir.y > -0.02) {
@@ -3524,70 +3896,62 @@ const TIGER_SKY_FRAGMENT_SHADER = `
                  0.52,  0.85, -0.10,
                 -0.30,  0.26,  0.92
             );
-            vec3 galDir = galRot * starDir;
+            vec3 galDir = normalize(galRot * starDir);
             float galLat = galDir.y;
-            vec3 galPos = galDir * vec3(2.4, 5.2, 2.4);
+            vec3 galPos = galDir * vec3(2.8, 5.6, 2.8);
 
-            vec2 galWarp = vec2(
-                fbm(galPos * 1.3 + vec3(3.1, 7.4, 0.0)),
-                fbm(galPos * 1.3 + vec3(12.8, 1.9, 0.0))
+            // True 3D non-repeating domain warp & multi-octave galactic cloud structure (zero tiled texture grid)
+            vec3 galWarp3D = vec3(
+                fbm(galPos * 1.4 + vec3(3.1, 7.4, 1.9)),
+                fbm(galPos * 1.4 + vec3(12.8, 1.9, 6.3)),
+                fbm(galPos * 1.4 + vec3(5.7, 9.2, 14.1))
             ) - 0.5;
-            vec3 warpedGalPos = galPos + vec3(galWarp, 0.0) * 0.55;
+            vec3 warpedGalPos = galPos + galWarp3D * 0.85;
 
-            float bandProfile = exp(-pow(galLat * 3.8 + galWarp.y * 0.45, 2.0));
-            float coreAlignment = dot(normalize(galDir), vec3(cos(0.45), 0.0, sin(0.45)));
-            float coreBulge = exp((coreAlignment - 1.0) * 3.2) * exp(-pow(galLat * 2.8, 2.0));
+            float bandProfile = exp(-pow(galLat * 3.8 + galWarp3D.y * 0.45, 2.0));
+            float coreAlignment = dot(galDir, vec3(cos(0.45), 0.0, sin(0.45)));
+            float coreBulge = exp((coreAlignment - 1.0) * 3.4) * exp(-pow(galLat * 2.8, 2.0));
 
-            float starCloudStructure = fbm(warpedGalPos * 1.8);
-            float fineFilaments = ridgedFbm(warpedGalPos * 3.4);
-            float darkDustRift = smoothstep(0.36, 0.66, fbm(warpedGalPos * 2.5 + vec3(5.2, -3.7, 0.0)));
-            float riftMask = darkDustRift * exp(-pow(galLat * 6.8, 2.0)) * 0.80;
+            // Organic clumpy star-clouds and ragged Great Rift dust lanes
+            float clump1 = fbm(warpedGalPos * 2.1);
+            float clump2 = fbm(warpedGalPos * 5.3 + vec3(7.1, 3.4, 9.8));
+            float starCloudStructure = pow(clamp(clump1 * 0.65 + clump2 * 0.48 - 0.14, 0.0, 1.2), 1.85);
 
-            float mwIntensity = clamp((bandProfile * (0.45 + 0.85 * starCloudStructure) + coreBulge * 0.65) * (1.0 - riftMask), 0.0, 1.4);
+            float fineFilaments = ridgedFbm(warpedGalPos * 3.8);
+            float riftBase = fbm(warpedGalPos * 2.6 + vec3(5.2, -3.7, 2.1));
+            float riftDetail = ridgedFbm(warpedGalPos * 6.4 + vec3(1.7, 8.3, -4.2));
+            float darkDustRift = smoothstep(0.34, 0.62, riftBase * 0.68 + riftDetail * 0.35);
+            float riftMask = clamp(darkDustRift * exp(-pow(galLat * 5.8, 2.0)) * 0.88 + smoothstep(0.55, 0.82, fineFilaments) * bandProfile * 0.28, 0.0, 0.94);
 
-            vec3 coreColor = vec3(1.0, 0.76, 0.52);
-            vec3 outerWingColor = vec3(0.28, 0.52, 0.96);
-            vec3 nebulaPink = vec3(0.88, 0.26, 0.58);
-            vec3 nebulaCyan = vec3(0.18, 0.78, 0.85);
+            float mwIntensity = clamp((bandProfile * (0.18 + 1.15 * starCloudStructure) + coreBulge * 0.78) * (1.0 - riftMask), 0.0, 1.55);
 
-            float nebulaSpots = pow(clamp(fbm(warpedGalPos * 4.2 + vec3(8.1, 2.3, 0.0)) - 0.42, 0.0, 1.0) * 1.8, 2.2) * bandProfile;
-            float cyanWisps = pow(clamp(fineFilaments - 0.48, 0.0, 1.0) * 1.9, 2.0) * bandProfile;
+            vec3 coreColor = vec3(1.0, 0.74, 0.42);
+            vec3 outerWingColor = vec3(0.24, 0.48, 0.98);
+            vec3 nebulaPink = vec3(0.95, 0.24, 0.58);
+            vec3 nebulaCyan = vec3(0.16, 0.82, 0.90);
 
-            vec3 galaxyCol = mix(outerWingColor, coreColor, clamp(coreBulge * 1.2 + starCloudStructure * 0.45, 0.0, 1.0)) * mwIntensity * 0.58;
-            galaxyCol += nebulaPink * nebulaSpots * (1.0 - riftMask * 0.6) * 0.85;
-            galaxyCol += nebulaCyan * cyanWisps * (1.0 - riftMask * 0.5) * 0.42;
+            // Rich, organic H-II emission nebulae & cyan filament wisps along the galactic arms
+            float nebulaPatch = smoothstep(0.32, 0.72, fbm(galPos * 1.9 + vec3(4.3, 1.1, 7.9)));
+            float nebulaSpots = pow(clamp(fbm(warpedGalPos * 4.2 + vec3(8.1, 2.3, 4.4)) - 0.44, 0.0, 1.0) * 2.0, 2.1) * bandProfile * (0.25 + 0.75 * nebulaPatch);
+            float cyanWisps = pow(clamp(fineFilaments - 0.48, 0.0, 1.0) * 2.05, 2.0) * bandProfile;
 
-            float microStarNoise = pow(hash(floor(dustUV)), 18.0) * (bandProfile * 1.5 + 0.12) * (1.0 - riftMask * 0.7) * dustSampling;
-            galaxyCol += vec3(0.86, 0.92, 1.0) * microStarNoise * 1.15;
+            vec3 galaxyCol = mix(outerWingColor, coreColor, clamp(coreBulge * 1.25 + starCloudStructure * 0.42, 0.0, 1.0)) * mwIntensity * 0.68;
+            galaxyCol += nebulaPink * nebulaSpots * (1.0 - riftMask * 0.60) * 1.05;
+            galaxyCol += nebulaCyan * cyanWisps * (1.0 - riftMask * 0.50) * 0.56;
 
             skyCol += galaxyCol * nightFactor * horizonVis;
 
-            // Twinkling stars
-            for (int layer = 0; layer < 2; layer++) {
-                float scale = (layer == 0) ? 135.0 : 220.0;
-                vec2 starUV = starBaseUV * scale + float(layer) * 41.7;
-                vec2 starCell = floor(starUV);
-                float sVal = hash(starCell);
-                float densityThreshold = mix(0.9925, 0.976, bandProfile * 0.85);
-                float starFootprint = starBaseFootprint * scale;
-                float starSampling = mix(0.45, 1.0, 1.0 - smoothstep(0.5, 1.0, starFootprint));
-                if (sVal > densityThreshold) {
-                    vec2 center = starCell + 0.3 + 0.4 * vec2(fract(sVal * 17.3), fract(sVal * 31.7));
-                    float dStar = length(starUV - center);
-                    float starEdge = min(max(starFootprint, 0.015), 0.05);
-                    float starShape = 1.0 - smoothstep(0.015 - starEdge, 0.34 + starEdge, dStar);
-                    float twinkle = 0.94 + 0.06 * sin(uTime * 0.7 + sVal * 120.0);
-                    float starSpark = starShape * twinkle * horizonVis * starSampling;
-                    vec3 starColor = mix(vec3(0.70, 0.85, 1.0), vec3(1.0, 0.88, 0.72), fract(sVal * 53.0));
-                    skyCol += starColor * starSpark * nightFactor * (layer == 0 ? 1.65 : 0.95);
-                }
-            }
+            // Unified mipmapped starfield + dense non-repeating Milky Way micro-star grain
+            vec3 starTex = textureCube(uStarTex, normalize(starDir)).rgb;
+            float starGain = mix(1.55, 2.55, bandProfile * (1.0 - riftMask * 0.75));
+            skyCol += starTex * starGain * nightFactor * horizonVis;
 
             // Crisp Moon disc & atmospheric lunar halo
             float moonDot = max(dot(dir, uMoonDir), 0.0);
-            float moonDisc = smoothstep(0.9991, 0.99955, dot(dir, uMoonDir));
-            float moonHalo = pow(moonDot, 48.0) * 0.38 + pow(moonDot, 8.0) * 0.06;
-            skyCol += vec3(0.76, 0.86, 1.0) * (moonDisc * 3.5 + moonHalo) * nightFactor;
+            float moonDisc = smoothstep(0.9989, 0.99945, dot(dir, uMoonDir));
+            float moonHalo = pow(moonDot, 42.0) * 0.72 + pow(moonDot, 10.0) * 0.14;
+            float moonVis = max(nightFactor, smoothstep(0.06, -0.06, sunAlt) * 0.65);
+            skyCol += vec3(0.84, 0.91, 1.0) * (moonDisc * 7.5 + moonHalo) * moonVis;
         }
 
         // High-altitude cloud deck with curved atmosphere projection & Beer-Powder scattering
@@ -3602,25 +3966,33 @@ const TIGER_SKY_FRAGMENT_SHADER = `
 
             if (density > 0.004) {
                 vec3 primaryLightDir = sunAlt > 0.0 ? uSunDir : uMoonDir;
-                vec2 lightStep = primaryLightDir.xz * 0.11;
-                float s1 = sampleCloudDensity(cloudUV + lightStep * 0.45, detailWeight * 0.7);
-                float s2 = sampleCloudDensity(cloudUV + lightStep * 1.15, detailWeight * 0.5);
-                float opticalDepth = (s1 * 0.58 + s2 * 0.42) * 1.35;
-                float transmittance = exp(-opticalDepth * 1.55);
-                float powder = 1.0 - exp(-density * 2.6);
+                // Directional light-march + height-gradient normal approximation for 3D volumetric puff shading
+                vec2 lightStep = primaryLightDir.xz * 0.16;
+                float s1 = sampleCloudDensity(cloudUV + lightStep * 0.45, detailWeight * 0.75);
+                float s2 = sampleCloudDensity(cloudUV + lightStep * 1.35, detailWeight * 0.50);
+                float opticalDepth = (s1 * 0.55 + s2 * 0.45) * 1.85;
+                float transmittance = exp(-opticalDepth * 1.75);
+                float powder = 1.0 - exp(-density * 3.2);
 
-                vec3 sunlitTop = mix(vec3(0.10, 0.16, 0.28), vec3(1.0, 0.99, 0.97), dayFactor);
-                sunlitTop = mix(sunlitTop, vec3(1.0, 0.65, 0.35), twilightFactor * 0.94);
+                // Directional slope toward sun/moon: positive on sun-facing crests, negative on shadowed undersides
+                float lobeSlope = clamp((density - s1) * 2.4, -1.0, 1.0);
+                float lobeLit = smoothstep(-0.55, 0.55, lobeSlope);
 
-                vec3 ambientBelly = mix(vec3(0.02, 0.035, 0.08), vec3(0.58, 0.69, 0.82), dayFactor);
-                ambientBelly = mix(ambientBelly, vec3(0.30, 0.18, 0.30), twilightFactor * 0.92);
+                vec3 sunlitTop = mix(vec3(0.10, 0.16, 0.28), vec3(1.0, 0.99, 0.96), dayFactor);
+                sunlitTop = mix(sunlitTop, vec3(1.0, 0.72, 0.38), twilightFactor * 0.94);
 
-                float lightEnergy = clamp(transmittance * (0.55 + 0.55 * powder) + (1.0 - density) * 0.32, 0.0, 1.0);
+                vec3 ambientBelly = mix(vec3(0.015, 0.028, 0.068), vec3(0.36, 0.48, 0.64), dayFactor);
+                ambientBelly = mix(ambientBelly, vec3(0.34, 0.18, 0.28), twilightFactor * 0.92);
+
+                // Combine Beer-Powder transmittance, 3D lobe slope lighting, and thin-edge translucency
+                float directLight = transmittance * mix(0.45, 1.05, lobeLit) * (0.50 + 0.60 * powder);
+                float edgeGlow = (1.0 - density) * 0.22 * (0.4 + 0.6 * transmittance);
+                float lightEnergy = clamp(directLight + edgeGlow, 0.0, 1.0);
                 vec3 cloudCol = mix(ambientBelly, sunlitTop, lightEnergy);
 
                 float hgPhase = pow(sunDot, 5.0) * smoothstep(-0.1, 0.4, sunAlt);
                 float silverLining = powder * exp(-opticalDepth * 0.80) * hgPhase;
-                cloudCol += mieTint * silverLining * 1.15;
+                cloudCol += mieTint * silverLining * (1.15 + twilightFactor * 0.65);
 
                 float moonDotCloud = max(dot(dir, uMoonDir), 0.0);
                 float lunarSilver = powder * exp(-opticalDepth * 0.8) * pow(moonDotCloud, 7.0) * nightFactor;
@@ -3629,7 +4001,7 @@ const TIGER_SKY_FRAGMENT_SHADER = `
                 float horizonFade = smoothstep(0.015, 0.20, dir.y);
                 cloudCol = mix(horizonCol, cloudCol, horizonFade);
 
-                float cloudAlpha = smoothstep(0.01, 0.38, density) * smoothstep(0.015, 0.09, dir.y) * 0.96;
+                float cloudAlpha = smoothstep(0.01, 0.24, density) * smoothstep(0.015, 0.08, dir.y);
                 skyCol = mix(skyCol, cloudCol, cloudAlpha);
             }
         }
@@ -3661,26 +4033,41 @@ function createCloudNoiseTexture() {
         const c = lattice(xa, yb, seed), d = lattice(xb, yb, seed);
         return (a + (b - a) * fx) + ((c + (d - c) * fx) - (a + (b - a) * fx)) * fy;
     };
-    const smoothBillow = (u, v, period, seed) => {
-        // Inverted smooth puff lobes (round tops, no sharp V-pinch artifacts)
-        const n = tileNoise(u, v, period, seed) * 2 - 1;
-        const r = 1.0 - Math.sqrt(n * n + 0.02);
-        return r * r;
+    // Tileable inverted Worley cellular noise (1 - minDist) for rounded puffy lobes without ridge fibers
+    const tileWorley = (u, v, period, seed) => {
+        const x = u * period, y = v * period;
+        const cx = Math.floor(x), cy = Math.floor(y);
+        let minDistSq = 4.0;
+        for (let oy = -1; oy <= 1; oy++) {
+            for (let ox = -1; ox <= 1; ox++) {
+                const gx = (((cx + ox) % period) + period) % period;
+                const gy = (((cy + oy) % period) + period) % period;
+                const px = cx + ox + lattice(gx, gy, seed);
+                const py = cy + oy + lattice(gx, gy, seed + 97);
+                const dx = px - x;
+                const dy = py - y;
+                const d2 = dx * dx + dy * dy;
+                if (d2 < minDistSq) minDistSq = d2;
+            }
+        }
+        return Math.max(0, 1.0 - Math.sqrt(minDistSq));
     };
     for (let y = 0; y < size; y++) {
         for (let x = 0; x < size; x++) {
             const u = x / size, v = y / size;
-            const masses = tileNoise(u, v, 4, 1) * 0.52 + tileNoise(u, v, 8, 2) * 0.28
+            const perlin = tileNoise(u, v, 4, 1) * 0.52 + tileNoise(u, v, 8, 2) * 0.28
                 + tileNoise(u, v, 16, 3) * 0.14 + tileNoise(u, v, 32, 4) * 0.06;
-            const billow = smoothBillow(u, v, 6, 5) * 0.52 + smoothBillow(u, v, 12, 6) * 0.30
-                + smoothBillow(u, v, 24, 7) * 0.18;
+            const worleyMacro = tileWorley(u, v, 4, 11) * 0.65 + tileWorley(u, v, 8, 12) * 0.35;
+            const masses = perlin * 0.68 + worleyMacro * 0.32;
+            const billow = tileWorley(u, v, 6, 5) * 0.55 + tileWorley(u, v, 12, 6) * 0.30
+                + tileWorley(u, v, 24, 7) * 0.15;
             const wisp = tileNoise(u, v, 10, 8) * 0.50 + tileNoise(u, v, 20, 9) * 0.32
                 + tileNoise(u, v, 40, 10) * 0.18;
             // Contrast stretch so cloud masses have clear gaps of blue sky between them
             const m = Math.min(1, Math.max(0, (masses - 0.5) * 1.65 + 0.5));
             const i = (y * size + x) * 4;
             data[i] = Math.round(m * 255);
-            data[i + 1] = Math.round(Math.min(1, Math.max(0, billow * 1.15)) * 255);
+            data[i + 1] = Math.round(Math.min(1, Math.max(0, billow * 1.12)) * 255);
             data[i + 2] = Math.round(Math.min(1, Math.max(0, wisp)) * 255);
             data[i + 3] = 255;
         }
@@ -3696,6 +4083,137 @@ function createCloudNoiseTexture() {
     return tex;
 }
 
+// Unified 6x1024x1024 mipmapped starfield CubeTexture (crisp pinpoint stars, uniform spherical distribution).
+function createStarCubeTexture() {
+    const size = 1024;
+    const faces = [];
+    const faceData = [];
+    for (let f = 0; f < 6; f++) {
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        const img = ctx.createImageData(size, size);
+        faces.push({ canvas, ctx, img });
+        faceData.push(img.data);
+    }
+
+    let seed = 0x51A7F1E1;
+    const rng = () => {
+        seed = (seed + 0x6D2B79F5) | 0;
+        let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+
+    const splatOnFace = (faceIdx, u, v, radiusPx, cr, cg, cb, intensity) => {
+        if (u < -1.04 || u > 1.04 || v < -1.04 || v > 1.04) return;
+        const data = faceData[faceIdx];
+        const cx = (u * 0.5 + 0.5) * size - 0.5;
+        const cy = (v * 0.5 + 0.5) * size - 0.5;
+        const rCeil = Math.ceil(radiusPx * 2.2);
+        const x0 = Math.max(0, Math.floor(cx - rCeil));
+        const x1 = Math.min(size - 1, Math.ceil(cx + rCeil));
+        const y0 = Math.max(0, Math.floor(cy - rCeil));
+        const y1 = Math.min(size - 1, Math.ceil(cy + rCeil));
+        const invSigma2 = 1.0 / (radiusPx * radiusPx);
+
+        for (let py = y0; py <= y1; py++) {
+            const dy = py - cy;
+            for (let px = x0; px <= x1; px++) {
+                const dx = px - cx;
+                const w = Math.exp(-(dx * dx + dy * dy) * invSigma2) * intensity;
+                if (w < 0.004) continue;
+                const idx = (py * size + px) * 4;
+                data[idx]     = Math.min(255, data[idx]     + Math.round(cr * w));
+                data[idx + 1] = Math.min(255, data[idx + 1] + Math.round(cg * w));
+                data[idx + 2] = Math.min(255, data[idx + 2] + Math.round(cb * w));
+                data[idx + 3] = 255;
+            }
+        }
+    };
+
+    const starCount = 66000;
+    for (let s = 0; s < starCount; s++) {
+        const z = rng() * 2.0 - 1.0;
+        const phi = rng() * Math.PI * 2.0;
+        const rXY = Math.sqrt(Math.max(0.0, 1.0 - z * z));
+        const dx = rXY * Math.cos(phi);
+        const dy = z;
+        const dz = rXY * Math.sin(phi);
+
+        const mag = Math.pow(rng(), 4.0);
+        const radiusPx = 0.32 + mag * 0.38;
+        const intensity = 0.22 + mag * 1.18;
+        const temp = rng();
+        const cr = temp < 0.35 ? 185 : (temp > 0.72 ? 255 : 242);
+        const cg = temp < 0.35 ? 218 : (temp > 0.72 ? 222 : 246);
+        const cb = temp < 0.35 ? 255 : (temp > 0.72 ? 178 : 255);
+
+        const ax = Math.abs(dx), ay = Math.abs(dy), az = Math.abs(dz);
+        if (dx > 0.96 * Math.max(ay, az)) splatOnFace(0, -dz / dx, -dy / dx, radiusPx, cr, cg, cb, intensity);
+        if (-dx > 0.96 * Math.max(ay, az)) splatOnFace(1, dz / -dx, -dy / -dx, radiusPx, cr, cg, cb, intensity);
+        if (dy > 0.96 * Math.max(ax, az)) splatOnFace(2, dx / dy, dz / dy, radiusPx, cr, cg, cb, intensity);
+        if (-dy > 0.96 * Math.max(ax, az)) splatOnFace(3, dx / -dy, -dz / -dy, radiusPx, cr, cg, cb, intensity);
+        if (dz > 0.96 * Math.max(ax, ay)) splatOnFace(4, dx / dz, -dy / dz, radiusPx, cr, cg, cb, intensity);
+        if (-dz > 0.96 * Math.max(ax, ay)) splatOnFace(5, -dx / -dz, -dy / -dz, radiusPx, cr, cg, cb, intensity);
+    }
+
+    // 80,000 non-repeating unresolved micro-stars concentrated along the Milky Way belt for organic astronomical grain
+    const plotMicroPixel = (faceIdx, u, v, cr, cg, cb, intensity) => {
+        if (u < -1.0 || u > 1.0 || v < -1.0 || v > 1.0) return;
+        const px = Math.min(size - 1, Math.max(0, Math.floor((u * 0.5 + 0.5) * size)));
+        const py = Math.min(size - 1, Math.max(0, Math.floor((v * 0.5 + 0.5) * size)));
+        const data = faceData[faceIdx];
+        const idx = (py * size + px) * 4;
+        data[idx]     = Math.min(255, data[idx]     + Math.round(cr * intensity));
+        data[idx + 1] = Math.min(255, data[idx + 1] + Math.round(cg * intensity));
+        data[idx + 2] = Math.min(255, data[idx + 2] + Math.round(cb * intensity));
+        data[idx + 3] = 255;
+    };
+    const microStarCount = 350000;
+    for (let s = 0; s < microStarCount; s++) {
+        const phi = rng() * Math.PI * 2.0;
+        // Concentrate around galactic plane (galLat ~ Gaussian), then rotate by inverse galRot
+        const galY = Math.max(-0.98, Math.min(0.98, (rng() + rng() + rng() - 1.5) * 0.25));
+        const rG = Math.sqrt(Math.max(0.0, 1.0 - galY * galY));
+        const gx = rG * Math.cos(phi);
+        const gz = rG * Math.sin(phi);
+        const dx = 0.80 * gx - 0.46 * galY + 0.38 * gz;
+        const dy = 0.52 * gx + 0.85 * galY - 0.10 * gz;
+        const dz = -0.30 * gx + 0.26 * galY + 0.92 * gz;
+
+        const intensity = 0.22 + Math.pow(rng(), 1.9) * 0.65;
+        const temp = rng();
+        const cr = temp < 0.32 ? 170 : (temp > 0.70 ? 255 : 235);
+        const cg = temp < 0.32 ? 208 : (temp > 0.70 ? 210 : 235);
+        const cb = temp < 0.32 ? 255 : (temp > 0.70 ? 170 : 255);
+
+        const ax = Math.abs(dx), ay = Math.abs(dy), az = Math.abs(dz);
+        if (ax >= ay && ax >= az) {
+            if (dx > 0) plotMicroPixel(0, -dz / dx, -dy / dx, cr, cg, cb, intensity);
+            else plotMicroPixel(1, dz / -dx, -dy / -dx, cr, cg, cb, intensity);
+        } else if (ay >= ax && ay >= az) {
+            if (dy > 0) plotMicroPixel(2, dx / dy, dz / dy, cr, cg, cb, intensity);
+            else plotMicroPixel(3, dx / -dy, -dz / -dy, cr, cg, cb, intensity);
+        } else {
+            if (dz > 0) plotMicroPixel(4, dx / dz, -dy / dz, cr, cg, cb, intensity);
+            else plotMicroPixel(5, -dx / -dz, -dy / -dz, cr, cg, cb, intensity);
+        }
+    }
+
+    const cubeCanvases = faces.map(f => {
+        f.ctx.putImageData(f.img, 0, 0);
+        return f.canvas;
+    });
+    const cubeTex = new THREE.CubeTexture(cubeCanvases);
+    cubeTex.minFilter = THREE.LinearMipmapLinearFilter;
+    cubeTex.magFilter = THREE.LinearFilter;
+    cubeTex.generateMipmaps = true;
+    cubeTex.needsUpdate = true;
+    return cubeTex;
+}
+
 function createMaldiveSkyDome() {
     const skyGeo = new THREE.SphereGeometry(9000, 64, 32);
     const skyMat = new THREE.ShaderMaterial({
@@ -3708,7 +4226,8 @@ function createMaldiveSkyDome() {
             uSkyRotation:     { value: 0 },
             uTime:            { value: 0 },
             uCloudCoverage:   { value: 0.42 },
-            uCloudTex:        { value: createCloudNoiseTexture() }
+            uCloudTex:        { value: createCloudNoiseTexture() },
+            uStarTex:         { value: createStarCubeTexture() }
         },
         side: THREE.BackSide,
         depthWrite: false,
@@ -4334,6 +4853,8 @@ window.getSmokeDiffuseTexture = getSmokeDiffuseTexture;
 window.createSmokeNormalTexture = createSmokeNormalTexture;
 window.getSmokeNormalTexture = getSmokeNormalTexture;
 window.createVolumetricSmokeGeometry = createVolumetricSmokeGeometry;
+window.createBillboardSmokeGeometry = createBillboardSmokeGeometry;
+window.createOpaqueBillboardSmokeMaterial = createOpaqueBillboardSmokeMaterial;
 window.createGrassTuftGeometry = createGrassTuftGeometry;
 window.createGrassMaterial = createGrassMaterial;
 window.createRiverWaterMaterial = createRiverWaterMaterial;

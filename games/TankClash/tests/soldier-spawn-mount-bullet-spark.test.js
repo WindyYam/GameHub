@@ -44,7 +44,7 @@ test('enemyAI.js onHit does not spawn smoke or deal armor damage on bullet hits 
     const onHitSnippet = aiSrc.slice(onHitIdx, onHitIdx + 800);
 
     assert.ok(onHitSnippet.includes('if (dmg <= 0)'), 'must check for non-damaging bullet hit');
-    assert.ok(onHitSnippet.includes('this.wasHitAlert = true'), 'must alert enemy AI on bullet hit');
+    assert.ok(onHitSnippet.includes('this.pendingProvokeTimer = ENEMY_HIT_PROVOKE_REACT_TIME'), 'must schedule 0.5s reaction timer on bullet hit');
     const returnIdx = onHitSnippet.indexOf('return;');
     const smokeIdx = onHitSnippet.indexOf("'smoke'");
     assert.ok(returnIdx !== -1 && (smokeIdx === -1 || returnIdx < smokeIdx), 'bullet hit must return before any smoke particles are spawned');

@@ -127,19 +127,19 @@ function onPlayerDeath() {
             z: window.playerSoldier.z,
             heading: window.playerSoldier.heading || 0
         };
-    } else if (window.playerSoldier) {
-        deathPos = {
-            x: window.playerSoldier.x,
-            y: window.playerSoldier.y || 0,
-            z: window.playerSoldier.z,
-            heading: window.playerSoldier.heading || 0
-        };
     } else if (window.tankState) {
         deathPos = {
             x: window.tankState.x,
             y: window.tankState.y || 0,
             z: window.tankState.z,
             heading: window.tankState.heading || 0
+        };
+    } else if (window.playerSoldier) {
+        deathPos = {
+            x: window.playerSoldier.x,
+            y: window.playerSoldier.y || 0,
+            z: window.playerSoldier.z,
+            heading: window.playerSoldier.heading || 0
         };
     }
     if (deathPos) {
@@ -167,8 +167,10 @@ var tracers = [];
 var particles = [];
 var dynamicFlashes = [];
 var shockwaves = [];
+var waterRipples = [];
 const dynamicFlashPool = [];
 const shockwavePool = [];
+const waterRipplePool = [];
 const particleDirection = new THREE.Vector3();
 const PARTICLE_DIRECTION_AXIS = new THREE.Vector3(0, 0, 1);
 const DYNAMIC_FLASH_POOL_SIZE = 2;
@@ -179,6 +181,8 @@ const sphereParticleGeo = new THREE.DodecahedronGeometry(1, 1);
 const sparkParticleGeo  = new THREE.BoxGeometry(0.12, 0.12, 0.35);
 const shockwaveGeo      = new THREE.RingGeometry(0.2, 1.0, 32);
 shockwaveGeo.rotateX(-Math.PI / 2);
+const waterRippleGeo    = new THREE.PlaneGeometry(2, 2);
+waterRippleGeo.rotateX(-Math.PI / 2);
 const shellCoreGeo = new THREE.CylinderGeometry(0.048, 0.048, 1.4, 8);
 const shellFlameGeo = new THREE.CylinderGeometry(0.075, 0.02, 2.4, 8);
 const tracerGeo = new THREE.CylinderGeometry(0.024, 0.024, 1.8, 6);
@@ -270,10 +274,10 @@ function prewarmParticlePools() {
         dynamicFlashPool.push(light);
     }
 
-    const smokeGeometry = window.createVolumetricSmokeGeometry
-        ? window.createVolumetricSmokeGeometry()
-        : sphereParticleGeo;
-    const baseSmokeMat = (window.createHaltonSmokeMaterial || window.createMaldiveSmokeMaterial)(0x94a3b8);
+    const smokeGeometry = window.createBillboardSmokeGeometry
+        ? window.createBillboardSmokeGeometry()
+        : (window.createVolumetricSmokeGeometry ? window.createVolumetricSmokeGeometry() : sphereParticleGeo);
+    const baseSmokeMat = (window.createOpaqueBillboardSmokeMaterial || window.createHaltonSmokeMaterial || window.createMaldiveSmokeMaterial)(0x94a3b8);
     for (let i = 0; i < 64; i++) {
         const mat = i === 0 ? baseSmokeMat : baseSmokeMat.clone();
         const mesh = new THREE.Mesh(smokeGeometry, mat);
@@ -548,6 +552,98 @@ function spawnShockwave(pos, maxRadius, duration, colorHex = 0xfde68a) {
     });
 }
 
+// Delicate, noisy expanding water surface ripple for wading/swimming soldiers and tanks
+function spawnWaterRipple(pos, maxRadius = 1.2, duration = 0.85) {
+    const currentScene = window.scene;
+    if (!currentScene) return;
+
+    const pooled = waterRipplePool.pop();
+    const mat = pooled ? pooled.mat : new THREE.ShaderMaterial({
+        uniforms: {
+            uProgress: { value: 0.0 },
+            uSeed: { value: Math.random() }
+        },
+        transparent: true,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        blending: THREE.NormalBlending,
+        vertexShader: `
+            varying vec2 vUv;
+            void main() {
+                vUv = uv;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+        `,
+        fragmentShader: `
+            uniform float uProgress;
+            uniform float uSeed;
+            varying vec2 vUv;
+
+            float hash21(vec2 p) {
+                p = fract(p * vec2(123.34, 456.21));
+                p += dot(p, p + 45.32);
+                return fract(p.x * p.y);
+            }
+
+            float vnoise(vec2 p) {
+                vec2 i = floor(p);
+                vec2 f = fract(p);
+                vec2 u = f * f * (3.0 - 2.0 * f);
+                return mix(
+                    mix(hash21(i), hash21(i + vec2(1.0, 0.0)), u.x),
+                    mix(hash21(i + vec2(0.0, 1.0)), hash21(i + vec2(1.0, 1.0)), u.x),
+                    u.y
+                );
+            }
+
+            void main() {
+                vec2 c = vUv * 2.0 - 1.0;
+                float r = length(c);
+                if (r > 1.0) discard;
+
+                float ang = atan(c.y, c.x);
+                float n1 = vnoise(c * 9.0 + vec2(uSeed * 7.1, uProgress * 1.8));
+                float n2 = vnoise(c * 22.0 - vec2(uProgress * 2.4, uSeed * 11.3));
+                float lacy = clamp(0.55 * n1 + 0.45 * n2, 0.0, 1.0);
+                float angWarp = (n1 - 0.5) * 0.055 + sin(ang * 5.0 + uSeed * 6.2831) * 0.015;
+                float rw = r + angWarp;
+
+                float rOuter = mix(0.20, 0.92, pow(uProgress, 0.60));
+                float rInner = mix(0.12, 0.70, pow(uProgress, 0.66));
+                float rTrail = mix(0.06, 0.46, pow(uProgress, 0.72));
+                float w1 = exp(-pow((rw - rOuter) / 0.045, 2.0));
+                float w2 = exp(-pow((rw - rInner) / 0.036, 2.0)) * 0.72;
+                float w3 = exp(-pow((rw - rTrail) / 0.030, 2.0)) * 0.48;
+
+                float breakup = smoothstep(0.18, 0.68, lacy);
+                float alpha = clamp((w1 + w2 + w3) * breakup, 0.0, 1.0) * pow(1.0 - uProgress, 1.15) * 0.78;
+                if (alpha < 0.01) discard;
+
+                vec3 col = mix(vec3(0.84, 0.93, 0.98), vec3(0.97, 0.99, 1.0), lacy);
+                gl_FragColor = vec4(col, alpha);
+            }
+        `
+    });
+    const mesh = pooled ? pooled.mesh : new THREE.Mesh(waterRippleGeo, mat);
+    mesh.renderOrder = -5;
+    mat.uniforms.uProgress.value = 0.0;
+    mat.uniforms.uSeed.value = Math.random();
+    mesh.visible = true;
+    mesh.position.set(pos.x, pos.y + 0.03, pos.z);
+    mesh.rotation.y = Math.random() * Math.PI * 2;
+    mesh.scale.setScalar(maxRadius);
+    if (window.excludeFromSSAO) window.excludeFromSSAO(mesh);
+    if (mesh.parent !== currentScene) currentScene.add(mesh);
+
+    waterRipples.push({
+        mesh,
+        mat,
+        maxRadius,
+        age: 0,
+        life: duration
+    });
+}
+
 // Universal Multi-Type Realistic Particle Spawner
 function spawnParticle(pos, vel, colorHex, startSize, endSize, life, isAdditive = false, type = 'smoke', extraOpts = null) {
     const currentScene = window.scene;
@@ -651,10 +747,12 @@ function spawnParticle(pos, vel, colorHex, startSize, endSize, life, isAdditive 
             }
             mesh.visible = true;
         } else {
-            mat = (window.createHaltonSmokeMaterial || window.createMaldiveSmokeMaterial)
-                ? (window.createHaltonSmokeMaterial || window.createMaldiveSmokeMaterial)(colorHex)
+            mat = (window.createOpaqueBillboardSmokeMaterial || window.createHaltonSmokeMaterial || window.createMaldiveSmokeMaterial)
+                ? (window.createOpaqueBillboardSmokeMaterial || window.createHaltonSmokeMaterial || window.createMaldiveSmokeMaterial)(colorHex)
                 : createHaltonSmokeMaterial(colorHex);
-            const smokeGeo = window.createVolumetricSmokeGeometry ? window.createVolumetricSmokeGeometry() : sphereParticleGeo;
+            const smokeGeo = window.createBillboardSmokeGeometry
+                ? window.createBillboardSmokeGeometry()
+                : (window.createVolumetricSmokeGeometry ? window.createVolumetricSmokeGeometry() : sphereParticleGeo);
             mesh = new THREE.Mesh(smokeGeo, mat);
             if (window.excludeFromSSAO) window.excludeFromSSAO(mesh);
             currentScene.add(mesh);
@@ -665,7 +763,10 @@ function spawnParticle(pos, vel, colorHex, startSize, endSize, life, isAdditive 
         mesh.renderOrder = 20;
         mesh.position.copy(pos);
         mesh.scale.setScalar(startSize);
-        mesh.rotation.set(Math.random() * 6.28, Math.random() * 6.28, Math.random() * 6.28);
+        mesh.rotation.set(0, 0, Math.random() * 6.28);
+        if (mat.uniforms && mat.uniforms.uRoll) {
+            mat.uniforms.uRoll.value = mesh.rotation.z;
+        }
 
         particles.push({
             mesh,
@@ -2225,6 +2326,9 @@ function updateParticles(dt) {
                 if (p.mat.uniforms.uAgeProgress) {
                     p.mat.uniforms.uAgeProgress.value = progress;
                 }
+                if (p.mat.uniforms.uRoll) {
+                    p.mat.uniforms.uRoll.value = p.mesh.rotation.z;
+                }
                 if (p.mat.uniforms.opacity) {
                     const fadeIn = Math.min(1.0, progress * 8.0);
                     const fadeOut = Math.max(0.0, (1.0 - progress) / 0.65);
@@ -2253,6 +2357,9 @@ function updateParticles(dt) {
             if (p.mat && p.mat.uniforms) {
                 if (p.mat.uniforms.uAgeProgress) {
                     p.mat.uniforms.uAgeProgress.value = progress;
+                }
+                if (p.mat.uniforms.uRoll) {
+                    p.mat.uniforms.uRoll.value = p.mesh.rotation.z;
                 }
                 if (p.mat.uniforms.opacity) {
                     // Rapid initial puff-in, followed by smooth volumetric dissipation
@@ -2311,6 +2418,23 @@ function updateParticles(dt) {
         const scale = THREE.MathUtils.lerp(0.3, sw.maxRadius, Math.sqrt(t));
         sw.mesh.scale.set(scale, scale, scale);
         sw.mat.opacity = Math.max(0, (1.0 - t) * 0.85);
+    }
+
+    // 4. Update Water Surface Ripples
+    for (let i = waterRipples.length - 1; i >= 0; i--) {
+        const wr = waterRipples[i];
+        wr.age += dt;
+        if (wr.age >= wr.life) {
+            wr.mesh.visible = false;
+            if (waterRipplePool.length < 48) waterRipplePool.push({ mesh: wr.mesh, mat: wr.mat });
+            else {
+                window.scene.remove(wr.mesh);
+                wr.mat.dispose();
+            }
+            waterRipples.splice(i, 1);
+            continue;
+        }
+        wr.mat.uniforms.uProgress.value = Math.min(1.0, wr.age / wr.life);
     }
 }
 
@@ -2372,6 +2496,19 @@ function clearParticles() {
         }
     }
     shockwaves.length = 0;
+
+    for (let i = waterRipples.length - 1; i >= 0; i--) {
+        const wr = waterRipples[i];
+        if (wr && wr.mesh) {
+            wr.mesh.visible = false;
+            if (waterRipplePool.length < 48) waterRipplePool.push({ mesh: wr.mesh, mat: wr.mat });
+            else {
+                if (window.scene) window.scene.remove(wr.mesh);
+                if (wr.mat && wr.mat.dispose) wr.mat.dispose();
+            }
+        }
+    }
+    waterRipples.length = 0;
 }
 
 window.clearParticles = clearParticles;
@@ -2381,8 +2518,10 @@ window.tracers = tracers;
 window.particles = particles;
 window.dynamicFlashes = dynamicFlashes;
 window.shockwaves = shockwaves;
+window.waterRipples = waterRipples;
 window.spawnDynamicFlash = spawnDynamicFlash;
 window.spawnShockwave = spawnShockwave;
+window.spawnWaterRipple = spawnWaterRipple;
 window.spawnParticle = spawnParticle;
 window.triggerHeavyDetonation = triggerHeavyDetonation;
 window.fireMainCannon = fireMainCannon;

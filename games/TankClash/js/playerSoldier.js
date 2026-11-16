@@ -713,11 +713,24 @@
         return group;
     }
 
+    function recordPlayerFireTime(s) {
+        const nowSec = (window.performance && window.performance.now) ? window.performance.now() * 0.001 : Date.now() * 0.001;
+        if (!s.lastFireTime || (nowSec - s.lastFireTime >= 3.0)) {
+            s.fireBurstStartTime = nowSec;
+        }
+        s.lastFireTime = nowSec;
+    }
+
     function throwPlayerGrenade() {
         if (playerMode !== 'soldier' || !playerSoldier || playerSoldier.isDead) return;
         const now = performance.now();
         if (playerSoldier.lastGrenadeTime && (now - playerSoldier.lastGrenadeTime < 400)) return;
         playerSoldier.lastGrenadeTime = now;
+        const nowSec = now * 0.001;
+        if (!playerSoldier.lastGrenadeTimeSec || (nowSec - playerSoldier.lastGrenadeTimeSec >= 3.0)) {
+            playerSoldier.grenadeBurstStartTime = nowSec;
+        }
+        playerSoldier.lastGrenadeTimeSec = nowSec;
 
         const s = playerSoldier;
         const rig = s.rig;
@@ -1258,9 +1271,9 @@
         s.lastJumpTime = now;
         if (isSwimmer) {
             s.vy = 3.6; // Water stroke / surface treading boost
-            if (typeof window.spawnShockwave === 'function') {
+            if (typeof window.spawnWaterRipple === 'function') {
                 const waterLvl = (typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5;
-                window.spawnShockwave(new THREE.Vector3(s.x, waterLvl + 0.02, s.z), 1.6, 0.5, 0x93c5fd);
+                window.spawnWaterRipple(new THREE.Vector3(s.x, waterLvl + 0.02, s.z), 2.2, 1.0);
             }
         } else {
             s.vy = 6.8; // Vertical velocity (~0.9m jump clearance)
@@ -1587,13 +1600,13 @@
         // Overheat check (same heat up mechanism problem as tank machine gun: blocks firing when heat >= 100)
         if ((playerSoldier.smgHeat || 0) >= 100) return;
 
-        // Rapid fire rate matching tank machine gun (cooldown 0.075s ~13.3 rounds/sec)
-        playerSoldier.fireCooldown = 0.075;
+        // High-rate submachine gun fire (cooldown 0.068s ~14.7 rounds/sec)
+        playerSoldier.fireCooldown = 0.068;
         playerSoldier.recoilKick = 0.14;
-        playerSoldier.lastFireTime = (window.performance && window.performance.now) ? window.performance.now() * 0.001 : Date.now() * 0.001;
+        recordPlayerFireTime(playerSoldier);
 
-        // Heat accumulation: same mechanism as tank MG (+1.8 per shot), but heats up faster (+3.6 per shot)
-        playerSoldier.smgHeat = Math.min(100, (playerSoldier.smgHeat || 0) + 3.6);
+        // Heat accumulation: +2.4 per shot (~42 rounds before overheat)
+        playerSoldier.smgHeat = Math.min(100, (playerSoldier.smgHeat || 0) + 2.4);
         if (window.tankState) {
             window.tankState.mgHeat = playerSoldier.smgHeat;
         }
@@ -1615,11 +1628,10 @@
         rig.rifle.getWorldQuaternion(rQuat);
         shootDir.set(0, 0, 1).applyQuaternion(rQuat).normalize();
 
-        // Submachine gun accuracy: slightly worse accuracy than rifle (0.005) and tank MG (0.015)
-        // High conical dispersion plus dynamic bloom as the gun heats up
-        const heatBloom = ((playerSoldier.smgHeat || 0) / 100) * 0.045;
-        const spreadH = 0.015 + heatBloom;
-        const spreadV = 0.025 + heatBloom;
+        // Submachine gun accuracy: controlled conical dispersion plus moderate heat bloom
+        const heatBloom = ((playerSoldier.smgHeat || 0) / 100) * 0.028;
+        const spreadH = 0.011 + heatBloom;
+        const spreadV = 0.017 + heatBloom;
         shootDir.x += (Math.random() - 0.5) * spreadH;
         shootDir.y += (Math.random() - 0.5) * spreadV;
         shootDir.normalize();
@@ -1636,7 +1648,7 @@
         if (typeof window.spawnTracerRound === 'function') {
             const tracerQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), shootDir);
             window.spawnTracerRound(muzzleWorldPos, shootDir, tracerQuat, false, {
-                damage: 22,
+                damage: 34,
                 onSoldierKilled: (targetSol) => {
                     if (typeof window.showKillFeedBanner === 'function') {
                         const sTypeLabel = targetSol && (targetSol.soldierType === 'smg' || targetSol.soldierType === 'submachine_gunner')
@@ -1659,7 +1671,7 @@
         // 6 sec reload time
         s.fireCooldown = 6.0;
         s.recoilKick = 0.65;
-        s.lastFireTime = (window.performance && window.performance.now) ? window.performance.now() * 0.001 : Date.now() * 0.001;
+        recordPlayerFireTime(s);
         s.rocketReloadStage1 = false;
         s.rocketReloadStage2 = false;
 
@@ -1735,7 +1747,7 @@
             const fireDir = emplacement.userData.barrelPivot.getWorldDirection(new THREE.Vector3()).normalize();
 
             s.fireCooldown = 2.2;
-            s.lastFireTime = (window.performance && window.performance.now) ? window.performance.now() * 0.001 : Date.now() * 0.001;
+            recordPlayerFireTime(s);
             if (window.soundFX && typeof window.soundFX.playMainCannon === 'function') {
                 window.soundFX.playMainCannon(window.currentTankId || 'tiger');
             }
@@ -1751,7 +1763,7 @@
 
         playerSoldier.fireCooldown = 0.65;
         playerSoldier.recoilKick = 0.35;
-        playerSoldier.lastFireTime = (window.performance && window.performance.now) ? window.performance.now() * 0.001 : Date.now() * 0.001;
+        recordPlayerFireTime(playerSoldier);
 
         // Gunshot audio
         if (window.soundFX && typeof window.soundFX.playRifleShot === 'function') {
@@ -1955,7 +1967,7 @@
             }
             if (!isFiring) {
                 // Cools down when not firing (same heat up mechanism problem as tank machine gun)
-                s.smgHeat = Math.max(0, (s.smgHeat || 0) - 25 * dt);
+                s.smgHeat = Math.max(0, (s.smgHeat || 0) - 32 * dt);
                 if (window.tankState) {
                     window.tankState.mgHeat = s.smgHeat;
                 }
@@ -2170,12 +2182,12 @@
             // Water displacement & ripple VFX when moving through water
             if (isSwimming || isWading) {
                 s.swimSplashTimer = (s.swimSplashTimer || 0) + dt;
-                const splashInterval = isSprinting ? 0.30 : 0.45;
+                const splashInterval = isSprinting ? 0.26 : 0.38;
                 if (s.swimSplashTimer >= splashInterval) {
                     s.swimSplashTimer = 0;
-                    if (typeof window.spawnShockwave === 'function') {
+                    if (typeof window.spawnWaterRipple === 'function') {
                         const ripplePos = new THREE.Vector3(s.x, WATER_LEVEL + 0.02, s.z);
-                        window.spawnShockwave(ripplePos, isSwimming ? (isSprinting ? 1.8 : 1.3) : 0.85, 0.65, 0x93c5fd);
+                        window.spawnWaterRipple(ripplePos, isSwimming ? (isSprinting ? 2.4 : 1.9) : 1.45, 1.1);
                     }
                 }
             }

@@ -2275,6 +2275,19 @@
         return !!(window.multiplayerState && window.multiplayerState.isActive && window.multiplayerState.isHost);
     }
 
+    const SOLDIER_SHOOT_NOTICE_REACT_TIME = 1.0;
+    const SOLDIER_HIT_PROVOKE_REACT_TIME = 0.5;
+
+    function hasPlayerSoldierFiredRecently(ps, nowSec) {
+        if (!ps) return false;
+        const fireStart = (typeof ps.fireBurstStartTime === 'number') ? ps.fireBurstStartTime : (ps.lastFireTime || 0);
+        const firedGun = Boolean(ps.lastFireTime && (nowSec - ps.lastFireTime < 3.0) && (nowSec - fireStart >= SOLDIER_SHOOT_NOTICE_REACT_TIME));
+        const grenSec = ps.lastGrenadeTimeSec || 0;
+        const grenStart = (typeof ps.grenadeBurstStartTime === 'number') ? ps.grenadeBurstStartTime : grenSec;
+        const threwGren = Boolean(grenSec && (nowSec - grenSec < 3.0) && (nowSec - grenStart >= SOLDIER_SHOOT_NOTICE_REACT_TIME));
+        return firedGun || threwGren;
+    }
+
     function getNearestAlivePlayerForSoldier(sx, sz) {
         let best = null;
         let bestDist = Infinity;
@@ -2291,7 +2304,7 @@
                 y: (ps.y || 0) + 1.2,
                 z: ps.z,
                 dist: d,
-                firedRecently: (nowSec - (ps.lastFireTime || 0) < 3.0) || (nowSec - (ps.lastGrenadeTime || 0) < 3.0)
+                firedRecently: hasPlayerSoldierFiredRecently(ps, nowSec)
             };
         } else if (window.tankState && !window.tankState.isKnockedOut && window.tankState.hasTank !== false) {
             const ts = window.tankState;
@@ -2325,6 +2338,96 @@
             });
         }
         return best;
+    }
+
+    const SOLDIER_LOD_CACHE = {};
+
+    function mergeSoldierLodBucket(geos) {
+        if (geos.length === 1) return geos[0];
+        let totalVerts = 0;
+        let hasColor = false;
+        const normGeos = geos.map((g) => {
+            const ni = g.index ? g.toNonIndexed() : g;
+            if (!ni.attributes.normal) ni.computeVertexNormals();
+            if (ni.attributes.color) hasColor = true;
+            totalVerts += ni.attributes.position.count;
+            return { ni, orig: g };
+        });
+        const pos = new Float32Array(totalVerts * 3);
+        const norm = new Float32Array(totalVerts * 3);
+        const uv = new Float32Array(totalVerts * 2);
+        const col = hasColor ? new Float32Array(totalVerts * 3) : null;
+        let offset = 0;
+        for (let i = 0; i < normGeos.length; i++) {
+            const { ni, orig } = normGeos[i];
+            const p = ni.attributes.position;
+            const n = ni.attributes.normal;
+            const u = ni.attributes.uv;
+            const c = ni.attributes.color;
+            const count = p.count;
+            pos.set(p.array, offset * 3);
+            norm.set(n.array, offset * 3);
+            if (u) uv.set(u.array, offset * 2);
+            if (col) {
+                if (c) col.set(c.array, offset * 3);
+                else col.fill(1.0, offset * 3, (offset + count) * 3);
+            }
+            offset += count;
+            if (ni !== orig) ni.dispose();
+            orig.dispose();
+        }
+        const out = new THREE.BufferGeometry();
+        out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        out.setAttribute('normal', new THREE.BufferAttribute(norm, 3));
+        out.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+        if (col) out.setAttribute('color', new THREE.BufferAttribute(col, 3));
+        out.computeBoundingSphere();
+        return out;
+    }
+
+    function getSoldierLodParts(faction, soldierType, rig) {
+        const key = `${faction || 'german'}_${soldierType || 'rifle'}`;
+        if (SOLDIER_LOD_CACHE[key]) return SOLDIER_LOD_CACHE[key];
+
+        // Bake the real posed rig grouped by its exact campaign/faction materials
+        const savedPos = rig.root.position.clone();
+        const savedRot = rig.root.rotation.clone();
+        rig.root.position.set(0, 0, 0);
+        rig.root.rotation.set(0, 0, 0);
+        rig.root.updateMatrixWorld(true);
+
+        const invRoot = new THREE.Matrix4().copy(rig.root.matrixWorld).invert();
+        const relMat = new THREE.Matrix4();
+        const buckets = new Map();
+
+        const walk = (node) => {
+            if (!node || !node.visible) return;
+            if (node.isMesh && node.geometry && node.material) {
+                const mat = Array.isArray(node.material) ? node.material[0] : node.material;
+                if (mat) {
+                    relMat.multiplyMatrices(invRoot, node.matrixWorld);
+                    const g = node.geometry.clone();
+                    g.applyMatrix4(relMat);
+                    if (!buckets.has(mat)) buckets.set(mat, []);
+                    buckets.get(mat).push(g);
+                }
+            }
+            for (let i = 0; i < node.children.length; i++) {
+                walk(node.children[i]);
+            }
+        };
+        if (rig.hips) walk(rig.hips);
+
+        rig.root.position.copy(savedPos);
+        rig.root.rotation.copy(savedRot);
+        rig.root.updateMatrixWorld(true);
+
+        const parts = [];
+        buckets.forEach((geos, mat) => {
+            if (geos.length > 0) parts.push({ geo: mergeSoldierLodBucket(geos), mat });
+        });
+        SOLDIER_LOD_CACHE[key] = parts;
+        return parts;
     }
 
     class SoldierAI {
@@ -2385,10 +2488,29 @@
 
             const targetScene = window.scene || null;
             if (targetScene) targetScene.add(this.rig.root);
+
+            this.lodGroup = new THREE.Group();
+            this.lodGroup.visible = false;
+            const lodParts = getSoldierLodParts(this.faction, this.soldierType, this.rig);
+            this._lodMeshes = [];
+            for (let li = 0; li < lodParts.length; li++) {
+                const lm = new THREE.Mesh(lodParts[li].geo, lodParts[li].mat);
+                lm.castShadow = true;
+                lm.receiveShadow = true;
+                this.lodGroup.add(lm);
+                this._lodMeshes.push(lm);
+            }
+            this.rig.root.add(this.lodGroup);
+            this._isLodActive = false;
         }
 
         update(dt, playerX, playerZ, nowSec) {
             if (this.isDead) {
+                if (this._isLodActive) {
+                    this._isLodActive = false;
+                    if (this.rig.hips) this.rig.hips.visible = true;
+                    if (this.lodGroup) this.lodGroup.visible = false;
+                }
                 if (typeof window.updateSoldierDeathAnimation === 'function') {
                     window.updateSoldierDeathAnimation(this, dt);
                 }
@@ -2548,9 +2670,22 @@
             this.rig.root.position.set(this.x, this.y, this.z);
             this.rig.root.rotation.y = this.heading;
 
-            // 4. Procedural Joint Animation (Cull detailed bones if far away or off-camera)
-            const isFar = (distToPlayer > 135 && !this.currentTarget) || (distToPlayer > 60);
-            this.animateJoints(isFar, dt);
+            // 4. Procedural Joint Animation & Material-Baked Soldier LOD (> 48m)
+            const useLod = distToPlayer > 48;
+            if (useLod !== this._isLodActive) {
+                this._isLodActive = useLod;
+                if (this.rig && this.rig.hips) this.rig.hips.visible = !useLod;
+                if (this.lodGroup) this.lodGroup.visible = useLod;
+            }
+            if (useLod && this._lodMeshes) {
+                const castS = distToPlayer <= 110;
+                for (let li = 0; li < this._lodMeshes.length; li++) {
+                    this._lodMeshes[li].castShadow = castS;
+                }
+            } else {
+                const isFar = (distToPlayer > 135 && !this.currentTarget) || (distToPlayer > 60);
+                this.animateJoints(isFar, dt);
+            }
         }
 
         evaluateCombatTarget(playerX, playerZ, distToPlayer, dt = 0.016) {
@@ -2573,7 +2708,7 @@
                 const isPlayerOnFoot = (window.playerMode === 'soldier' && window.playerSoldier && !window.playerSoldier.isDead);
                 const nowSec = (window.performance && window.performance.now) ? window.performance.now() * 0.001 : Date.now() * 0.001;
                 const ps = isPlayerOnFoot ? window.playerSoldier : null;
-                const playerFiredRecently = ps ? ((nowSec - (ps.lastFireTime || 0) < 3.0) || (nowSec - (ps.lastGrenadeTime || 0) < 3.0)) : false;
+                const playerFiredRecently = hasPlayerSoldierFiredRecently(ps, nowSec);
                 const normalDetectDist = isPlayerOnFoot ? (playerFiredRecently ? 80 : (22 * 1.2)) : (155 * 1.2);
                 const inDetectRange = (dP < normalDetectDist);
 
@@ -3006,29 +3141,13 @@
             if (this.health <= 0) {
                 this.die(isRemote);
             } else if (this.isEnemy) {
-                // When enemy soldier is hit: immediately detect player and track until losing track.
-                // Standard AI logic governs firing cadence (fireCooldown) and facing alignment.
-                this.alertOnHitTimer = 8.0;
-                this.provokedTimer = 5.0;
-                this.losTimer = 0;
-                if (window.playerMode === 'soldier' && window.playerSoldier && !window.playerSoldier.isDead) {
-                    const ps = window.playerSoldier;
-                    this.currentTarget = {
-                        type: 'soldier',
-                        ref: ps,
-                        x: ps.x,
-                        y: ps.y + 1.2,
-                        z: ps.z,
-                        dist: Math.hypot(ps.x - this.x, ps.z - this.z)
-                    };
-                } else if (window.tankState && !window.tankState.isKnockedOut && window.tankState.hasTank !== false) {
-                    this.currentTarget = {
-                        type: 'tank',
-                        x: window.tankState.x,
-                        y: (window.tankState.y || 0) + 1.2,
-                        z: window.tankState.z,
-                        dist: Math.hypot(window.tankState.x - this.x, window.tankState.z - this.z)
-                    };
+                // When enemy soldier is hit: 0.5s reaction time before noticing and provoking (refresh immediately if already alerted).
+                if (this.alertOnHitTimer > 0) {
+                    this.alertOnHitTimer = 8.0;
+                    this.provokedTimer = 5.0;
+                    this.losTimer = 0;
+                } else if (typeof this.pendingProvokeTimer !== 'number' || this.pendingProvokeTimer <= 0 || this.pendingProvokeTimer > SOLDIER_HIT_PROVOKE_REACT_TIME) {
+                    this.pendingProvokeTimer = SOLDIER_HIT_PROVOKE_REACT_TIME;
                 }
                 if (typeof window.provokeNearbyEnemies === 'function') window.provokeNearbyEnemies(this);
             }

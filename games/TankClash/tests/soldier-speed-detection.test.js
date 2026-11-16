@@ -16,8 +16,8 @@ test('playerSoldier.js sets default keyboard WASD speed to max run (5.2) and shi
 test('enemyAI.js increases enemy detection range by 1.2 and alerts/engages on hit while obeying basic AI firing logic', () => {
     const aiSrc = readScript('enemyAI.js');
     assert.ok(aiSrc.includes('* 1.2'), 'enemyAI.js must scale detect ranges by 1.2');
-    assert.ok(aiSrc.includes('this.wasHitAlert = true'), 'enemyAI.js onHit must set wasHitAlert');
-    assert.ok(aiSrc.includes("this.state = 'ENGAGING'"), 'enemyAI.js onHit must switch state to ENGAGING');
+    assert.ok(aiSrc.includes('ENEMY_HIT_PROVOKE_REACT_TIME = 0.5'), 'enemyAI.js must use 0.5s reaction time on hit');
+    assert.ok(aiSrc.includes("this.pendingProvokeTimer = ENEMY_HIT_PROVOKE_REACT_TIME") && aiSrc.includes("e.state = 'ENGAGING'"), 'enemyAI.js onHit must schedule pendingProvokeTimer to switch state to ENGAGING');
 
     const onHitIdx = aiSrc.indexOf('onHit(impactPos, hitDir');
     const onHitSnippet = aiSrc.slice(onHitIdx, onHitIdx + 300);
@@ -30,8 +30,8 @@ test('enemyAI.js increases enemy detection range by 1.2 and alerts/engages on hi
 test('soldiers.js increases detection ranges by 1.2 and alerts/engages on hit while obeying basic AI firing logic', () => {
     const soldiersSrc = readScript('soldiers.js');
     assert.ok(soldiersSrc.includes('* 1.2'), 'soldiers.js must scale detect ranges by 1.2');
-    assert.ok(soldiersSrc.includes('this.alertOnHitTimer = 8.0'), 'soldiers.js takeDamage must set alertOnHitTimer');
-    assert.ok(soldiersSrc.includes("this.currentTarget = {"), 'soldiers.js takeDamage must immediately acquire currentTarget');
+    assert.ok(soldiersSrc.includes('this.alertOnHitTimer = 8.0'), 'soldiers.js takeDamage must set alertOnHitTimer when already alerted');
+    assert.ok(soldiersSrc.includes('SOLDIER_HIT_PROVOKE_REACT_TIME = 0.5'), 'soldiers.js takeDamage must use 0.5s reaction time before provoking');
 
     const dmgIdx = soldiersSrc.indexOf('takeDamage(amount)');
     const dmgSnippet = soldiersSrc.slice(dmgIdx, dmgIdx + 500);

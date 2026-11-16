@@ -33,11 +33,12 @@ let activeCamera = perspCamera;
 window.activeCamera = activeCamera;
 
 // 3. WebGL High-Performance Renderer
-const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
+const _isMobileRenderer = (typeof isMobileBrowser === 'function' && isMobileBrowser()) || (typeof isMobileDevice === 'function' && isMobileDevice());
+const renderer = new THREE.WebGLRenderer({ antialias: !_isMobileRenderer, powerPreference: 'high-performance' });
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1));
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = _isMobileRenderer ? THREE.PCFShadowMap : THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.95;
 renderer.outputEncoding = THREE.sRGBEncoding;
@@ -133,17 +134,6 @@ const steelEnvMap = generateSteelEnvironmentMap();
 scene.environment = steelEnvMap;
 window.steelEnvMap = steelEnvMap;
 
-const composer = new THREE.EffectComposer(renderer);
-composer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1));
-if (composer.renderTarget1) composer.renderTarget1.texture.encoding = THREE.sRGBEncoding;
-if (composer.renderTarget2) composer.renderTarget2.texture.encoding = THREE.sRGBEncoding;
-const ssaoPass = new THREE.SSAOPass(scene, perspCamera, window.innerWidth, window.innerHeight);
-ssaoPass.kernelRadius = 4;
-ssaoPass.minDistance = 0.005;
-ssaoPass.maxDistance = 0.12;
-composer.addPass(ssaoPass);
-window.ssaoPass = ssaoPass;
-
 const SSAO_FX_LAYER = 1;
 window.SSAO_FX_LAYER = SSAO_FX_LAYER;
 function excludeFromSSAO(object) {
@@ -151,66 +141,8 @@ function excludeFromSSAO(object) {
 }
 window.excludeFromSSAO = excludeFromSSAO;
 
-class FXCompositePass extends THREE.Pass {
-    constructor(scene) {
-        super();
-        this.scene = scene;
-        this.needsSwap = true;
-        this.copyMaterial = new THREE.ShaderMaterial({
-            uniforms: THREE.UniformsUtils.clone(THREE.CopyShader.uniforms),
-            vertexShader: THREE.CopyShader.vertexShader,
-            fragmentShader: THREE.CopyShader.fragmentShader,
-            depthTest: false,
-            depthWrite: false
-        });
-        this.fullScreenQuad = new THREE.FullScreenQuad(this.copyMaterial);
-    }
-
-    render(renderer, writeBuffer, readBuffer) {
-        const camera = ssaoPass.camera;
-        const oldTarget = renderer.getRenderTarget();
-        const oldAutoClear = renderer.autoClear;
-        const oldCameraMask = camera.layers.mask;
-        const oldOverrideMaterial = this.scene.overrideMaterial;
-        const oldBackground = this.scene.background;
-
-        try {
-            renderer.autoClear = false;
-
-            // SSAOPass already rendered scene depth; retain it while replacing beauty with AO.
-            renderer.setRenderTarget(ssaoPass.beautyRenderTarget);
-            this.copyMaterial.uniforms.tDiffuse.value = readBuffer.texture;
-            this.fullScreenQuad.render(renderer);
-
-            this.scene.background = null;
-            camera.layers.set(SSAO_FX_LAYER);
-            renderer.render(this.scene, camera);
-
-            renderer.setRenderTarget(this.renderToScreen ? null : writeBuffer);
-            this.copyMaterial.uniforms.tDiffuse.value = ssaoPass.beautyRenderTarget.texture;
-            this.fullScreenQuad.render(renderer);
-        } finally {
-            this.scene.overrideMaterial = oldOverrideMaterial;
-            this.scene.background = oldBackground;
-            camera.layers.mask = oldCameraMask;
-            renderer.autoClear = oldAutoClear;
-            renderer.setRenderTarget(oldTarget);
-        }
-    }
-
-    dispose() {
-        this.copyMaterial.dispose();
-        this.fullScreenQuad.dispose();
-    }
-
-    setSize(width, height) {}
-}
-
-const fxCompositePass = new FXCompositePass(scene);
-composer.addPass(fxCompositePass);
-
 // 4. Atmospheric Battlefield Lighting: one hemisphere light plus one directional light (sun by day, moon by night)
-const hemiLight = new THREE.HemisphereLight(0xfff7ed, 0x526b38, 0.50);
+const hemiLight = new THREE.HemisphereLight(0xfff7ed, 0x526b38, 0.60);
 scene.add(hemiLight);
 
 // ============================================================================
@@ -218,21 +150,21 @@ scene.add(hemiLight);
 // ============================================================================
 const dayNight = {
     time: 12.0,        // Current hour (0.00 to 24.00, starts at midday)
-    speed: 0.02,       // Progress rate (~20 minutes per 24-hour cycle)
+    speed: 1 / 60,     // Progress rate (1 in-game minute per real-world second; 24 minutes per 24-hour cycle)
     paused: false,
     phase: 'Day',
     setTime(h) {
         this.time = (h % 24 + 24) % 24;
     },
     cycleNext() {
-        if (this.time >= 5.5 && this.time < 16.5) {
-            this.time = 18.2; // Sunset
-        } else if (this.time >= 16.5 && this.time < 20.2) {
-            this.time = 22.5; // Moonlit Night
-        } else if (this.time >= 20.2 || this.time < 4.5) {
-            this.time = 5.5;  // Dawn / Sunrise
+        if (this.time >= 4.0 && this.time < 9.0) {
+            this.time = 12.0; // Midday
+        } else if (this.time >= 9.0 && this.time < 16.5) {
+            this.time = 17.6; // Golden Hour Sunset
+        } else if (this.time >= 16.5 && this.time < 21.5) {
+            this.time = 0.0;  // Midnight
         } else {
-            this.time = 11.5; // Midday
+            this.time = 6.4;  // Golden Hour Sunrise
         }
     }
 };
@@ -241,15 +173,15 @@ window.dayNight = dayNight;
 // Physically calibrated 24-hour celestial color palette (Mediterranean Seaside Countryside fidelity)
 const DAY_NIGHT_COLORS = {
     noonSun:     new THREE.Color(0xfff6eb),
-    goldenHour:  new THREE.Color(0xff7a32),
-    dayTop:      new THREE.Color(0x1958aa),
-    dayHor:      new THREE.Color(0x82b6e5),
+    goldenHour:  new THREE.Color(0xff6524),
+    dayTop:      new THREE.Color(0x09357a),
+    dayHor:      new THREE.Color(0x4c8dd4),
     sunTop:      new THREE.Color(0x16193b),
-    sunHor:      new THREE.Color(0xe05a1e),
+    sunHor:      new THREE.Color(0xe85d22),
     nitTop:      new THREE.Color(0x03091e),
-    nitHor:      new THREE.Color(0x0d1b35),
+    nitHor:      new THREE.Color(0x112240),
     groundDay:   new THREE.Color(0x56733a),
-    groundNight: new THREE.Color(0x141f16)
+    groundNight: new THREE.Color(0x1e2f23)
 };
 
 const sunLight = new THREE.DirectionalLight(0xfff1db, 1.45);
@@ -392,13 +324,19 @@ function clearShadowMapToWhite(shadow) {
 function updateCelestialShadows(shadowsActive) {
     const shadow = sunLight.shadow;
     const farShadow = farShadowLight.shadow;
+    const isReducedGfx = (typeof window.getGraphicsMode === 'function' && window.getGraphicsMode() !== 'high');
     if (shadowsActive) {
         shadow.autoUpdate = true;
-        if (!farShadowWasActive || (farShadowFrameCounter & 3) === 0) {
-            farShadow.needsUpdate = true;
+        if (isReducedGfx) {
+            farShadowWasActive = false;
+            if (farShadow.map) clearShadowMapToWhite(farShadow);
+        } else {
+            if (!farShadowWasActive || (farShadowFrameCounter & 3) === 0) {
+                farShadow.needsUpdate = true;
+            }
+            farShadowFrameCounter++;
+            farShadowWasActive = true;
         }
-        farShadowFrameCounter++;
-        farShadowWasActive = true;
         return;
     }
     farShadowWasActive = false;
@@ -454,6 +392,17 @@ const tank = (typeof window.buildTankById === 'function')
     ? window.buildTankById(initialCampaign, scene, mats) 
     : (typeof buildTigerTank === 'function' ? buildTigerTank(scene, mats) : null);
 window.tankModel = tank;
+if (tank && tank.tankRoot) {
+    tank.tankRoot.traverse((obj) => {
+        if (!obj.isMesh || obj.isInstancedMesh || !obj.geometry) return;
+        if (!obj.geometry.boundingBox) obj.geometry.computeBoundingBox();
+        const bb = obj.geometry.boundingBox;
+        if (bb && Math.max(bb.max.x - bb.min.x, bb.max.y - bb.min.y, bb.max.z - bb.min.z) < 0.25) {
+            obj.castShadow = false;
+            obj.receiveShadow = false;
+        }
+    });
+}
 if (window.tankRoot) {
     window.tankRoot.visible = false;
     window.tankRoot.position.set(0, -9999, 0);
@@ -654,7 +603,7 @@ function updateSimulation(dt) {
     tankState.x += Math.sin(tankState.heading) * horizSpeed * dt;
     tankState.z += Math.cos(tankState.heading) * horizSpeed * dt;
 
-        // Kick up realistic billowing track dust plumes and dirt clods when driving in the wild
+    // Kick up realistic billowing track dust plumes and dirt clods (or water ripples in water) when driving in the wild
     if (window.environmentMode === 'wild') {
         const absSpeed = Math.abs(tankState.speed);
         const absTurn = Math.abs(tankState.turnRate);
@@ -662,50 +611,75 @@ function updateSimulation(dt) {
 
         if (isMoving) {
             const moveIntensity = Math.min(1.0, absSpeed / 8.0 + absTurn * 0.9);
-            const dustSpawnRate = 3.5 + moveIntensity * 9.5;
-            if (Math.random() < 1.0 - Math.exp(-dustSpawnRate * dt)) {
-                const trackOffset = (tankState.currentTankSpec && tankState.currentTankSpec.id === 'kingtiger') ? 1.48 : ((tankState.currentTankSpec && tankState.currentTankSpec.id === 'tiger') ? 1.38 : ((tankState.currentTankSpec && (tankState.currentTankSpec.id === 'pershing' || tankState.currentTankSpec.id === 'kv2')) ? 1.36 : 1.20));
-                const baseDustCol = (window.currentZoneConfig && window.currentZoneConfig.trackDustColor) ? window.currentZoneConfig.trackDustColor : 0x5c4d3c;
+            const waterLvl = (typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5;
+            const groundY = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(tankState.x, tankState.z) : tankState.y;
+            const inWater = groundY < waterLvl - 0.05;
+            const trackOffset = (tankState.currentTankSpec && tankState.currentTankSpec.id === 'kingtiger') ? 1.48 : ((tankState.currentTankSpec && tankState.currentTankSpec.id === 'tiger') ? 1.38 : ((tankState.currentTankSpec && (tankState.currentTankSpec.id === 'pershing' || tankState.currentTankSpec.id === 'kv2')) ? 1.36 : 1.20));
 
-                [-trackOffset, trackOffset].forEach((sideX) => {
-                    // Rear track ground kick-up contact point
-                    const kickZ = -2.35 - Math.random() * 0.5;
-                    const kickPos = new THREE.Vector3(sideX + (Math.random() - 0.5) * 0.15, -0.85, kickZ);
-                    hullGroup.localToWorld(kickPos);
-
-                    // Direction of kick: backward relative to tank motion + sideways wake dispersion
-                    const heading = tankState.heading;
+            if (inWater) {
+                tankState.waterRippleTimer = (tankState.waterRippleTimer || 0) + dt;
+                const rippleInterval = Math.max(0.18, 0.40 - moveIntensity * 0.18);
+                if (tankState.waterRippleTimer >= rippleInterval && typeof window.spawnWaterRipple === 'function') {
+                    tankState.waterRippleTimer = 0;
                     const fwdSign = Math.sign(tankState.speed || 1);
-                    const kickVel = new THREE.Vector3(
-                        -Math.sin(heading) * fwdSign * (absSpeed * 0.45 + 0.6) + (sideX > 0 ? 0.7 : -0.7) * (absTurn * 1.8 + 0.4) + (Math.random() - 0.5) * 1.2,
-                        0.45 + Math.random() * 0.95 + absSpeed * 0.10,
-                        -Math.cos(heading) * fwdSign * (absSpeed * 0.45 + 0.6) + (Math.random() - 0.5) * 1.2
+                    const bowPos = new THREE.Vector3(
+                        tankState.x + Math.sin(tankState.heading) * fwdSign * 1.6,
+                        waterLvl + 0.02,
+                        tankState.z + Math.cos(tankState.heading) * fwdSign * 1.6
                     );
-
-                    // Color variation per puff for visual richness
-                    const colVar = 0.94 + Math.random() * 0.12;
-                    const r = Math.min(255, Math.floor(((baseDustCol >> 16) & 255) * colVar));
-                    const g = Math.min(255, Math.floor(((baseDustCol >> 8) & 255) * colVar));
-                    const b = Math.min(255, Math.floor((baseDustCol & 255) * colVar));
-                    const puffCol = (r << 16) | (g << 8) | b;
-
-                    const startSize = 0.32 + Math.random() * 0.25;
-                    const endSize = 2.0 + moveIntensity * 2.2 + Math.random() * 0.8;
-                    const life = 1.1 + Math.random() * 0.7;
-
-                    spawnParticle(kickPos, kickVel, puffCol, startSize, endSize, life, false, 'dust', {
-                        maxOpacity: 0.72 + moveIntensity * 0.14,
-                        drag: 0.91,
-                        buoyancy: -0.08
+                    window.spawnWaterRipple(bowPos, 3.6 + moveIntensity * 2.0, 1.35);
+                    [-trackOffset, trackOffset].forEach((sideX) => {
+                        const sidePos = new THREE.Vector3(sideX, 0, -1.5);
+                        hullGroup.localToWorld(sidePos);
+                        sidePos.y = waterLvl + 0.02;
+                        window.spawnWaterRipple(sidePos, 2.4 + moveIntensity * 1.4, 1.15);
                     });
+                }
+            } else {
+                const dustSpawnRate = 3.5 + moveIntensity * 9.5;
+                if (Math.random() < 1.0 - Math.exp(-dustSpawnRate * dt)) {
+                    const baseDustCol = (window.currentZoneConfig && window.currentZoneConfig.trackDustColor) ? window.currentZoneConfig.trackDustColor : 0x5c4d3c;
 
-                    // Occasional heavier coarse dirt clods tumbling from tracks
-                    if (Math.random() < 0.20 && absSpeed > 1.2) {
-                        const clodVel = kickVel.clone().multiplyScalar(1.5);
-                        clodVel.y = 1.6 + Math.random() * 2.0;
-                        spawnParticle(kickPos, clodVel, baseDustCol, 0.12, 0.30, 0.75 + Math.random() * 0.5, false, 'dirt');
-                    }
-                });
+                    [-trackOffset, trackOffset].forEach((sideX) => {
+                        // Rear track ground kick-up contact point
+                        const kickZ = -2.35 - Math.random() * 0.5;
+                        const kickPos = new THREE.Vector3(sideX + (Math.random() - 0.5) * 0.15, -0.85, kickZ);
+                        hullGroup.localToWorld(kickPos);
+
+                        // Direction of kick: backward relative to tank motion + sideways wake dispersion
+                        const heading = tankState.heading;
+                        const fwdSign = Math.sign(tankState.speed || 1);
+                        const kickVel = new THREE.Vector3(
+                            -Math.sin(heading) * fwdSign * (absSpeed * 0.45 + 0.6) + (sideX > 0 ? 0.7 : -0.7) * (absTurn * 1.8 + 0.4) + (Math.random() - 0.5) * 1.2,
+                            0.45 + Math.random() * 0.95 + absSpeed * 0.10,
+                            -Math.cos(heading) * fwdSign * (absSpeed * 0.45 + 0.6) + (Math.random() - 0.5) * 1.2
+                        );
+
+                        // Color variation per puff for visual richness
+                        const colVar = 0.94 + Math.random() * 0.12;
+                        const r = Math.min(255, Math.floor(((baseDustCol >> 16) & 255) * colVar));
+                        const g = Math.min(255, Math.floor(((baseDustCol >> 8) & 255) * colVar));
+                        const b = Math.min(255, Math.floor((baseDustCol & 255) * colVar));
+                        const puffCol = (r << 16) | (g << 8) | b;
+
+                        const startSize = 0.32 + Math.random() * 0.25;
+                        const endSize = 2.0 + moveIntensity * 2.2 + Math.random() * 0.8;
+                        const life = 1.1 + Math.random() * 0.7;
+
+                        spawnParticle(kickPos, kickVel, puffCol, startSize, endSize, life, false, 'dust', {
+                            maxOpacity: 0.72 + moveIntensity * 0.14,
+                            drag: 0.91,
+                            buoyancy: -0.08
+                        });
+
+                        // Occasional heavier coarse dirt clods tumbling from tracks
+                        if (Math.random() < 0.20 && absSpeed > 1.2) {
+                            const clodVel = kickVel.clone().multiplyScalar(1.5);
+                            clodVel.y = 1.6 + Math.random() * 2.0;
+                            spawnParticle(kickPos, clodVel, baseDustCol, 0.12, 0.30, 0.75 + Math.random() * 0.5, false, 'dirt');
+                        }
+                    });
+                }
             }
         }
     }
@@ -1365,7 +1339,7 @@ function updateSimulation(dt) {
 
     // Single directional light: sun by day, moon by night
     const lightDist = 95.0;
-    const isSunActive = (sunY > -0.05);
+    const isSunActive = (sunY >= 0.0);
     const celestialDir = isSunActive ? sunDir : moonDir;
     const focusX = (window.playerMode === 'soldier' && window.playerSoldier) ? window.playerSoldier.x : tankState.x;
     const focusY = (window.playerMode === 'soldier' && window.playerSoldier) ? window.playerSoldier.y : tankState.y;
@@ -1387,9 +1361,11 @@ function updateSimulation(dt) {
     const nightFactor = 1.0 - THREE.MathUtils.smoothstep(sunY, -0.14, 0.04);
 
     // Sun & moon directional lighting (Calibrated for physically based ACESFilmic exposure)
-    const sunCol = DAY_NIGHT_COLORS.noonSun.clone().lerp(DAY_NIGHT_COLORS.goldenHour, twilightFactor * 0.92);
-    const sunIntensity = Math.max(0.0, THREE.MathUtils.smoothstep(sunY, -0.06, 0.28) * 1.48 + twilightFactor * 0.58);
-    const moonIntensity = nightFactor * 0.65;
+    const sunCol = DAY_NIGHT_COLORS.noonSun.clone().lerp(DAY_NIGHT_COLORS.goldenHour, Math.min(1.0, twilightFactor * 1.05));
+    const sunHorizonFade = THREE.MathUtils.smoothstep(sunY, -0.015, 0.035);
+    const sunIntensity = Math.max(0.0, THREE.MathUtils.smoothstep(sunY, -0.06, 0.26) * 1.72 + twilightFactor * 1.45) * sunHorizonFade;
+    const moonRiseFade = THREE.MathUtils.smoothstep(-sunY, -0.01, 0.038);
+    const moonIntensity = moonRiseFade * 1.38;
     sunLight.color.copy(isSunActive ? sunCol : MOON_LIGHT_COLOR);
     sunLight.intensity = isSunActive ? sunIntensity : moonIntensity;
 
@@ -1406,19 +1382,19 @@ function updateSimulation(dt) {
 
     const skyHorizonColor = DAY_NIGHT_COLORS.nitHor.clone()
         .lerp(zoneDayHor, dayFactor)
-        .lerp(DAY_NIGHT_COLORS.sunHor, twilightFactor * 0.9);
+        .lerp(DAY_NIGHT_COLORS.sunHor, Math.min(1.0, twilightFactor * 1.15));
 
     const skyTopColor = DAY_NIGHT_COLORS.nitTop.clone()
         .lerp(DAY_NIGHT_COLORS.dayTop, dayFactor)
-        .lerp(DAY_NIGHT_COLORS.sunTop, twilightFactor * 0.8);
+        .lerp(DAY_NIGHT_COLORS.sunTop, Math.min(1.0, twilightFactor * 0.95));
 
     // Hemisphere natural bounce lighting (Zone ground up + Sky down)
-    hemiLight.color.copy(skyHorizonColor);
+    hemiLight.color.copy(skyHorizonColor).lerp(MOON_LIGHT_COLOR, nightFactor * 0.28);
     hemiLight.groundColor.copy(DAY_NIGHT_COLORS.groundNight).lerp(zoneGroundDay, dayFactor);
-    hemiLight.intensity = 0.22 + dayFactor * 0.22 + twilightFactor * 0.16;
+    hemiLight.intensity = 0.42 + dayFactor * 0.18 + twilightFactor * 0.16 + nightFactor * 0.32;
 
-    // Babylon-calibrated ACES exposure: luminous golden hour & crisp afternoon
-    renderer.toneMappingExposure = 0.95 + dayFactor * 0.17 + twilightFactor * 0.12;
+    // Babylon-calibrated ACES exposure: keep twilight colors rich and saturated without washing out
+    renderer.toneMappingExposure = 0.94 + dayFactor * 0.18 + twilightFactor * 0.04;
 
     // Update sky-matched PMREM IBL throttled by time-of-day or zone change
     const curZoneIdx = (typeof window.currentZoneIndex === 'number') ? window.currentZoneIndex : 0;
@@ -1428,11 +1404,11 @@ function updateSimulation(dt) {
         updateSkyEnvironmentMap(skyTopColor, skyHorizonColor, hemiLight.groundColor, sunCol, dayFactor, twilightFactor);
     }
 
-    // Fog & Background synced with horizon atmosphere
+    // Fog & Background synced with horizon atmosphere (clearer twilight so sunrise/sunset light shines through)
     if (scene.fog) {
         scene.fog.color.copy(skyHorizonColor);
         const baseFogDens = (window.currentZoneConfig && window.currentZoneConfig.fogDensity) ? window.currentZoneConfig.fogDensity : 0.00085;
-        scene.fog.density = baseFogDens + twilightFactor * 0.0006 + nightFactor * 0.0005;
+        scene.fog.density = Math.max(0.00025, baseFogDens * (1.0 - twilightFactor * 0.45) + nightFactor * 0.00025);
     }
     if (scene.background) {
         scene.background.copy(skyHorizonColor);
@@ -1463,6 +1439,17 @@ function updateSimulation(dt) {
         if (window.celestialLighting.groundColor) {
             window.celestialLighting.groundColor.value.copy(hemiLight.groundColor);
         }
+        const sssShadowFade = THREE.MathUtils.smoothstep(celestialDir.y, -0.015, 0.025);
+        if (!window.celestialLighting.sssStrength) {
+            window.celestialLighting.sssStrength = { value: 1.0 };
+        }
+        window.celestialLighting.sssStrength.value = isSunActive
+            ? sssShadowFade * THREE.MathUtils.clamp(sunIntensity / 0.85, 0.0, 1.15)
+            : sssShadowFade * moonRiseFade * 0.55;
+        if (!window.celestialLighting.hazeStrength) {
+            window.celestialLighting.hazeStrength = { value: 1.0 };
+        }
+        window.celestialLighting.hazeStrength.value = Math.max(0.32, 0.65 - twilightFactor * 0.30 - nightFactor * 0.18);
         window.celestialLighting.time.value = nowSec;
     }
 
@@ -1759,16 +1746,6 @@ function applyResolution(presetKey) {
         }
     }
 
-    if (composer) {
-        if (dims.isDefault) {
-            composer.setPixelRatio(dims.pixelRatio);
-            composer.setSize(winW, winH);
-        } else {
-            composer.setPixelRatio(1);
-            composer.setSize(dims.targetW, dims.targetH);
-        }
-    }
-
     updateResolutionUI();
 }
 
@@ -1795,10 +1772,6 @@ function updateAdaptiveResolution(frameMs) {
         if (renderer) {
             renderer.setPixelRatio(next);
             renderer.setSize(window.innerWidth, window.innerHeight, false);
-        }
-        if (composer) {
-            composer.setPixelRatio(next);
-            composer.setSize(window.innerWidth, window.innerHeight);
         }
         adaptiveRes.cooldown = 90;
         updateResolutionUI();
@@ -1838,6 +1811,8 @@ function ensureWaterReflectionRT() {
     return waterReflectionRT;
 }
 
+let waterReflectFrameCounter = 0;
+
 function renderWaterReflection(renderCamera) {
     const water = window.waterMeshRef;
     if (!water || !water.visible || !water.material || !water.material.uniforms || !renderCamera || !renderCamera.isPerspectiveCamera) {
@@ -1846,12 +1821,16 @@ function renderWaterReflection(renderCamera) {
         }
         return;
     }
-    if (renderCamera.position.y < -2.35) {
+    if ((typeof window.getGraphicsMode === 'function' && window.getGraphicsMode() !== 'high') || renderCamera.position.y < -2.35) {
         water.material.uniforms.uHasReflection.value = 0.0;
         return;
     }
 
     const rt = ensureWaterReflectionRT();
+    // Throttle planar reflection pass to every 2nd frame while keeping texture bound
+    if ((waterReflectFrameCounter++ & 1) === 1 && water.material.uniforms.uHasReflection.value > 0.5) {
+        return;
+    }
     waterReflectCamera.fov = renderCamera.fov;
     waterReflectCamera.aspect = renderCamera.aspect;
     waterReflectCamera.near = renderCamera.near;
@@ -1879,8 +1858,14 @@ function renderWaterReflection(renderCamera) {
     const oldPlanes = renderer.clippingPlanes;
     const oldSkyPos = window.skyDome ? window.skyDome.position.clone() : null;
 
+    const grassSkip = window._grassReflectionSkipMeshes;
+    const grassPrevVis = grassSkip ? grassSkip.map(m => m.visible) : null;
+
     try {
         water.visible = false;
+        if (grassSkip) {
+            for (let gi = 0; gi < grassSkip.length; gi++) grassSkip[gi].visible = false;
+        }
         renderer.shadowMap.autoUpdate = false;
         renderer.localClippingEnabled = true;
         renderer.clippingPlanes = [WATER_CLIP_PLANE];
@@ -1890,6 +1875,9 @@ function renderWaterReflection(renderCamera) {
         renderer.render(scene, waterReflectCamera);
     } finally {
         water.visible = true;
+        if (grassSkip && grassPrevVis) {
+            for (let gi = 0; gi < grassSkip.length; gi++) grassSkip[gi].visible = grassPrevVis[gi];
+        }
         renderer.shadowMap.autoUpdate = oldShadowAuto;
         renderer.localClippingEnabled = oldClip;
         renderer.clippingPlanes = oldPlanes;
@@ -1901,13 +1889,18 @@ function renderWaterReflection(renderCamera) {
 const babylonPost = {
     initialized: false,
     supported: false,
+    ssaoSupported: false,
     hdrRT: null,
     bloomRTs: [],
+    aoRT: null,
+    aoBlurRT: null,
     quadScene: null,
     quadCam: null,
     quadMesh: null,
     downsampleMat: null,
     upsampleMat: null,
+    ssaoMat: null,
+    aoBlurMat: null,
     compositeMat: null,
 
     init() {
@@ -1918,6 +1911,7 @@ const babylonPost = {
             return;
         }
         this.supported = true;
+        this.ssaoSupported = !!(renderer.capabilities.isWebGL2 || renderer.extensions.get('WEBGL_depth_texture'));
         this.quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
         this.quadScene = new THREE.Scene();
 
@@ -1975,12 +1969,169 @@ const babylonPost = {
             depthTest: false, depthWrite: false
         });
 
+        this.ssaoMat = new THREE.ShaderMaterial({
+            uniforms: {
+                tDepth: { value: null },
+                uInvProj: { value: new THREE.Matrix4() },
+                uProj: { value: new THREE.Matrix4() },
+                uDepthTexel: { value: new THREE.Vector2() },
+                uRadius: { value: 1.15 },
+                uStrength: { value: 0.90 }
+            },
+            vertexShader: vs,
+            fragmentShader: `
+                uniform sampler2D tDepth;
+                uniform mat4 uInvProj;
+                uniform mat4 uProj;
+                uniform vec2 uDepthTexel;
+                uniform float uRadius;
+                uniform float uStrength;
+                varying vec2 vUv;
+
+                float ign(vec2 p) {
+                    return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
+                }
+
+                vec3 getViewPos(vec2 uv, float d) {
+                    vec4 ndc = vec4(uv * 2.0 - 1.0, d * 2.0 - 1.0, 1.0);
+                    vec4 vp = uInvProj * ndc;
+                    return vp.xyz / vp.w;
+                }
+
+                vec3 reconstructViewNormal(vec2 uv, vec3 p0) {
+                    vec2 dx = vec2(uDepthTexel.x, 0.0);
+                    vec2 dy = vec2(0.0, uDepthTexel.y);
+                    vec3 pL = getViewPos(uv - dx, texture2D(tDepth, uv - dx).x);
+                    vec3 pR = getViewPos(uv + dx, texture2D(tDepth, uv + dx).x);
+                    vec3 pD = getViewPos(uv - dy, texture2D(tDepth, uv - dy).x);
+                    vec3 pU = getViewPos(uv + dy, texture2D(tDepth, uv + dy).x);
+
+                    vec3 dPdx = (abs(pR.z - p0.z) < abs(p0.z - pL.z)) ? (pR - p0) : (p0 - pL);
+                    vec3 dPdy = (abs(pU.z - p0.z) < abs(p0.z - pD.z)) ? (pU - p0) : (p0 - pD);
+                    return normalize(cross(dPdx, dPdy));
+                }
+
+                void main() {
+                    float d0 = texture2D(tDepth, vUv).x;
+                    if (d0 >= 0.99998) {
+                        gl_FragColor = vec4(1.0);
+                        return;
+                    }
+
+                    vec3 viewPos = getViewPos(vUv, d0);
+                    float distFade = 1.0 - smoothstep(75.0, 180.0, -viewPos.z);
+                    if (distFade <= 0.001) {
+                        gl_FragColor = vec4(1.0);
+                        return;
+                    }
+
+                    vec3 viewNormal = reconstructViewNormal(vUv, viewPos);
+                    vec3 upVec = abs(viewNormal.z) < 0.999 ? vec3(0.0, 0.0, 1.0) : vec3(1.0, 0.0, 0.0);
+                    vec3 tangent = normalize(cross(upVec, viewNormal));
+                    vec3 bitangent = cross(viewNormal, tangent);
+
+                    float baseAngle = ign(gl_FragCoord.xy) * 6.2831853;
+                    float occlusion = 0.0;
+
+                    for (int i = 0; i < 16; i++) {
+                        float fi = float(i);
+                        float r = sqrt((fi + 0.5) / 16.0);
+                        float theta = fi * 2.39996323 + baseAngle;
+                        float zH = mix(0.15, 1.0, fract(fi * 0.61803399 + baseAngle * 0.15915494));
+                        float xyScale = sqrt(max(0.0, 1.0 - zH * zH));
+                        vec3 sampleDir = tangent * (cos(theta) * xyScale) + bitangent * (sin(theta) * xyScale) + viewNormal * zH;
+                        float sampleDist = uRadius * (0.12 + 0.88 * r * r);
+                        vec3 samplePos = viewPos + sampleDir * sampleDist;
+
+                        vec4 clip = uProj * vec4(samplePos, 1.0);
+                        vec2 sampleUv = (clip.xy / clip.w) * 0.5 + 0.5;
+                        if (sampleUv.x < 0.0 || sampleUv.x > 1.0 || sampleUv.y < 0.0 || sampleUv.y > 1.0) continue;
+
+                        float sd = texture2D(tDepth, sampleUv).x;
+                        if (sd >= 0.99998) continue;
+
+                        vec3 occluderPos = getViewPos(sampleUv, sd);
+                        vec3 v = occluderPos - viewPos;
+                        float dLen = length(v);
+                        if (dLen > 0.025 && dLen < uRadius) {
+                            float cosT = dot(v / dLen, viewNormal);
+                            float contrib = max(0.0, cosT - 0.12);
+                            float falloff = 1.0 - smoothstep(uRadius * 0.35, uRadius, dLen);
+                            occlusion += contrib * falloff;
+                        }
+                    }
+
+                    float ao = 1.0 - clamp((occlusion / 16.0) * 2.6, 0.0, 1.0);
+                    ao = pow(ao, 1.35);
+                    ao = mix(1.0, ao, distFade * uStrength);
+                    gl_FragColor = vec4(ao, ao, ao, 1.0);
+                }
+            `,
+            depthTest: false, depthWrite: false
+        });
+
+        this.aoBlurMat = new THREE.ShaderMaterial({
+            uniforms: {
+                tAO: { value: null },
+                tDepth: { value: null },
+                uInvProj: { value: new THREE.Matrix4() },
+                uDir: { value: new THREE.Vector2() }
+            },
+            vertexShader: vs,
+            fragmentShader: `
+                uniform sampler2D tAO;
+                uniform sampler2D tDepth;
+                uniform mat4 uInvProj;
+                uniform vec2 uDir;
+                varying vec2 vUv;
+
+                float getViewZ(float d) {
+                    vec4 vp = uInvProj * vec4(0.0, 0.0, d * 2.0 - 1.0, 1.0);
+                    return vp.z / vp.w;
+                }
+
+                void main() {
+                    float d0 = texture2D(tDepth, vUv).x;
+                    if (d0 >= 0.99998) {
+                        gl_FragColor = vec4(1.0);
+                        return;
+                    }
+                    float z0 = getViewZ(d0);
+                    float sum = 0.0;
+                    float wSum = 0.0;
+                    for (int i = -4; i <= 4; i++) {
+                        float fi = float(i);
+                        vec2 suv = clamp(vUv + uDir * fi, 0.0, 1.0);
+                        float di = texture2D(tDepth, suv).x;
+                        if (di >= 0.99998) continue;
+                        float zi = getViewZ(di);
+                        float wSpatial = exp(-(fi * fi) / 8.0);
+                        float wDepth = exp(-abs(zi - z0) * 3.5);
+                        float w = wSpatial * wDepth;
+                        sum += texture2D(tAO, suv).r * w;
+                        wSum += w;
+                    }
+                    float res = (wSum > 1e-5) ? (sum / wSum) : texture2D(tAO, vUv).r;
+                    gl_FragColor = vec4(res, res, res, 1.0);
+                }
+            `,
+            depthTest: false, depthWrite: false
+        });
+
         this.compositeMat = new THREE.ShaderMaterial({
-            uniforms: { tScene: { value: null }, tBloom: { value: null }, uExposure: { value: 1.08 } },
+            uniforms: {
+                tScene: { value: null },
+                tBloom: { value: null },
+                tAO: { value: null },
+                uUseSSAO: { value: 0.0 },
+                uExposure: { value: 1.08 }
+            },
             vertexShader: vs,
             fragmentShader: `
                 uniform sampler2D tScene;
                 uniform sampler2D tBloom;
+                uniform sampler2D tAO;
+                uniform float uUseSSAO;
                 uniform float uExposure;
                 varying vec2 vUv;
                 vec3 acesFilm(vec3 x) {
@@ -1989,7 +2140,14 @@ const babylonPost = {
                     return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
                 }
                 void main() {
-                    vec3 hdr = texture2D(tScene, vUv).rgb + texture2D(tBloom, vUv).rgb * 0.28;
+                    vec3 sceneCol = texture2D(tScene, vUv).rgb;
+                    if (uUseSSAO > 0.5) {
+                        float ao = texture2D(tAO, vUv).r;
+                        float luma = dot(sceneCol, vec3(0.2126, 0.7152, 0.0722));
+                        float aoWeight = mix(1.0, 0.35, smoothstep(0.6, 2.5, luma));
+                        sceneCol *= mix(1.0, ao, aoWeight);
+                    }
+                    vec3 hdr = sceneCol + texture2D(tBloom, vUv).rgb * 0.28;
                     hdr *= uExposure;
                     vec3 col = acesFilm(hdr);
                     vec2 q = vUv - 0.5;
@@ -2009,21 +2167,46 @@ const babylonPost = {
         const size = renderer.getDrawingBufferSize(new THREE.Vector2());
         const w = Math.max(64, size.x);
         const h = Math.max(64, size.y);
-        if (this.hdrRT && this.hdrRT.width === w && this.hdrRT.height === h) return;
+        const needSSAO = !!(useSSAO && this.ssaoSupported);
+        const hasCorrectTargets = this.hdrRT && this.hdrRT.width === w && this.hdrRT.height === h && (!needSSAO || (this.hdrRT.depthTexture && this.aoRT));
+        if (hasCorrectTargets) return;
 
-        if (this.hdrRT) this.hdrRT.dispose();
+        if (this.hdrRT) {
+            if (this.hdrRT.depthTexture) this.hdrRT.depthTexture.dispose();
+            this.hdrRT.dispose();
+        }
         for (const rt of this.bloomRTs) rt.dispose();
         this.bloomRTs.length = 0;
+        if (this.aoRT) { this.aoRT.dispose(); this.aoRT = null; }
+        if (this.aoBlurRT) { this.aoBlurRT.dispose(); this.aoBlurRT = null; }
 
-        this.hdrRT = new THREE.WebGLRenderTarget(w, h, {
+        const hdrOpts = {
             minFilter: THREE.LinearFilter,
             magFilter: THREE.LinearFilter,
             format: THREE.RGBAFormat,
             type: THREE.HalfFloatType
-        });
+        };
+        if (needSSAO) {
+            const depthTex = new THREE.DepthTexture(w, h, THREE.UnsignedIntType);
+            depthTex.minFilter = THREE.NearestFilter;
+            depthTex.magFilter = THREE.NearestFilter;
+            hdrOpts.depthTexture = depthTex;
+        }
+        this.hdrRT = new THREE.WebGLRenderTarget(w, h, hdrOpts);
 
         let bw = Math.max(16, w >> 1);
         let bh = Math.max(16, h >> 1);
+        if (needSSAO) {
+            const aoOpts = {
+                minFilter: THREE.LinearFilter,
+                magFilter: THREE.LinearFilter,
+                format: THREE.RGBAFormat,
+                type: THREE.UnsignedByteType,
+                depthBuffer: false
+            };
+            this.aoRT = new THREE.WebGLRenderTarget(bw, bh, aoOpts);
+            this.aoBlurRT = new THREE.WebGLRenderTarget(bw, bh, aoOpts);
+        }
         for (let i = 0; i < 4; i++) {
             this.bloomRTs.push(new THREE.WebGLRenderTarget(bw, bh, {
                 minFilter: THREE.LinearFilter,
@@ -2039,7 +2222,7 @@ const babylonPost = {
 
     render(renderCamera) {
         if (!this.initialized) this.init();
-        if (!this.supported) {
+        if (!this.supported || (typeof window.getGraphicsMode === 'function' && window.getGraphicsMode() !== 'high')) {
             renderer.render(scene, renderCamera);
             return;
         }
@@ -2050,6 +2233,33 @@ const babylonPost = {
             renderer.setRenderTarget(this.hdrRT);
             renderer.clear(true, true, false);
             renderer.render(scene, renderCamera);
+
+            const doSSAO = !!(useSSAO && this.ssaoSupported && this.hdrRT.depthTexture && this.aoRT && this.aoBlurRT);
+            if (doSSAO) {
+                const depthTex = this.hdrRT.depthTexture;
+                this.ssaoMat.uniforms.tDepth.value = depthTex;
+                this.ssaoMat.uniforms.uInvProj.value.copy(renderCamera.projectionMatrixInverse);
+                this.ssaoMat.uniforms.uProj.value.copy(renderCamera.projectionMatrix);
+                this.ssaoMat.uniforms.uDepthTexel.value.set(1.0 / this.hdrRT.width, 1.0 / this.hdrRT.height);
+                this.quadMesh.material = this.ssaoMat;
+                renderer.setRenderTarget(this.aoRT);
+                renderer.render(this.quadScene, this.quadCam);
+
+                // Cross-bilateral edge-preserving blur (H then V)
+                this.aoBlurMat.uniforms.tDepth.value = depthTex;
+                this.aoBlurMat.uniforms.uInvProj.value.copy(renderCamera.projectionMatrixInverse);
+
+                this.aoBlurMat.uniforms.tAO.value = this.aoRT.texture;
+                this.aoBlurMat.uniforms.uDir.value.set(1.0 / this.aoRT.width, 0.0);
+                this.quadMesh.material = this.aoBlurMat;
+                renderer.setRenderTarget(this.aoBlurRT);
+                renderer.render(this.quadScene, this.quadCam);
+
+                this.aoBlurMat.uniforms.tAO.value = this.aoBlurRT.texture;
+                this.aoBlurMat.uniforms.uDir.value.set(0.0, 1.0 / this.aoRT.height);
+                renderer.setRenderTarget(this.aoRT);
+                renderer.render(this.quadScene, this.quadCam);
+            }
 
             // Downsample 4 bloom mips
             let src = this.hdrRT;
@@ -2076,9 +2286,11 @@ const babylonPost = {
                 renderer.render(this.quadScene, this.quadCam);
             }
 
-            // Composite HDR + Bloom -> ACES -> sRGB -> Screen
+            // Composite HDR + SSAO + Bloom -> ACES -> sRGB -> Screen
             this.compositeMat.uniforms.tScene.value = this.hdrRT.texture;
             this.compositeMat.uniforms.tBloom.value = this.bloomRTs[0].texture;
+            this.compositeMat.uniforms.tAO.value = doSSAO ? this.aoRT.texture : null;
+            this.compositeMat.uniforms.uUseSSAO.value = doSSAO ? 1.0 : 0.0;
             this.compositeMat.uniforms.uExposure.value = renderer.toneMappingExposure || 1.08;
             this.quadMesh.material = this.compositeMat;
             renderer.setRenderTarget(null);
@@ -2111,22 +2323,9 @@ function animate(now) {
             if (window.waterMeshRef) window.waterMeshRef.visible = true;
             renderer.localClippingEnabled = false;
         }
-        if (!useSSAO) {
-            // Layers 0 (world) + 1 (FX particles) with Babylon HDR Bloom & ACES Grading
-            renderCamera.layers.mask = 3;
-            babylonPost.render(renderCamera);
-            renderCamera.layers.mask = renderCameraLayers;
-            return;
-        }
-        renderCamera.layers.set(0);
-        ssaoPass.camera = renderCamera;
-        ssaoPass.ssaoMaterial.uniforms.cameraNear.value = renderCamera.near;
-        ssaoPass.ssaoMaterial.uniforms.cameraFar.value = renderCamera.far;
-        ssaoPass.ssaoMaterial.uniforms.cameraProjectionMatrix.value.copy(renderCamera.projectionMatrix);
-        ssaoPass.ssaoMaterial.uniforms.cameraInverseProjectionMatrix.value.copy(renderCamera.projectionMatrixInverse);
-        ssaoPass.depthRenderMaterial.uniforms.cameraNear.value = renderCamera.near;
-        ssaoPass.depthRenderMaterial.uniforms.cameraFar.value = renderCamera.far;
-        composer.render(dt);
+        // Layers 0 (world) + 1 (FX particles) with Babylon HDR Bloom, optional SSAO & ACES Grading
+        renderCamera.layers.mask = 3;
+        babylonPost.render(renderCamera);
         renderCamera.layers.mask = renderCameraLayers;
     } catch (renderErr) {
         console.error('[Engine] Render frame error:', renderErr);

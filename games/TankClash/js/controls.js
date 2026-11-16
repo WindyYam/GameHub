@@ -214,7 +214,7 @@ function initControls(renderer) {
             }
         }
         if (k === 'h') { if (window.playerMode !== 'soldier') toggleHeadlights(); }
-        if (k === 'b') { if (typeof window.toggleGrass === 'function') window.toggleGrass(); }
+        if (k === 'b') { if (typeof window.toggleGraphics === 'function') window.toggleGraphics(); else if (typeof window.toggleGrass === 'function') window.toggleGrass(); }
         if (k === 'e') { if (typeof window.triggerInteract === 'function') window.triggerInteract(); }
         if (k === 'r') { if (typeof window.restartGame === 'function') window.restartGame(); }
         if (k === 't') { if (window.dayNight && window.dayNight.cycleNext) window.dayNight.cycleNext(); }
@@ -684,11 +684,12 @@ function initControls(renderer) {
     const mobSmoke = document.getElementById('mob-btn-smoke');
     if (mobSmoke) mobSmoke.addEventListener('pointerdown', (e) => { e.preventDefault(); soundFX.init(); if (window.playerMode !== 'soldier') fireSmokeDischargers(); });
 
-    const btnGrass = document.getElementById('btn-grass-toggle');
-    if (btnGrass) {
-        btnGrass.addEventListener('click', (e) => {
+    const btnGraphic = document.getElementById('btn-graphic-toggle') || document.getElementById('btn-grass-toggle');
+    if (btnGraphic) {
+        btnGraphic.addEventListener('click', (e) => {
             e.preventDefault();
-            if (typeof window.toggleGrass === 'function') window.toggleGrass();
+            if (typeof window.toggleGraphics === 'function') window.toggleGraphics();
+            else if (typeof window.toggleGrass === 'function') window.toggleGrass();
         });
     }
 
