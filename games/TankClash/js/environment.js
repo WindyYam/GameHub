@@ -12608,7 +12608,7 @@ function buildEnvironment(scene) {
         window.grassLOD1Mesh = grassLOD1Mesh;
         window.grassMeshRef = grassMeshRef;
         if (typeof setGraphicsMode === 'function') {
-            setGraphicsMode(isNonMobileDevice() ? 'high' : 'low');
+            setGraphicsMode(isNonMobileDevice() ? 'high' : 'medium');
         }
     }
 
@@ -13020,7 +13020,7 @@ function isNonMobileDevice() {
     return !isMobileUA;
 }
 window.isNonMobileDevice = isNonMobileDevice;
-currentGraphicsMode = isNonMobileDevice() ? 'high' : 'low';
+currentGraphicsMode = isNonMobileDevice() ? 'high' : 'medium';
 window.graphicsMode = currentGraphicsMode;
 
 function toggleGraphics() {
