@@ -2491,12 +2491,14 @@
 
             this.lodGroup = new THREE.Group();
             this.lodGroup.visible = false;
+            this.lodGroup.layers.enable(2);
             const lodParts = getSoldierLodParts(this.faction, this.soldierType, this.rig);
             this._lodMeshes = [];
             for (let li = 0; li < lodParts.length; li++) {
                 const lm = new THREE.Mesh(lodParts[li].geo, lodParts[li].mat);
                 lm.castShadow = true;
                 lm.receiveShadow = true;
+                lm.layers.enable(2);
                 this.lodGroup.add(lm);
                 this._lodMeshes.push(lm);
             }

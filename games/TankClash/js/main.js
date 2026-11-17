@@ -1813,6 +1813,29 @@ function ensureWaterReflectionRT() {
 
 let waterReflectFrameCounter = 0;
 
+const REFLECTION_LOD_LAYER = 2;
+window.REFLECTION_LOD_LAYER = REFLECTION_LOD_LAYER;
+const _reflTempVisible = [];
+
+function ensureReflectionLayer(root, minSize = 0) {
+    if (!root || root._reflLayerEnabled) return;
+    root.traverse((c) => {
+        if (!c.isMesh || c.isInstancedMesh) {
+            c.layers.enable(REFLECTION_LOD_LAYER);
+            return;
+        }
+        if (minSize > 0 && c.geometry) {
+            if (!c.geometry.boundingBox) c.geometry.computeBoundingBox();
+            const bb = c.geometry.boundingBox;
+            if (bb && Math.max(bb.max.x - bb.min.x, bb.max.y - bb.min.y, bb.max.z - bb.min.z) < minSize) {
+                return;
+            }
+        }
+        c.layers.enable(REFLECTION_LOD_LAYER);
+    });
+    root._reflLayerEnabled = true;
+}
+
 function renderWaterReflection(renderCamera) {
     const water = window.waterMeshRef;
     if (!water || !water.visible || !water.material || !water.material.uniforms || !renderCamera || !renderCamera.isPerspectiveCamera) {
@@ -1823,6 +1846,11 @@ function renderWaterReflection(renderCamera) {
     }
     if ((typeof window.getGraphicsMode === 'function' && window.getGraphicsMode() !== 'high') || renderCamera.position.y < -2.35) {
         water.material.uniforms.uHasReflection.value = 0.0;
+        return;
+    }
+    if (typeof window.hasVisibleWaterForCamera === 'function' && !window.hasVisibleWaterForCamera(renderCamera)) {
+        water.material.uniforms.uHasReflection.value = 0.0;
+        waterReflectFrameCounter = 0;
         return;
     }
 
@@ -1846,11 +1874,38 @@ function renderWaterReflection(renderCamera) {
         renderCamera.position.z + _reflFwd.z * 100.0
     );
     waterReflectCamera.updateMatrixWorld(true);
-    waterReflectCamera.layers.mask = 1; // World layer only
+    waterReflectCamera.layers.mask = (1 << REFLECTION_LOD_LAYER);
 
     water.material.uniforms.uReflectVP.value.multiplyMatrices(waterReflectCamera.projectionMatrix, waterReflectCamera.matrixWorldInverse);
     water.material.uniforms.tReflection.value = rt.texture;
     water.material.uniforms.uHasReflection.value = 1.0;
+
+    if (window.tankModel && window.tankModel.tankRoot) ensureReflectionLayer(window.tankModel.tankRoot, 0.45);
+    if (window.playerSoldier && window.playerSoldier.rig && window.playerSoldier.rig.root) {
+        ensureReflectionLayer(window.playerSoldier.rig.root);
+    }
+
+    _reflTempVisible.length = 0;
+    const soldiers = window.activeSoldiers;
+    if (soldiers) {
+        for (let i = 0; i < soldiers.length; i++) {
+            const s = soldiers[i];
+            if (s && !s.isDead && s.lodGroup && !s.lodGroup.visible) {
+                s.lodGroup.visible = true;
+                _reflTempVisible.push(s.lodGroup);
+            }
+        }
+    }
+    const enemyTanks = window.activeEnemyTanks;
+    if (enemyTanks) {
+        for (let i = 0; i < enemyTanks.length; i++) {
+            const e = enemyTanks[i];
+            if (e && !e.isKnockedOut && e.lodRoot && !e.lodRoot.visible) {
+                e.lodRoot.visible = true;
+                _reflTempVisible.push(e.lodRoot);
+            }
+        }
+    }
 
     const oldTarget = renderer.getRenderTarget();
     const oldShadowAuto = renderer.shadowMap.autoUpdate;
@@ -1858,14 +1913,8 @@ function renderWaterReflection(renderCamera) {
     const oldPlanes = renderer.clippingPlanes;
     const oldSkyPos = window.skyDome ? window.skyDome.position.clone() : null;
 
-    const grassSkip = window._grassReflectionSkipMeshes;
-    const grassPrevVis = grassSkip ? grassSkip.map(m => m.visible) : null;
-
     try {
         water.visible = false;
-        if (grassSkip) {
-            for (let gi = 0; gi < grassSkip.length; gi++) grassSkip[gi].visible = false;
-        }
         renderer.shadowMap.autoUpdate = false;
         renderer.localClippingEnabled = true;
         renderer.clippingPlanes = [WATER_CLIP_PLANE];
@@ -1875,9 +1924,10 @@ function renderWaterReflection(renderCamera) {
         renderer.render(scene, waterReflectCamera);
     } finally {
         water.visible = true;
-        if (grassSkip && grassPrevVis) {
-            for (let gi = 0; gi < grassSkip.length; gi++) grassSkip[gi].visible = grassPrevVis[gi];
+        for (let i = 0; i < _reflTempVisible.length; i++) {
+            _reflTempVisible[i].visible = false;
         }
+        _reflTempVisible.length = 0;
         renderer.shadowMap.autoUpdate = oldShadowAuto;
         renderer.localClippingEnabled = oldClip;
         renderer.clippingPlanes = oldPlanes;

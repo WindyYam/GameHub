@@ -9577,6 +9577,7 @@ class TerrainChunk {
 
         const xMin = this.cx * CHUNK_SIZE;
         const zMin = this.cz * CHUNK_SIZE;
+        let minWy = Infinity;
 
         for (let i = 0; i < count; i++) {
             const lx = pos.getX(i);
@@ -9584,6 +9585,7 @@ class TerrainChunk {
             const wx = xMin + lx + CHUNK_SIZE * 0.5;
             const wz = zMin + lz + CHUNK_SIZE * 0.5;
             const wy = getTerrainHeight(wx, wz);
+            if (wy < minWy) minWy = wy;
             let meshY = wy;
             if (wy < -2.25) {
                 const submergeDepth = smoothstep(-2.25, -2.85, wy);
@@ -9599,9 +9601,15 @@ class TerrainChunk {
         geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
         geo.computeVertexNormals();
 
+        this.hasWater = (minWy < -1.8);
+        this.waterBounds = new THREE.Box3(
+            new THREE.Vector3(xMin, -12, zMin),
+            new THREE.Vector3(xMin + CHUNK_SIZE, -1.5, zMin + CHUNK_SIZE)
+        );
         this.terrainMesh = new THREE.Mesh(geo, terrainMat);
         this.terrainMesh.position.set(xMin + CHUNK_SIZE * 0.5, 0, zMin + CHUNK_SIZE * 0.5);
         this.terrainMesh.receiveShadow = true;
+        this.terrainMesh.layers.enable(2);
         this.terrainMesh.updateMatrix();
         this.terrainMesh.matrixAutoUpdate = false;
         this.group.add(this.terrainMesh);
@@ -10808,6 +10816,8 @@ const farLodMeshes = {
     canyonTower: null
 };
 
+const reflInnerLodMeshes = {};
+
 function buildFarRingMesh(centerX, centerZ, halfExtent, step, skipInnerHalf, ySkirt, receiveShadow) {
     const cells = Math.round((halfExtent * 2) / step);
     const positions = [];
@@ -11255,9 +11265,23 @@ function ensureFarLodInstancedMeshes(isMobile) {
             mesh.frustumCulled = false;
             mesh.castShadow = true;
             mesh.receiveShadow = true;
+            mesh.layers.enable(2);
             mesh.count = 0;
             farLodMeshes[key] = mesh;
             farTerrainGroup.add(mesh);
+        }
+        if (!reflInnerLodMeshes[key] && farLodMeshes[key]) {
+            const innerCap = Math.max(32, Math.ceil(cap * 0.35));
+            const innerMesh = new THREE.InstancedMesh(farLodMeshes[key].geometry, farLodMeshes[key].material, innerCap);
+            innerMesh.setColorAt(0, initCol);
+            innerMesh.instanceColor.needsUpdate = true;
+            innerMesh.frustumCulled = false;
+            innerMesh.castShadow = false;
+            innerMesh.receiveShadow = false;
+            innerMesh.layers.set(2);
+            innerMesh.count = 0;
+            reflInnerLodMeshes[key] = innerMesh;
+            farTerrainGroup.add(innerMesh);
         }
     }
 }
@@ -11506,6 +11530,7 @@ function updateFarPropLODs(playerX, playerZ, force, isMobile) {
     const innerRadius = isMobile ? 2 : VIEW_RADIUS;
     const outerRadius = isMobile ? 10 : 16; // Up to 1,280m radius for trees, rocks & houses
     const counts = { conifer: 0, cypress: 0, broadleaf: 0, palm: 0, acacia: 0, cactus: 0, rock: 0, sandstoneRock: 0, house: 0, adobe: 0, butte: 0, canyonCliff: 0, canyonTower: 0 };
+    const innerCounts = { conifer: 0, cypress: 0, broadleaf: 0, palm: 0, acacia: 0, cactus: 0, rock: 0, sandstoneRock: 0, house: 0, adobe: 0, butte: 0, canyonCliff: 0, canyonTower: 0 };
     const dummy = new THREE.Object3D();
     const col = new THREE.Color();
 
@@ -11519,18 +11544,20 @@ function updateFarPropLODs(playerX, playerZ, force, isMobile) {
 
     for (let dx = -outerRadius; dx <= outerRadius; dx++) {
         for (let dz = -outerRadius; dz <= outerRadius; dz++) {
-            if (Math.abs(dx) <= innerRadius && Math.abs(dz) <= innerRadius) continue;
+            const isInner = (Math.abs(dx) <= innerRadius && Math.abs(dz) <= innerRadius);
+            const targetMeshes = isInner ? reflInnerLodMeshes : farLodMeshes;
+            const targetCounts = isInner ? innerCounts : counts;
             const props = getFarChunkProps(playerCX + dx, playerCZ + dz, isMobile);
 
             for (let i = 0; i < props.trees.length; i++) {
                 const tr = props.trees[i];
-                const mesh = farLodMeshes[tr.cat];
-                if (!mesh || counts[tr.cat] >= mesh.instanceMatrix.count) continue;
+                const mesh = targetMeshes[tr.cat];
+                if (!mesh || targetCounts[tr.cat] >= mesh.instanceMatrix.count) continue;
                 dummy.position.set(tr.x, tr.y, tr.z);
                 dummy.rotation.set(0, tr.rot, 0);
                 dummy.scale.setScalar(tr.scale);
                 dummy.updateMatrix();
-                const idx = counts[tr.cat]++;
+                const idx = targetCounts[tr.cat]++;
                 mesh.setMatrixAt(idx, dummy.matrix);
                 if (tr.zoneIdx === 4) col.setRGB(0.68, 0.78, 0.85);
                 else if (tr.zoneIdx === 9) col.setRGB(0.45, 0.62, 0.34);
@@ -11542,13 +11569,13 @@ function updateFarPropLODs(playerX, playerZ, force, isMobile) {
                 const rk = props.rocks[i];
                 const isSandstone = (rk.zoneIdx === 1 || rk.zoneIdx === 6 || rk.zoneIdx === 7 || rk.zoneIdx === 8);
                 const rKey = isSandstone ? 'sandstoneRock' : 'rock';
-                const mesh = farLodMeshes[rKey];
-                if (!mesh || counts[rKey] >= mesh.instanceMatrix.count) continue;
+                const mesh = targetMeshes[rKey];
+                if (!mesh || targetCounts[rKey] >= mesh.instanceMatrix.count) continue;
                 dummy.position.set(rk.x, rk.y, rk.z);
                 dummy.rotation.set(0, rk.rot, 0);
                 dummy.scale.setScalar(rk.scale);
                 dummy.updateMatrix();
-                const idx = counts[rKey]++;
+                const idx = targetCounts[rKey]++;
                 mesh.setMatrixAt(idx, dummy.matrix);
                 if (rk.zoneIdx === 6 || rk.zoneIdx === 7) col.setRGB(0.88, 0.39, 0.24);
                 else if (rk.zoneIdx === 1 || rk.zoneIdx === 8) col.setHex(0xebae75);
@@ -11560,13 +11587,13 @@ function updateFarPropLODs(playerX, playerZ, force, isMobile) {
 
             for (let i = 0; i < props.houses.length; i++) {
                 const hs = props.houses[i];
-                const mesh = farLodMeshes[hs.kind];
-                if (!mesh || counts[hs.kind] >= mesh.instanceMatrix.count) continue;
+                const mesh = targetMeshes[hs.kind];
+                if (!mesh || targetCounts[hs.kind] >= mesh.instanceMatrix.count) continue;
                 dummy.position.set(hs.x, hs.y - 0.1, hs.z);
                 dummy.rotation.set(0, hs.rot, 0);
                 dummy.scale.setScalar(hs.scale);
                 dummy.updateMatrix();
-                const idx = counts[hs.kind]++;
+                const idx = targetCounts[hs.kind]++;
                 mesh.setMatrixAt(idx, dummy.matrix);
                 col.setRGB(1.0, 1.0, 1.0);
                 mesh.setColorAt(idx, col);
@@ -11576,10 +11603,17 @@ function updateFarPropLODs(playerX, playerZ, force, isMobile) {
 
     for (const key of Object.keys(farLodMeshes)) {
         const mesh = farLodMeshes[key];
-        if (!mesh) continue;
-        mesh.count = counts[key];
-        mesh.instanceMatrix.needsUpdate = true;
-        if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+        if (mesh) {
+            mesh.count = counts[key];
+            mesh.instanceMatrix.needsUpdate = true;
+            if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+        }
+        const innerMesh = reflInnerLodMeshes[key];
+        if (innerMesh) {
+            innerMesh.count = innerCounts[key];
+            innerMesh.instanceMatrix.needsUpdate = true;
+            if (innerMesh.instanceColor) innerMesh.instanceColor.needsUpdate = true;
+        }
     }
 }
 
@@ -11616,6 +11650,8 @@ function updateFarTerrainAndTrees(playerX, playerZ, force = false) {
     const innerSkip = Math.max(80, currentViewRadius * CHUNK_SIZE - 24);
     farMidMesh = buildFarRingMesh(snapX, snapZ, 1280, 24, innerSkip, -0.45, true);
     farOuterMesh = buildFarRingMesh(snapX, snapZ, isMobile ? 2800 : 4480, 128, 1152, -1.6, false);
+    farMidMesh.layers.enable(2);
+    farOuterMesh.layers.enable(2);
     farTerrainGroup.add(farMidMesh);
     farTerrainGroup.add(farOuterMesh);
 }
@@ -12559,6 +12595,7 @@ function buildEnvironment(scene) {
         const skyData = window.createMaldiveSkyDome();
         skyDome = skyData.skyMesh;
         skyMat = skyData.skyMat;
+        skyDome.traverse((c) => c.layers.enable(2));
         window.skyDome = skyDome;
         window.skyMat = skyMat;
         envGroup.add(skyDome);
@@ -12615,7 +12652,49 @@ function buildEnvironment(scene) {
     if (!waterMeshRef) {
         waterMeshRef = createCoastalOceanMesh();
         envGroup.add(waterMeshRef);
-        window.waterMeshRef = waterMeshRef;
+        const _waterVisFrustum = new THREE.Frustum();
+const _waterVisProjMat = new THREE.Matrix4();
+const _waterVisFwd = new THREE.Vector3();
+
+/**
+ * Returns true if any water surface is potentially visible to `cam`,
+ * allowing inland scenes to skip the planar reflection pass.
+ */
+function hasVisibleWaterForCamera(cam) {
+    if (!waterMeshRef || !waterMeshRef.visible || !cam) return false;
+    _waterVisProjMat.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+    _waterVisFrustum.setFromProjectionMatrix(_waterVisProjMat);
+
+    for (const chunk of activeChunks.values()) {
+        if (chunk.hasWater && chunk.waterBounds && _waterVisFrustum.intersectsBox(chunk.waterBounds)) {
+            return true;
+        }
+    }
+
+    cam.getWorldDirection(_waterVisFwd);
+    const fl = Math.hypot(_waterVisFwd.x, _waterVisFwd.z);
+    const fx = fl > 1e-4 ? _waterVisFwd.x / fl : 0;
+    const fz = fl > 1e-4 ? _waterVisFwd.z / fl : 1;
+    const rx = -fz;
+    const rz = fx;
+    const cx = cam.position.x;
+    const cz = cam.position.z;
+
+    const farDists = [180, 320, 500, 750];
+    for (let i = 0; i < farDists.length; i++) {
+        const d = farDists[i];
+        const wx = cx + fx * d;
+        const wz = cz + fz * d;
+        if (getTerrainHeight(wx, wz) < -2.1) return true;
+        const spread = d * 0.45;
+        if (getTerrainHeight(wx + rx * spread, wz + rz * spread) < -2.1) return true;
+        if (getTerrainHeight(wx - rx * spread, wz - rz * spread) < -2.1) return true;
+    }
+    return false;
+}
+
+window.waterMeshRef = waterMeshRef;
+window.hasVisibleWaterForCamera = hasVisibleWaterForCamera;
     }
 
     setWorldSeed(currentSeed, currentZone);
@@ -13049,7 +13128,49 @@ window.worldBuildings = worldBuildings;
 window.worldObstacles = worldObstacles;
 window.terrainMeshRef = terrainMeshRef;
 window.aimRaycastMeshes = aimRaycastMeshes;
+const _waterVisFrustum = new THREE.Frustum();
+const _waterVisProjMat = new THREE.Matrix4();
+const _waterVisFwd = new THREE.Vector3();
+
+/**
+ * Returns true if any water surface is potentially visible to `cam`,
+ * allowing inland scenes to skip the planar reflection pass.
+ */
+function hasVisibleWaterForCamera(cam) {
+    if (!waterMeshRef || !waterMeshRef.visible || !cam) return false;
+    _waterVisProjMat.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+    _waterVisFrustum.setFromProjectionMatrix(_waterVisProjMat);
+
+    for (const chunk of activeChunks.values()) {
+        if (chunk.hasWater && chunk.waterBounds && _waterVisFrustum.intersectsBox(chunk.waterBounds)) {
+            return true;
+        }
+    }
+
+    cam.getWorldDirection(_waterVisFwd);
+    const fl = Math.hypot(_waterVisFwd.x, _waterVisFwd.z);
+    const fx = fl > 1e-4 ? _waterVisFwd.x / fl : 0;
+    const fz = fl > 1e-4 ? _waterVisFwd.z / fl : 1;
+    const rx = -fz;
+    const rz = fx;
+    const cx = cam.position.x;
+    const cz = cam.position.z;
+
+    const farDists = [180, 320, 500, 750];
+    for (let i = 0; i < farDists.length; i++) {
+        const d = farDists[i];
+        const wx = cx + fx * d;
+        const wz = cz + fz * d;
+        if (getTerrainHeight(wx, wz) < -2.1) return true;
+        const spread = d * 0.45;
+        if (getTerrainHeight(wx + rx * spread, wz + rz * spread) < -2.1) return true;
+        if (getTerrainHeight(wx - rx * spread, wz - rz * spread) < -2.1) return true;
+    }
+    return false;
+}
+
 window.waterMeshRef = waterMeshRef;
+window.hasVisibleWaterForCamera = hasVisibleWaterForCamera;
 window.grassLOD0Mesh = grassLOD0Mesh;
 window.grassLOD0MidMesh = grassLOD0MidMesh;
 window.grassLOD0FarMesh = grassLOD0FarMesh;

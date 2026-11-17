@@ -535,6 +535,7 @@
         lodRoot.add(lodTurret);
         lodRoot.position.copy(model.tankRoot.position);
         lodRoot.scale.copy(model.tankRoot.scale);
+        lodRoot.traverse((c) => c.layers.enable(2));
         enemyRoot.add(lodRoot);
 
         let initialLodTier = 0;
