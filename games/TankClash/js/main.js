@@ -2671,7 +2671,7 @@ function deployPurchasedTank(tankId) {
 
     if (window.camOrbit) {
         window.camOrbit.distance = 10.5;
-        window.camOrbit.phi = 0.35;
+        window.camOrbit.phi = 1.34;
         window.camOrbit.theta = spawnHeading + Math.PI;
     }
     if (typeof window.updateTerrainChunks === 'function') {

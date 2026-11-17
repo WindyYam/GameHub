@@ -1437,7 +1437,8 @@
 
         if (window.camOrbit) {
             window.camOrbit.distance = 10.5;
-            window.camOrbit.phi = 0.35;
+            window.camOrbit.phi = 1.34;
+            window.camOrbit.theta = (window.tankState ? window.tankState.heading : 0) + Math.PI;
         }
 
         if (crosshairEl) crosshairEl.classList.add('hidden');
@@ -1569,7 +1570,8 @@
 
         if (window.camOrbit) {
             window.camOrbit.distance = 10.5;
-            window.camOrbit.phi = 0.35;
+            window.camOrbit.phi = 1.34;
+            window.camOrbit.theta = (window.tankState ? window.tankState.heading : 0) + Math.PI;
         }
 
         if (crosshairEl) crosshairEl.classList.add('hidden');
