@@ -1065,8 +1065,8 @@
                 }
             }
 
-            // 4. Safety fuse timeout (e.g. if thrown straight into deep void or sky)
-            if (g.timer <= 0) {
+            // 4. Out-of-bounds void fallback only; grenades otherwise fly until hitting ground/obstacle/target
+            if (g.pos.y < -200) {
                 shouldExplode = true;
             }
 

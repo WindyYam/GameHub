@@ -1517,7 +1517,7 @@ function updateProjectiles(dt) {
 
         const velDir = s.vel.clone().normalize();
         s.mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), velDir);
-        s.life -= dt;
+        if (!s.isMortar) s.life -= dt;
 
         // Continuous Collision Detection along path segment [prevPos -> s.pos]
         const seg = s.pos.clone().sub(prevPos);
@@ -1834,8 +1834,9 @@ function updateProjectiles(dt) {
             }
         }
 
-        // Apply Closest Hit or Expiration
-        if (closestHit || s.life <= 0) {
+        // Apply Closest Hit or Expiration (mortar shells continue until impact or void fallback)
+        const expired = s.isMortar ? (s.pos.y < -200) : (s.life <= 0);
+        if (closestHit || expired) {
             if (s.soundHandle && typeof s.soundHandle.stop === 'function') {
                 s.soundHandle.stop();
                 s.soundHandle = null;

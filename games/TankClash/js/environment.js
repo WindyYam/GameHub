@@ -1609,7 +1609,7 @@ const GROUND_ENV_MAP_INTENSITY = 0.25;
 
 const terrainMat = new THREE.MeshStandardMaterial({
     vertexColors: true,
-    roughness: 0.94,
+    roughness: 0.68,
     metalness: 0.0,
     envMapIntensity: GROUND_ENV_MAP_INTENSITY,
     fog: false
@@ -1787,8 +1787,8 @@ terrainMat.onBeforeCompile = (shader) => {
         float aridRoughMask = clamp(wRoughZ[1] + wRoughZ[6] + wRoughZ[7] + wRoughZ[8], 0.0, 1.0);
         float wetShoreRough = (1.0 - smoothstep(-2.4, -1.25, vTerrainWorldPos.y)) * (1.0 - aridRoughMask * 0.95);
         float roadRoughMask = getRoadFactor_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
-        roughnessFactor = mix(0.95, 0.88, smoothstep(0.1, 0.6, roadRoughMask));
-        roughnessFactor = mix(roughnessFactor, 0.44, wetShoreRough * 0.80);
+        roughnessFactor = mix(0.68, 0.56, smoothstep(0.1, 0.6, roadRoughMask));
+        roughnessFactor = mix(roughnessFactor, 0.34, wetShoreRough * 0.85);
         `
     );
 
@@ -2213,8 +2213,8 @@ terrainMat.onBeforeCompile = (shader) => {
         '#include <lights_fragment_end>',
         `
         #include <lights_fragment_end>
-        float dryTerrainSpecScale = mix(1.0, 0.08, smoothstep(0.70, 0.90, roughnessFactor));
-        reflectedLight.directSpecular *= dryTerrainSpecScale;
+        float dryTerrainSpecScale = mix(1.0, 0.55, smoothstep(0.65, 0.90, roughnessFactor));
+        reflectedLight.directSpecular *= 1.15;
         reflectedLight.indirectSpecular *= dryTerrainSpecScale;
         `
     );
