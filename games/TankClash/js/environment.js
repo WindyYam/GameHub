@@ -1577,15 +1577,20 @@ vec3 applyBabylonAerialHaze(vec3 col, vec3 worldPos, vec3 camPos, vec3 sunDir, v
     float y0 = max(camPos.y, -2.5);
     float y1 = max(worldPos.y, -2.5);
     float avgY = 0.5 * (y0 + y1);
-    float lowDensity = exp(-max(avgY + 4.0, 0.0) / 145.0) * 0.88;
-    float highDensity = exp(-max(avgY + 4.0, 0.0) / 2400.0) * 0.12;
-    float optical = (lowDensity + highDensity) * (dist / 4200.0) * hazeStrength;
-    float hazeAmt = 1.0 - exp(-optical * 1.45);
-    hazeAmt = clamp(hazeAmt + smoothstep(3200.0, 6200.0, dist) * 0.65, 0.0, 1.0);
+    float lowDensity = exp(-max(avgY + 4.0, 0.0) / 135.0) * 0.85;
+    float highDensity = exp(-max(avgY + 4.0, 0.0) / 1800.0) * 0.15;
+    float effDist = max(0.0, dist - 95.0);
+    float optical = (lowDensity + highDensity) * (effDist / 5600.0) * hazeStrength;
+    float hazeAmt = 1.0 - exp(-optical * 1.15);
+    hazeAmt = clamp(hazeAmt + smoothstep(3400.0, 6500.0, dist) * 0.60, 0.0, 0.88);
     float sunAlign = max(dot(V, normalize(sunDir)), 0.0);
-    float mieGlow = pow(sunAlign, 5.0) * 0.55 + pow(sunAlign, 2.0) * 0.22;
-    vec3 horizonCol = mix(skyHor, skyTop, clamp(V.y * 0.45, 0.0, 0.45));
-    vec3 hazeCol = mix(horizonCol, sunCol * 0.95 + skyHor * 0.25, mieGlow * clamp(sunDir.y * 2.5 + 0.35, 0.0, 1.0));
+    float mieGlow = pow(sunAlign, 5.0) * 0.42 + pow(sunAlign, 2.0) * 0.16;
+    // Convert sRGB uniform colors to linear space so ACES + sRGB output encoding does not double-brighten haze
+    vec3 linSkyHor = pow(max(skyHor, vec3(0.001)), vec3(2.2));
+    vec3 linSkyTop = pow(max(skyTop, vec3(0.001)), vec3(2.2));
+    vec3 linSunCol = pow(max(sunCol, vec3(0.001)), vec3(2.2));
+    vec3 horizonCol = mix(linSkyHor, linSkyTop, clamp(V.y * 0.45, 0.0, 0.45));
+    vec3 hazeCol = mix(horizonCol, linSunCol * 0.85 + linSkyHor * 0.22, mieGlow * clamp(sunDir.y * 2.5 + 0.35, 0.0, 1.0));
     return mix(col, hazeCol, hazeAmt);
 }
 `;
@@ -1625,7 +1630,7 @@ const GROUND_ENV_MAP_INTENSITY = 0.25;
 
 const terrainMat = new THREE.MeshStandardMaterial({
     vertexColors: true,
-    roughness: 0.68,
+    roughness: 0.88,
     metalness: 0.0,
     envMapIntensity: GROUND_ENV_MAP_INTENSITY,
     fog: false
@@ -1694,15 +1699,11 @@ terrainMat.onBeforeCompile = (shader) => {
         `
         #include <normal_fragment_begin>
         float distToCamNorm = length(vTerrainWorldPos.xz - uCameraPos.xz);
-        float distFadeNorm = 1.0 - smoothstep(12.0, 36.0, distToCamNorm);
-        distFadeNorm = clamp(distFadeNorm, 0.0, 1.0);
-        distFadeNorm = distFadeNorm * distFadeNorm;
+        float distFadeClose = 1.0 - smoothstep(42.0, 145.0, distToCamNorm);
+        float distFadeMacro = 1.0 - smoothstep(420.0, 1650.0, distToCamNorm);
 
-        if (distFadeNorm > 0.002) {
-            // Anti-tiling rotation matrix (~36.87 degrees) to decorrelate macro from micro UVs
+        if (distFadeMacro > 0.002) {
             mat2 rotNorm = mat2(0.80, 0.60, -0.60, 0.80);
-
-            // Low-frequency non-periodic domain warp to break Cartesian grid alignment
             vec2 groundNormWarp = vec2(
                 sin(vTerrainWorldPos.z * 0.048 + vTerrainWorldPos.x * 0.029),
                 cos(vTerrainWorldPos.x * 0.043 - vTerrainWorldPos.z * 0.035)
@@ -1712,70 +1713,116 @@ terrainMat.onBeforeCompile = (shader) => {
             ) * 1.2;
             vec2 posGroundWarped = vTerrainWorldPos.xz + groundNormWarp;
 
-            // Q0: Ground / Soil / Loam Turf [UV 0.0..0.5, 0.0..0.5]
-            // Multi-scale decorrelated layers with smooth domain warping eliminate tiling repetition
-            vec2 uvGroundNorm1 = fract(posGroundWarped * 0.054) * 0.495 + vec2(0.002, 0.002);
-            vec2 uvGroundNorm2 = fract((rotNorm * posGroundWarped) * 0.023 + vec2(0.31, 0.77)) * 0.495 + vec2(0.002, 0.002);
-            vec3 nGround1 = texture2D(uTerrainNormalAtlas, uvGroundNorm1).xyz * 2.0 - 1.0;
-            vec3 nGround2 = texture2D(uTerrainNormalAtlas, uvGroundNorm2).xyz * 2.0 - 1.0;
-            float groundBlendMask = 0.5 + 0.45 * sin(vTerrainWorldPos.x * 0.032 + vTerrainWorldPos.z * 0.025 + cos(vTerrainWorldPos.z * 0.039));
-            vec3 nGroundSample = normalize(nGround1 + vec3(nGround2.xy * (0.50 + 0.35 * groundBlendMask), 0.0));
-
-            // Q1: Road with directional vehicle tire/track tread & gravel [UV 0.5..1.0, 0.0..0.5]
             float roadDistForNorm = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
-            vec2 uvRoadNorm = fract(vec2(roadDistForNorm * 0.30, (vTerrainWorldPos.x + vTerrainWorldPos.z) * 0.18)) * 0.495 + vec2(0.502, 0.002);
-            vec3 nRoadSample = texture2D(uTerrainNormalAtlas, uvRoadNorm).xyz * 2.0 - 1.0;
-
-            // Q2: Sand with wind ripple dunes [UV 0.0..0.5, 0.5..1.0]
-            vec2 posSandWarped = vTerrainWorldPos.xz + groundNormWarp * 0.7;
-            vec2 uvSandNorm1 = fract(posSandWarped * 0.075) * 0.495 + vec2(0.002, 0.502);
-            vec2 uvSandNorm2 = fract((rotNorm * posSandWarped) * 0.032 + vec2(0.48, 0.22)) * 0.495 + vec2(0.002, 0.502);
-            vec3 nSand1 = texture2D(uTerrainNormalAtlas, uvSandNorm1).xyz * 2.0 - 1.0;
-            vec3 nSand2 = texture2D(uTerrainNormalAtlas, uvSandNorm2).xyz * 2.0 - 1.0;
-            vec3 nSandSample = normalize(nSand1 + vec3(nSand2.xy * 0.50, 0.0));
-
-            // Q3: Rock / Cliff Strata [UV 0.5..1.0, 0.5..1.0]
-            vec2 uvRockNorm = fract(vec2((vTerrainWorldPos.x + vTerrainWorldPos.z) * 0.16, vTerrainWorldPos.y * 0.28)) * 0.495 + vec2(0.502, 0.502);
-            vec3 nRockSample = texture2D(uTerrainNormalAtlas, uvRockNorm).xyz * 2.0 - 1.0;
-
             float roadFactorNorm = getRoadFactor_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
-            float rockFactorNorm = smoothstep(0.14, 0.32, vTerrainSlope);
             float beachFactorNorm = 1.0 - smoothstep(-2.55, -1.35, vTerrainWorldPos.y);
 
             float wZoneNorm[12];
             getZoneWeights12_gpu(vTerrainWorldPos.xz, wZoneNorm);
 
             float sandBlendFactor = clamp(wZoneNorm[1] * 0.95 + wZoneNorm[8] * 0.95 + beachFactorNorm * 0.92, 0.0, 1.0);
-            float snowLineElev = smoothstep(65.0, 95.0, vTerrainWorldPos.y - vTerrainSlope * 10.0);
-            float snowBlendFactor = clamp(wZoneNorm[4] * 0.95 + wZoneNorm[2] * snowLineElev * 0.90, 0.0, 1.0);
-            float rockCliffWeight = clamp(wZoneNorm[6] * 0.85 + wZoneNorm[7] * 0.92 + wZoneNorm[10] * 0.65 + wZoneNorm[11] * 0.55, 0.0, 1.0);
-            rockFactorNorm = clamp(rockFactorNorm + rockCliffWeight * smoothstep(0.12, 0.28, vTerrainSlope) * 0.75, 0.0, 1.0);
+            float mtnHighRock = wZoneNorm[2] * smoothstep(14.0, 28.0, vTerrainWorldPos.y);
+            float snowLineElev = smoothstep(64.0, 92.0, vTerrainWorldPos.y - vTerrainSlope * 28.0);
+            float snowBlendFactor = clamp(wZoneNorm[4] * 0.95 + wZoneNorm[2] * snowLineElev * 0.85, 0.0, 1.0);
+            float rockCliffWeight = clamp(wZoneNorm[2] * 0.85 + wZoneNorm[6] * 0.90 + wZoneNorm[7] * 0.95 + wZoneNorm[10] * 0.72 + wZoneNorm[11] * 0.65, 0.0, 1.0);
+            float rockFactorNorm = clamp(smoothstep(0.045, 0.16, vTerrainSlope) * (0.45 + 0.55 * rockCliffWeight) + mtnHighRock * 0.88, 0.0, 1.0);
 
-            // Calibrated normal strength: soft, natural ground relief (no plastic sheen)
-            vec2 deltaSurfN = nGroundSample.xy * 0.26;
-            deltaSurfN = mix(deltaSurfN, nSandSample.xy * 0.26, sandBlendFactor);
-            deltaSurfN = mix(deltaSurfN, nRockSample.xy * 0.36, rockFactorNorm);
-            deltaSurfN = mix(deltaSurfN, nRoadSample.xy * 0.20, smoothstep(0.04, 0.38, roadFactorNorm));
+            vec2 deltaSurfN = vec2(0.0);
 
-            if (roadFactorNorm > 0.05) {
-                float rutOffset = roadDistForNorm - 1.35;
-                float rutSlope = (rutOffset / 0.28) * exp(-pow(rutOffset, 2.0) / 0.28) * roadFactorNorm * 0.16;
-                deltaSurfN += vec2(rutSlope * 0.28);
+            // 1. Close/Mid High-Res Atlas Normal Layer (0m to 145m)
+            if (distFadeClose > 0.002) {
+                vec2 uvGroundNorm1 = fract(posGroundWarped * 0.054) * 0.484 + vec2(0.008, 0.008);
+                vec2 uvGroundNorm2 = fract((rotNorm * posGroundWarped) * 0.021 + vec2(0.31, 0.77)) * 0.484 + vec2(0.008, 0.008);
+                vec3 nGround1 = texture2D(uTerrainNormalAtlas, uvGroundNorm1).xyz * 2.0 - 1.0;
+                vec3 nGround2 = texture2D(uTerrainNormalAtlas, uvGroundNorm2).xyz * 2.0 - 1.0;
+                float groundBlendMask = 0.5 + 0.45 * sin(vTerrainWorldPos.x * 0.032 + vTerrainWorldPos.z * 0.025 + cos(vTerrainWorldPos.z * 0.039));
+                vec3 nGroundSample = normalize(nGround1 + vec3(nGround2.xy * (0.55 + 0.35 * groundBlendMask), 0.0));
+
+                // Road aggregate normal using world-warped coords (eliminates diagonal seam stripes)
+                vec2 uvRoadNorm = fract(posGroundWarped * 0.085) * 0.484 + vec2(0.508, 0.008);
+                vec3 nRoadSample = texture2D(uTerrainNormalAtlas, uvRoadNorm).xyz * 2.0 - 1.0;
+
+                vec2 posSandWarped = vTerrainWorldPos.xz + groundNormWarp * 0.7;
+                vec2 uvSandNorm1 = fract(posSandWarped * 0.075) * 0.484 + vec2(0.008, 0.508);
+                vec2 uvSandNorm2 = fract((rotNorm * posSandWarped) * 0.030 + vec2(0.48, 0.22)) * 0.484 + vec2(0.008, 0.508);
+                vec3 nSand1 = texture2D(uTerrainNormalAtlas, uvSandNorm1).xyz * 2.0 - 1.0;
+                vec3 nSand2 = texture2D(uTerrainNormalAtlas, uvSandNorm2).xyz * 2.0 - 1.0;
+                vec3 nSandSample = normalize(nSand1 + vec3(nSand2.xy * 0.55, 0.0));
+
+                vec2 uvRockNorm = fract(vec2((vTerrainWorldPos.x - vTerrainWorldPos.z * 0.7) * 0.11, vTerrainWorldPos.y * 0.22 + groundNormWarp.x * 0.08)) * 0.484 + vec2(0.508, 0.508);
+                vec3 nRockSample = texture2D(uTerrainNormalAtlas, uvRockNorm).xyz * 2.0 - 1.0;
+
+                vec2 closeN = nGroundSample.xy * 0.24;
+                closeN = mix(closeN, nSandSample.xy * 0.24, sandBlendFactor);
+                closeN = mix(closeN, nRockSample.xy * 0.32, rockFactorNorm);
+                closeN = mix(closeN, nRoadSample.xy * 0.16, smoothstep(0.04, 0.38, roadFactorNorm));
+
+                if (roadFactorNorm > 0.05) {
+                    float rutOffset = roadDistForNorm - 1.35;
+                    float rutSlope = (rutOffset / 0.28) * exp(-pow(rutOffset, 2.0) / 0.28) * roadFactorNorm * 0.11;
+                    closeN += vec2(rutSlope * 0.22);
+                }
+                if (sandBlendFactor > 0.05) {
+                    float ripplePhase = (vTerrainWorldPos.x * 0.82 + vTerrainWorldPos.z * 0.57 + sin(vTerrainWorldPos.z * 0.35) * 0.9) * 2.4;
+                    closeN += vec2(0.82, 0.57) * cos(ripplePhase) * 0.06 * sandBlendFactor * (1.0 - roadFactorNorm);
+                }
+                if (snowBlendFactor > 0.05) {
+                    float sastrugiPhase = (vTerrainWorldPos.x * 0.65 - vTerrainWorldPos.z * 0.75) * 2.2;
+                    closeN += vec2(0.65, -0.75) * cos(sastrugiPhase) * 0.08 * snowBlendFactor * (1.0 - roadFactorNorm);
+                }
+                deltaSurfN += closeN * distFadeClose;
             }
 
+            // 2. Multi-Band Meso & Macro 3D Procedural Relief Layer (active from 15m out to 1650m!)
+            // Subtle natural relief bridging beyond 3D grass (~40m) without over-bumpy artifacts
+            float fadeBand1 = 1.0 - smoothstep(55.0, 185.0, distToCamNorm);   // ~2.3m turf clods / ripples / scree
+            float fadeBand2 = 1.0 - smoothstep(220.0, 780.0, distToCamNorm);  // ~8.5m hummocks / rills / dune facets
+            float fadeBand3 = distFadeMacro;                                   // ~28m gullies / crags / escarpments
+
+            vec2 mesoGrad = vec2(0.0);
+            float b1C = 0.0;
+            float b2C = 0.0;
+
+            // Band 1: ~2.3m clod & tuft relief (skipped beyond 185m)
+            if (fadeBand1 > 0.002) {
+                vec2 pB1 = posGroundWarped * 0.42;
+                b1C = valueNoise2D_gpu(pB1);
+                float b1X = valueNoise2D_gpu(pB1 + vec2(0.35, 0.0));
+                float b1Z = valueNoise2D_gpu(pB1 + vec2(0.0, 0.35));
+                mesoGrad += vec2(b1C - b1X, b1C - b1Z) * 0.58 * fadeBand1;
+            }
+
+            // Band 2: ~8.5m meso hummocks, erosion rills & pasture swells (skipped beyond 780m)
+            if (fadeBand2 > 0.002) {
+                vec2 pB2 = posGroundWarped * 0.115;
+                b2C = valueNoise2D_gpu(pB2) + 0.5 * valueNoise2D_gpu(pB2 * 2.15 + vec2(17.3, 31.7));
+                float b2X = valueNoise2D_gpu(pB2 + vec2(0.28, 0.0)) + 0.5 * valueNoise2D_gpu((pB2 + vec2(0.28, 0.0)) * 2.15 + vec2(17.3, 31.7));
+                float b2Z = valueNoise2D_gpu(pB2 + vec2(0.0, 0.28)) + 0.5 * valueNoise2D_gpu((pB2 + vec2(0.0, 0.28)) * 2.15 + vec2(17.3, 31.7));
+                mesoGrad += vec2(b2C - b2X, b2C - b2Z) * 0.45 * fadeBand2;
+            }
+
+            // Band 3: ~28m macro ridges, drainage gullies & craggy rock facets
+            vec2 pB3 = (vTerrainWorldPos.xz + uSeedOffset) * 0.034;
+            float b3C = valueNoise2D_gpu(pB3) - 0.65 * abs(valueNoise2D_gpu(pB3 * 1.9 + vec2(41.0, 13.0)));
+            float b3X = valueNoise2D_gpu(pB3 + vec2(0.22, 0.0)) - 0.65 * abs(valueNoise2D_gpu((pB3 + vec2(0.22, 0.0)) * 1.9 + vec2(41.0, 13.0)));
+            float b3Z = valueNoise2D_gpu(pB3 + vec2(0.0, 0.22)) - 0.65 * abs(valueNoise2D_gpu((pB3 + vec2(0.0, 0.22)) * 1.9 + vec2(41.0, 13.0)));
+            mesoGrad += vec2(b3C - b3X, b3C - b3Z) * (0.30 + 0.24 * rockFactorNorm * (1.0 - mtnHighRock * 0.65)) * fadeBand3;
+
+            // Meso dune wave & wind-ripple facets for desert & Egypt at distance
             if (sandBlendFactor > 0.05) {
-                float ripplePhase = (vTerrainWorldPos.x * 0.82 + vTerrainWorldPos.z * 0.57 + sin(vTerrainWorldPos.z * 0.35) * 0.9) * 2.6;
-                vec2 rippleGrad = vec2(0.82, 0.57) * cos(ripplePhase) * 0.06 * sandBlendFactor;
-                deltaSurfN += rippleGrad;
+                if (fadeBand2 > 0.002) {
+                    float mesoDunePhase = (posGroundWarped.x * 0.78 + posGroundWarped.y * 0.62) * 0.28 + b2C * 1.5;
+                    mesoGrad += vec2(0.78, 0.62) * cos(mesoDunePhase) * 0.22 * sandBlendFactor * fadeBand2;
+                }
+                if (fadeBand1 > 0.002) {
+                    float fineDunePhase = (vTerrainWorldPos.x * 0.82 + vTerrainWorldPos.z * 0.57) * 1.35 + b1C * 1.2;
+                    mesoGrad += vec2(0.82, 0.57) * cos(fineDunePhase) * 0.18 * sandBlendFactor * fadeBand1;
+                }
             }
 
-            if (snowBlendFactor > 0.05) {
-                float sastrugiPhase = (vTerrainWorldPos.x * 0.65 - vTerrainWorldPos.z * 0.75) * 2.6;
-                vec2 sastrugiGrad = vec2(0.65, -0.75) * cos(sastrugiPhase) * 0.16 * snowBlendFactor;
-                deltaSurfN += sastrugiGrad;
-            }
-
-            deltaSurfN *= distFadeNorm;
+            deltaSurfN += mesoGrad * (1.0 - roadFactorNorm * 0.88);
+            // Reduce normal map intensity on Alpine Mountain slopes/peaks for cleaner large-scale silhouettes
+            deltaSurfN *= (1.0 - mtnHighRock * 0.62);
 
             vec3 q0 = dFdx(-vViewPosition);
             vec3 q1 = dFdy(-vViewPosition);
@@ -1793,33 +1840,35 @@ terrainMat.onBeforeCompile = (shader) => {
         `
     );
 
-    // Dynamic PBR roughness modulation: wet riverbanks/beaches are damp & specular, dry soil/grass/sand is matte
-    shader.fragmentShader = shader.fragmentShader.replace(
-        '#include <roughnessmap_fragment>',
-        `
-        #include <roughnessmap_fragment>
-        float wRoughZ[12];
-        getZoneWeights12_gpu(vTerrainWorldPos.xz, wRoughZ);
-        float aridRoughMask = clamp(wRoughZ[1] + wRoughZ[6] + wRoughZ[7] + wRoughZ[8], 0.0, 1.0);
-        float wetShoreRough = (1.0 - smoothstep(-2.4, -1.25, vTerrainWorldPos.y)) * (1.0 - aridRoughMask * 0.95);
-        float roadRoughMask = getRoadFactor_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
-        roughnessFactor = mix(0.68, 0.56, smoothstep(0.1, 0.6, roadRoughMask));
-        roughnessFactor = mix(roughnessFactor, 0.34, wetShoreRough * 0.85);
-        `
-    );
-
     shader.fragmentShader = shader.fragmentShader.replace(
         '#include <color_fragment>',
         `
         #include <color_fragment>
         float distToCam = length(vTerrainWorldPos.xz - uCameraPos.xz);
         float roadMask = getRoadFactor_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
-        float grassSurfaceMask = (1.0 - smoothstep(0.10, 0.45, roadMask)) * (1.0 - smoothstep(0.20, 0.40, vTerrainSlope));
+        float grassSurfaceMask = (1.0 - smoothstep(0.08, 0.42, roadMask)) * (1.0 - smoothstep(0.08, 0.24, vTerrainSlope));
 
-        // High-frequency micro-blade & soil texture
-        float microNoise = valueNoise2D_gpu(vTerrainWorldPos.xz * 4.2) * 0.5 + 0.5;
-        float gravelNoise = valueNoise2D_gpu(vTerrainWorldPos.xz * 12.0) * 0.5 + 0.5;
-        float macroPatch = valueNoise2D_gpu(vTerrainWorldPos.xz * 0.06) * 0.5 + 0.5;
+        // Multi-scale domain-warped procedural terrain noises (Micro + Clump + Meso + Macro + Strata)
+        vec2 worldS = vTerrainWorldPos.xz + uSeedOffset;
+        vec2 domainWarp = vec2(
+            fbm3_gpu(worldS * 0.011),
+            fbm3_gpu(worldS * 0.011 + vec2(43.7, 19.3))
+        ) * 22.0;
+        vec2 warpedXZ = worldS + domainWarp;
+
+        float microNoise  = valueNoise2D_gpu(vTerrainWorldPos.xz * 3.8) * 0.5 + 0.5;
+        float gravelNoise = valueNoise2D_gpu(vTerrainWorldPos.xz * 10.5) * 0.5 + 0.5;
+        float detailNoise = valueNoise2D_gpu(vTerrainWorldPos.xz * 0.52 + domainWarp * 0.12) * 0.5 + 0.5;
+        float clumpNoise  = valueNoise2D_gpu(warpedXZ * 0.13) * 0.5 + 0.5;
+        float mesoPatch   = fbm3_gpu(warpedXZ * 0.032) * 0.5 + 0.5;
+        float macroPatch  = fbm3_gpu(warpedXZ * 0.0085) * 0.5 + 0.5;
+
+        // Natural topographic & geological factors for large-scale realism
+        float valleyMoisture = 1.0 - smoothstep(1.5, 11.5, vTerrainWorldPos.y);
+        float ridgeCrestExposure = smoothstep(8.0, 20.0, vTerrainWorldPos.y) * smoothstep(0.015, 0.10, vTerrainSlope);
+        float contourStrata = sin(vTerrainWorldPos.y * 1.55 + mesoPatch * 4.5 + clumpNoise * 1.6) * 0.5 + 0.5;
+        float slopeBreak = smoothstep(0.035, 0.14, vTerrainSlope + (clumpNoise - 0.5) * 0.03);
+        float cliffMask  = smoothstep(0.075, 0.22, vTerrainSlope + (mesoPatch - 0.5) * 0.04);
 
         // Synchronized rolling wind waves
         float tWind = uTime * uWindSpeed;
@@ -1839,98 +1888,153 @@ terrainMat.onBeforeCompile = (shader) => {
             if (zoneWeight <= 0.0) continue;
             diffuseColor.rgb = baseZoneColor;
             if (localZone == 1) {
-                // SAHARA DESERT ZONE: Less yellow, natural pale buff/taupe dunes, salt-pan wadis & rose-sandstone cliffs
-                float sandRipple = sin(vTerrainWorldPos.x * 3.4 + vTerrainWorldPos.z * 2.1 + microNoise * 2.2) * 0.5 + 0.5;
-                vec3 sunlitSand = vec3(0.41, 0.34, 0.27);
-                vec3 warmErg    = vec3(0.32, 0.25, 0.19);
-                vec3 wadiSalt   = vec3(0.45, 0.42, 0.38);
-                vec3 duneTint   = mix(warmErg, sunlitSand, macroPatch * 0.55 + sandRipple * 0.30 + microNoise * 0.15);
-                float saltPanMask = smoothstep(0.66, 0.88, macroPatch) * (1.0 - smoothstep(3.5, 9.0, vTerrainWorldPos.y));
-                duneTint = mix(duneTint, wadiSalt, saltPanMask * 0.55);
-                duneTint *= (0.97 + windWave * 0.05);
-                diffuseColor.rgb = mix(diffuseColor.rgb, duneTint, grassSurfaceMask * 0.88);
+                // ZONE 1: SAHARA DESERT — Warm golden-ochre erg dunes, terracotta slip-faces, dark gravel reg & salt wadis
+                float sandRipple = sin(vTerrainWorldPos.x * 2.8 + vTerrainWorldPos.z * 1.9 + detailNoise * 2.4) * 0.5 + 0.5;
+                float mesoDuneShade = sin((warpedXZ.x * 0.82 + warpedXZ.y * 0.57) * 0.065) * 0.5 + 0.5;
+                vec3 sunlitErg   = vec3(0.33, 0.22, 0.13);
+                vec3 warmOchre   = vec3(0.24, 0.15, 0.085);
+                vec3 slipTerracotta = vec3(0.18, 0.105, 0.060);
+                vec3 gravelReg   = vec3(0.14, 0.10, 0.068);
+                vec3 wadiSabkha  = vec3(0.28, 0.23, 0.17);
 
-                // Stratified desert sandstone strata on mesa cliffs & steep dune slip-faces
-                if (vTerrainSlope > 0.15) {
-                    float strata = sin(vTerrainWorldPos.y * 2.6 + microNoise * 1.8) * 0.5 + 0.5;
-                    vec3 sandstoneA = vec3(0.33, 0.21, 0.15);
-                    vec3 sandstoneB = vec3(0.21, 0.14, 0.10);
-                    vec3 mesaRock = mix(sandstoneB, sandstoneA, strata * 0.75 + gravelNoise * 0.25);
-                    diffuseColor.rgb = mix(diffuseColor.rgb, mesaRock, smoothstep(0.15, 0.35, vTerrainSlope));
+                vec3 duneTint = mix(warmOchre, sunlitErg, smoothstep(0.22, 0.78, macroPatch * 0.50 + mesoDuneShade * 0.35 + sandRipple * 0.15));
+                duneTint = mix(duneTint, slipTerracotta, smoothstep(0.35, 0.80, mesoPatch) * (0.45 + 0.45 * slopeBreak));
+                // Dark wind-scoured desert pavement (reg) & pebble clusters in troughs
+                float regMask = smoothstep(0.54, 0.82, (1.0 - macroPatch) * 0.6 + clumpNoise * 0.4) * (0.4 + 0.6 * valleyMoisture);
+                duneTint = mix(duneTint, gravelReg, regMask * 0.68);
+                // Crusted salt-pan sabkha in low dry basins
+                float saltPanMask = smoothstep(0.68, 0.90, macroPatch * 0.65 + mesoPatch * 0.35) * valleyMoisture;
+                duneTint = mix(duneTint, wadiSabkha, saltPanMask * 0.52);
+                // Clump & micro pebble contrast that stays crisp at large scale
+                duneTint *= (0.82 + clumpNoise * 0.22 + detailNoise * 0.12) * (0.97 + windWave * 0.05);
+                diffuseColor.rgb = mix(diffuseColor.rgb, duneTint, 1.0 - smoothstep(0.08, 0.42, roadMask));
+
+                // Stratified desert sandstone & dark ironstone strata on mesa cliffs & dune slip-faces
+                if (vTerrainSlope > 0.045) {
+                    float strata = sin(vTerrainWorldPos.y * 2.1 + mesoPatch * 2.8 + detailNoise * 1.4) * 0.5 + 0.5;
+                    vec3 sandstoneA = vec3(0.28, 0.16, 0.095);
+                    vec3 sandstoneB = vec3(0.14, 0.08, 0.048);
+                    vec3 ironBand   = vec3(0.09, 0.052, 0.032);
+                    vec3 mesaRock = mix(sandstoneB, sandstoneA, strata * 0.72 + clumpNoise * 0.28);
+                    mesaRock = mix(mesaRock, ironBand, smoothstep(0.76, 0.94, contourStrata) * 0.65);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, mesaRock, smoothstep(0.045, 0.18, vTerrainSlope));
                 }
 
                 // Compacted Desert Hardpan & Gravel Wadi Trail
                 if (roadMask > 0.02) {
                     float distFromCenter = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
                     float rutMask = exp(-pow(distFromCenter - 1.35, 2.0) / 0.28);
-                    vec3 wadiGravel = mix(vec3(0.27, 0.21, 0.16), vec3(0.20, 0.15, 0.11), gravelNoise * 0.65);
-                    vec3 dustyRut = vec3(0.15, 0.11, 0.08);
-                    vec3 wadiColor = mix(wadiGravel, dustyRut, rutMask * 0.78);
+                    vec3 wadiGravel = mix(vec3(0.20, 0.14, 0.09), vec3(0.14, 0.095, 0.06), gravelNoise * 0.5 + clumpNoise * 0.5);
+                    vec3 dustyRut = vec3(0.10, 0.068, 0.042);
+                    vec3 wadiColor = mix(wadiGravel, dustyRut, rutMask * 0.80);
                     diffuseColor.rgb = mix(diffuseColor.rgb, wadiColor, smoothstep(0.02, 0.48, roadMask));
                 }
 
                 // Lush Oasis Fringe & Wet Sand along oasis water edge
-                float oasisMask = 1.0 - smoothstep(-2.55, -0.45, vTerrainWorldPos.y);
+                float oasisMask = 1.0 - smoothstep(-2.55, -0.35, vTerrainWorldPos.y);
                 if (oasisMask > 0.001) {
                     float wetZone = 1.0 - smoothstep(-2.65, -1.95, vTerrainWorldPos.y);
-                    vec3 oasisMoss = mix(vec3(0.12, 0.24, 0.06), vec3(0.26, 0.22, 0.12), microNoise * 0.45);
-                    vec3 wetOasisSand = vec3(0.09, 0.07, 0.04);
+                    vec3 oasisMoss = mix(vec3(0.045, 0.11, 0.022), vec3(0.12, 0.14, 0.045), clumpNoise * 0.6 + detailNoise * 0.4);
+                    vec3 wetOasisSand = vec3(0.075, 0.055, 0.032);
                     diffuseColor.rgb = mix(diffuseColor.rgb, mix(oasisMoss, wetOasisSand, wetZone), oasisMask * (1.0 - roadMask * 0.7));
                 }
             } else if (localZone == 2) {
-                // ALPINE MOUNTAIN ZONE: Valley pine turf, craggy cold granite/slate cliffs & high-altitude snowline
-                vec3 rootGround = mix(vec3(0.024, 0.060, 0.015), vec3(0.048, 0.042, 0.022), macroPatch * 0.45);
-                vec3 farBladeTint = rootGround * (0.92 + (microNoise * 0.5 + macroPatch * 0.5) * 0.16);
-                farBladeTint *= (0.96 + windWave * 0.07);
-                diffuseColor.rgb = mix(diffuseColor.rgb, farBladeTint, grassSurfaceMask);
+                // ZONE 2: ALPINE MOUNTAINS — Dark craggy granite/slate massifs, subalpine tundra/scree & couloir snow
+                // 1. Valley floor & lower foothills (< 18m): Rich dark spruce/pine turf, moss & needle duff
+                vec3 pineTurf     = vec3(0.020, 0.052, 0.012);
+                vec3 sunlitMeadow = vec3(0.044, 0.078, 0.018);
+                vec3 needleDuff   = vec3(0.038, 0.028, 0.015);
+                vec3 alpineHeather = vec3(0.058, 0.042, 0.020);
 
-                // Exposed Craggy Granite & Slate Cliff Faces
-                float rockSlopeMask = smoothstep(0.14, 0.30, vTerrainSlope);
-                if (rockSlopeMask > 0.01) {
-                    float rockVar = clamp(macroPatch * 0.45 + gravelNoise * 0.40 + (microNoise * 0.5 + 0.5) * 0.15, 0.0, 1.0);
-                    vec3 graniteDark  = vec3(0.075, 0.082, 0.095);
-                    vec3 graniteLight = vec3(0.165, 0.175, 0.195);
-                    vec3 cliffCol = mix(graniteDark, graniteLight, rockVar);
-                    diffuseColor.rgb = mix(diffuseColor.rgb, cliffCol, rockSlopeMask);
-                }
+                vec3 valleyGround = mix(pineTurf, sunlitMeadow, smoothstep(0.25, 0.78, macroPatch * 0.55 + mesoPatch * 0.45));
+                valleyGround = mix(valleyGround, needleDuff, smoothstep(0.55, 0.86, clumpNoise * 0.65 + (1.0 - mesoPatch) * 0.35) * 0.65);
 
-                // High-Altitude Alpine Snowline & Glacier Drifts (above y ~ 65m on ledges and peaks)
-                float snowElev = vTerrainWorldPos.y + (macroPatch - 0.5) * 3.5 + (microNoise - 0.5) * 1.2 - vTerrainSlope * 11.5;
-                float snowMask = smoothstep(65.0, 95.0, snowElev) * (1.0 - roadMask * 0.85);
+                // 2. Subalpine transition (11m to 28m): Grass thins into alpine heather, krummholz scrub & dark talus scree
+                float subalpineElev = vTerrainWorldPos.y + (mesoPatch - 0.5) * 5.5 + (clumpNoise - 0.5) * 2.5;
+                float tundraFactor = smoothstep(10.5, 22.0, subalpineElev);
+                valleyGround = mix(valleyGround, alpineHeather, tundraFactor * 0.75);
+                valleyGround *= (0.82 + clumpNoise * 0.24 + detailNoise * 0.12) * (0.96 + windWave * 0.06);
+
+                // 3. Dark Craggy Alpine Granite, Gneiss & Slate Massif (dominates all slopes AND elevations above ~20m)
+                float rockAltitudeMask = smoothstep(15.0, 30.0, subalpineElev - vTerrainSlope * 18.0);
+                float rockSlopeMask = smoothstep(0.032, 0.13, vTerrainSlope + (clumpNoise - 0.5) * 0.025);
+                float totalRockMask = clamp(max(rockSlopeMask, rockAltitudeMask), 0.0, 1.0);
+
+                // Couloir / ridge structural noise (ridges = 1, deep gullies/couloirs = 0)
+                float rRidge1 = 1.0 - abs(valueNoise2D_gpu(worldS * 0.016));
+                float rRidge2 = 1.0 - abs(valueNoise2D_gpu(worldS * 0.042 + vec2(29.0, 17.0)));
+                float rRidge3 = 1.0 - abs(valueNoise2D_gpu(worldS * 0.095 + vec2(11.0, 53.0)));
+                float ridgeStructure = clamp(rRidge1 * 0.55 + rRidge2 * 0.30 + rRidge3 * 0.15, 0.0, 1.0);
+                // Tilted diagonal geological foliation (avoids horizontal contour-line stripes on peaks)
+                float foliation = fbm3_gpu(vec2(worldS.x * 0.025 + vTerrainWorldPos.y * 0.045, worldS.y * 0.025 - vTerrainWorldPos.y * 0.035)) * 0.5 + 0.5;
+
+                vec3 deepSlateCrevice = vec3(0.024, 0.027, 0.033);
+                vec3 coldGranite      = vec3(0.056, 0.062, 0.072);
+                vec3 weatheredGneiss  = vec3(0.076, 0.070, 0.062);
+                vec3 sunlitCragLedge  = vec3(0.098, 0.104, 0.116);
+
+                vec3 alpineRock = mix(deepSlateCrevice, coldGranite, smoothstep(0.18, 0.78, ridgeStructure * 0.55 + clumpNoise * 0.45));
+                alpineRock = mix(alpineRock, weatheredGneiss, smoothstep(0.42, 0.78, foliation) * 0.55);
+                alpineRock = mix(alpineRock, sunlitCragLedge, smoothstep(0.65, 0.92, ridgeStructure * detailNoise) * 0.52);
+                // Darken vertical fracture chutes & scree gullies for strong large-scale 3D depth
+                float chuteShadow = smoothstep(0.52, 0.15, ridgeStructure) * (0.5 + 0.5 * (1.0 - detailNoise));
+                alpineRock *= (1.0 - chuteShadow * 0.45) * (0.82 + detailNoise * 0.30);
+
+                vec3 mtnSurface = mix(valleyGround, alpineRock, totalRockMask);
+                diffuseColor.rgb = mix(diffuseColor.rgb, mtnSurface, 1.0 - smoothstep(0.08, 0.42, roadMask));
+
+                // 4. Realistic High-Altitude Alpine Snow & Glacier Couloirs (above y ~ 62m)
+                // Snow collects in concave gullies/couloirs and ledges, while steep crags & wind-scoured ridges stay dark rock!
+                float gullySnowPocket = (1.0 - ridgeStructure) * 18.0 + (mesoPatch - 0.5) * 9.0 + (clumpNoise - 0.5) * 4.5;
+                float snowElev = vTerrainWorldPos.y + gullySnowPocket - vTerrainSlope * 95.0;
+                float rawSnowMask = smoothstep(60.0, 92.0, snowElev) * (1.0 - roadMask * 0.90);
+                // Steep granite faces & sharp ridge crests break through the snowpack even at the summit
+                float exposedRockRibs = smoothstep(0.055, 0.145, vTerrainSlope + ridgeStructure * 0.048 - (1.0 - mesoPatch) * 0.025);
+                float snowMask = rawSnowMask * (1.0 - exposedRockRibs * 0.86);
                 if (snowMask > 0.005) {
-                    vec3 pureSnow = mix(vec3(0.58, 0.66, 0.78), vec3(0.78, 0.84, 0.92), microNoise * 0.5 + 0.5);
-                    diffuseColor.rgb = mix(diffuseColor.rgb, pureSnow, snowMask);
+                    vec3 shadowFirnIce = vec3(0.18, 0.23, 0.30);
+                    vec3 sunlitSnowPack = vec3(0.36, 0.40, 0.46);
+                    vec3 alpineSnowCol = mix(shadowFirnIce, sunlitSnowPack, smoothstep(0.20, 0.82, clumpNoise * 0.55 + detailNoise * 0.45));
+                    diffuseColor.rgb = mix(diffuseColor.rgb, alpineSnowCol, snowMask);
                 }
 
-                // Crushed Granite & Slate Mountain Pass Road
+                // Crushed Dark Slate & Wet Gravel Mountain Pass Road
                 if (roadMask > 0.02) {
                     float distFromCenter = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
                     float rutMask = exp(-pow(distFromCenter - 1.35, 2.0) / 0.28);
-                    vec3 slateRoad = mix(vec3(0.13, 0.135, 0.145), vec3(0.085, 0.090, 0.098), gravelNoise * 0.6);
-                    vec3 wetTrack  = vec3(0.042, 0.044, 0.050);
+                    vec3 slateRoad = mix(vec3(0.058, 0.062, 0.068), vec3(0.038, 0.041, 0.046), gravelNoise * 0.5 + clumpNoise * 0.5);
+                    vec3 wetTrack  = vec3(0.022, 0.024, 0.028);
                     diffuseColor.rgb = mix(diffuseColor.rgb, mix(slateRoad, wetTrack, rutMask * 0.85), smoothstep(0.02, 0.48, roadMask));
                 }
 
-                // Glacial Tarn Shoreline (pebbles & wet slate)
+                // Glacial Tarn Shoreline (dark slate pebbles & wet boulders)
                 float tarnShore = 1.0 - smoothstep(-2.55, -1.35, vTerrainWorldPos.y);
                 if (tarnShore > 0.001) {
-                    vec3 pebbleShore = mix(vec3(0.14, 0.15, 0.16), vec3(0.06, 0.07, 0.08), gravelNoise);
+                    vec3 pebbleShore = mix(vec3(0.065, 0.070, 0.078), vec3(0.028, 0.032, 0.038), gravelNoise * 0.6 + clumpNoise * 0.4);
                     diffuseColor.rgb = mix(diffuseColor.rgb, pebbleShore, tarnShore);
                 }
             } else if (localZone == 3) {
-                // HIGHLAND ROLLING HILLS ZONE: Upland pasture, golden heather/bracken hilltops & limestone bluffs
-                float hillCrestFactor = smoothstep(9.5, 17.5, vTerrainWorldPos.y + (macroPatch - 0.5) * 3.0);
-                vec3 valleyGreen  = vec3(0.028, 0.068, 0.014);
-                vec3 uplandHeather = vec3(0.068, 0.052, 0.015);
-                vec3 rootGround = mix(valleyGreen, uplandHeather, hillCrestFactor * 0.78);
-                vec3 farBladeTint = rootGround * (0.92 + (microNoise * 0.5 + macroPatch * 0.5) * 0.18);
-                farBladeTint *= (0.96 + windWave * 0.08);
-                diffuseColor.rgb = mix(diffuseColor.rgb, farBladeTint, grassSurfaceMask);
+                // ZONE 3: HIGHLAND ROLLING HILLS — Lush glens, golden gorse/bracken, purple-russet heather moors & chalk/limestone bluffs
+                float hillCrestFactor = smoothstep(8.2, 16.5, vTerrainWorldPos.y + (macroPatch - 0.5) * 4.5);
+                vec3 glenPasture   = vec3(0.022, 0.058, 0.012);
+                vec3 sunlitTurf    = vec3(0.048, 0.088, 0.020);
+                vec3 goldenBracken = vec3(0.086, 0.062, 0.016);
+                vec3 moorHeather   = vec3(0.058, 0.032, 0.028);
+                vec3 peatLoam      = vec3(0.036, 0.026, 0.016);
 
-                // Exposed Limestone & Chalky Hill Bluffs on steep drumlin flanks
-                if (vTerrainSlope > 0.17) {
-                    vec3 limestoneCol = mix(vec3(0.18, 0.165, 0.14), vec3(0.28, 0.26, 0.22), gravelNoise * 0.6 + microNoise * 0.4);
-                    diffuseColor.rgb = mix(diffuseColor.rgb, limestoneCol, smoothstep(0.17, 0.34, vTerrainSlope));
+                vec3 hillGround = mix(glenPasture, sunlitTurf, smoothstep(0.20, 0.78, macroPatch * 0.55 + mesoPatch * 0.45));
+                hillGround = mix(hillGround, goldenBracken, smoothstep(0.38, 0.82, mesoPatch * 0.65 + clumpNoise * 0.35) * (0.35 + 0.65 * hillCrestFactor));
+                hillGround = mix(hillGround, moorHeather, smoothstep(0.52, 0.88, (1.0 - macroPatch) * 0.6 + clumpNoise * 0.4) * hillCrestFactor * 0.80);
+                hillGround = mix(hillGround, peatLoam, slopeBreak * 0.55);
+                hillGround *= (0.80 + clumpNoise * 0.26 + detailNoise * 0.14) * (0.96 + windWave * 0.07);
+                diffuseColor.rgb = mix(diffuseColor.rgb, hillGround, 1.0 - smoothstep(0.08, 0.42, roadMask));
+
+                // Exposed Weathered Limestone & Chalk Escarpment Bluffs on drumlin flanks
+                if (vTerrainSlope > 0.05) {
+                    vec3 darkLimestone = vec3(0.095, 0.088, 0.074);
+                    vec3 chalkLedge    = vec3(0.19, 0.175, 0.145);
+                    vec3 limestoneCol  = mix(darkLimestone, chalkLedge, contourStrata * 0.60 + clumpNoise * 0.40);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, limestoneCol, smoothstep(0.05, 0.19, vTerrainSlope));
                 }
 
                 // Sunken Country Lane with cobble/gravel & muddy wheel ruts
@@ -1938,231 +2042,298 @@ terrainMat.onBeforeCompile = (shader) => {
                     float distFromCenter = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
                     float rutMask = exp(-pow(distFromCenter - 1.35, 2.0) / 0.28);
                     float centerCrown = exp(-pow(distFromCenter, 2.0) / 0.65);
-                    vec3 dryRoad = mix(vec3(0.155, 0.120, 0.078), vec3(0.105, 0.080, 0.052), gravelNoise * 0.55);
-                    dryRoad = mix(dryRoad, uplandHeather, centerCrown * 0.45);
-                    vec3 wetRut = vec3(0.045, 0.032, 0.020);
+                    vec3 dryRoad = mix(vec3(0.095, 0.072, 0.046), vec3(0.062, 0.046, 0.030), gravelNoise * 0.55 + clumpNoise * 0.45);
+                    dryRoad = mix(dryRoad, goldenBracken, centerCrown * 0.42);
+                    vec3 wetRut = vec3(0.028, 0.020, 0.012);
                     diffuseColor.rgb = mix(diffuseColor.rgb, mix(dryRoad, wetRut, rutMask * 0.88), smoothstep(0.02, 0.48, roadMask));
                 }
             } else if (localZone == 4) {
-                // ZONE 4: ARDENNES WINTER & FROZEN STEPPE
-                vec3 pureSnow = mix(vec3(0.72, 0.78, 0.88), vec3(0.92, 0.95, 0.98), microNoise * 0.45 + 0.55);
-                vec3 driftShadow = vec3(0.58, 0.66, 0.76);
-                vec3 snowTint = mix(driftShadow, pureSnow, macroPatch * 0.45 + windWave * 0.15 + 0.40);
-                diffuseColor.rgb = mix(diffuseColor.rgb, snowTint, grassSurfaceMask * 0.95);
+                // ZONE 4: ARDENNES WINTER & FROZEN STEPPE — Calibrated non-clipping snow drifts, wind-scoured frozen earth & dead bracken
+                vec3 driftShadow  = vec3(0.22, 0.27, 0.35);
+                vec3 sunlitSnow   = vec3(0.40, 0.44, 0.50);
+                vec3 windCrust    = vec3(0.32, 0.36, 0.42);
+                vec3 frozenEarth  = vec3(0.062, 0.048, 0.034);
+                vec3 winterRush   = vec3(0.085, 0.068, 0.036);
 
-                if (vTerrainSlope > 0.16) {
-                    vec3 frozenEarth = mix(vec3(0.14, 0.13, 0.12), vec3(0.24, 0.22, 0.20), gravelNoise);
-                    diffuseColor.rgb = mix(diffuseColor.rgb, frozenEarth, smoothstep(0.16, 0.35, vTerrainSlope));
-                }
+                vec3 snowTint = mix(driftShadow, sunlitSnow, smoothstep(0.18, 0.82, macroPatch * 0.45 + mesoPatch * 0.35 + windWave * 0.20));
+                snowTint = mix(snowTint, windCrust, clumpNoise * 0.35);
+                // Wind-scoured patches of frozen mud, pine duff & winter reeds breaking up large-scale snowfields
+                float barePatchMask = smoothstep(0.64, 0.88, (1.0 - macroPatch) * 0.5 + clumpNoise * 0.5) * (0.35 + 0.65 * slopeBreak);
+                vec3 bareGround = mix(frozenEarth, winterRush, detailNoise);
+                snowTint = mix(snowTint, bareGround, barePatchMask * 0.65);
+                snowTint *= (0.88 + clumpNoise * 0.14 + detailNoise * 0.08);
+                diffuseColor.rgb = mix(diffuseColor.rgb, snowTint, 1.0 - smoothstep(0.08, 0.42, roadMask));
 
-                if (vTerrainSlope > 0.28) {
-                    vec3 frostedSlate = mix(vec3(0.18, 0.20, 0.24), vec3(0.55, 0.62, 0.70), microNoise * 0.5);
-                    diffuseColor.rgb = mix(diffuseColor.rgb, frostedSlate, smoothstep(0.28, 0.46, vTerrainSlope));
+                if (vTerrainSlope > 0.045) {
+                    vec3 frostedSlate = mix(vec3(0.055, 0.058, 0.065), vec3(0.16, 0.18, 0.22), contourStrata * 0.6 + detailNoise * 0.4);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, frostedSlate, smoothstep(0.045, 0.18, vTerrainSlope));
                 }
 
                 if (roadMask > 0.02) {
                     float distFromCenter = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
                     float rutMask = exp(-pow(distFromCenter - 1.35, 2.0) / 0.28);
-                    vec3 packedSnowRoad = mix(vec3(0.55, 0.62, 0.70), vec3(0.42, 0.48, 0.54), gravelNoise * 0.5);
-                    vec3 icySlush = vec3(0.12, 0.14, 0.16);
+                    vec3 packedSnowRoad = mix(vec3(0.24, 0.28, 0.33), vec3(0.14, 0.16, 0.19), gravelNoise * 0.5 + clumpNoise * 0.5);
+                    vec3 icySlush = vec3(0.048, 0.042, 0.036);
                     diffuseColor.rgb = mix(diffuseColor.rgb, mix(packedSnowRoad, icySlush, rutMask * 0.88), smoothstep(0.02, 0.48, roadMask));
                 }
 
                 float iceHole = 1.0 - smoothstep(-2.55, -1.35, vTerrainWorldPos.y);
                 if (iceHole > 0.001) {
-                    vec3 lakeIce = mix(vec3(0.38, 0.52, 0.62), vec3(0.68, 0.82, 0.90), microNoise);
+                    vec3 lakeIce = mix(vec3(0.16, 0.24, 0.32), vec3(0.32, 0.40, 0.48), clumpNoise * 0.6 + microNoise * 0.4);
                     diffuseColor.rgb = mix(diffuseColor.rgb, lakeIce, iceHole);
                 }
             } else if (localZone == 5) {
-                // ZONE 5: NORMANDY BOCAGE & SUNKEN LANES
-                vec3 bocageGreen = mix(vec3(0.022, 0.075, 0.016), vec3(0.038, 0.092, 0.020), macroPatch * 0.55);
-                vec3 farBladeTint = bocageGreen * (0.92 + (microNoise * 0.5 + macroPatch * 0.5) * 0.18);
-                farBladeTint *= (0.96 + windWave * 0.08);
-                diffuseColor.rgb = mix(diffuseColor.rgb, farBladeTint, grassSurfaceMask);
+                // ZONE 5: NORMANDY BOCAGE & SUNKEN LANES — Hedgerow field quilt, orchard clover, golden stubble & churned loam
+                float fieldQuilt = sin(worldS.x * 0.024 + domainWarp.x * 0.04) * sin(worldS.y * 0.024 + domainWarp.y * 0.04);
+                float quiltMask = smoothstep(-0.25, 0.25, fieldQuilt);
+                vec3 deepOrchardGreen = vec3(0.018, 0.056, 0.011);
+                vec3 lushBocagePasture = vec3(0.036, 0.082, 0.017);
+                vec3 goldenHayField   = vec3(0.076, 0.072, 0.020);
+                vec3 plowedClayLoam   = vec3(0.048, 0.034, 0.020);
 
-                if (vTerrainSlope > 0.16) {
-                    vec3 clayLoam = mix(vec3(0.15, 0.11, 0.07), vec3(0.09, 0.07, 0.04), gravelNoise * 0.65);
-                    diffuseColor.rgb = mix(diffuseColor.rgb, clayLoam, smoothstep(0.16, 0.34, vTerrainSlope));
+                vec3 fieldA = mix(deepOrchardGreen, lushBocagePasture, mesoPatch * 0.65 + clumpNoise * 0.35);
+                vec3 fieldB = mix(lushBocagePasture, goldenHayField, smoothstep(0.25, 0.80, macroPatch * 0.6 + mesoPatch * 0.4));
+                vec3 bocageGround = mix(fieldA, fieldB, quiltMask);
+                // Dark earthy hedgerow dike banks & churned field margins
+                float dikeEdge = smoothstep(0.72, 0.96, max(abs(sin(worldS.x * 0.024)), abs(sin(worldS.y * 0.024))));
+                bocageGround = mix(bocageGround, plowedClayLoam, clamp(dikeEdge * 0.55 + slopeBreak * 0.65, 0.0, 0.85));
+                bocageGround *= (0.80 + clumpNoise * 0.26 + detailNoise * 0.14) * (0.96 + windWave * 0.07);
+                diffuseColor.rgb = mix(diffuseColor.rgb, bocageGround, 1.0 - smoothstep(0.08, 0.42, roadMask));
+
+                if (vTerrainSlope > 0.05) {
+                    vec3 clayBank = mix(vec3(0.085, 0.060, 0.036), vec3(0.048, 0.034, 0.020), contourStrata * 0.6 + gravelNoise * 0.4);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, clayBank, smoothstep(0.05, 0.18, vTerrainSlope));
                 }
 
                 if (roadMask > 0.02) {
                     float distFromCenter = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
                     float rutMask = exp(-pow(distFromCenter - 1.35, 2.0) / 0.28);
                     float centerCrown = exp(-pow(distFromCenter, 2.0) / 0.65);
-                    vec3 heavyMud = mix(vec3(0.12, 0.085, 0.050), vec3(0.075, 0.052, 0.032), gravelNoise * 0.6);
-                    heavyMud = mix(heavyMud, bocageGreen, centerCrown * 0.38);
-                    vec3 wetMudRut = vec3(0.035, 0.024, 0.014);
+                    vec3 heavyMud = mix(vec3(0.078, 0.054, 0.032), vec3(0.048, 0.033, 0.019), gravelNoise * 0.5 + clumpNoise * 0.5);
+                    heavyMud = mix(heavyMud, deepOrchardGreen, centerCrown * 0.42);
+                    vec3 wetMudRut = vec3(0.022, 0.015, 0.009);
                     diffuseColor.rgb = mix(diffuseColor.rgb, mix(heavyMud, wetMudRut, rutMask * 0.90), smoothstep(0.02, 0.48, roadMask));
                 }
             } else if (localZone == 6) {
-                // ZONE 6: MONUMENT VALLEY & RED BUTTES FORTRESS
-                vec3 redPlainA = vec3(0.42, 0.17, 0.09);
-                vec3 redPlainB = vec3(0.32, 0.12, 0.06);
-                vec3 sandTint = mix(redPlainB, redPlainA, macroPatch * 0.6 + microNoise * 0.4);
-                diffuseColor.rgb = mix(diffuseColor.rgb, sandTint, grassSurfaceMask * 0.92);
+                // ZONE 6: MONUMENT VALLEY — Deep Navajo vermilion sand, dark ironstone talus, arid scrub & De Chelly strata
+                vec3 deepNavajoRed = vec3(0.24, 0.082, 0.038);
+                vec3 sunlitVermilion = vec3(0.35, 0.135, 0.065);
+                vec3 ironTalus     = vec3(0.13, 0.048, 0.026);
+                vec3 desertSage    = vec3(0.095, 0.088, 0.042);
 
-                // Deep Navajo Sandstone Strata on sheer fortress cliffs
-                if (vTerrainSlope > 0.14) {
-                    float strata = sin(vTerrainWorldPos.y * 1.8 + microNoise * 1.5) * 0.5 + 0.5;
-                    vec3 vermilionRock = vec3(0.48, 0.16, 0.08);
-                    vec3 burntUmber    = vec3(0.26, 0.08, 0.04);
-                    vec3 capLedge      = vec3(0.45, 0.28, 0.16);
-                    vec3 cliffColor    = mix(burntUmber, vermilionRock, strata * 0.75 + gravelNoise * 0.25);
-                    cliffColor = mix(cliffColor, capLedge, smoothstep(0.78, 0.96, strata) * 0.65);
-                    diffuseColor.rgb = mix(diffuseColor.rgb, cliffColor, smoothstep(0.14, 0.34, vTerrainSlope));
+                vec3 sandTint = mix(deepNavajoRed, sunlitVermilion, smoothstep(0.20, 0.80, macroPatch * 0.50 + mesoPatch * 0.35 + detailNoise * 0.15));
+                sandTint = mix(sandTint, ironTalus, smoothstep(0.52, 0.84, (1.0 - mesoPatch) * 0.6 + clumpNoise * 0.4) * 0.60);
+                float scrubDots = smoothstep(0.68, 0.90, clumpNoise * detailNoise) * (1.0 - slopeBreak);
+                sandTint = mix(sandTint, desertSage, scrubDots * 0.55);
+                sandTint *= (0.82 + clumpNoise * 0.24 + detailNoise * 0.12);
+                diffuseColor.rgb = mix(diffuseColor.rgb, sandTint, 1.0 - smoothstep(0.08, 0.42, roadMask));
+
+                // Deep Navajo & Wingate Sandstone Strata on butte aprons & cliffs
+                if (vTerrainSlope > 0.04) {
+                    float strata = sin(vTerrainWorldPos.y * 1.85 + mesoPatch * 2.2 + detailNoise * 1.2) * 0.5 + 0.5;
+                    vec3 vermilionRock = vec3(0.36, 0.115, 0.052);
+                    vec3 burntUmber    = vec3(0.15, 0.048, 0.024);
+                    vec3 capLedge      = vec3(0.34, 0.20, 0.11);
+                    vec3 cliffColor    = mix(burntUmber, vermilionRock, strata * 0.72 + clumpNoise * 0.28);
+                    cliffColor = mix(cliffColor, capLedge, smoothstep(0.76, 0.95, contourStrata) * 0.65);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, cliffColor, smoothstep(0.04, 0.17, vTerrainSlope));
                 }
 
                 if (roadMask > 0.02) {
                     float distFromCenter = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
                     float rutMask = exp(-pow(distFromCenter - 1.35, 2.0) / 0.28);
-                    vec3 redGravel = mix(vec3(0.35, 0.15, 0.08), vec3(0.24, 0.10, 0.05), gravelNoise * 0.55);
-                    vec3 deepRut = vec3(0.15, 0.06, 0.03);
+                    vec3 redGravel = mix(vec3(0.22, 0.085, 0.042), vec3(0.14, 0.052, 0.026), gravelNoise * 0.5 + clumpNoise * 0.5);
+                    vec3 deepRut = vec3(0.09, 0.034, 0.016);
                     diffuseColor.rgb = mix(diffuseColor.rgb, mix(redGravel, deepRut, rutMask * 0.85), smoothstep(0.02, 0.48, roadMask));
                 }
             } else if (localZone == 7) {
-                // ZONE 7: GRAND CANYON GORGE & TERRACED CHASMS
-                vec3 rimPlatA = vec3(0.34, 0.24, 0.16);
-                vec3 rimPlatB = vec3(0.26, 0.18, 0.12);
-                vec3 plateauTint = mix(rimPlatB, rimPlatA, macroPatch * 0.55 + microNoise * 0.45);
-                diffuseColor.rgb = mix(diffuseColor.rgb, plateauTint, grassSurfaceMask * 0.90);
+                // ZONE 7: GRAND CANYON — Stratified Kaibab/Coconino/Redwall/Hermit formations & terraced plateau
+                float strataY = vTerrainWorldPos.y * 1.35 + mesoPatch * 1.6 + detailNoise * 0.7;
+                float band1 = sin(strataY) * 0.5 + 0.5;
+                float band2 = cos(strataY * 2.1 + clumpNoise * 1.2) * 0.5 + 0.5;
+                vec3 kaibabBuff   = vec3(0.28, 0.21, 0.14);
+                vec3 coconinoOchre = vec3(0.26, 0.15, 0.085);
+                vec3 redwallRust  = vec3(0.28, 0.092, 0.048);
+                vec3 hermitShale  = vec3(0.13, 0.048, 0.028);
+                vec3 pinyonScrub  = vec3(0.055, 0.075, 0.028);
 
-                // Multi-layered Canyon Strata (Kaibab limestone, Toroweap, Coconino, Hermit red shale, Redwall)
-                if (vTerrainSlope > 0.12) {
-                    float strataY = vTerrainWorldPos.y * 1.4 + gravelNoise * 0.8;
-                    float band1 = sin(strataY) * 0.5 + 0.5;
-                    float band2 = cos(strataY * 2.2 + microNoise * 1.2) * 0.5 + 0.5;
-                    vec3 kaibabBuff  = vec3(0.42, 0.36, 0.28);
-                    vec3 redwallRust = vec3(0.44, 0.15, 0.09);
-                    vec3 hermitShale = vec3(0.28, 0.10, 0.06);
-                    vec3 canyonRock  = mix(hermitShale, redwallRust, band1);
-                    canyonRock = mix(canyonRock, kaibabBuff, smoothstep(0.72, 0.92, band2) * 0.70);
-                    diffuseColor.rgb = mix(diffuseColor.rgb, canyonRock, smoothstep(0.12, 0.32, vTerrainSlope));
+                vec3 plateauTint = mix(coconinoOchre, kaibabBuff, smoothstep(0.22, 0.78, macroPatch * 0.55 + band1 * 0.45));
+                plateauTint = mix(plateauTint, redwallRust, smoothstep(0.55, 0.85, (1.0 - mesoPatch) * 0.6 + band2 * 0.4) * 0.55);
+                float scrubPatch = smoothstep(0.62, 0.88, clumpNoise * macroPatch) * (1.0 - slopeBreak);
+                plateauTint = mix(plateauTint, pinyonScrub, scrubPatch * 0.60);
+                plateauTint *= (0.80 + clumpNoise * 0.26 + detailNoise * 0.14);
+                diffuseColor.rgb = mix(diffuseColor.rgb, plateauTint, 1.0 - smoothstep(0.08, 0.42, roadMask));
+
+                // Multi-layered Canyon Wall Strata on terrace steps & chasm walls
+                if (vTerrainSlope > 0.035) {
+                    vec3 canyonRock = mix(hermitShale, redwallRust, band1);
+                    canyonRock = mix(canyonRock, coconinoOchre, smoothstep(0.45, 0.75, band2) * 0.60);
+                    canyonRock = mix(canyonRock, kaibabBuff, smoothstep(0.75, 0.94, band2) * 0.68);
+                    canyonRock *= (0.84 + detailNoise * 0.24);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, canyonRock, smoothstep(0.035, 0.16, vTerrainSlope));
                 }
 
                 if (roadMask > 0.02) {
                     float distFromCenter = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
                     float rutMask = exp(-pow(distFromCenter - 1.35, 2.0) / 0.28);
-                    vec3 canyonRoad = mix(vec3(0.28, 0.22, 0.16), vec3(0.18, 0.14, 0.10), gravelNoise * 0.6);
-                    vec3 wetTrack = vec3(0.10, 0.08, 0.06);
+                    vec3 canyonRoad = mix(vec3(0.18, 0.12, 0.08), vec3(0.11, 0.072, 0.048), gravelNoise * 0.55 + clumpNoise * 0.45);
+                    vec3 wetTrack = vec3(0.065, 0.042, 0.028);
                     diffuseColor.rgb = mix(diffuseColor.rgb, mix(canyonRoad, wetTrack, rutMask * 0.88), smoothstep(0.02, 0.48, roadMask));
                 }
             } else if (localZone == 8) {
-                // ZONE 8: ANCIENT EGYPT & THE GREAT PYRAMIDS
-                float duneRipple = sin(vTerrainWorldPos.x * 3.6 + vTerrainWorldPos.z * 2.4 + microNoise * 2.0) * 0.5 + 0.5;
-                vec3 sunlitGold  = vec3(0.48, 0.38, 0.22);
-                vec3 deepSand    = vec3(0.36, 0.28, 0.16);
-                vec3 limestoneDust = vec3(0.46, 0.42, 0.34);
-                vec3 duneTint = mix(deepSand, sunlitGold, macroPatch * 0.55 + duneRipple * 0.35 + microNoise * 0.10);
-                duneTint = mix(duneTint, limestoneDust, smoothstep(0.70, 0.90, macroPatch) * 0.45);
-                diffuseColor.rgb = mix(diffuseColor.rgb, duneTint, grassSurfaceMask * 0.90);
+                // ZONE 8: ANCIENT EGYPT — Golden Saharan barchan dunes, Giza limestone bedrock shelves & Nile alluvial silt
+                float duneRipple = sin(vTerrainWorldPos.x * 3.0 + vTerrainWorldPos.z * 2.1 + detailNoise * 2.2) * 0.5 + 0.5;
+                vec3 sunlitGold    = vec3(0.36, 0.26, 0.14);
+                vec3 deepBronzeSand = vec3(0.23, 0.155, 0.082);
+                vec3 gizaLimestone = vec3(0.32, 0.27, 0.19);
+                vec3 desertPebbles = vec3(0.16, 0.115, 0.068);
 
-                if (vTerrainSlope > 0.16) {
-                    vec3 weatheredLimestone = mix(vec3(0.38, 0.32, 0.22), vec3(0.48, 0.42, 0.32), gravelNoise * 0.7);
-                    diffuseColor.rgb = mix(diffuseColor.rgb, weatheredLimestone, smoothstep(0.16, 0.36, vTerrainSlope));
+                vec3 duneTint = mix(deepBronzeSand, sunlitGold, smoothstep(0.20, 0.80, macroPatch * 0.50 + mesoPatch * 0.35 + duneRipple * 0.15));
+                duneTint = mix(duneTint, gizaLimestone, smoothstep(0.58, 0.86, mesoPatch * 0.65 + contourStrata * 0.35) * 0.52);
+                duneTint = mix(duneTint, desertPebbles, smoothstep(0.62, 0.88, clumpNoise * (1.0 - macroPatch)) * 0.50);
+                duneTint *= (0.82 + clumpNoise * 0.22 + detailNoise * 0.12);
+                diffuseColor.rgb = mix(diffuseColor.rgb, duneTint, 1.0 - smoothstep(0.08, 0.42, roadMask));
+
+                if (vTerrainSlope > 0.045) {
+                    vec3 nummuliticRock = mix(vec3(0.20, 0.155, 0.10), vec3(0.34, 0.28, 0.19), contourStrata * 0.65 + clumpNoise * 0.35);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, nummuliticRock, smoothstep(0.045, 0.18, vTerrainSlope));
                 }
 
                 if (roadMask > 0.02) {
                     float distFromCenter = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
                     float rutMask = exp(-pow(distFromCenter - 1.35, 2.0) / 0.28);
-                    vec3 caravanGravel = mix(vec3(0.32, 0.26, 0.18), vec3(0.24, 0.18, 0.12), gravelNoise * 0.6);
-                    vec3 dustyTrack = vec3(0.16, 0.12, 0.08);
+                    vec3 caravanGravel = mix(vec3(0.22, 0.165, 0.105), vec3(0.15, 0.11, 0.068), gravelNoise * 0.55 + clumpNoise * 0.45);
+                    vec3 dustyTrack = vec3(0.10, 0.072, 0.045);
                     diffuseColor.rgb = mix(diffuseColor.rgb, mix(caravanGravel, dustyTrack, rutMask * 0.82), smoothstep(0.02, 0.48, roadMask));
                 }
 
-                // Nile Valley fringe
-                float nileFringe = 1.0 - smoothstep(-2.55, -0.45, vTerrainWorldPos.y);
+                // Nile Valley fertile black-silt & papyrus fringe
+                float nileFringe = 1.0 - smoothstep(-2.55, -0.35, vTerrainWorldPos.y);
                 if (nileFringe > 0.001) {
-                    vec3 nileReeds = mix(vec3(0.06, 0.14, 0.03), vec3(0.08, 0.06, 0.04), microNoise * 0.5);
+                    vec3 nileReeds = mix(vec3(0.035, 0.095, 0.018), vec3(0.048, 0.036, 0.022), clumpNoise * 0.55 + detailNoise * 0.45);
                     diffuseColor.rgb = mix(diffuseColor.rgb, nileReeds, nileFringe * (1.0 - roadMask * 0.7));
                 }
             } else if (localZone == 9) {
-                // ZONE 9: PACIFIC TROPICAL JUNGLE & RAINFOREST
-                vec3 rainforestLoam = mix(vec3(0.018, 0.038, 0.012), vec3(0.042, 0.028, 0.015), macroPatch * 0.5);
-                vec3 emeraldMoss    = vec3(0.025, 0.095, 0.018);
-                vec3 jungleUndergrowth = mix(rainforestLoam, emeraldMoss, microNoise * 0.65 + macroPatch * 0.35);
-                jungleUndergrowth *= (0.95 + windWave * 0.08);
-                diffuseColor.rgb = mix(diffuseColor.rgb, jungleUndergrowth, grassSurfaceMask * 0.95);
+                // ZONE 9: PACIFIC TROPICAL JUNGLE — Deep rainforest humus, vibrant emerald moss, laterite clay & mossy karst
+                vec3 darkHumus     = vec3(0.016, 0.030, 0.009);
+                vec3 emeraldMoss   = vec3(0.024, 0.076, 0.015);
+                vec3 canopySunFern = vec3(0.056, 0.098, 0.020);
+                vec3 lateriteSoil  = vec3(0.095, 0.038, 0.016);
 
-                // Mossy Karst Limestone Cliffs
-                if (vTerrainSlope > 0.15) {
-                    vec3 karstRock = mix(vec3(0.08, 0.11, 0.07), vec3(0.14, 0.16, 0.12), gravelNoise * 0.65);
-                    diffuseColor.rgb = mix(diffuseColor.rgb, karstRock, smoothstep(0.15, 0.35, vTerrainSlope));
+                vec3 jungleGround = mix(darkHumus, emeraldMoss, smoothstep(0.20, 0.78, macroPatch * 0.50 + mesoPatch * 0.50));
+                jungleGround = mix(jungleGround, canopySunFern, smoothstep(0.55, 0.88, clumpNoise * mesoPatch) * 0.65);
+                jungleGround = mix(jungleGround, lateriteSoil, clamp(slopeBreak * 0.65 + smoothstep(0.68, 0.90, 1.0 - clumpNoise) * 0.35, 0.0, 0.75));
+                jungleGround *= (0.80 + clumpNoise * 0.26 + detailNoise * 0.14) * (0.95 + windWave * 0.08);
+                diffuseColor.rgb = mix(diffuseColor.rgb, jungleGround, 1.0 - smoothstep(0.08, 0.42, roadMask));
+
+                // Mossy Karst Limestone Mogote Cliffs
+                if (vTerrainSlope > 0.045) {
+                    vec3 karstDark = vec3(0.038, 0.048, 0.034);
+                    vec3 karstLight = vec3(0.095, 0.11, 0.082);
+                    vec3 karstRock = mix(karstDark, karstLight, contourStrata * 0.60 + clumpNoise * 0.40);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, karstRock, smoothstep(0.045, 0.18, vTerrainSlope));
                 }
 
                 // Sunken Jungle Red Laterite Mud Road
                 if (roadMask > 0.02) {
                     float distFromCenter = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
                     float rutMask = exp(-pow(distFromCenter - 1.35, 2.0) / 0.28);
-                    vec3 redLaterite = mix(vec3(0.16, 0.08, 0.04), vec3(0.10, 0.05, 0.025), gravelNoise * 0.6);
-                    vec3 deepMudRut  = vec3(0.035, 0.018, 0.010);
+                    vec3 redLaterite = mix(vec3(0.11, 0.046, 0.020), vec3(0.068, 0.028, 0.012), gravelNoise * 0.55 + clumpNoise * 0.45);
+                    vec3 deepMudRut  = vec3(0.024, 0.011, 0.005);
                     diffuseColor.rgb = mix(diffuseColor.rgb, mix(redLaterite, deepMudRut, rutMask * 0.92), smoothstep(0.02, 0.48, roadMask));
                 }
             } else if (localZone == 10) {
-                // ZONE 10: ANCIENT GREECE, ACROPOLIS PLATEAU & AEGEAN HILLS
-                vec3 oliveGarrigue = mix(vec3(0.12, 0.16, 0.07), vec3(0.28, 0.25, 0.16), macroPatch * 0.55 + microNoise * 0.25);
-                vec3 limestoneDust = vec3(0.42, 0.39, 0.32);
-                vec3 aegeanGround  = mix(oliveGarrigue, limestoneDust, smoothstep(0.62, 0.90, macroPatch) * 0.48);
-                aegeanGround *= (0.96 + windWave * 0.06);
-                diffuseColor.rgb = mix(diffuseColor.rgb, aegeanGround, grassSurfaceMask * 0.90);
+                // ZONE 10: ANCIENT GREECE — Mediterranean olive garrigue, golden dry phrygana, terra-rossa red soil & Pentelic karst
+                vec3 oliveGarrigue = vec3(0.042, 0.072, 0.022);
+                vec3 dryPhrygana   = vec3(0.14, 0.115, 0.052);
+                vec3 terraRossa    = vec3(0.145, 0.068, 0.036);
+                vec3 limestoneReg  = vec3(0.24, 0.22, 0.18);
+
+                vec3 aegeanGround = mix(oliveGarrigue, dryPhrygana, smoothstep(0.22, 0.78, macroPatch * 0.55 + mesoPatch * 0.45));
+                aegeanGround = mix(aegeanGround, terraRossa, smoothstep(0.52, 0.84, (1.0 - mesoPatch) * 0.6 + clumpNoise * 0.4) * 0.58);
+                aegeanGround = mix(aegeanGround, limestoneReg, clamp(ridgeCrestExposure * 0.55 + smoothstep(0.68, 0.92, macroPatch * clumpNoise) * 0.40, 0.0, 0.75));
+                aegeanGround *= (0.80 + clumpNoise * 0.26 + detailNoise * 0.14) * (0.96 + windWave * 0.06);
+                diffuseColor.rgb = mix(diffuseColor.rgb, aegeanGround, 1.0 - smoothstep(0.08, 0.42, roadMask));
 
                 // Sun-bleached Pentelic Marble & Attica Limestone Cliffs
-                if (vTerrainSlope > 0.14) {
-                    vec3 marbleCliff = mix(vec3(0.42, 0.40, 0.35), vec3(0.58, 0.55, 0.48), gravelNoise * 0.65 + microNoise * 0.35);
-                    diffuseColor.rgb = mix(diffuseColor.rgb, marbleCliff, smoothstep(0.14, 0.32, vTerrainSlope));
+                if (vTerrainSlope > 0.045) {
+                    vec3 marbleShadow = vec3(0.16, 0.15, 0.13);
+                    vec3 marbleLight  = vec3(0.32, 0.30, 0.25);
+                    vec3 marbleCliff  = mix(marbleShadow, marbleLight, contourStrata * 0.65 + clumpNoise * 0.35);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, marbleCliff, smoothstep(0.045, 0.18, vTerrainSlope));
                 }
 
-                // Classical Greek Panathenaic Sacred Way (pale limestone flagstones & gravel)
+                // Classical Greek Panathenaic Sacred Way (limestone flagstones & gravel)
                 if (roadMask > 0.02) {
                     float distFromCenter = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
                     float rutMask = exp(-pow(distFromCenter - 1.35, 2.0) / 0.28);
-                    vec3 sacredStone = mix(vec3(0.38, 0.35, 0.29), vec3(0.28, 0.25, 0.20), gravelNoise * 0.55);
-                    vec3 chariotRut  = vec3(0.20, 0.18, 0.14);
-                    diffuseColor.rgb = mix(diffuseColor.rgb, mix(sacredStone, chariotRut, rutMask * 0.75), smoothstep(0.02, 0.48, roadMask));
+                    vec3 sacredStone = mix(vec3(0.24, 0.21, 0.17), vec3(0.16, 0.14, 0.11), gravelNoise * 0.55 + clumpNoise * 0.45);
+                    vec3 chariotRut  = vec3(0.11, 0.095, 0.075);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, mix(sacredStone, chariotRut, rutMask * 0.78), smoothstep(0.02, 0.48, roadMask));
                 }
             } else if (localZone == 11) {
-                // ZONE 11: IMPERIAL ROME, SEVEN HILLS & CAMPAGNA ROMANA
-                vec3 romanPasture  = mix(vec3(0.055, 0.115, 0.028), vec3(0.18, 0.15, 0.07), macroPatch * 0.52 + microNoise * 0.22);
-                vec3 terracottaSoil = vec3(0.26, 0.17, 0.10);
-                vec3 romanGround   = mix(romanPasture, terracottaSoil, smoothstep(0.65, 0.92, macroPatch) * 0.42);
-                romanGround *= (0.96 + windWave * 0.06);
-                diffuseColor.rgb = mix(diffuseColor.rgb, romanGround, grassSurfaceMask * 0.90);
+                // ZONE 11: IMPERIAL ROME — Campagna Romana pastures, golden Lazio wheatfields, sienna pozzolana earth & travertine bluffs
+                vec3 romanPasture   = vec3(0.032, 0.072, 0.016);
+                vec3 goldenCampagna = vec3(0.115, 0.092, 0.036);
+                vec3 siennaEarth    = vec3(0.11, 0.058, 0.032);
+                vec3 tufaOutcrop    = vec3(0.18, 0.145, 0.105);
+
+                vec3 romanGround = mix(romanPasture, goldenCampagna, smoothstep(0.22, 0.78, macroPatch * 0.55 + mesoPatch * 0.45));
+                romanGround = mix(romanGround, siennaEarth, smoothstep(0.54, 0.86, (1.0 - mesoPatch) * 0.6 + clumpNoise * 0.4) * 0.58);
+                romanGround = mix(romanGround, tufaOutcrop, ridgeCrestExposure * 0.50);
+                romanGround *= (0.80 + clumpNoise * 0.26 + detailNoise * 0.14) * (0.96 + windWave * 0.06);
+                diffuseColor.rgb = mix(diffuseColor.rgb, romanGround, 1.0 - smoothstep(0.08, 0.42, roadMask));
 
                 // Warm Roman Travertine & Volcanic Tufa Bluffs on the Seven Hills
-                if (vTerrainSlope > 0.15) {
-                    vec3 travertineBluff = mix(vec3(0.32, 0.25, 0.18), vec3(0.46, 0.38, 0.28), gravelNoise * 0.6 + microNoise * 0.4);
-                    diffuseColor.rgb = mix(diffuseColor.rgb, travertineBluff, smoothstep(0.15, 0.34, vTerrainSlope));
+                if (vTerrainSlope > 0.045) {
+                    vec3 tufaDark       = vec3(0.13, 0.098, 0.068);
+                    vec3 travertineLight = vec3(0.26, 0.21, 0.15);
+                    vec3 travertineBluff = mix(tufaDark, travertineLight, contourStrata * 0.65 + clumpNoise * 0.35);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, travertineBluff, smoothstep(0.045, 0.18, vTerrainSlope));
                 }
 
                 // Roman Via Appia Basalt Polygonal Cobblestone Road (Via Consularis)
                 if (roadMask > 0.02) {
                     float distFromCenter = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
                     float rutMask = exp(-pow(distFromCenter - 1.35, 2.0) / 0.28);
-                    vec3 viaBasalt = mix(vec3(0.18, 0.17, 0.16), vec3(0.12, 0.11, 0.10), gravelNoise * 0.65);
-                    vec3 travertineCurb = vec3(0.34, 0.29, 0.22);
+                    vec3 viaBasalt = mix(vec3(0.11, 0.105, 0.098), vec3(0.072, 0.068, 0.064), gravelNoise * 0.55 + clumpNoise * 0.45);
+                    vec3 travertineCurb = vec3(0.22, 0.185, 0.14);
                     float curbMask = smoothstep(2.4, 3.6, distFromCenter) * (1.0 - smoothstep(3.6, 4.4, distFromCenter));
-                    vec3 romanRoad = mix(viaBasalt, vec3(0.08, 0.07, 0.06), rutMask * 0.72);
+                    vec3 romanRoad = mix(viaBasalt, vec3(0.045, 0.042, 0.038), rutMask * 0.75);
                     romanRoad = mix(romanRoad, travertineCurb, curbMask * 0.65);
                     diffuseColor.rgb = mix(diffuseColor.rgb, romanRoad, smoothstep(0.02, 0.48, roadMask));
                 }
             } else {
-                // ZONE 0 (DEFAULT): COASTAL MEADOW COUNTRYSIDE
-                vec3 rootGround = vec3(0.028, 0.070, 0.014);
-                vec3 meadowCanopy = mix(vec3(0.055, 0.115, 0.024), vec3(0.115, 0.145, 0.036), gravelNoise * 0.55 + macroPatch * 0.45);
-                float distGrassCover = smoothstep(28.0, 85.0, distToCam);
-                vec3 farBladeTint = mix(rootGround, meadowCanopy, distGrassCover * 0.72) * (0.92 + (microNoise * 0.5 + macroPatch * 0.5) * 0.16);
-                farBladeTint *= (0.96 + windWave * 0.08);
+                // ZONE 0 (DEFAULT): COASTAL MEADOW COUNTRYSIDE — Rich multi-scale clover, sunlit fescue, golden thatch & loam breaks
+                vec3 dampClover   = vec3(0.020, 0.056, 0.011);
+                vec3 lushMeadow   = vec3(0.038, 0.082, 0.018);
+                vec3 goldenThatch = vec3(0.074, 0.078, 0.020);
+                vec3 richLoam     = vec3(0.044, 0.032, 0.018);
 
-                diffuseColor.rgb = mix(diffuseColor.rgb, farBladeTint, grassSurfaceMask);
+                vec3 meadowGround = mix(dampClover, lushMeadow, smoothstep(0.18, 0.76, macroPatch * 0.55 + mesoPatch * 0.45));
+                meadowGround = mix(meadowGround, goldenThatch, smoothstep(0.42, 0.84, (1.0 - macroPatch) * 0.50 + mesoPatch * 0.50) * (0.45 + 0.55 * (1.0 - valleyMoisture)));
+                meadowGround = mix(meadowGround, richLoam, clamp(slopeBreak * 0.60 + smoothstep(0.70, 0.92, clumpNoise * (1.0 - mesoPatch)) * 0.35, 0.0, 0.78));
+                meadowGround *= (0.80 + clumpNoise * 0.26 + detailNoise * 0.14) * (0.96 + windWave * 0.07);
+
+                diffuseColor.rgb = mix(diffuseColor.rgb, meadowGround, 1.0 - smoothstep(0.08, 0.42, roadMask));
+
+                // Exposed Coastal Limestone & Craggy Outcrops on steeper meadow bluffs
+                if (vTerrainSlope > 0.055) {
+                    vec3 bluffDark  = vec3(0.075, 0.072, 0.064);
+                    vec3 bluffLight = vec3(0.155, 0.148, 0.130);
+                    vec3 bluffRock  = mix(bluffDark, bluffLight, contourStrata * 0.60 + clumpNoise * 0.40);
+                    diffuseColor.rgb = mix(diffuseColor.rgb, bluffRock, smoothstep(0.055, 0.19, vTerrainSlope));
+                }
 
                 // Country Dirt Road with compacted dark earth, subtle verge crown, and matte wheel ruts
                 if (roadMask > 0.02) {
                     float distFromCenter = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
                     float rutMask = exp(-pow(distFromCenter - 1.35, 2.0) / 0.28);
                     float centerCrown = exp(-pow(distFromCenter, 2.0) / 0.65);
-                    vec3 dryRoad = mix(vec3(0.072, 0.052, 0.032), vec3(0.046, 0.033, 0.020), gravelNoise * 0.65);
-                    dryRoad *= (0.86 + microNoise * 0.24);
-                    dryRoad = mix(dryRoad, vec3(0.042, 0.065, 0.018), centerCrown * 0.35);
-                    vec3 wetRut = vec3(0.028, 0.020, 0.012);
+                    vec3 dryRoad = mix(vec3(0.068, 0.048, 0.029), vec3(0.044, 0.031, 0.018), gravelNoise * 0.55 + clumpNoise * 0.45);
+                    dryRoad *= (0.86 + detailNoise * 0.24);
+                    dryRoad = mix(dryRoad, lushMeadow, centerCrown * 0.38);
+                    vec3 wetRut = vec3(0.024, 0.017, 0.010);
                     vec3 roadColor = mix(dryRoad, wetRut, rutMask * 0.88);
                     diffuseColor.rgb = mix(diffuseColor.rgb, roadColor, smoothstep(0.02, 0.48, roadMask));
                 }
@@ -2176,8 +2347,8 @@ terrainMat.onBeforeCompile = (shader) => {
         float beachMask = 1.0 - smoothstep(-2.55, -1.35, vTerrainWorldPos.y);
         if (beachMask > 0.001) {
             float wetZone = 1.0 - smoothstep(-2.65, -2.05, vTerrainWorldPos.y);
-            vec3 drySand = mix(vec3(0.28, 0.23, 0.15), vec3(0.21, 0.17, 0.11), microNoise * 0.25);
-            vec3 wetSand = vec3(0.08, 0.09, 0.08);
+            vec3 drySand = mix(vec3(0.24, 0.19, 0.12), vec3(0.18, 0.14, 0.09), clumpNoise * 0.5 + detailNoise * 0.5);
+            vec3 wetSand = vec3(0.065, 0.072, 0.065);
             vec3 sandCol = mix(drySand, wetSand, wetZone * 0.90);
             diffuseColor.rgb = mix(diffuseColor.rgb, sandCol, beachMask * (1.0 - roadMask * 0.8));
         }
@@ -2201,27 +2372,27 @@ terrainMat.onBeforeCompile = (shader) => {
         '#include <roughnessmap_fragment>',
         `
         #include <roughnessmap_fragment>
+        float wRoughZ[12];
+        getZoneWeights12_gpu(vTerrainWorldPos.xz, wRoughZ);
+        float aridRoughMask = clamp(wRoughZ[1] + wRoughZ[6] + wRoughZ[7] + wRoughZ[8], 0.0, 1.0);
+        float wetShoreRough = (1.0 - smoothstep(-2.4, -1.25, vTerrainWorldPos.y)) * (1.0 - aridRoughMask * 0.95);
         float rRoad = getRoadFactor_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
-        float rZones[6];
-        getZoneWeights6_gpu(vTerrainWorldPos.xz, rZones);
+        roughnessFactor = mix(0.88, 0.76, smoothstep(0.1, 0.6, rRoad));
         if (rRoad > 0.05) {
             float distFromCenter = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
             float rut = exp(-pow(distFromCenter - 1.35, 2.0) / 0.35);
-            float wetRutR = mix(0.78, 0.28, rZones[4]);
-            wetRutR = mix(wetRutR, 0.38, rZones[5]);
-            roughnessFactor = mix(roughnessFactor, mix(wetRutR, 0.86, rZones[1]), rut * rRoad);
+            float wetRutR = mix(0.62, 0.30, wRoughZ[4]);
+            wetRutR = mix(wetRutR, 0.36, wRoughZ[5]);
+            roughnessFactor = mix(roughnessFactor, mix(wetRutR, 0.86, aridRoughMask), rut * rRoad);
         }
-        if (rZones[2] > 0.0 && vTerrainWorldPos.y > 65.0) {
-            float snowR = smoothstep(65.0, 95.0, vTerrainWorldPos.y - vTerrainSlope * 10.0);
-            roughnessFactor = mix(roughnessFactor, 0.36, snowR * 0.8 * rZones[2]);
+        if (wRoughZ[2] > 0.0 && vTerrainWorldPos.y > 60.0) {
+            float snowR = smoothstep(60.0, 92.0, vTerrainWorldPos.y - vTerrainSlope * 50.0);
+            roughnessFactor = mix(roughnessFactor, 0.72, snowR * 0.75 * wRoughZ[2]);
         }
-        if (rZones[4] > 0.0) {
-            roughnessFactor = mix(roughnessFactor, 0.52, rZones[4] * 0.75);
+        if (wRoughZ[4] > 0.0) {
+            roughnessFactor = mix(roughnessFactor, 0.74, wRoughZ[4] * 0.75);
         }
-        if (vTerrainWorldPos.y < -1.8) {
-            float wetBeach = 1.0 - smoothstep(-2.6, -1.8, vTerrainWorldPos.y);
-            roughnessFactor = mix(roughnessFactor, 0.25, wetBeach * 0.9);
-        }
+        roughnessFactor = mix(roughnessFactor, 0.26, wetShoreRough * 0.90);
         `
     );
 
@@ -2229,9 +2400,9 @@ terrainMat.onBeforeCompile = (shader) => {
         '#include <lights_fragment_end>',
         `
         #include <lights_fragment_end>
-        float dryTerrainSpecScale = mix(1.0, 0.55, smoothstep(0.65, 0.90, roughnessFactor));
-        reflectedLight.directSpecular *= 1.15;
-        reflectedLight.indirectSpecular *= dryTerrainSpecScale;
+        float dryTerrainSpecScale = mix(0.95, 0.24, smoothstep(0.55, 0.85, roughnessFactor));
+        reflectedLight.directSpecular *= dryTerrainSpecScale;
+        reflectedLight.indirectSpecular *= dryTerrainSpecScale * 0.85;
         `
     );
 
@@ -2431,7 +2602,7 @@ treeMaterial.onBeforeCompile = (shader) => {
 
         float wTreeZone[6];
         getZoneWeights6_gpu(vTreeWorldPos.xz, wTreeZone);
-        float winterTreeFactor = clamp(wTreeZone[4] + wTreeZone[2] * smoothstep(11.0, 18.0, vTreeWorldPos.y), 0.0, 1.0);
+        float winterTreeFactor = clamp(wTreeZone[4] + wTreeZone[2] * smoothstep(58.0, 76.0, vTreeWorldPos.y), 0.0, 1.0);
 
         if (isFoliage) {
             float distTreeCam = length(vTreeWorldPos.xz - uCameraPos.xz);
@@ -2456,14 +2627,14 @@ treeMaterial.onBeforeCompile = (shader) => {
 
             // Winter snow accumulation on conifer boughs, tiers & foliage canopy
             if (winterTreeFactor > 0.01) {
-                float snowAngle = smoothstep(0.08, 0.58, worldNorm.y * 0.82 + vCanopyOuter * 0.35);
-                float needleSnow = clamp(snowAngle * 1.25, 0.0, 1.0) * winterTreeFactor;
+                float snowAngle = smoothstep(0.14, 0.62, worldNorm.y * 0.82 + vCanopyOuter * 0.30);
+                float needleSnow = clamp(snowAngle * 1.10, 0.0, 1.0) * winterTreeFactor;
 
-                vec3 snowSun = mix(vec3(0.80, 0.86, 0.95), vec3(0.96, 0.98, 1.0), sunDot * 0.5 + 0.5);
-                float needleSparkle = pow(max(dot(worldNorm, halfVec), 0.0), 24.0) * 0.28;
+                vec3 snowSun = mix(vec3(0.28, 0.33, 0.40), vec3(0.46, 0.50, 0.56), sunDot * 0.5 + 0.5);
+                float needleSparkle = pow(max(dot(worldNorm, halfVec), 0.0), 24.0) * 0.14;
                 vec3 snowFoliageCol = snowSun * (0.92 + needleSparkle);
 
-                treeBaseColor = mix(treeBaseColor, snowFoliageCol, needleSnow * 0.92);
+                treeBaseColor = mix(treeBaseColor, snowFoliageCol, needleSnow * 0.85);
             }
 
             diffuseColor.rgb = treeBaseColor;
@@ -2471,8 +2642,8 @@ treeMaterial.onBeforeCompile = (shader) => {
             vec3 trunkBase = linearTexel * diffuseColor.rgb;
             if (winterTreeFactor > 0.01) {
                 vec3 worldNorm = normalize(vTreeWorldNormal);
-                float trunkSnow = smoothstep(0.35, 0.85, worldNorm.y) * winterTreeFactor * 0.72;
-                trunkBase = mix(trunkBase, vec3(0.88, 0.92, 0.97), trunkSnow);
+                float trunkSnow = smoothstep(0.38, 0.85, worldNorm.y) * winterTreeFactor * 0.65;
+                trunkBase = mix(trunkBase, vec3(0.36, 0.40, 0.46), trunkSnow);
             }
             diffuseColor.rgb = trunkBase;
         }
@@ -2565,7 +2736,7 @@ villageMat.onBeforeCompile = (shader) => {
         #ifdef USE_NORMALMAP
         float wBldgZoneNorm[6];
         getZoneWeights6_gpu(vBldgWorldPos.xz, wBldgZoneNorm);
-        float winterBldgFactorNorm = clamp(wBldgZoneNorm[4] + wBldgZoneNorm[2] * smoothstep(11.0, 18.0, vBldgWorldPos.y), 0.0, 1.0);
+        float winterBldgFactorNorm = clamp(wBldgZoneNorm[4] + wBldgZoneNorm[2] * smoothstep(58.0, 76.0, vBldgWorldPos.y), 0.0, 1.0);
         bool isRoofSurfNorm = (vBldgWorldNormal.y > 0.22) && (vBldgModelPos.y > 1.2 || (vBldgUv.x > 0.50 && vBldgUv.y > 0.50));
         if (isRoofSurfNorm && winterBldgFactorNorm > 0.05) {
             float roofSmooth = smoothstep(0.22, 0.50, vBldgWorldNormal.y) * winterBldgFactorNorm;
@@ -2581,7 +2752,7 @@ villageMat.onBeforeCompile = (shader) => {
         #include <color_fragment>
         float wBldgZone[6];
         getZoneWeights6_gpu(vBldgWorldPos.xz, wBldgZone);
-        float winterBldgFactor = clamp(wBldgZone[4] + wBldgZone[2] * smoothstep(11.0, 18.0, vBldgWorldPos.y), 0.0, 1.0);
+        float winterBldgFactor = clamp(wBldgZone[4] + wBldgZone[2] * smoothstep(58.0, 76.0, vBldgWorldPos.y), 0.0, 1.0);
 
         bool isRoofSurface = (vBldgWorldNormal.y > 0.22) && (vBldgModelPos.y > 1.2 || (vBldgUv.x > 0.50 && vBldgUv.y > 0.50));
 
@@ -2593,14 +2764,14 @@ villageMat.onBeforeCompile = (shader) => {
                 float roofSlope = smoothstep(0.20, 0.48, vBldgWorldNormal.y);
                 float roofSnow = roofSlope * winterBldgFactor;
 
-                vec3 roofSnowColor = mix(vec3(0.80, 0.86, 0.94), vec3(0.96, 0.98, 1.0), sunLit * 0.45 + 0.55);
-                float drift = sin(vBldgWorldPos.x * 2.8 + vBldgWorldPos.z * 1.9) * cos(vBldgWorldPos.z * 2.4) * 0.04;
+                vec3 roofSnowColor = mix(vec3(0.32, 0.36, 0.42), vec3(0.48, 0.52, 0.58), sunLit * 0.45 + 0.55);
+                float drift = sin(vBldgWorldPos.x * 2.8 + vBldgWorldPos.z * 1.9) * cos(vBldgWorldPos.z * 2.4) * 0.03;
                 roofSnowColor += drift;
 
-                diffuseColor.rgb = mix(diffuseColor.rgb, roofSnowColor, roofSnow * 0.96);
+                diffuseColor.rgb = mix(diffuseColor.rgb, roofSnowColor, roofSnow * 0.92);
             } else if (vBldgWorldNormal.y > 0.70 && vBldgModelPos.y > 0.75) {
-                float ledgeSnow = smoothstep(0.70, 0.90, vBldgWorldNormal.y) * winterBldgFactor * 0.75;
-                vec3 ledgeSnowColor = vec3(0.92, 0.95, 0.98);
+                float ledgeSnow = smoothstep(0.70, 0.90, vBldgWorldNormal.y) * winterBldgFactor * 0.72;
+                vec3 ledgeSnowColor = vec3(0.44, 0.48, 0.54);
                 diffuseColor.rgb = mix(diffuseColor.rgb, ledgeSnowColor, ledgeSnow);
             }
         }
@@ -2712,22 +2883,128 @@ rockMat.onBeforeCompile = (shader) => {
 };
 
 const desertRockMat = new THREE.MeshStandardMaterial({
-    color: new THREE.Color(0xb87644).convertSRGBToLinear(),
+    color: new THREE.Color(0x9a5c32).convertSRGBToLinear(),
     vertexColors: true,
     roughness: 0.90,
     metalness: 0.03,
     envMapIntensity: GROUND_ENV_MAP_INTENSITY,
-    side: THREE.DoubleSide
+    side: THREE.DoubleSide,
+    fog: false
 });
 
+desertRockMat.onBeforeCompile = (shader) => {
+    shader.uniforms.uCameraPos = terrainUniforms.uCameraPos;
+    shader.uniforms.uSunDir = terrainUniforms.uSunDir;
+    shader.uniforms.uSunColor = terrainUniforms.uSunColor;
+    shader.uniforms.uSkyColor = terrainUniforms.uSkyColor;
+    shader.uniforms.uSkyTopColor = terrainUniforms.uSkyTopColor;
+    shader.uniforms.uHazeStrength = terrainUniforms.uHazeStrength;
+    shader.vertexShader = 'varying vec3 vDesertRockWP;\n' + shader.vertexShader.replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+        vDesertRockWP = (modelMatrix * vec4(transformed, 1.0)).xyz;`
+    );
+    shader.fragmentShader = `varying vec3 vDesertRockWP;
+        uniform vec3 uCameraPos;
+        uniform vec3 uSunDir;
+        uniform vec3 uSunColor;
+        uniform vec3 uSkyColor;
+        uniform vec3 uSkyTopColor;
+        uniform float uHazeStrength;
+        ${BABYLON_HAZE_GLSL}
+    ` + shader.fragmentShader.replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+        float strata = 0.78 + 0.22 * sin(vDesertRockWP.y * 5.5 + vDesertRockWP.x * 0.8);
+        diffuseColor.rgb = pow(max(diffuseColor.rgb, vec3(0.001)), vec3(1.5)) * strata;`
+    ).replace(
+        '#include <tonemapping_fragment>',
+        `gl_FragColor.rgb = applyBabylonAerialHaze(gl_FragColor.rgb, vDesertRockWP, uCameraPos, uSunDir, uSunColor, uSkyColor, uSkyTopColor, uHazeStrength);
+        #include <tonemapping_fragment>`
+    );
+};
+
 const mountainRockMat = new THREE.MeshStandardMaterial({
-    color: new THREE.Color(0x6e7884).convertSRGBToLinear(),
+    color: new THREE.Color(0xa8b2be).convertSRGBToLinear(),
     vertexColors: true,
-    roughness: 0.88,
-    metalness: 0.06,
+    roughness: 0.90,
+    metalness: 0.04,
     envMapIntensity: GROUND_ENV_MAP_INTENSITY,
-    side: THREE.DoubleSide
+    side: THREE.DoubleSide,
+    fog: false
 });
+
+mountainRockMat.onBeforeCompile = (shader) => {
+    shader.uniforms.uCameraPos = terrainUniforms.uCameraPos;
+    shader.uniforms.uSunDir = terrainUniforms.uSunDir;
+    shader.uniforms.uSunColor = terrainUniforms.uSunColor;
+    shader.uniforms.uSkyColor = terrainUniforms.uSkyColor;
+    shader.uniforms.uSkyTopColor = terrainUniforms.uSkyTopColor;
+    shader.uniforms.uHazeStrength = terrainUniforms.uHazeStrength;
+    shader.vertexShader = 'varying vec3 vMtnRockWN;\nvarying vec3 vMtnRockWP;\n' + shader.vertexShader.replace(
+        '#include <begin_vertex>',
+        `#include <begin_vertex>
+        vMtnRockWN = normalize(mat3(modelMatrix) * normal);
+        vMtnRockWP = (modelMatrix * vec4(transformed, 1.0)).xyz;`
+    );
+    shader.fragmentShader = `varying vec3 vMtnRockWN;
+        varying vec3 vMtnRockWP;
+        uniform vec3 uCameraPos;
+        uniform vec3 uSunDir;
+        uniform vec3 uSunColor;
+        uniform vec3 uSkyColor;
+        uniform vec3 uSkyTopColor;
+        uniform float uHazeStrength;
+        ${BABYLON_HAZE_GLSL}
+        float mRockHash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+        float mRockNoise(vec2 p) {
+            vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);
+            return mix(mix(mRockHash(i), mRockHash(i + vec2(1.0, 0.0)), f.x), mix(mRockHash(i + vec2(0.0, 1.0)), mRockHash(i + vec2(1.0, 1.0)), f.x), f.y);
+        }
+        float mRockFbm(vec2 p) {
+            return mRockNoise(p) * 0.50 + mRockNoise(p * 2.13 + vec2(5.2, 1.3)) * 0.26 + mRockNoise(p * 4.7 + vec2(1.7, 9.2)) * 0.15 + mRockNoise(p * 10.3) * 0.09;
+        }
+    ` + shader.fragmentShader.replace(
+        '#include <normal_fragment_begin>',
+        `#include <normal_fragment_begin>
+        vec2 rUv = vMtnRockWP.xz * 1.8 + vec2(vMtnRockWP.y * 1.6, -vMtnRockWP.y * 1.2);
+        float hC = mRockFbm(rUv * 3.8);
+        float hX = mRockFbm((rUv + vec2(0.025, 0.0)) * 3.8);
+        float hY = mRockFbm((rUv + vec2(0.0, 0.025)) * 3.8);
+        vec3 bumpN = normalize(vec3((hC - hX) * 10.5, (hC - hY) * 10.5, 1.0));
+        normal = normalize(normal + vec3(bumpN.x, bumpN.y * 0.65, bumpN.x * 0.65) * 0.70);
+        `
+    ).replace(
+        '#include <color_fragment>',
+        `#include <color_fragment>
+        vec2 rp = vMtnRockWP.xz * 1.4 + vMtnRockWP.y * 1.1;
+        float rn = mRockFbm(rp * 2.8);
+        float microN = mRockNoise(rp * 18.0);
+        float fineN  = mRockNoise(rp * 42.0);
+        float crackMask = smoothstep(0.045, 0.0, abs(mRockNoise(rp * 1.9 + vec2(rn * 0.45)) - 0.5));
+        vec3 wn = normalize(vMtnRockWN);
+        float up = smoothstep(0.30, 0.80, wn.y);
+
+        // Cold alpine slate & dark granite with quartz veins, deep fractures & alpine moss/lichen
+        vec3 darkSlate = vec3(0.18, 0.20, 0.23);
+        vec3 coldGranite = vec3(0.42, 0.45, 0.49);
+        vec3 slateStone = mix(darkSlate, coldGranite, rn * 0.58 + microN * 0.30 + fineN * 0.12);
+        float lichen = smoothstep(0.62, 0.80, mRockNoise(rp * 5.2)) * 0.35;
+        slateStone = mix(slateStone, vec3(0.32, 0.36, 0.24), lichen);
+        slateStone *= (1.0 - crackMask * 0.65);
+        vec3 stone = diffuseColor.rgb * slateStone * 1.65;
+
+        // High-altitude snow frost only when the boulder sits above the mountain snowline (y > 60m)
+        float highSnow = smoothstep(58.0, 78.0, vMtnRockWP.y) * up;
+        stone = mix(stone, vec3(0.34, 0.38, 0.44), highSnow * 0.82);
+        diffuseColor.rgb = stone;
+        `
+    ).replace(
+        '#include <tonemapping_fragment>',
+        `gl_FragColor.rgb = applyBabylonAerialHaze(gl_FragColor.rgb, vMtnRockWP, uCameraPos, uSunDir, uSunColor, uSkyColor, uSkyTopColor, uHazeStrength);
+        #include <tonemapping_fragment>`
+    );
+};
 
 const monumentRockMat = new THREE.MeshStandardMaterial({
     color: new THREE.Color(0xffffff),
@@ -4892,11 +5169,11 @@ function createMountainPeakCragGeometry() {
         for (let k = 0; k < p.count; k++) {
             const vy = p.getY(k);
             const ny = nAttr.getY(k);
-            const snowFrost = (vy > 3.2 && ny > 0.35) ? Math.min(1.0, (vy - 3.2) * 0.55) : 0.0;
-            const shade = 0.48 + 0.32 * Math.min(1.0, Math.max(0.0, vy / 4.8));
-            col[k * 3 + 0] = THREE.MathUtils.lerp(0.56 * shade, 0.92, snowFrost);
-            col[k * 3 + 1] = THREE.MathUtils.lerp(0.60 * shade, 0.95, snowFrost);
-            col[k * 3 + 2] = THREE.MathUtils.lerp(0.66 * shade, 1.00, snowFrost);
+            const ridgeCrest = (vy > 3.0 && ny > 0.35) ? Math.min(1.0, (vy - 3.0) * 0.35) : 0.0;
+            const shade = 0.42 + 0.30 * Math.min(1.0, Math.max(0.0, vy / 4.8));
+            col[k * 3 + 0] = THREE.MathUtils.lerp(0.46 * shade, 0.54, ridgeCrest);
+            col[k * 3 + 1] = THREE.MathUtils.lerp(0.50 * shade, 0.58, ridgeCrest);
+            col[k * 3 + 2] = THREE.MathUtils.lerp(0.56 * shade, 0.64, ridgeCrest);
         }
         geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
         applyWorldBoxUVs(geo, 0.22, 0.30);
@@ -7088,11 +7365,11 @@ function createCanyonCliffGeometry(w = 28.0, l = 32.0, h = 18.5) {
         cyl.translate(0, b * bH + bH * 0.5, 0);
         smoothDuplicateVertexNormals(cyl);
 
-        const strataTint = (b === 0) ? [0.70, 0.28, 0.16]
-                         : (b === 1) ? [0.58, 0.22, 0.13]
-                         : (b === 2) ? [0.78, 0.42, 0.24]
-                         : (b === 3) ? [0.84, 0.64, 0.44]
-                         : [0.90, 0.80, 0.62];
+        const strataTint = (b === 0) ? [0.52, 0.20, 0.11]
+                         : (b === 1) ? [0.42, 0.15, 0.08]
+                         : (b === 2) ? [0.58, 0.28, 0.15]
+                         : (b === 3) ? [0.62, 0.42, 0.26]
+                         : [0.66, 0.50, 0.34];
         tintBuildingPart(cyl, strataTint[0], strataTint[1], strataTint[2], h);
         applyWorldBoxUVs(cyl, 0.18, 0.24);
         parts.push(cyl);
@@ -7127,7 +7404,7 @@ function createCanyonTowerGeometry(baseW = 9.2, h = 17.0) {
         }
         cyl.translate(0, b * bH + bH * 0.5, 0);
         smoothDuplicateVertexNormals(cyl);
-        const strata = (b === 0) ? [0.68, 0.26, 0.15] : (b === 1) ? [0.56, 0.20, 0.12] : (b === 2) ? [0.80, 0.52, 0.34] : [0.88, 0.74, 0.54];
+        const strata = (b === 0) ? [0.50, 0.18, 0.10] : (b === 1) ? [0.40, 0.14, 0.08] : (b === 2) ? [0.58, 0.34, 0.20] : [0.64, 0.48, 0.32];
         tintBuildingPart(cyl, strata[0], strata[1], strata[2], h);
         applyWorldBoxUVs(cyl, 0.18, 0.24);
         parts.push(cyl);
@@ -9395,14 +9672,14 @@ const _tvDryGrass  = new THREE.Color(0x565026);
 const _tvSunlitGrass = new THREE.Color(0x405828);
 const _tvMudRoad   = new THREE.Color(0x2a2016);
 const _tvWetRut    = new THREE.Color(0x16100a);
-const _tvCliffRock = new THREE.Color(0x585652);
-const _tvMountain  = new THREE.Color(0x3c4852);
-const _tvDesertSand = new THREE.Color(0xc4a88c);
-const _tvDesertDune = new THREE.Color(0xd8c3ab);
-const _tvSandstone  = new THREE.Color(0x9a745c);
-const _tvDesertOasisGrass = new THREE.Color(0x567e32);
-const _tvAlpineSnow = new THREE.Color(0xeaf2fa);
-const _tvHeather    = new THREE.Color(0x644c22);
+const _tvCliffRock = new THREE.Color(0x524e48);
+const _tvMountain  = new THREE.Color(0x3a4048);
+const _tvDesertSand = new THREE.Color(0x9e744e);
+const _tvDesertDune = new THREE.Color(0xb88c62);
+const _tvSandstone  = new THREE.Color(0x7c5238);
+const _tvDesertOasisGrass = new THREE.Color(0x426624);
+const _tvAlpineSnow = new THREE.Color(0x8c9aa8);
+const _tvHeather    = new THREE.Color(0x5a421e);
 const _tvTempCol = new THREE.Color();
 const _tvTempDirtCol = new THREE.Color();
 const _tvScratchA = new THREE.Color();
@@ -9424,30 +9701,34 @@ function sampleTerrainVertexColor(wx, wz, wy, n, outArr, offset) {
                 _tvTempCol.lerp(_tvDesertOasisGrass, oasisGreenery * 0.85);
             }
             if (roadF > 0.01) {
-                _tvTempDirtCol.setHex(0x8c6239);
+                _tvTempDirtCol.setHex(0x6e4b2a);
                 _tvTempCol.lerp(_tvTempDirtCol, Math.min(1.0, roadF * 1.1));
             }
-            if (slope > 0.16) {
-                _tvTempCol.lerp(_tvSandstone, Math.min(1.0, (slope - 0.16) * 4.2));
+            if (slope > 0.06) {
+                _tvTempCol.lerp(_tvSandstone, Math.min(1.0, (slope - 0.06) * 5.0));
             }
         } else if (currentZoneIndex === 2) {
             _tvTempCol.copy(_tvLushGrass).lerp(_tvSunlitGrass, smoothstep(0.15, 0.65, fieldNoise) * 0.65);
             if (roadF > 0.01) {
-                _tvTempDirtCol.setHex(0x4a4c50);
+                _tvTempDirtCol.setHex(0x3a3e44);
                 _tvTempCol.lerp(_tvTempDirtCol, Math.min(1.0, roadF * 1.1));
             }
-            if (slope > 0.15) {
-                _tvTempCol.lerp(_tvMountain, Math.min(1.0, (slope - 0.15) * 4.5));
+            const subalpineRock = Math.max(
+                slope > 0.04 ? Math.min(1.0, (slope - 0.04) * 7.5) : 0.0,
+                wy > 16.0 ? Math.min(1.0, (wy - 16.0) / 14.0) : 0.0
+            );
+            if (subalpineRock > 0.0) {
+                _tvTempCol.lerp(_tvMountain, subalpineRock);
             }
-            if (wy > 13.5) {
-                const snowBlend = Math.min(1.0, (wy - 13.5) / 8.0) * (1.0 - smoothstep(0.32, 0.58, slope) * 0.7);
+            if (wy > 62.0) {
+                const snowBlend = Math.min(1.0, (wy - 62.0) / 28.0) * (1.0 - smoothstep(0.06, 0.16, slope) * 0.85);
                 _tvTempCol.lerp(_tvAlpineSnow, snowBlend);
             }
         } else if (currentZoneIndex === 3) {
             _tvTempCol.copy(_tvLushGrass).lerp(_tvSunlitGrass, smoothstep(0.10, 0.60, fieldNoise) * 0.75);
             _tvTempCol.lerp(_tvDryGrass, smoothstep(0.55, 0.92, fieldNoise) * 0.78);
-            if (wy > 9.0) {
-                _tvTempCol.lerp(_tvHeather, Math.min(1.0, (wy - 9.0) / 9.0) * 0.75);
+            if (wy > 8.5) {
+                _tvTempCol.lerp(_tvHeather, Math.min(1.0, (wy - 8.5) / 8.5) * 0.75);
             }
             if (roadF > 0.01) {
                 const distFromCenter = getRoadDistance(wx, wz);
@@ -9456,23 +9737,23 @@ function sampleTerrainVertexColor(wx, wz, wy, n, outArr, offset) {
                 _tvTempDirtCol.copy(_tvMudRoad).lerp(_tvWetRut, isRut);
                 _tvTempCol.lerp(_tvTempDirtCol, Math.min(1.0, roadF * 1.1));
             }
-            if (slope > 0.20) {
-                _tvTempCol.lerp(_tvCliffRock, Math.min(1.0, (slope - 0.20) * 4.5));
+            if (slope > 0.06) {
+                _tvTempCol.lerp(_tvCliffRock, Math.min(1.0, (slope - 0.06) * 5.5));
             }
         } else if (currentZoneIndex === 4) {
-            _tvTempCol.setHex(0xd0e0ec).lerp(_tvAlpineSnow, smoothstep(0.15, 0.75, fieldNoise));
+            _tvTempCol.setHex(0x8494a6).lerp(_tvAlpineSnow, smoothstep(0.15, 0.75, fieldNoise));
             if (roadF > 0.01) {
                 const distFromCenter = getRoadDistance(wx, wz);
                 const rutDist = Math.abs(distFromCenter - 1.35);
                 const isRut = rutDist < 0.55 ? 0.85 : 0.0;
-                _tvTempDirtCol.setHex(0x505860).lerp(_tvScratchA.setHex(0x282c30), isRut);
+                _tvTempDirtCol.setHex(0x424850).lerp(_tvScratchA.setHex(0x24282c), isRut);
                 _tvTempCol.lerp(_tvTempDirtCol, Math.min(1.0, roadF * 1.1));
             }
-            if (slope > 0.16) {
-                _tvTempCol.lerp(_tvScratchA.setHex(0x38342e), Math.min(1.0, (slope - 0.16) * 3.5));
+            if (slope > 0.05) {
+                _tvTempCol.lerp(_tvScratchA.setHex(0x38342e), Math.min(1.0, (slope - 0.05) * 5.0));
             }
-            if (slope > 0.28) {
-                _tvTempCol.lerp(_tvMountain, Math.min(1.0, (slope - 0.28) * 4.5));
+            if (slope > 0.14) {
+                _tvTempCol.lerp(_tvMountain, Math.min(1.0, (slope - 0.14) * 5.5));
             }
         } else if (currentZoneIndex === 5) {
             _tvTempCol.setHex(0x365820).lerp(_tvLushGrass, smoothstep(0.12, 0.65, fieldNoise));
@@ -11106,7 +11387,7 @@ function buildFarRockGeo() {
         g.translate(b.x, b.y, b.z);
         g.computeVertexNormals();
         for (let i = 0; i < pos.count; i++) {
-            const shade = 0.68 + Math.min(1.0, Math.max(0.0, pos.getY(i) / 4.0)) * 0.28;
+            const shade = 0.28 + Math.min(1.0, Math.max(0.0, pos.getY(i) / 4.0)) * 0.16;
             cols[i * 3 + 0] = shade;
             cols[i * 3 + 1] = shade;
             cols[i * 3 + 2] = shade;
@@ -11170,9 +11451,9 @@ function buildFarHouseGeo() {
         w,h,d,   w,h,-d, w,peak,0
     ];
     const col = [];
-    for (let i = 0; i < 16; i++) col.push(0.76, 0.72, 0.64); // Warm stone/plaster walls
-    for (let i = 0; i < 8; i++) col.push(0.68, 0.28, 0.20);  // Terracotta roof
-    for (let i = 0; i < 6; i++) col.push(0.72, 0.68, 0.60);  // Gables
+    for (let i = 0; i < 16; i++) col.push(0.28, 0.25, 0.21); // Warm stone/plaster walls (linear space)
+    for (let i = 0; i < 8; i++) col.push(0.26, 0.08, 0.05);  // Terracotta roof (linear space)
+    for (let i = 0; i < 6; i++) col.push(0.24, 0.21, 0.18);  // Gables (linear space)
     const idx = [
         0,1,2, 0,2,3,  4,5,6, 4,6,7,  8,9,10, 8,10,11,  12,13,14, 12,14,15,
         16,17,18, 16,18,19,  20,21,22, 20,22,23,
@@ -11194,9 +11475,9 @@ function buildFarAdobeGeo() {
     for (let i = 0; i < count; i++) {
         const y = geo.attributes.position.getY(i);
         const s = y > 3.5 ? 0.92 : 0.78;
-        cols[i * 3 + 0] = 0.84 * s;
-        cols[i * 3 + 1] = 0.68 * s;
-        cols[i * 3 + 2] = 0.48 * s;
+        cols[i * 3 + 0] = 0.36 * s;
+        cols[i * 3 + 1] = 0.24 * s;
+        cols[i * 3 + 2] = 0.14 * s;
     }
     geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
     return geo;
@@ -11211,9 +11492,9 @@ function buildFarButteGeo() {
     for (let i = 0; i < count; i++) {
         const y = geo.attributes.position.getY(i);
         const strata = 0.85 + 0.15 * Math.sin(y * 0.9);
-        cols[i * 3 + 0] = 0.72 * strata;
-        cols[i * 3 + 1] = 0.28 * strata;
-        cols[i * 3 + 2] = 0.16 * strata;
+        cols[i * 3 + 0] = 0.42 * strata;
+        cols[i * 3 + 1] = 0.14 * strata;
+        cols[i * 3 + 2] = 0.07 * strata;
     }
     geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
     applyWorldBoxUVs(geo, 0.18, 0.24);
@@ -11239,11 +11520,11 @@ function buildFarCanyonCliffGeo() {
         }
         cyl.translate(0, b * bH + bH * 0.5, 0);
         cyl.computeVertexNormals();
-        const strataTint = (b === 0) ? [0.70, 0.28, 0.16]
-                         : (b === 1) ? [0.58, 0.22, 0.13]
-                         : (b === 2) ? [0.78, 0.42, 0.24]
-                         : (b === 3) ? [0.84, 0.64, 0.44]
-                         : [0.90, 0.80, 0.62];
+        const strataTint = (b === 0) ? [0.42, 0.15, 0.08]
+                         : (b === 1) ? [0.34, 0.11, 0.06]
+                         : (b === 2) ? [0.48, 0.22, 0.12]
+                         : (b === 3) ? [0.52, 0.34, 0.20]
+                         : [0.56, 0.40, 0.26];
         tintBuildingPart(cyl, strataTint[0], strataTint[1], strataTint[2], h);
         applyWorldBoxUVs(cyl, 0.18, 0.24);
         parts.push(cyl);
@@ -11268,7 +11549,7 @@ function buildFarCanyonTowerGeo() {
         }
         cyl.translate(0, b * bH + bH * 0.5, 0);
         cyl.computeVertexNormals();
-        const strata = (b === 0) ? [0.68, 0.26, 0.15] : (b === 1) ? [0.56, 0.20, 0.12] : (b === 2) ? [0.80, 0.52, 0.34] : [0.88, 0.74, 0.54];
+        const strata = (b === 0) ? [0.40, 0.14, 0.08] : (b === 1) ? [0.32, 0.10, 0.05] : (b === 2) ? [0.48, 0.26, 0.15] : [0.54, 0.38, 0.24];
         tintBuildingPart(cyl, strata[0], strata[1], strata[2], h);
         applyWorldBoxUVs(cyl, 0.18, 0.24);
         parts.push(cyl);

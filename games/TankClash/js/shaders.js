@@ -3645,19 +3645,21 @@ function createTerrainNormalAtlas() {
         }
     }
 
-    // Compute Sobel Filter Normal Map (Calibrated soft bump scale for organic ground shading)
+    // Compute Sobel Filter Normal Map (Per-quadrant toroidal wrap + crisp organic ground relief)
     const imgData = ctx.createImageData(size, size);
-    const bumpScale = 1.35;
+    const bumpScale = 2.15;
 
     for (let y = 0; y < size; y++) {
-        const ym = (y + size - 1) % size;
-        const yp = (y + 1) % size;
+        const qy = y >= half ? half : 0;
+        const ym = qy + ((y - qy + half - 1) % half);
+        const yp = qy + ((y - qy + 1) % half);
         const ymRow = ym * size;
         const yRow = y * size;
         const ypRow = yp * size;
         for (let x = 0; x < size; x++) {
-            const xm = (x + size - 1) % size;
-            const xp = (x + 1) % size;
+            const qx = x >= half ? half : 0;
+            const xm = qx + ((x - qx + half - 1) % half);
+            const xp = qx + ((x - qx + 1) % half);
 
             const tl = heightMap[ymRow + xm], t = heightMap[ymRow + x], tr = heightMap[ymRow + xp];
             const l  = heightMap[yRow  + xm],                            r  = heightMap[yRow  + xp];
@@ -3686,7 +3688,9 @@ function createTerrainNormalAtlas() {
     normalTex.wrapS = THREE.RepeatWrapping;
     normalTex.wrapT = THREE.RepeatWrapping;
     normalTex.repeat.set(1, 1);
-    normalTex.anisotropy = 4;
+    normalTex.generateMipmaps = false;
+    normalTex.minFilter = THREE.LinearFilter;
+    normalTex.magFilter = THREE.LinearFilter;
     normalTex.needsUpdate = true;
 
     _terrainNormalAtlas = normalTex;
