@@ -9917,13 +9917,13 @@ class TerrainChunk {
                 let hz = chunkCenterZ + (rng() - 0.5) * 18.0;
                 hx = THREE.MathUtils.clamp(hx, xMin + 8, xMin + CHUNK_SIZE - 8);
                 hz = THREE.MathUtils.clamp(hz, zMin + 8, zMin + CHUNK_SIZE - 8);
-                if (Math.hypot(hx, hz) < 32) return;
-                if (Math.hypot(hx - (-18), hz - 112) < 24) return;
-                if (Math.hypot(hx - (-19), hz - 22) < 20) return;
-                const baseHy = getTerrainHeight(hx, hz);
-                const norm = getTerrainNormal(hx, hz);
+                const canPlaceRoadside = Math.hypot(hx, hz) >= 32
+                    && Math.hypot(hx - (-18), hz - 112) >= 24
+                    && Math.hypot(hx - (-19), hz - 22) >= 20;
+                const baseHy = canPlaceRoadside ? getTerrainHeight(hx, hz) : -999;
+                const norm = canPlaceRoadside ? getTerrainNormal(hx, hz) : null;
 
-                if (baseHy > -1.8 && norm.y > 0.84 && (currentZoneIndex !== 2 || baseHy < 15.5)) {
+                if (canPlaceRoadside && baseHy > -1.8 && norm && norm.y > 0.84 && (currentZoneIndex !== 2 || baseHy < 15.5)) {
                     const hy = Math.max(
                         baseHy,
                         getTerrainHeight(hx - 2.6, hz - 2.6),
@@ -10764,6 +10764,7 @@ function processChunkStreamingQueue(budgetMs = 3.5) {
         if (chunk) {
             activeChunks.delete(chunk.chunkKey);
             chunk.dispose();
+            farPropLastCX = null;
         }
     }
 
@@ -10777,6 +10778,7 @@ function processChunkStreamingQueue(budgetMs = 3.5) {
 
         if (!activeChunks.has(item.key)) {
             activeChunks.set(item.key, new TerrainChunk(item.cx, item.cz));
+            farPropLastCX = null;
         }
 
         const elapsed = ((window.performance && window.performance.now) ? window.performance.now() : Date.now()) - startT;
@@ -11236,7 +11238,7 @@ function ensureFarLodInstancedMeshes(isMobile) {
     if (!farTerrainGroup) return;
     if (!sharedMonumentSandstonePBR) sharedMonumentSandstonePBR = createMonumentSandstonePBR();
     const sandstoneMap = sharedMonumentSandstonePBR ? sharedMonumentSandstonePBR.albedo : null;
-    const treeCap = isMobile ? 350 : 1200;
+    const treeCap = isMobile ? 700 : 2400;
     const specs = [
         ['conifer',   buildFarConiferGeo,   true,  treeCap, null],
         ['cypress',   buildFarCypressGeo,   true,  Math.floor(treeCap * 0.5), null],
@@ -11244,13 +11246,13 @@ function ensureFarLodInstancedMeshes(isMobile) {
         ['palm',      buildFarPalmGeo,      true,  Math.floor(treeCap * 0.5), null],
         ['acacia',    buildFarAcaciaGeo,    true,  Math.floor(treeCap * 0.4), null],
         ['cactus',    buildFarCactusGeo,    false, Math.floor(treeCap * 0.3), null],
-        ['rock',          buildFarRockGeo,          false, isMobile ? 250 : 750, null],
-        ['sandstoneRock', buildFarSandstoneRockGeo, false, isMobile ? 250 : 750, sandstoneMap],
-        ['house',         buildFarHouseGeo,         false, isMobile ? 160 : 450, null],
-        ['adobe',     buildFarAdobeGeo,     false, isMobile ? 80 : 220, null],
-        ['butte',     buildFarButteGeo,     false, isMobile ? 60 : 180, sandstoneMap],
-        ['canyonCliff', buildFarCanyonCliffGeo, false, isMobile ? 45 : 140, sandstoneMap],
-        ['canyonTower', buildFarCanyonTowerGeo, false, isMobile ? 60 : 180, sandstoneMap]
+        ['rock',          buildFarRockGeo,          false, isMobile ? 500 : 1600, null],
+        ['sandstoneRock', buildFarSandstoneRockGeo, false, isMobile ? 500 : 1600, sandstoneMap],
+        ['house',         buildFarHouseGeo,         false, isMobile ? 250 : 700, null],
+        ['adobe',     buildFarAdobeGeo,     false, isMobile ? 120 : 320, null],
+        ['butte',     buildFarButteGeo,     false, isMobile ? 90 : 260, sandstoneMap],
+        ['canyonCliff', buildFarCanyonCliffGeo, false, isMobile ? 70 : 200, sandstoneMap],
+        ['canyonTower', buildFarCanyonTowerGeo, false, isMobile ? 90 : 260, sandstoneMap]
     ];
     const initCol = new THREE.Color(1, 1, 1);
     for (let i = 0; i < specs.length; i++) {
@@ -11341,6 +11343,10 @@ function getFarChunkProps(cx, cz, isMobile) {
                 getTerrainHeight(bx - 2.6, bz + 2.6),
                 getTerrainHeight(bx + 2.6, bz + 2.6)
             );
+            const isGreatPyramid = (zoneIdx === 8 && struct.type === 'townhouse' && isProceduralVillage && idx === 2
+                && Math.hypot(bx + 18, bz - 112) > 110 && Math.hypot(bx - 58, bz - 142) > 110 && Math.hypot(bx + 74, bz - 146) > 110);
+            const rot = isGreatPyramid ? 0.18 : (struct.rot + (rng() - 0.5) * 0.25);
+
             if (struct.type === 'wall' && zoneIdx !== 6 && zoneIdx !== 7) continue;
 
             let kind = 'house';
@@ -11351,7 +11357,85 @@ function getFarChunkProps(cx, cz, isMobile) {
                 else if (struct.type === 'farmhouse' || struct.type === 'barn' || struct.type === 'ruin') kind = 'canyonTower';
                 else kind = 'sandstoneRock';
             }
-            houses.push({ x: bx, y: by, z: bz, rot: struct.rot, scale: struct.scale, kind, zoneIdx, radius: 5.5 * struct.scale });
+            houses.push({ x: bx, y: by, z: bz, rot, scale: struct.scale, kind, zoneIdx, radius: 5.5 * struct.scale });
+        }
+    } else if (distFromSpawn > 35 && rng() < 0.36) {
+        const roadDistCenter = getRoadDistance(chunkCenterX, chunkCenterZ);
+        if (roadDistCenter < 38) {
+            const sideSign = (rng() > 0.5) ? 1 : -1;
+            let hx = chunkCenterX + sideSign * (14.0 + rng() * 8.0);
+            let hz = chunkCenterZ + (rng() - 0.5) * 18.0;
+            hx = THREE.MathUtils.clamp(hx, xMin + 8, xMin + CHUNK_SIZE - 8);
+            hz = THREE.MathUtils.clamp(hz, zMin + 8, zMin + CHUNK_SIZE - 8);
+            const canPlaceRoadside = Math.hypot(hx, hz) >= 32
+                && Math.hypot(hx + 18, hz - 112) >= 24
+                && Math.hypot(hx + 19, hz - 22) >= 20;
+            const baseHy = canPlaceRoadside ? getTerrainHeight(hx, hz) : -999;
+            const norm = canPlaceRoadside ? getTerrainNormal(hx, hz) : null;
+
+            if (canPlaceRoadside && baseHy > -1.8 && norm && norm.y > 0.84 && (zoneIdx !== 2 || baseHy < 15.5)) {
+                const hy = Math.max(
+                    baseHy,
+                    getTerrainHeight(hx - 2.6, hz - 2.6),
+                    getTerrainHeight(hx + 2.6, hz - 2.6),
+                    getTerrainHeight(hx - 2.6, hz + 2.6),
+                    getTerrainHeight(hx + 2.6, hz + 2.6)
+                );
+                const roll = rng();
+                let bType = 'cottage';
+                let allowWall = true;
+                if (zoneIdx === 1) {
+                    if (roll < 0.18) bType = 'ruin';
+                    else if (roll < 0.60) bType = 'adobe';
+                    else bType = 'kasbah';
+                } else if (zoneIdx === 2) {
+                    if (roll < 0.18) bType = 'ruin';
+                    else if (roll < 0.65) bType = 'chalet';
+                    else if (roll < 0.85) bType = 'farmhouse';
+                    else bType = 'bunker';
+                } else if (zoneIdx === 6) {
+                    allowWall = false;
+                    bType = (roll < 0.55) ? 'spire' : 'rock';
+                } else if (zoneIdx === 7) {
+                    allowWall = false;
+                    bType = (roll < 0.55) ? 'canyonTower' : 'rock';
+                } else if (zoneIdx === 8) {
+                    allowWall = false;
+                    if (roll < 0.42) bType = 'obelisk';
+                    else if (roll < 0.76) bType = 'colonnade';
+                    else bType = 'kasbah';
+                } else if (zoneIdx === 9) {
+                    allowWall = false;
+                    bType = 'jungleTemple';
+                } else if (zoneIdx === 10) {
+                    allowWall = false;
+                    bType = (roll < 0.52) ? 'tholos' : 'stoa';
+                } else if (zoneIdx === 11) {
+                    allowWall = false;
+                    bType = (roll < 0.55) ? 'romanArch' : 'pantheon';
+                } else {
+                    if (roll < 0.18) bType = 'ruin';
+                    else if (roll < 0.42) bType = 'cottage';
+                    else if (roll < 0.66) bType = 'farmhouse';
+                    else if (roll < 0.84) bType = 'townhouse';
+                    else bType = 'barn';
+                }
+                const bScale = 0.95 + rng() * 0.25;
+                const bRot = rng() * Math.PI * 2;
+                if (bType === 'rock') {
+                    rocks.push({ x: hx, y: baseHy - 0.2, z: hz, scale: bScale, rot: bRot, zoneIdx });
+                } else {
+                    let kind = 'house';
+                    if (zoneIdx === 1 || zoneIdx === 8) kind = 'adobe';
+                    else if (zoneIdx === 6) kind = 'butte';
+                    else if (zoneIdx === 7) kind = 'canyonTower';
+                    houses.push({ x: hx, y: hy, z: hz, rot: bRot, scale: bScale, kind, zoneIdx, radius: 5.5 * bScale });
+                }
+                if (allowWall && rng() < 0.60) {
+                    rng();
+                    rng();
+                }
+            }
         }
     }
 
@@ -11544,7 +11628,8 @@ function updateFarPropLODs(playerX, playerZ, force, isMobile) {
 
     for (let dx = -outerRadius; dx <= outerRadius; dx++) {
         for (let dz = -outerRadius; dz <= outerRadius; dz++) {
-            const isInner = (Math.abs(dx) <= innerRadius && Math.abs(dz) <= innerRadius);
+            const cKey = `${playerCX + dx},${playerCZ + dz}`;
+            const isInner = (Math.abs(dx) <= innerRadius && Math.abs(dz) <= innerRadius && activeChunks.has(cKey));
             const targetMeshes = isInner ? reflInnerLodMeshes : farLodMeshes;
             const targetCounts = isInner ? innerCounts : counts;
             const props = getFarChunkProps(playerCX + dx, playerCZ + dz, isMobile);
