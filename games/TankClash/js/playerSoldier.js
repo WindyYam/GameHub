@@ -366,7 +366,7 @@
 
         const supportStruts = Array.from({ length: 3 }, () => {
             const strut = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 1, 8), hardware);
-            strut.castShadow = true;
+            strut.castShadow = false;
             emplacement.add(strut);
             return strut;
         });

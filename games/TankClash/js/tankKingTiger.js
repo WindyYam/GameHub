@@ -922,44 +922,50 @@
         const idlerWheels = [];
         const trackChains = { left: [], right: [] };
 
+        // Shared pre-merged roadwheel geometries (3 draw calls per station instead of 17 meshes × 36 wheels)
+        const _ktMerge = (typeof window !== 'undefined' && window.mergeBufferGeometries) || (typeof mergeBufferGeometries === 'function' ? mergeBufferGeometries : null);
+        const _ktTireGeo = new THREE.CylinderGeometry(0.41, 0.41, 0.09, 16);
+        _ktTireGeo.rotateZ(Math.PI / 2);
+        const _ktDishGeo = new THREE.CylinderGeometry(0.355, 0.355, 0.10, 16);
+        _ktDishGeo.rotateZ(Math.PI / 2);
+
+        const _ktDetailParts = [];
+        const _ktRimGeo = new THREE.CylinderGeometry(0.25, 0.25, 0.11, 16);
+        _ktRimGeo.rotateZ(Math.PI / 2);
+        _ktDetailParts.push(_ktRimGeo);
+        const _ktHubGeo = new THREE.CylinderGeometry(0.12, 0.14, 0.14, 12);
+        _ktHubGeo.rotateZ(Math.PI / 2);
+        _ktDetailParts.push(_ktHubGeo);
+        const _ktCapGeo = new THREE.CylinderGeometry(0.06, 0.06, 0.17, 8);
+        _ktCapGeo.rotateZ(Math.PI / 2);
+        _ktDetailParts.push(_ktCapGeo);
+        for (let side of [-1, 1]) {
+            for (const radius of [0.26, 0.34]) {
+                const bead = new THREE.TorusGeometry(radius, 0.012, 5, 16);
+                bead.rotateY(Math.PI / 2);
+                bead.translate(side * 0.056, 0, 0);
+                _ktDetailParts.push(bead);
+            }
+        }
+        for (let b = 0; b < 8; b++) {
+            const angle = (b / 8) * Math.PI * 2;
+            const bolt = new THREE.CylinderGeometry(0.016, 0.016, 0.12, 6);
+            bolt.rotateZ(Math.PI / 2);
+            bolt.translate(0, Math.cos(angle) * 0.23, Math.sin(angle) * 0.23);
+            _ktDetailParts.push(bolt);
+        }
+        const _ktDetailGeo = _ktMerge ? _ktMerge(_ktDetailParts) : _ktRimGeo;
+        if (_ktMerge) _ktDetailParts.forEach((g) => g.dispose());
+
         function createRoadWheel() {
             const wg = new THREE.Group();
-            const tire = registerMesh(new THREE.Mesh(new THREE.CylinderGeometry(0.41, 0.41, 0.09, 24), assets.trackSteelMat));
-            tire.rotation.z = Math.PI / 2;
+            const tire = registerMesh(new THREE.Mesh(_ktTireGeo, assets.trackSteelMat));
             wg.add(tire);
-
-            const dish = registerMesh(new THREE.Mesh(new THREE.CylinderGeometry(0.355, 0.355, 0.10, 24), assets.wheelFaceMat));
-            dish.rotation.z = Math.PI / 2;
+            const dish = registerMesh(new THREE.Mesh(_ktDishGeo, assets.wheelFaceMat));
             wg.add(dish);
-
-            const rim = registerMesh(new THREE.Mesh(new THREE.CylinderGeometry(0.25, 0.25, 0.11, 24), assets.wheelRimMat));
-            rim.rotation.z = Math.PI / 2;
-            wg.add(rim);
-
-            const hub = registerMesh(new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.14, 0.14, 16), assets.trackSteelMat));
-            hub.rotation.z = Math.PI / 2;
-            wg.add(hub);
-
-            const cap = registerMesh(new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.17, 10), assets.wheelRimMat));
-            cap.rotation.z = Math.PI / 2;
-            wg.add(cap);
-
-            for (let side of [-1, 1]) {
-                for (const radius of [0.26, 0.34]) {
-                    const bead = registerMesh(new THREE.Mesh(new THREE.TorusGeometry(radius, 0.012, 6, 24), assets.wheelRimMat));
-                    bead.rotation.y = Math.PI / 2;
-                    bead.position.x = side * 0.056;
-                    wg.add(bead);
-                }
-            }
-
-            for (let b = 0; b < 8; b++) {
-                const angle = (b / 8) * Math.PI * 2;
-                const bolt = registerMesh(new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.12, 6), assets.wornMetalMat));
-                bolt.rotation.z = Math.PI / 2;
-                bolt.position.set(0, Math.cos(angle) * 0.23, Math.sin(angle) * 0.23);
-                wg.add(bolt);
-            }
+            const detail = registerMesh(new THREE.Mesh(_ktDetailGeo, assets.wheelRimMat));
+            detail.userData.noShadow = true;
+            wg.add(detail);
             return wg;
         }
 
@@ -1467,7 +1473,7 @@
                 if (obj.geometry && obj.geometry.attributes.uv && !obj.geometry.attributes.uv2) {
                     obj.geometry.setAttribute('uv2', obj.geometry.attributes.uv);
                 }
-                obj.castShadow = true;
+                obj.castShadow = !(obj.userData && obj.userData.noShadow);
                 obj.receiveShadow = true;
             }
         });

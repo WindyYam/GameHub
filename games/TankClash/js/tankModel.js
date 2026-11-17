@@ -428,9 +428,45 @@ function mergeStaticTankGeos(geos) {
 }
 
 /**
- * Merges static meshes inside each rigid-body subtree (hull, turret, gun pivot)
- * by material + shadow flags, preserving all animated wheels, tracks, recoil,
- * headlights, and muzzles.
+ * Disables shadow casting on small tank details (bolts, shackles, tools, decals,
+ * return rollers, hubcaps, instanced track links) while keeping main silhouette
+ * parts (hull, turret, mantlet, barrel, skirts, roadwheels) casting shadows.
+ */
+function applyTankShadowLOD(model) {
+    if (!model || !model.tankRoot) return;
+    const root = model.tankRoot;
+    root.updateMatrixWorld(true);
+    const sz = new THREE.Vector3();
+    const wScale = new THREE.Vector3();
+
+    root.traverse((obj) => {
+        if (!obj.isMesh) return;
+        if (obj.isInstancedMesh) {
+            obj.castShadow = false;
+            return;
+        }
+        if (!obj.castShadow || !obj.geometry) return;
+        if (!obj.geometry.boundingBox) obj.geometry.computeBoundingBox();
+        const bb = obj.geometry.boundingBox;
+        if (!bb) return;
+        bb.getSize(sz);
+        obj.getWorldScale(wScale);
+        const maxDim = Math.max(
+            Math.abs(sz.x * wScale.x),
+            Math.abs(sz.y * wScale.y),
+            Math.abs(sz.z * wScale.z)
+        );
+        if (maxDim < 0.42) {
+            obj.castShadow = false;
+        }
+    });
+}
+window.applyTankShadowLOD = applyTankShadowLOD;
+
+/**
+ * Merges static meshes inside each rigid-body subtree (hull, turret, gun pivot,
+ * plus individual animated wheel/sprocket/idler/recoil sub-assemblies) by material
+ * + shadow flags, preserving all animated joints, headlights, and muzzles.
  */
 function batchTankStaticMeshes(model) {
     if (!model || !model.tankRoot || model._staticBatched) return;
@@ -547,12 +583,83 @@ function batchTankStaticMeshes(model) {
                 if (mesh.parent) mesh.parent.remove(mesh);
             }
             const mergedGeo = mergeStaticTankGeos(geos);
+            geos.forEach((g) => g.dispose());
             const mergedMesh = new THREE.Mesh(mergedGeo, b.mat);
             mergedMesh.castShadow = b.castShadow;
             mergedMesh.receiveShadow = b.receiveShadow;
             group.add(mergedMesh);
         });
     }
+
+    // Also merge static meshes inside each animated rigid sub-assembly (wheels, sprockets, idlers, recoil)
+    const rigidSubtrees = new Set();
+    if (model.barrelRecoilGroup && model.barrelRecoilGroup.isObject3D) rigidSubtrees.add(model.barrelRecoilGroup);
+    if (model.bowMgGroup && model.bowMgGroup.isObject3D) rigidSubtrees.add(model.bowMgGroup);
+    const collectWheelSubtrees = (arr) => {
+        if (!Array.isArray(arr)) return;
+        for (let i = 0; i < arr.length; i++) {
+            const item = arr[i];
+            if (!item) continue;
+            if (item.spinGroup && item.spinGroup.isObject3D) rigidSubtrees.add(item.spinGroup);
+            else if (item.mesh && item.mesh.isObject3D) rigidSubtrees.add(item.mesh);
+            else if (item.isObject3D) rigidSubtrees.add(item);
+        }
+    };
+    if (model.roadWheelStations) {
+        collectWheelSubtrees(model.roadWheelStations.left);
+        collectWheelSubtrees(model.roadWheelStations.right);
+    }
+    collectWheelSubtrees(model.driveSprockets);
+    collectWheelSubtrees(model.idlerWheels);
+
+    const subExclude = new Set();
+    if (model.mainGunMuzzleTip) subExclude.add(model.mainGunMuzzleTip);
+    if (model.coaxMuzzleRef) subExclude.add(model.coaxMuzzleRef);
+    if (model.bowMgBarrel) subExclude.add(model.bowMgBarrel);
+
+    rigidSubtrees.forEach((subGroup) => {
+        if (!subGroup || !subGroup.parent) return;
+        invGroup.copy(subGroup.matrixWorld).invert();
+        const buckets = new Map();
+        const walkSub = (node) => {
+            if (!node || (node !== subGroup && subExclude.has(node)) || !node.visible) return;
+            if (node.isMesh && !node.isInstancedMesh && node.geometry && node.geometry.attributes.position) {
+                const mat = node.material;
+                if (mat && !Array.isArray(mat) && !excludeMats.has(mat) && !(node.userData && node.userData.noBatch)) {
+                    relMat.multiplyMatrices(invGroup, node.matrixWorld);
+                    if (relMat.determinant() >= 0) {
+                        const key = `${mat.uuid}|${node.castShadow ? 1 : 0}|${node.receiveShadow ? 1 : 0}`;
+                        let b = buckets.get(key);
+                        if (!b) {
+                            b = { mat, castShadow: !!node.castShadow, receiveShadow: !!node.receiveShadow, items: [] };
+                            buckets.set(key, b);
+                        }
+                        b.items.push({ mesh: node, mat4: relMat.clone() });
+                    }
+                }
+            }
+            const children = node.children;
+            for (let i = 0; i < children.length; i++) walkSub(children[i]);
+        };
+        walkSub(subGroup);
+        buckets.forEach((b) => {
+            if (b.items.length < 2) return;
+            const geos = [];
+            for (let i = 0; i < b.items.length; i++) {
+                const { mesh, mat4 } = b.items[i];
+                const g = mesh.geometry.clone();
+                g.applyMatrix4(mat4);
+                geos.push(g);
+                if (mesh.parent) mesh.parent.remove(mesh);
+            }
+            const mergedGeo = mergeStaticTankGeos(geos);
+            geos.forEach((g) => g.dispose());
+            const mergedMesh = new THREE.Mesh(mergedGeo, b.mat);
+            mergedMesh.castShadow = b.castShadow;
+            mergedMesh.receiveShadow = b.receiveShadow;
+            subGroup.add(mergedMesh);
+        });
+    });
 
     root.position.copy(savedPos);
     root.rotation.copy(savedRot);
@@ -592,6 +699,7 @@ function buildTankById(tankId, scene, mats) {
         });
     });
 
+    applyTankShadowLOD(model);
     batchTankStaticMeshes(model);
     bindTankGlobals(model);
     window.currentTankId = tankId;

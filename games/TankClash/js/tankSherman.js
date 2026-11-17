@@ -744,15 +744,15 @@ function buildShermanTank(scene, mats, options = {}) {
     hullGroup.add(lowerHullGroup);
 
     // Main lower hull tub between tracks
-    const tubGeo = new THREE.BoxGeometry(1.72, 0.68, 4.25);
+    const tubGeo = new THREE.BoxGeometry(1.72, 0.64, 4.25);
     const tub = regPart(new THREE.Mesh(tubGeo, materials.oliveDrab));
-    tub.position.set(0, -0.14, -0.18);
+    tub.position.set(0, -0.15, -0.18);
     lowerHullGroup.add(tub);
 
-    // Sponson underside shelves overhanging tracks
-    const shelfGeo = new THREE.BoxGeometry(2.56, 0.04, 4.45);
+    // Sponson underside shelves overhanging tracks (clear below mainHull beveled bottom at y=0.18)
+    const shelfGeo = new THREE.BoxGeometry(2.56, 0.035, 4.45);
     const shelf = regPart(new THREE.Mesh(shelfGeo, materials.oliveDrab));
-    shelf.position.set(0, 0.20, -0.15);
+    shelf.position.set(0, 0.16, -0.15);
     lowerHullGroup.add(shelf);
 
     // Rounded 3-piece bolted cast transmission & differential nose housing at front (+Z)
@@ -869,17 +869,17 @@ function buildShermanTank(scene, mats, options = {}) {
     rightPlateGeo.rotateY(-Math.PI / 2); // Rotate to face outward towards -X
 
     const rightSponsonMesh = new THREE.Mesh(rightPlateGeo, materials.rightSponsonMat);
-    rightSponsonMesh.position.set(-1.302, 0, 0); // Outward face on Right (-X) side
+    rightSponsonMesh.position.set(-1.312, 0, 0); // Proud of mainHull (-1.305) to prevent Z-fighting
     rightSponsonMesh.receiveShadow = true;
     upperGroup.add(rightSponsonMesh);
 
     // Physical 3D Bronze Memorial Plaque & Dark Plaque on Right Hull Side
     const bronzePlaque = regPart(new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.29, 0.24), materials.bronzePlaqueMat));
-    bronzePlaque.position.set(-1.308, 0.60, 0.68);
+    bronzePlaque.position.set(-1.322, 0.60, 0.68);
     upperGroup.add(bronzePlaque);
 
     const smallDarkPlaque = regPart(new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.16, 0.21), materials.darkPlaqueMat));
-    smallDarkPlaque.position.set(-1.308, 0.56, 0.32);
+    smallDarkPlaque.position.set(-1.321, 0.56, 0.32);
     upperGroup.add(smallDarkPlaque);
 
     // Front Sand Shield / Fender Lips over drive sprockets
@@ -893,9 +893,9 @@ function buildShermanTank(scene, mats, options = {}) {
         fenderPlate.rotation.x = 0.28;
         fenderGroup.add(fenderPlate);
 
-        // Side skirt lip strip running along outer bottom sponson edge (clear of tracks)
-        const sideStrip = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.05, 4.35), materials.oliveDrab);
-        sideStrip.position.set(sideSign * 1.29, 0.18, -0.16);
+        // Side skirt lip strip running along outer bottom sponson edge (clear of mainHull & rightSponsonMesh)
+        const sideStrip = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.035, 4.35), materials.oliveDrab);
+        sideStrip.position.set(sideSign * 1.295, 0.16, -0.16);
         upperGroup.add(sideStrip);
     });
 
@@ -1140,7 +1140,7 @@ function buildShermanTank(scene, mats, options = {}) {
     const decalGeo = new THREE.CylinderGeometry(0.88, 0.92, 0.58, 24, 1, true, Math.PI * 0.78, Math.PI * 0.44);
     decalGeo.scale(0.96, 1.0, 1.14);
     const decalMesh = new THREE.Mesh(decalGeo, decalMat);
-    decalMesh.position.set(-0.005, 0.38, -0.06);
+    decalMesh.position.set(-0.015, 0.38, -0.06);
     turretGroup.add(decalMesh);
 
     // Commander's Cupola with 6 Periscope Vision Blocks & Split Hatch Lid (Rear-Right)

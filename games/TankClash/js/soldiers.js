@@ -2099,6 +2099,12 @@
             return merged;
         }
 
+        const SOLDIER_SHADOW_BONES = new Set([
+            'hips', 'torso', 'head',
+            'rShoulder', 'rElbow', 'lShoulder', 'lElbow',
+            'rHip', 'rKnee', 'lHip', 'lKnee'
+        ]);
+
         function bakeBone(bone, boneSet) {
             const buckets = new Map();
             const walk = (obj, parentMat) => {
@@ -2119,10 +2125,11 @@
             walk(bone, new THREE.Matrix4());
 
             bone.children.filter(c => !boneSet.has(c)).forEach(c => bone.remove(c));
+            const castsMainShadow = SOLDIER_SHADOW_BONES.has(bone.name);
             buckets.forEach((geos, mat) => {
                 const mesh = new THREE.Mesh(mergeGeometries(geos), mat);
                 mesh.matrixAutoUpdate = false;
-                mesh.castShadow = true;
+                mesh.castShadow = castsMainShadow;
                 mesh.receiveShadow = true;
                 bone.add(mesh);
                 geos.forEach(g => g.dispose());
@@ -2164,7 +2171,6 @@
             const root = tpl.root.clone(true);
             root.traverse(c => {
                 if (c.isMesh) {
-                    c.castShadow = true;
                     c.receiveShadow = true;
                 }
             });

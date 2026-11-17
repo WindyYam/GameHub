@@ -469,6 +469,9 @@
 
         if (!model) return null;
 
+        if (typeof window.applyTankShadowLOD === 'function') window.applyTankShadowLOD(model);
+        if (typeof window.batchTankStaticMeshes === 'function') window.batchTankStaticMeshes(model);
+
         // Apply steel environment reflection map, register major collision meshes, and classify detail LOD meshes
         const raycastMeshes = [];
         const smallDetailMeshes = [];
