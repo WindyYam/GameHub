@@ -585,7 +585,10 @@ function buildTankById(tankId, scene, mats) {
         if (!obj.isMesh) return;
         const list = Array.isArray(obj.material) ? obj.material : [obj.material];
         list.forEach((mat) => {
-            if (mat && mat.isMeshStandardMaterial) mat.envMapIntensity = TANK_ENV_MAP_INTENSITY;
+            if (mat && mat.isMeshStandardMaterial) {
+                mat.envMapIntensity = TANK_ENV_MAP_INTENSITY;
+                mat.userData.noIndirectSpecular = true;
+            }
         });
     });
 

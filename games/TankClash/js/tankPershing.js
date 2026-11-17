@@ -1425,6 +1425,16 @@ function buildPershingTank(scene, mats, options = {}) {
     };
     updateTracksGeometry(0, 0);
 
+    tankRoot.traverse((obj) => {
+        if (!obj.isMesh || !obj.material) return;
+        const matList = Array.isArray(obj.material) ? obj.material : [obj.material];
+        for (const m of matList) {
+            if (m && m.isMeshStandardMaterial) {
+                m.userData.noIndirectSpecular = true;
+            }
+        }
+    });
+
     return {
         tankRoot,
         hullGroup,

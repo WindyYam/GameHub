@@ -736,12 +736,14 @@ function createBlueNoiseTexture() {
 
 // Global celestial lighting uniforms shared across shaders (dynamic day/night cycle)
 const celestialLighting = {
-    sunDirection: { value: new THREE.Vector3(0.5, 0.8, 0.4).normalize() },
-    sunColor:     { value: new THREE.Color(0xfff1db) },
-    skyColor:     { value: new THREE.Color(0x3a7bd5) },
-    groundColor:  { value: new THREE.Color(0x3f4e3d) },
-    sssStrength:  { value: 1.0 },
-    time:         { value: 0.0 }
+    sunDirection:      { value: new THREE.Vector3(0.5, 0.8, 0.4).normalize() },
+    sunColor:          { value: new THREE.Color(0xfff1db) },
+    skyColor:          { value: new THREE.Color(0x3a7bd5) },
+    groundColor:       { value: new THREE.Color(0x3f4e3d) },
+    sssStrength:       { value: 1.0 },
+    time:              { value: 0.0 },
+    cloudTex:          { value: null },
+    cloudShadowParams: { value: new THREE.Vector4(0.0, 0.48, 0.0018, 0.74) }
 };
 window.celestialLighting = celestialLighting;
 
@@ -4315,6 +4317,17 @@ function bakeMilkyWayCubeTexture() {
     return cubeRT.texture;
 }
 
+let _sharedCloudNoiseTex = null;
+function getSharedCloudNoiseTexture() {
+    if (!_sharedCloudNoiseTex) {
+        _sharedCloudNoiseTex = createCloudNoiseTexture();
+    }
+    if (window.celestialLighting && !window.celestialLighting.cloudTex.value) {
+        window.celestialLighting.cloudTex.value = _sharedCloudNoiseTex;
+    }
+    return _sharedCloudNoiseTex;
+}
+
 function createMaldiveSkyDome() {
     const skyGeo = new THREE.SphereGeometry(9000, 64, 32);
     const skyMat = new THREE.ShaderMaterial({
@@ -4327,7 +4340,7 @@ function createMaldiveSkyDome() {
             uSkyRotation:     { value: 0 },
             uTime:            { value: 0 },
             uCloudCoverage:   { value: 0.42 },
-            uCloudTex:        { value: createCloudNoiseTexture() },
+            uCloudTex:        { value: getSharedCloudNoiseTexture() },
             uStarTex:         { value: createStarCubeTexture() },
             uMilkyWayTex:     { value: bakeMilkyWayCubeTexture() }
         },
@@ -4962,6 +4975,7 @@ window.createGrassMaterial = createGrassMaterial;
 window.createRiverWaterMaterial = createRiverWaterMaterial;
 window.createCoastalOceanMaterial = createCoastalOceanMaterial;
 window.createMaldiveSkyDome = createMaldiveSkyDome;
+window.getSharedCloudNoiseTexture = getSharedCloudNoiseTexture;
 window.createBotanicalFoliageAtlas = createBotanicalFoliageAtlas;
 window.createGrassTuftAtlasTexture = createGrassTuftAtlasTexture;
 window.getGrassTuftEdgeTexture = getGrassTuftEdgeTexture;

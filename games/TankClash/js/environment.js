@@ -1595,6 +1595,98 @@ vec3 applyBabylonAerialHaze(vec3 col, vec3 worldPos, vec3 camPos, vec3 sunDir, v
 }
 `;
 
+const CLOUD_SHADOW_GLSL = `
+uniform sampler2D uCloudTex;
+uniform vec4 uCloudShadowParams;
+uniform float uCloudTime;
+uniform vec3 uCloudSunDir;
+
+float sampleCloudShadowFactor(vec3 worldPos, vec3 sunDir, float uTimeVal, sampler2D cloudTex, vec4 params) {
+    if (params.x <= 0.001) return 1.0;
+    float sunY = max(sunDir.y, 0.22);
+    vec2 cloudWorldXZ = worldPos.xz + (sunDir.xz / sunY) * max(480.0 - worldPos.y, 60.0);
+    vec2 uv = cloudWorldXZ * params.z;
+    vec2 wind = vec2(uTimeVal * 0.012, uTimeVal * 0.0042);
+    vec2 baseUV = uv * 0.18 + wind;
+    float masses = texture2D(cloudTex, baseUV).r;
+    vec2 warp = vec2(masses - 0.5, texture2D(cloudTex, baseUV * 0.7 + vec2(0.41, 0.23)).r - 0.5) * 0.14;
+    mat2 rot1 = mat2(0.80, 0.60, -0.60, 0.80);
+    float billow = texture2D(cloudTex, (rot1 * uv) * 0.42 - wind * 0.45 + warp + vec2(0.37, 0.61)).g;
+    float baseShape = masses * 0.76 + billow * 0.24;
+    float erosion = (1.0 - billow) * 0.16;
+    float density = smoothstep(params.y - 0.042, params.y + 0.068, baseShape - erosion);
+    float shadowMask = density * params.x * params.w;
+    return 1.0 - shadowMask;
+}
+`;
+
+function bindCloudShadowUniforms(shader) {
+    const cl = window.celestialLighting;
+    if (cl) {
+        if (!cl.cloudTex.value && window.getSharedCloudNoiseTexture) {
+            cl.cloudTex.value = window.getSharedCloudNoiseTexture();
+        }
+        shader.uniforms.uCloudTex = cl.cloudTex;
+        shader.uniforms.uCloudShadowParams = cl.cloudShadowParams;
+        shader.uniforms.uCloudTime = cl.time;
+        shader.uniforms.uCloudSunDir = cl.sunDirection;
+    } else {
+        shader.uniforms.uCloudTex = { value: null };
+        shader.uniforms.uCloudShadowParams = { value: new THREE.Vector4(0, 0.48, 0.0018, 0.74) };
+        shader.uniforms.uCloudTime = { value: 0 };
+        shader.uniforms.uCloudSunDir = { value: new THREE.Vector3(0, 1, 0) };
+    }
+}
+
+function injectCloudShadowFragment(shader, worldPosExpr, noIndirectSpecular = false) {
+    bindCloudShadowUniforms(shader);
+    shader.fragmentShader = CLOUD_SHADOW_GLSL + '\n' + shader.fragmentShader;
+    shader.fragmentShader = shader.fragmentShader.replace(
+        '#include <lights_fragment_end>',
+        `#include <lights_fragment_end>
+        {
+            float _cloudLit = sampleCloudShadowFactor(${worldPosExpr}, uCloudSunDir, uCloudTime, uCloudTex, uCloudShadowParams);
+            reflectedLight.directDiffuse *= _cloudLit;
+            reflectedLight.directSpecular *= _cloudLit;
+            ${noIndirectSpecular ? 'reflectedLight.indirectSpecular = vec3(0.0);' : ''}
+        }`
+    );
+}
+
+// Automatically apply daytime cloud shadows to all standard/lambert/phong scene materials
+// (tanks, soldiers, bicycles, props, monumentRockMat, etc.) that do not override onBeforeCompile.
+THREE.Material.prototype.customProgramCacheKey = function() {
+    return (this.userData && this.userData.noIndirectSpecular) ? 'noIndSpec' : '';
+};
+
+THREE.Material.prototype.onBeforeCompile = function(shader) {
+    if (this.isMeshStandardMaterial || this.isMeshLambertMaterial || this.isMeshPhongMaterial) {
+        bindCloudShadowUniforms(shader);
+        const stripIndirectSpec = Boolean(this.userData && this.userData.noIndirectSpecular);
+        shader.vertexShader = 'varying vec3 vCloudWorldPos;\n' + shader.vertexShader.replace(
+            '#include <project_vertex>',
+            `#include <project_vertex>
+            {
+                vec4 _cwp = vec4(transformed, 1.0);
+                #ifdef USE_INSTANCING
+                    _cwp = instanceMatrix * _cwp;
+                #endif
+                vCloudWorldPos = (modelMatrix * _cwp).xyz;
+            }`
+        );
+        shader.fragmentShader = 'varying vec3 vCloudWorldPos;\n' + CLOUD_SHADOW_GLSL + '\n' + shader.fragmentShader.replace(
+            '#include <lights_fragment_end>',
+            `#include <lights_fragment_end>
+            {
+                float _cloudLit = sampleCloudShadowFactor(vCloudWorldPos, uCloudSunDir, uCloudTime, uCloudTex, uCloudShadowParams);
+                reflectedLight.directDiffuse *= _cloudLit;
+                reflectedLight.directSpecular *= _cloudLit;
+                ${stripIndirectSpec ? 'reflectedLight.indirectSpecular = vec3(0.0);' : ''}
+            }`
+        );
+    }
+};
+
 const terrainUniforms = {
     uTime: { value: 0 },
     uWindSpeed: { value: 1.2 },
@@ -1722,7 +1814,7 @@ terrainMat.onBeforeCompile = (shader) => {
 
             float sandBlendFactor = clamp(wZoneNorm[1] * 0.95 + wZoneNorm[8] * 0.95 + beachFactorNorm * 0.92, 0.0, 1.0);
             float mtnHighRock = wZoneNorm[2] * smoothstep(14.0, 28.0, vTerrainWorldPos.y);
-            float snowLineElev = smoothstep(64.0, 92.0, vTerrainWorldPos.y - vTerrainSlope * 28.0);
+            float snowLineElev = smoothstep(44.0, 72.0, vTerrainWorldPos.y - vTerrainSlope * 20.0);
             float snowBlendFactor = clamp(wZoneNorm[4] * 0.95 + wZoneNorm[2] * snowLineElev * 0.85, 0.0, 1.0);
             float rockCliffWeight = clamp(wZoneNorm[2] * 0.85 + wZoneNorm[6] * 0.90 + wZoneNorm[7] * 0.95 + wZoneNorm[10] * 0.72 + wZoneNorm[11] * 0.65, 0.0, 1.0);
             float rockFactorNorm = clamp(smoothstep(0.045, 0.16, vTerrainSlope) * (0.45 + 0.55 * rockCliffWeight) + mtnHighRock * 0.88, 0.0, 1.0);
@@ -1983,14 +2075,14 @@ terrainMat.onBeforeCompile = (shader) => {
                 vec3 mtnSurface = mix(valleyGround, alpineRock, totalRockMask);
                 diffuseColor.rgb = mix(diffuseColor.rgb, mtnSurface, 1.0 - smoothstep(0.08, 0.42, roadMask));
 
-                // 4. Realistic High-Altitude Alpine Snow & Glacier Couloirs (above y ~ 62m)
+                // 4. Realistic High-Altitude Alpine Snow & Glacier Couloirs (above y ~ 42m)
                 // Snow collects in concave gullies/couloirs and ledges, while steep crags & wind-scoured ridges stay dark rock!
                 float gullySnowPocket = (1.0 - ridgeStructure) * 18.0 + (mesoPatch - 0.5) * 9.0 + (clumpNoise - 0.5) * 4.5;
-                float snowElev = vTerrainWorldPos.y + gullySnowPocket - vTerrainSlope * 95.0;
-                float rawSnowMask = smoothstep(60.0, 92.0, snowElev) * (1.0 - roadMask * 0.90);
+                float snowElev = vTerrainWorldPos.y + gullySnowPocket - vTerrainSlope * 55.0;
+                float rawSnowMask = smoothstep(42.0, 72.0, snowElev) * (1.0 - roadMask * 0.90);
                 // Steep granite faces & sharp ridge crests break through the snowpack even at the summit
-                float exposedRockRibs = smoothstep(0.055, 0.145, vTerrainSlope + ridgeStructure * 0.048 - (1.0 - mesoPatch) * 0.025);
-                float snowMask = rawSnowMask * (1.0 - exposedRockRibs * 0.86);
+                float exposedRockRibs = smoothstep(0.085, 0.21, vTerrainSlope + ridgeStructure * 0.042 - (1.0 - mesoPatch) * 0.025);
+                float snowMask = rawSnowMask * (1.0 - exposedRockRibs * 0.72);
                 if (snowMask > 0.005) {
                     vec3 shadowFirnIce = vec3(0.18, 0.23, 0.30);
                     vec3 sunlitSnowPack = vec3(0.36, 0.40, 0.46);
@@ -2385,8 +2477,8 @@ terrainMat.onBeforeCompile = (shader) => {
             wetRutR = mix(wetRutR, 0.36, wRoughZ[5]);
             roughnessFactor = mix(roughnessFactor, mix(wetRutR, 0.86, aridRoughMask), rut * rRoad);
         }
-        if (wRoughZ[2] > 0.0 && vTerrainWorldPos.y > 60.0) {
-            float snowR = smoothstep(60.0, 92.0, vTerrainWorldPos.y - vTerrainSlope * 50.0);
+        if (wRoughZ[2] > 0.0 && vTerrainWorldPos.y > 42.0) {
+            float snowR = smoothstep(42.0, 72.0, vTerrainWorldPos.y - vTerrainSlope * 30.0);
             roughnessFactor = mix(roughnessFactor, 0.72, snowR * 0.75 * wRoughZ[2]);
         }
         if (wRoughZ[4] > 0.0) {
@@ -2413,6 +2505,8 @@ terrainMat.onBeforeCompile = (shader) => {
         #include <tonemapping_fragment>
         `
     );
+
+    injectCloudShadowFragment(shader, 'vTerrainWorldPos');
 };
 
 // ============================================================================
@@ -2620,9 +2714,10 @@ treeMaterial.onBeforeCompile = (shader) => {
             float leafDistVar = 0.55 + 0.45 * sin(vTreeWorldPos.x * 1.7 + vTreeWorldPos.y * 2.3 + vTreeWorldPos.z * 1.9);
             float canopyAO = mix(0.60, 1.05, vCanopyOuter);
             float sssFactor = backLight * outerTip * clusterShade * leafDistVar;
-            vec3 sss = uSunColor * sssFactor * (linearTexel * 1.25 + vec3(0.02, 0.04, 0.005)) * 0.65 * uSssStrength;
+            float _treeCloudLit = sampleCloudShadowFactor(vTreeWorldPos, uCloudSunDir, uCloudTime, uCloudTex, uCloudShadowParams);
+            vec3 sss = uSunColor * sssFactor * (linearTexel * 1.25 + vec3(0.02, 0.04, 0.005)) * 0.65 * uSssStrength * _treeCloudLit;
             vec3 halfVec = normalize(sunDir + viewDir);
-            float specSheen = pow(max(dot(worldNorm, halfVec), 0.0), 14.0) * sunDot * vCanopyOuter;
+            float specSheen = pow(max(dot(worldNorm, halfVec), 0.0), 14.0) * sunDot * vCanopyOuter * _treeCloudLit;
             vec3 treeBaseColor = (linearTexel * diffuseColor.rgb * canopyAO + sss + uSunColor * specSheen * 0.08) * (0.90 + vTreeWindWave * 0.20 * vCanopyOuter);
 
             // Winter snow accumulation on conifer boughs, tiers & foliage canopy
@@ -2657,6 +2752,8 @@ treeMaterial.onBeforeCompile = (shader) => {
         #include <tonemapping_fragment>
         `
     );
+
+    injectCloudShadowFragment(shader, 'vTreeWorldPos');
 };
 
 // ============================================================================
@@ -2788,6 +2885,8 @@ villageMat.onBeforeCompile = (shader) => {
         #include <tonemapping_fragment>
         `
     );
+
+    injectCloudShadowFragment(shader, 'vBldgWorldPos', true);
 };
 
 const rockMat = new THREE.MeshStandardMaterial({
@@ -2880,6 +2979,8 @@ rockMat.onBeforeCompile = (shader) => {
         #include <tonemapping_fragment>
         `
     );
+
+    injectCloudShadowFragment(shader, 'vRockWP', true);
 };
 
 const desertRockMat = new THREE.MeshStandardMaterial({
@@ -2922,6 +3023,8 @@ desertRockMat.onBeforeCompile = (shader) => {
         `gl_FragColor.rgb = applyBabylonAerialHaze(gl_FragColor.rgb, vDesertRockWP, uCameraPos, uSunDir, uSunColor, uSkyColor, uSkyTopColor, uHazeStrength);
         #include <tonemapping_fragment>`
     );
+
+    injectCloudShadowFragment(shader, 'vDesertRockWP', true);
 };
 
 const mountainRockMat = new THREE.MeshStandardMaterial({
@@ -2994,8 +3097,8 @@ mountainRockMat.onBeforeCompile = (shader) => {
         slateStone *= (1.0 - crackMask * 0.65);
         vec3 stone = diffuseColor.rgb * slateStone * 1.65;
 
-        // High-altitude snow frost only when the boulder sits above the mountain snowline (y > 60m)
-        float highSnow = smoothstep(58.0, 78.0, vMtnRockWP.y) * up;
+        // High-altitude snow frost when the boulder sits above the mountain snowline (y > 42m)
+        float highSnow = smoothstep(42.0, 65.0, vMtnRockWP.y) * up;
         stone = mix(stone, vec3(0.34, 0.38, 0.44), highSnow * 0.82);
         diffuseColor.rgb = stone;
         `
@@ -3004,6 +3107,8 @@ mountainRockMat.onBeforeCompile = (shader) => {
         `gl_FragColor.rgb = applyBabylonAerialHaze(gl_FragColor.rgb, vMtnRockWP, uCameraPos, uSunDir, uSunColor, uSkyColor, uSkyTopColor, uHazeStrength);
         #include <tonemapping_fragment>`
     );
+
+    injectCloudShadowFragment(shader, 'vMtnRockWP', true);
 };
 
 const monumentRockMat = new THREE.MeshStandardMaterial({
@@ -3014,6 +3119,7 @@ const monumentRockMat = new THREE.MeshStandardMaterial({
     envMapIntensity: GROUND_ENV_MAP_INTENSITY,
     side: THREE.DoubleSide
 });
+monumentRockMat.userData.noIndirectSpecular = true;
 
 const canyonRockMat = new THREE.MeshStandardMaterial({
     color: new THREE.Color(0xffffff),
@@ -3023,6 +3129,7 @@ const canyonRockMat = new THREE.MeshStandardMaterial({
     envMapIntensity: GROUND_ENV_MAP_INTENSITY,
     side: THREE.DoubleSide
 });
+canyonRockMat.userData.noIndirectSpecular = true;
 
 const egyptSandstoneMat = new THREE.MeshStandardMaterial({
     color: new THREE.Color(0xffffff),
@@ -3032,6 +3139,7 @@ const egyptSandstoneMat = new THREE.MeshStandardMaterial({
     envMapIntensity: GROUND_ENV_MAP_INTENSITY,
     side: THREE.DoubleSide
 });
+egyptSandstoneMat.userData.noIndirectSpecular = true;
 
 const jungleTempleMat = new THREE.MeshStandardMaterial({
     color: new THREE.Color(0xffffff),
@@ -3041,6 +3149,7 @@ const jungleTempleMat = new THREE.MeshStandardMaterial({
     envMapIntensity: GROUND_ENV_MAP_INTENSITY,
     side: THREE.DoubleSide
 });
+jungleTempleMat.userData.noIndirectSpecular = true;
 
 const greekMarbleMat = new THREE.MeshStandardMaterial({
     color: new THREE.Color(0xffffff),
@@ -3050,6 +3159,7 @@ const greekMarbleMat = new THREE.MeshStandardMaterial({
     envMapIntensity: GROUND_ENV_MAP_INTENSITY,
     side: THREE.DoubleSide
 });
+greekMarbleMat.userData.noIndirectSpecular = true;
 
 const romanTravertineMat = new THREE.MeshStandardMaterial({
     color: new THREE.Color(0xffffff),
@@ -3059,6 +3169,7 @@ const romanTravertineMat = new THREE.MeshStandardMaterial({
     envMapIntensity: GROUND_ENV_MAP_INTENSITY,
     side: THREE.DoubleSide
 });
+romanTravertineMat.userData.noIndirectSpecular = true;
 
 let sharedRockNormalMap = null;
 let sharedMonumentSandstonePBR = null;
@@ -3559,6 +3670,7 @@ const cactusMat = new THREE.MeshStandardMaterial({
     metalness: 0.02,
     envMapIntensity: GROUND_ENV_MAP_INTENSITY
 });
+cactusMat.userData.noIndirectSpecular = true;
 
 // ============================================================================
 // 5. BOTANICAL MODEL GENERATORS WITH UV MAPPING & SPHERICAL CANOPY NORMALS
@@ -6427,6 +6539,7 @@ function getInteriorMaterial() {
             envMapIntensity: GROUND_ENV_MAP_INTENSITY,
             side: THREE.DoubleSide
         });
+        sharedInteriorMat.userData.noIndirectSpecular = true;
     }
     return sharedInteriorMat;
 }
@@ -9634,7 +9747,8 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
                     #endif
                 }
             #endif
-            totalEmissiveRadiance += grassSss * sssShadow;
+            float _grassCloudLit = sampleCloudShadowFactor(vGrassWorldPos, uCloudSunDir, uCloudTime, uCloudTex, uCloudShadowParams);
+            totalEmissiveRadiance += grassSss * sssShadow * _grassCloudLit;
             `
         );
 
@@ -9645,6 +9759,8 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             #include <tonemapping_fragment>
             `
         );
+
+        injectCloudShadowFragment(shader, 'vGrassWorldPos');
     };
 
     const mesh = new THREE.InstancedMesh(geo, mat, count);
@@ -11258,6 +11374,8 @@ function createFarHazedLambertMaterial(options = {}) {
             `gl_FragColor.rgb = applyBabylonAerialHaze(gl_FragColor.rgb, vFarPropWP, uCameraPos, uSunDir, uSunColor, uSkyColor, uSkyTopColor, uHazeStrength);
             #include <tonemapping_fragment>`
         );
+
+        injectCloudShadowFragment(shader, 'vFarPropWP');
     };
     return mat;
 }
@@ -11304,6 +11422,8 @@ function createFarHazedStandardMaterial(options = {}) {
             `gl_FragColor.rgb = applyBabylonAerialHaze(gl_FragColor.rgb, vFarStdWP, uCameraPos, uSunDir, uSunColor, uSkyColor, uSkyTopColor, uHazeStrength);
             #include <tonemapping_fragment>`
         );
+
+        injectCloudShadowFragment(shader, 'vFarStdWP', true);
     };
     return mat;
 }
@@ -12384,7 +12504,11 @@ function createZoneWaterMaterial() {
             tRippleMap: { value: rippleTex },
             tReflection: { value: null },
             uReflectVP: { value: new THREE.Matrix4() },
-            uHasReflection: { value: 0.0 }
+            uHasReflection: { value: 0.0 },
+            uCloudTex: (window.celestialLighting && window.celestialLighting.cloudTex) ? window.celestialLighting.cloudTex : { value: null },
+            uCloudShadowParams: (window.celestialLighting && window.celestialLighting.cloudShadowParams) ? window.celestialLighting.cloudShadowParams : { value: new THREE.Vector4(0, 0.48, 0.0018, 0.74) },
+            uCloudTime: (window.celestialLighting && window.celestialLighting.time) ? window.celestialLighting.time : { value: 0 },
+            uCloudSunDir: (window.celestialLighting && window.celestialLighting.sunDirection) ? window.celestialLighting.sunDirection : { value: new THREE.Vector3(0, 1, 0) }
         },
         transparent: true,
         depthWrite: false,
@@ -12418,6 +12542,7 @@ function createZoneWaterMaterial() {
             uniform sampler2D tRippleMap;
             uniform sampler2D tReflection;
             uniform float uHasReflection;
+            ${CLOUD_SHADOW_GLSL}
             varying vec3 vWorldPos;
             varying float vWaveHeight;
             varying vec4 vReflClip;
@@ -12501,13 +12626,14 @@ function createZoneWaterMaterial() {
                 vec3 waterCol = mix(shallowCol, midCol, smoothstep(0.0, 0.45, depthFactor));
                 waterCol = mix(waterCol, deepCol, smoothstep(0.35, 1.0, depthFactor));
                 // Lit turbid scattering
-                float dayLit = clamp(L.y * 1.4 + 0.35, 0.15, 1.15);
+                float cloudLit = sampleCloudShadowFactor(vWorldPos, uCloudSunDir, uCloudTime, uCloudTex, uCloudShadowParams);
+                float dayLit = clamp(L.y * 1.4 + 0.35, 0.15, 1.15) * mix(0.28, 1.0, cloudLit);
                 waterCol *= dayLit;
 
                 // Analytical sky reflection fallback
                 float skyGrad = clamp(R.y * 0.7 + 0.15, 0.0, 1.0);
                 vec3 skyRefl = mix(uSkyColor * 0.92, uSkyTopColor * 0.85, skyGrad);
-                skyRefl += uSunColor * pow(max(dot(R, L), 0.0), 10.0) * 0.35 * sunVis;
+                skyRefl += uSunColor * pow(max(dot(R, L), 0.0), 10.0) * 0.35 * sunVis * cloudLit;
 
                 // Babylon-style planar reflection with 4-tap anisotropic wave-jittered lookup
                 vec3 envRefl = skyRefl;
@@ -12531,7 +12657,7 @@ function createZoneWaterMaterial() {
                 }
 
                 waterCol = mix(waterCol, envRefl, clamp(fresnel * 0.92 + 0.04, 0.0, 0.96));
-                waterCol += uSunColor * spec;
+                waterCol += uSunColor * spec * cloudLit;
 
                 // Fine multi-scale foam noise and lacy cellular breakup
                 vec4 rFoam = texture2D(tRippleMap, p / 0.37 + vec2(uTime * 0.085, -uTime * 0.062));

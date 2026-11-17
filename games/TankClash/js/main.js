@@ -1363,7 +1363,7 @@ function updateSimulation(dt) {
     // Sun & moon directional lighting (Calibrated for physically based ACESFilmic exposure)
     const sunCol = DAY_NIGHT_COLORS.noonSun.clone().lerp(DAY_NIGHT_COLORS.goldenHour, Math.min(1.0, twilightFactor * 1.05));
     const sunHorizonFade = THREE.MathUtils.smoothstep(sunY, -0.015, 0.035);
-    const sunIntensity = Math.max(0.0, THREE.MathUtils.smoothstep(sunY, -0.06, 0.26) * 1.72 + twilightFactor * 1.45) * sunHorizonFade;
+    const sunIntensity = Math.max(0.0, THREE.MathUtils.smoothstep(sunY, -0.06, 0.26) * 1.72 + twilightFactor * 1.45) * sunHorizonFade * 1.5;
     const moonRiseFade = THREE.MathUtils.smoothstep(-sunY, -0.01, 0.038);
     const moonIntensity = moonRiseFade * 1.38;
     sunLight.color.copy(isSunActive ? sunCol : MOON_LIGHT_COLOR);
@@ -1391,7 +1391,7 @@ function updateSimulation(dt) {
     // Hemisphere natural bounce lighting (Zone ground up + Sky down)
     hemiLight.color.copy(skyHorizonColor).lerp(MOON_LIGHT_COLOR, nightFactor * 0.28);
     hemiLight.groundColor.copy(DAY_NIGHT_COLORS.groundNight).lerp(zoneGroundDay, dayFactor);
-    hemiLight.intensity = 0.42 + dayFactor * 0.18 + twilightFactor * 0.16 + nightFactor * 0.32;
+    hemiLight.intensity = (0.42 + dayFactor * 0.18 + twilightFactor * 0.16 + nightFactor * 0.32) * (1.0 + 0.5 * dayFactor);
 
     // Babylon-calibrated ACES exposure: keep twilight colors rich and saturated without washing out
     renderer.toneMappingExposure = 0.94 + dayFactor * 0.18 + twilightFactor * 0.04;
@@ -1419,16 +1419,86 @@ function updateSimulation(dt) {
     if (window.skyDome && curCam) {
         window.skyDome.position.copy(curCam.position);
     }
+
+    // --- DAYTIME CLOUD SHADOW WEATHER CONTROLLER (Active during daytime, off in twilight & night) ---
+    if (!window.cloudShadowWeather) {
+        const w = {
+            initialized: false,
+            isCloudy: false,
+            timer: 0,
+            currentStrength: 0,
+            targetStrength: 0,
+            currentThreshold: 0.48,
+            targetThreshold: 0.48,
+            currentScale: 0.0018,
+            targetScale: 0.0018,
+            currentDarkness: 0.74,
+            targetDarkness: 0.74,
+            currentSkyCoverage: 0.42,
+            targetSkyCoverage: 0.42,
+            rollWeather(forceCloudy, snap = false) {
+                const cloudy = (typeof forceCloudy === 'boolean') ? forceCloudy : (Math.random() < 0.65);
+                const wasCloudy = this.isCloudy;
+                this.isCloudy = cloudy;
+                this.timer = 28.0 + Math.random() * 30.0;
+                if (cloudy) {
+                    this.targetStrength = 1.0;
+                    // Randomize cloud thickness & gap size from sparse scattered clouds (0) to thick overcast with gaps (1)
+                    const cloudiness = Math.random();
+                    this.targetThreshold = 0.62 - cloudiness * 0.26;
+                    this.targetDarkness = 0.70 + cloudiness * 0.16;
+                    this.targetSkyCoverage = 0.26 + cloudiness * 0.50;
+                    if (!wasCloudy || this.currentStrength < 0.08 || snap) {
+                        this.currentScale = this.targetScale = 0.0011 + Math.random() * 0.0019;
+                    }
+                } else {
+                    this.targetStrength = 0.0;
+                    this.targetSkyCoverage = 0.08 + Math.random() * 0.18;
+                }
+                if (snap) {
+                    this.currentStrength = this.targetStrength;
+                    this.currentThreshold = this.targetThreshold;
+                    this.currentDarkness = this.targetDarkness;
+                    this.currentSkyCoverage = this.targetSkyCoverage;
+                }
+            }
+        };
+        w.rollWeather(undefined, true);
+        w.initialized = true;
+        window.cloudShadowWeather = w;
+    }
+    const cw = window.cloudShadowWeather;
+    cw.timer -= dt;
+    if (cw.timer <= 0) {
+        cw.rollWeather();
+    }
+    const cwLerp = 1.0 - Math.exp(-Math.min(dt, 0.25) * 0.22);
+    cw.currentStrength += (cw.targetStrength - cw.currentStrength) * cwLerp;
+    cw.currentThreshold += (cw.targetThreshold - cw.currentThreshold) * cwLerp;
+    cw.currentDarkness += (cw.targetDarkness - cw.currentDarkness) * cwLerp;
+    cw.currentSkyCoverage += (cw.targetSkyCoverage - cw.currentSkyCoverage) * cwLerp;
+    const daytimeNoTwilight = THREE.MathUtils.smoothstep(sunY, 0.24, 0.38);
+
     if (window.skyMat && window.skyMat.uniforms) {
         window.skyMat.uniforms.uSunDir.value.copy(sunDir);
         window.skyMat.uniforms.uMoonDir.value.copy(moonDir);
         window.skyMat.uniforms.uSkyRotation.value = solarAngle;
         window.skyMat.uniforms.uSkyHorizonColor.value.copy(skyHorizonColor);
         window.skyMat.uniforms.uTime.value = nowSec;
+        window.skyMat.uniforms.uCloudCoverage.value = cw.currentSkyCoverage;
     }
 
-    // Update shared shader lighting uniforms (Volumetric smoke, water ripples, grass tufts)
+    // Update shared shader lighting uniforms (Volumetric smoke, water ripples, grass tufts, cloud shadows)
     if (window.celestialLighting) {
+        if (!window.celestialLighting.cloudTex.value && window.getSharedCloudNoiseTexture) {
+            window.celestialLighting.cloudTex.value = window.getSharedCloudNoiseTexture();
+        }
+        window.celestialLighting.cloudShadowParams.value.set(
+            cw.currentStrength * daytimeNoTwilight,
+            cw.currentThreshold,
+            cw.currentScale,
+            cw.currentDarkness
+        );
         window.celestialLighting.sunDirection.value.copy(celestialDir);
         window.celestialLighting.sunColor.value.copy(sunLight.color);
         window.celestialLighting.skyColor.value.copy(skyHorizonColor);
