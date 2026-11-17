@@ -383,6 +383,183 @@ function updateTankHUD(spec) {
     }
 }
 
+function mergeStaticTankGeos(geos) {
+    if (geos.length === 1) return geos[0];
+    let totalVerts = 0;
+    let hasColor = false;
+    const normGeos = geos.map((g) => {
+        const ni = g.index ? g.toNonIndexed() : g;
+        if (!ni.attributes.normal) ni.computeVertexNormals();
+        if (ni.attributes.color) hasColor = true;
+        totalVerts += ni.attributes.position.count;
+        return { ni, orig: g };
+    });
+    const pos = new Float32Array(totalVerts * 3);
+    const norm = new Float32Array(totalVerts * 3);
+    const uv = new Float32Array(totalVerts * 2);
+    const col = hasColor ? new Float32Array(totalVerts * 3) : null;
+    let offset = 0;
+    for (let i = 0; i < normGeos.length; i++) {
+        const { ni, orig } = normGeos[i];
+        const p = ni.attributes.position;
+        const n = ni.attributes.normal;
+        const u = ni.attributes.uv;
+        const c = ni.attributes.color;
+        const count = p.count;
+        pos.set(p.array, offset * 3);
+        norm.set(n.array, offset * 3);
+        if (u) uv.set(u.array, offset * 2);
+        if (col) {
+            if (c) col.set(c.array, offset * 3);
+            else col.fill(1.0, offset * 3, (offset + count) * 3);
+        }
+        offset += count;
+        if (ni !== orig) ni.dispose();
+        orig.dispose();
+    }
+    const out = new THREE.BufferGeometry();
+    out.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    out.setAttribute('normal', new THREE.BufferAttribute(norm, 3));
+    out.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+    if (col) out.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    out.computeBoundingSphere();
+    out.computeBoundingBox();
+    return out;
+}
+
+/**
+ * Merges static meshes inside each rigid-body subtree (hull, turret, gun pivot)
+ * by material + shadow flags, preserving all animated wheels, tracks, recoil,
+ * headlights, and muzzles.
+ */
+function batchTankStaticMeshes(model) {
+    if (!model || !model.tankRoot || model._staticBatched) return;
+    model._staticBatched = true;
+
+    const excludeSet = new Set();
+    const excludeMats = new Set();
+    const addEx = (obj) => { if (obj && obj.isObject3D) excludeSet.add(obj); };
+
+    addEx(model.mainGunMuzzleTip);
+    addEx(model.coaxMuzzleRef);
+    addEx(model.bowMgGroup);
+    addEx(model.bowMgBarrel);
+    addEx(model.barrelRecoilGroup);
+
+    if (Array.isArray(model.smokeTubes)) {
+        for (let i = 0; i < model.smokeTubes.length; i++) {
+            const st = model.smokeTubes[i];
+            addEx(st);
+            if (st && st.mesh) addEx(st.mesh);
+        }
+    }
+    if (Array.isArray(model.headlightLights)) {
+        for (let i = 0; i < model.headlightLights.length; i++) {
+            const hl = model.headlightLights[i];
+            if (!hl) continue;
+            addEx(hl.anchor);
+            addEx(hl.spot);
+            if (hl.slitMat) excludeMats.add(hl.slitMat);
+        }
+    }
+    const addWheelSide = (arr) => {
+        if (!Array.isArray(arr)) return;
+        for (let i = 0; i < arr.length; i++) {
+            const item = arr[i];
+            if (!item) continue;
+            if (item.isObject3D) { excludeSet.add(item); continue; }
+            for (const k of Object.keys(item)) {
+                if (item[k] && item[k].isObject3D) excludeSet.add(item[k]);
+            }
+        }
+    };
+    if (model.roadWheelStations) {
+        addWheelSide(model.roadWheelStations.left);
+        addWheelSide(model.roadWheelStations.right);
+    }
+    addWheelSide(model.driveSprockets);
+    addWheelSide(model.idlerWheels);
+    if (model.trackChains) {
+        addWheelSide(model.trackChains.left);
+        addWheelSide(model.trackChains.right);
+    }
+
+    const root = model.tankRoot;
+    const savedPos = root.position.clone();
+    const savedRot = root.rotation.clone();
+    root.position.set(0, 0, 0);
+    root.rotation.set(0, 0, 0);
+    root.updateMatrixWorld(true);
+
+    const hullRoot = model.hullGroup || root;
+    const rigidGroups = [
+        { group: hullRoot, childExcludes: [model.turretGroup, model.gunElevationPivot] },
+        { group: model.turretGroup, childExcludes: [model.gunElevationPivot] },
+        { group: model.gunElevationPivot, childExcludes: [] }
+    ];
+
+    const invGroup = new THREE.Matrix4();
+    const relMat = new THREE.Matrix4();
+
+    for (let gi = 0; gi < rigidGroups.length; gi++) {
+        const { group, childExcludes } = rigidGroups[gi];
+        if (!group) continue;
+        const localExclude = new Set(excludeSet);
+        for (let ci = 0; ci < childExcludes.length; ci++) {
+            if (childExcludes[ci] && childExcludes[ci] !== group) localExclude.add(childExcludes[ci]);
+        }
+
+        invGroup.copy(group.matrixWorld).invert();
+        const buckets = new Map();
+
+        const walk = (node) => {
+            if (!node || (node !== group && localExclude.has(node)) || !node.visible) return;
+            if (node.isMesh && !node.isInstancedMesh && node.geometry && node.geometry.attributes.position) {
+                const mat = node.material;
+                if (mat && !Array.isArray(mat) && !excludeMats.has(mat) && !(node.userData && node.userData.noBatch)) {
+                    relMat.multiplyMatrices(invGroup, node.matrixWorld);
+                    if (relMat.determinant() >= 0) {
+                        const key = `${mat.uuid}|${node.castShadow ? 1 : 0}|${node.receiveShadow ? 1 : 0}`;
+                        let b = buckets.get(key);
+                        if (!b) {
+                            b = { mat, castShadow: !!node.castShadow, receiveShadow: !!node.receiveShadow, items: [] };
+                            buckets.set(key, b);
+                        }
+                        b.items.push({ mesh: node, mat4: relMat.clone() });
+                    }
+                }
+            }
+            const children = node.children;
+            for (let i = 0; i < children.length; i++) {
+                walk(children[i]);
+            }
+        };
+        walk(group);
+
+        buckets.forEach((b) => {
+            if (b.items.length < 2) return;
+            const geos = [];
+            for (let i = 0; i < b.items.length; i++) {
+                const { mesh, mat4 } = b.items[i];
+                const g = mesh.geometry.clone();
+                g.applyMatrix4(mat4);
+                geos.push(g);
+                if (mesh.parent) mesh.parent.remove(mesh);
+            }
+            const mergedGeo = mergeStaticTankGeos(geos);
+            const mergedMesh = new THREE.Mesh(mergedGeo, b.mat);
+            mergedMesh.castShadow = b.castShadow;
+            mergedMesh.receiveShadow = b.receiveShadow;
+            group.add(mergedMesh);
+        });
+    }
+
+    root.position.copy(savedPos);
+    root.rotation.copy(savedRot);
+    root.updateMatrixWorld(true);
+}
+window.batchTankStaticMeshes = batchTankStaticMeshes;
+
 function buildTankById(tankId, scene, mats) {
     const s = scene || window.scene;
     const m = mats || window.mats;
@@ -412,6 +589,7 @@ function buildTankById(tankId, scene, mats) {
         });
     });
 
+    batchTankStaticMeshes(model);
     bindTankGlobals(model);
     window.currentTankId = tankId;
     if (TANK_SPECS[tankId]) {
