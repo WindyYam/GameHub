@@ -1411,8 +1411,8 @@ function spawnPlayerRocket(muzzlePos, fireDir, owner) {
     launchDir.addScaledVector(realUp, Math.sin(spreadTheta) * spreadRad);
     launchDir.normalize();
 
-    // Slow projectile speed: 42 m/s (visible rocket flight across battlefield)
-    const rocketSpeed = 42.0;
+    // Slow projectile speed: 48 m/s (visible rocket flight across battlefield)
+    const rocketSpeed = 48.0;
     const velocity = launchDir.clone().multiplyScalar(rocketSpeed);
 
     const rocketGroup = (rocketPool.pop()) || createRocketObject();
@@ -1432,7 +1432,7 @@ function spawnPlayerRocket(muzzlePos, fireDir, owner) {
         startPos: muzzlePos.clone(),
         distanceTraveled: 0,
         vel: velocity,
-        life: 7.0,
+        life: 14.0,
         isEnemy: isEnemyProjectile,
         isRocket: true,
         sourceSoldier: owner,
@@ -1459,14 +1459,14 @@ function updateProjectiles(dt) {
         const grav = s.isRocket ? 0.0 : 9.81;
         if (grav > 0.0) s.vel.y -= grav * dt;
 
-        // Rocket erratic aerodynamic drift after 64 meters (80% of original 80m threshold)
+        // Rocket erratic aerodynamic drift after 120 meters
         if (s.isRocket) {
             const stepDist = s.vel.length() * dt;
             s.distanceTraveled = (s.distanceTraveled || 0) + stepDist;
 
-            if (s.distanceTraveled > 64.0) {
-                // Beyond 64 meters, rocket motor exhaust asymmetry & fin wobble induce random transverse drift
-                const excessDist = s.distanceTraveled - 64.0;
+            if (s.distanceTraveled > 120.0) {
+                // Beyond 120 meters, rocket motor exhaust asymmetry & fin wobble induce random transverse drift
+                const excessDist = s.distanceTraveled - 120.0;
                 const driftIntensity = Math.min(26.0, 9.0 + excessDist * 0.24);
 
                 const fwd = s.vel.clone().normalize();

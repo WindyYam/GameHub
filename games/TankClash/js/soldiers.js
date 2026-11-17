@@ -3061,10 +3061,12 @@
                 // Direct line-of-sight trajectory (rocket is propelled and not affected by gravity)
                 shootDir.set(target.x - muzzleWorldPos.x, (typeof target.y === 'number' ? target.y : muzzleWorldPos.y) - muzzleWorldPos.y, target.z - muzzleWorldPos.z).normalize();
                 if (this.isEnemy) {
-                    const right = new THREE.Vector3(shootDir.z, 0, -shootDir.x).normalize();
+                    const right = new THREE.Vector3(shootDir.z, 0, -shootDir.x);
+                    if (right.lengthSq() < 0.000001) right.set(1, 0, 0);
+                    right.normalize();
                     const up = new THREE.Vector3().crossVectors(shootDir, right).normalize();
-                    shootDir.addScaledVector(right, (Math.random() - 0.5) * 0.045);
-                    shootDir.addScaledVector(up, (Math.random() - 0.5) * 0.035);
+                    shootDir.addScaledVector(right, (Math.random() - 0.5) * 0.11);
+                    shootDir.addScaledVector(up, (Math.random() - 0.5) * 0.065);
                     shootDir.normalize();
                 }
                 if (typeof window.spawnParticle === 'function') {

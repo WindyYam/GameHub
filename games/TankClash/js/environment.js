@@ -637,6 +637,56 @@ const SHARED_TERRAIN_GLSL = `
 
     const float SEA_LEVEL = -2.5;
 
+    float getZone2Height_gpu(float x, float z, float dSpawn, float roadDist, float roadF, vec2 zoneCenter, float coastalDescent, float bayOpen) {
+        vec2 s = vec2(x, z) + uSeedOffset;
+        float valleyHills = fbm4_gpu(s * 0.0036) * 5.8;
+        float foothillBumps = fbm3_gpu(s * 0.011) * 1.8;
+        float microRock = valueNoise2D_gpu(s * 0.085) * 0.25;
+        float h = 6.5 + valleyHills + foothillBumps + microRock;
+
+        // Ridged Multifractal Alpine Peaks & Massifs flanking the passes (gentle slopes)
+        float r1 = 1.0 - abs(valueNoise2D_gpu(s * 0.0042));
+        float r2 = 1.0 - abs(valueNoise2D_gpu(s * 0.0090 + vec2(19.0, 31.0)));
+        float ridgeCrest = (r1 * r1 * 0.72 + r2 * r2 * 0.28);
+        float massifEnv = fbm3_gpu(s * 0.0032 + vec2(53.0, 17.0)) * 0.5 + 0.5;
+        float baseMtn = pow(max(0.0, massifEnv), 1.35) * 32.0 + pow(ridgeCrest, 1.8) * 24.0;
+        // Softened terracing so hills are gradual rather than sheer cliffs
+        float terraceT = baseMtn / 6.5;
+        float terraceF = terraceT - floor(terraceT);
+        float terraced = (floor(terraceT) + smoothstep(0.42, 0.95, terraceF)) * 6.5;
+        float mtn = mix(baseMtn, terraced, 0.28 * smoothstep(10.0, 28.0, baseMtn));
+        float mountainHeight = mtn + (r2 * r2 * 3.0 + microRock * 2.5) * smoothstep(8.0, 32.0, baseMtn);
+
+        // Large-scale ~200m high alpine mountain range with gentle, broad slopes (reuses massifEnv & r1)
+        float rangeMask = smoothstep(0.34, 0.92, massifEnv);
+        float highRange = rangeMask * (135.0 + r1 * 45.0);
+        float rangeCorridor = smoothstep(30.0, 280.0, roadDist) * smoothstep(60.0, 280.0, dSpawn);
+
+        float passCorridor = smoothstep(14.0, 95.0, roadDist);
+        float spawnCorridor = smoothstep(28.0, 120.0, dSpawn);
+        float screeLedge = foothillBumps * 0.35;
+        h += (mountainHeight + screeLedge) * passCorridor * spawnCorridor * bayOpen;
+        h += highRange * rangeCorridor * bayOpen;
+
+        float dTarn = length(vec2(x, z) - zoneCenter - vec2(-54.0, 92.0));
+        float tarnDip = (1.0 - smoothstep(14.0, 46.0, dTarn)) * 11.5;
+        h -= tarnDip;
+
+        h += coastalDescent;
+
+        float spawnClear = smoothstep(4.0, 18.0, dSpawn);
+        h = mix(7.2, h, spawnClear);
+
+        if (roadF > 0.01) {
+            float passGrade = 6.5 + valleyHills * 0.55 - tarnDip + coastalDescent;
+            h = mix(h, passGrade, roadF * 0.60);
+            float dryRoad = smoothstep(SEA_LEVEL - 0.5, SEA_LEVEL + 1.2, h);
+            float rut = exp(-pow(roadDist - 1.35, 2.0) / 0.35) * 0.30;
+            h -= (roadF * 0.28 + rut * roadF) * dryRoad;
+        }
+        return h;
+    }
+
     float getZoneTerrainHeight_gpu(float x, float z, int zoneType, float dSpawn, float roadDist, float roadF, vec2 zoneCenter, float coastalDescent, float bayOpen) {
         vec2 s = vec2(x, z) + uSeedOffset;
         float finalH = 0.0;
@@ -681,47 +731,7 @@ const SHARED_TERRAIN_GLSL = `
 
         // ZONE 2: ALPINE MOUNTAIN PASS, CRAGGY RIDGES & GLACIAL TARN
         else if (zoneType == 2) {
-            float valleyHills = fbm4_gpu(s * 0.0045) * 7.5;
-            float foothillBumps = fbm3_gpu(s * 0.016) * 2.6;
-            float microRock = valueNoise2D_gpu(s * 0.085) * 0.32;
-            float h = 6.5 + valleyHills + foothillBumps + microRock;
-
-            // Ridged Multifractal Alpine Peaks & Massifs flanking the passes
-            float r1 = 1.0 - abs(valueNoise2D_gpu(s * 0.0052));
-            float r2 = 1.0 - abs(valueNoise2D_gpu(s * 0.0115 + vec2(19.0, 31.0)));
-            float ridgeCrest = (r1 * r1 * 0.65 + r2 * r2 * 0.35);
-            float massifEnv = fbm3_gpu(s * 0.0038 + vec2(53.0, 17.0)) * 0.5 + 0.5;
-            float baseMtn = pow(max(0.0, massifEnv), 1.35) * 42.0 + pow(ridgeCrest, 2.1) * 36.0;
-            // Cliff terracing: stepped ledges + near-vertical risers on the upper slopes
-            float terraceT = baseMtn / 5.5;
-            float terraceF = terraceT - floor(terraceT);
-            float terraced = (floor(terraceT) + smoothstep(0.62, 0.92, terraceF)) * 5.5;
-            float mtn = mix(baseMtn, terraced, 0.6 * smoothstep(8.0, 22.0, baseMtn));
-            // Jagged crags & rocky roughness, stronger on the high slopes
-            float mountainHeight = mtn + (r2 * r2 * 6.5 + microRock * 4.0) * smoothstep(6.0, 30.0, baseMtn);
-
-            float passCorridor = smoothstep(9.0, 44.0, roadDist);
-            float spawnCorridor = smoothstep(22.0, 78.0, dSpawn);
-            float screeLedge = foothillBumps * 0.45;
-            h += (mountainHeight + screeLedge) * passCorridor * spawnCorridor * bayOpen;
-
-            float dTarn = length(vec2(x, z) - zoneCenter - vec2(-54.0, 92.0));
-            float tarnDip = (1.0 - smoothstep(14.0, 46.0, dTarn)) * 11.5;
-            h -= tarnDip;
-
-            h += coastalDescent;
-
-            float spawnClear = smoothstep(4.0, 18.0, dSpawn);
-            h = mix(7.2, h, spawnClear);
-
-            if (roadF > 0.01) {
-                float passGrade = 6.5 + valleyHills * 0.55 - tarnDip + coastalDescent;
-                h = mix(h, passGrade, roadF * 0.60);
-                float dryRoad = smoothstep(SEA_LEVEL - 0.5, SEA_LEVEL + 1.2, h);
-                float rut = exp(-pow(roadDist - 1.35, 2.0) / 0.35) * 0.30;
-                h -= (roadF * 0.28 + rut * roadF) * dryRoad;
-            }
-            finalH = h;
+            finalH = getZone2Height_gpu(x, z, dSpawn, roadDist, roadF, zoneCenter, coastalDescent, bayOpen);
         }
 
         // ZONE 3: HIGHLAND ROLLING HILLS, DRUMLINS & SUNKEN LANES
@@ -1176,26 +1186,32 @@ function getZoneTerrainHeight(x, z, currentZoneIndex) {
 
     // ZONE 2: ALPINE MOUNTAIN PASS, CRAGGY RIDGES & GLACIAL TARN
     if (currentZoneIndex === 2) {
-        const valleyHills = fbm4(sx * 0.0045, sz * 0.0045) * 7.5;
-        const foothillBumps = fbm3(sx * 0.016, sz * 0.016) * 2.6;
-        const microRock = valueNoise2D(sx * 0.085, sz * 0.085) * 0.32;
+        const valleyHills = fbm4(sx * 0.0036, sz * 0.0036) * 5.8;
+        const foothillBumps = fbm3(sx * 0.011, sz * 0.011) * 1.8;
+        const microRock = valueNoise2D(sx * 0.085, sz * 0.085) * 0.25;
         let h = 6.5 + valleyHills + foothillBumps + microRock;
 
-        const r1 = 1.0 - Math.abs(valueNoise2D(sx * 0.0052, sz * 0.0052));
-        const r2 = 1.0 - Math.abs(valueNoise2D(sx * 0.0115 + 19.0, sz * 0.0115 + 31.0));
-        const ridgeCrest = (r1 * r1 * 0.65 + r2 * r2 * 0.35);
-        const massifEnv = fbm3(sx * 0.0038 + 53.0, sz * 0.0038 + 17.0) * 0.5 + 0.5;
-        const baseMtn = Math.pow(Math.max(0.0, massifEnv), 1.35) * 42.0 + Math.pow(ridgeCrest, 2.1) * 36.0;
-        const terraceT = baseMtn / 5.5;
+        const r1 = 1.0 - Math.abs(valueNoise2D(sx * 0.0042, sz * 0.0042));
+        const r2 = 1.0 - Math.abs(valueNoise2D(sx * 0.0090 + 19.0, sz * 0.0090 + 31.0));
+        const ridgeCrest = (r1 * r1 * 0.72 + r2 * r2 * 0.28);
+        const massifEnv = fbm3(sx * 0.0032 + 53.0, sz * 0.0032 + 17.0) * 0.5 + 0.5;
+        const baseMtn = Math.pow(Math.max(0.0, massifEnv), 1.35) * 32.0 + Math.pow(ridgeCrest, 1.8) * 24.0;
+        const terraceT = baseMtn / 6.5;
         const terraceF = terraceT - Math.floor(terraceT);
-        const terraced = (Math.floor(terraceT) + smoothstep(0.62, 0.92, terraceF)) * 5.5;
-        const mtn = mix(baseMtn, terraced, 0.6 * smoothstep(8.0, 22.0, baseMtn));
-        const mountainHeight = mtn + (r2 * r2 * 6.5 + microRock * 4.0) * smoothstep(6.0, 30.0, baseMtn);
+        const terraced = (Math.floor(terraceT) + smoothstep(0.42, 0.95, terraceF)) * 6.5;
+        const mtn = mix(baseMtn, terraced, 0.28 * smoothstep(10.0, 28.0, baseMtn));
+        const mountainHeight = mtn + (r2 * r2 * 3.0 + microRock * 2.5) * smoothstep(8.0, 32.0, baseMtn);
 
-        const passCorridor = smoothstep(9.0, 44.0, roadDist);
-        const spawnCorridor = smoothstep(22.0, 78.0, dSpawn);
-        const screeLedge = foothillBumps * 0.45;
+        // Large-scale ~200m high alpine mountain range with gentle, broad slopes (reuses massifEnv & r1)
+        const rangeMask = smoothstep(0.34, 0.92, massifEnv);
+        const highRange = rangeMask * (135.0 + r1 * 45.0);
+        const rangeCorridor = smoothstep(30.0, 280.0, roadDist) * smoothstep(60.0, 280.0, dSpawn);
+
+        const passCorridor = smoothstep(14.0, 95.0, roadDist);
+        const spawnCorridor = smoothstep(28.0, 120.0, dSpawn);
+        const screeLedge = foothillBumps * 0.35;
         h += (mountainHeight + screeLedge) * passCorridor * spawnCorridor * bayOpen;
+        h += highRange * rangeCorridor * bayOpen;
 
         const dTarn = Math.hypot(x - zoneX + 54.0, z - zoneZ - 92.0);
         const tarnDip = (1.0 - smoothstep(14.0, 46.0, dTarn)) * 11.5;
@@ -1730,7 +1746,7 @@ terrainMat.onBeforeCompile = (shader) => {
             getZoneWeights12_gpu(vTerrainWorldPos.xz, wZoneNorm);
 
             float sandBlendFactor = clamp(wZoneNorm[1] * 0.95 + wZoneNorm[8] * 0.95 + beachFactorNorm * 0.92, 0.0, 1.0);
-            float snowLineElev = smoothstep(14.5, 19.5, vTerrainWorldPos.y - vTerrainSlope * 10.0);
+            float snowLineElev = smoothstep(65.0, 95.0, vTerrainWorldPos.y - vTerrainSlope * 10.0);
             float snowBlendFactor = clamp(wZoneNorm[4] * 0.95 + wZoneNorm[2] * snowLineElev * 0.90, 0.0, 1.0);
             float rockCliffWeight = clamp(wZoneNorm[6] * 0.85 + wZoneNorm[7] * 0.92 + wZoneNorm[10] * 0.65 + wZoneNorm[11] * 0.55, 0.0, 1.0);
             rockFactorNorm = clamp(rockFactorNorm + rockCliffWeight * smoothstep(0.12, 0.28, vTerrainSlope) * 0.75, 0.0, 1.0);
@@ -1871,16 +1887,16 @@ terrainMat.onBeforeCompile = (shader) => {
                 // Exposed Craggy Granite & Slate Cliff Faces
                 float rockSlopeMask = smoothstep(0.14, 0.30, vTerrainSlope);
                 if (rockSlopeMask > 0.01) {
-                    float rockStrata = sin(vTerrainWorldPos.y * 1.9 + vTerrainWorldPos.x * 0.4 + microNoise * 2.0) * 0.5 + 0.5;
+                    float rockVar = clamp(macroPatch * 0.45 + gravelNoise * 0.40 + (microNoise * 0.5 + 0.5) * 0.15, 0.0, 1.0);
                     vec3 graniteDark  = vec3(0.075, 0.082, 0.095);
                     vec3 graniteLight = vec3(0.165, 0.175, 0.195);
-                    vec3 cliffCol = mix(graniteDark, graniteLight, rockStrata * 0.6 + gravelNoise * 0.4);
+                    vec3 cliffCol = mix(graniteDark, graniteLight, rockVar);
                     diffuseColor.rgb = mix(diffuseColor.rgb, cliffCol, rockSlopeMask);
                 }
 
-                // High-Altitude Alpine Snowline & Glacier Drifts (above y ~ 15.5m on ledges and peaks)
+                // High-Altitude Alpine Snowline & Glacier Drifts (above y ~ 65m on ledges and peaks)
                 float snowElev = vTerrainWorldPos.y + (macroPatch - 0.5) * 3.5 + (microNoise - 0.5) * 1.2 - vTerrainSlope * 11.5;
-                float snowMask = smoothstep(14.5, 19.5, snowElev) * (1.0 - roadMask * 0.85);
+                float snowMask = smoothstep(65.0, 95.0, snowElev) * (1.0 - roadMask * 0.85);
                 if (snowMask > 0.005) {
                     vec3 pureSnow = mix(vec3(0.58, 0.66, 0.78), vec3(0.78, 0.84, 0.92), microNoise * 0.5 + 0.5);
                     diffuseColor.rgb = mix(diffuseColor.rgb, pureSnow, snowMask);
@@ -2195,8 +2211,8 @@ terrainMat.onBeforeCompile = (shader) => {
             wetRutR = mix(wetRutR, 0.38, rZones[5]);
             roughnessFactor = mix(roughnessFactor, mix(wetRutR, 0.86, rZones[1]), rut * rRoad);
         }
-        if (rZones[2] > 0.0 && vTerrainWorldPos.y > 15.0) {
-            float snowR = smoothstep(15.0, 20.0, vTerrainWorldPos.y - vTerrainSlope * 10.0);
+        if (rZones[2] > 0.0 && vTerrainWorldPos.y > 65.0) {
+            float snowR = smoothstep(65.0, 95.0, vTerrainWorldPos.y - vTerrainSlope * 10.0);
             roughnessFactor = mix(roughnessFactor, 0.36, snowR * 0.8 * rZones[2]);
         }
         if (rZones[4] > 0.0) {
@@ -8986,9 +9002,19 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
                 }
                 zoneCull = (groundY > -0.4) ? 0.72 : 1.0;
             } else if (localZone == 2) {
-                // Mountain zone: cull grass above snowline (15.5m) and on steep granite cliffs
-                float snowCull = 1.0 - smoothstep(12.5, 16.0, groundY);
-                float rockSlopeCull = 1.0 - smoothstep(0.16, 0.25, 1.0 - surfNorm.y);
+                // Mountain zone: match terrain mesh 2.5m vertex-normal slope & snowline so grass covers all green areas and stops right at rock/snow
+                float slopeEps = 2.5;
+                float z2dSpawn = length(worldXZ);
+                vec2 z2Center = floor(getZoneGrid_gpu(worldXZ) + 0.5) * 1600.0;
+                float hPx_z2 = getZone2Height_gpu(worldXZ.x + slopeEps, worldXZ.y, z2dSpawn, getRoadDistance_gpu(worldXZ.x + slopeEps, worldXZ.y), 0.0, z2Center, 0.0, 1.0);
+                float hMx_z2 = getZone2Height_gpu(worldXZ.x - slopeEps, worldXZ.y, z2dSpawn, getRoadDistance_gpu(worldXZ.x - slopeEps, worldXZ.y), 0.0, z2Center, 0.0, 1.0);
+                float hPz_z2 = getZone2Height_gpu(worldXZ.x, worldXZ.y + slopeEps, z2dSpawn, getRoadDistance_gpu(worldXZ.x, worldXZ.y + slopeEps), 0.0, z2Center, 0.0, 1.0);
+                float hMz_z2 = getZone2Height_gpu(worldXZ.x, worldXZ.y - slopeEps, z2dSpawn, getRoadDistance_gpu(worldXZ.x, worldXZ.y - slopeEps), 0.0, z2Center, 0.0, 1.0);
+                vec3 realNorm = normalize(vec3(hMx_z2 - hPx_z2, 2.0 * slopeEps, hMz_z2 - hPz_z2));
+                float realSlope = 1.0 - realNorm.y;
+                float snowElevZ2 = groundY - realSlope * 11.5;
+                float snowCull = 1.0 - smoothstep(62.0, 72.0, snowElevZ2);
+                float rockSlopeCull = 1.0 - smoothstep(0.11, 0.145, realSlope);
                 zoneCull = snowCull * rockSlopeCull;
                 if (zoneCull <= 0.01) {
                     gl_Position = vec4(2.0, 2.0, 2.0, 0.0);
@@ -9546,6 +9572,91 @@ var chunkLoadQueue = [];
 var chunkLoadSet = new Set();
 var chunkUnloadQueue = [];
 
+/**
+ * Computes the deterministic tree count for a terrain chunk, concentrating trees into forest patches and leaving clearings open.
+ */
+function getChunkTargetTreeCount(chunkCenterX, chunkCenterZ, forestNoise, zoneIdx, isVillage, isMobile, rng) {
+    let count = 0;
+
+    if (zoneIdx === 1) {
+        const [zx, zz] = getZoneCenter(chunkCenterX, chunkCenterZ);
+        const distFromOasis = Math.hypot(chunkCenterX - zx - 58.0, chunkCenterZ - zz - 78.0);
+        if (distFromOasis < 95.0) count = 10 + Math.floor(rng() * 7);
+        else if (isVillage) count = 3 + Math.floor(rng() * 3);
+        else if (forestNoise > 0.54) count = 4 + Math.floor(rng() * 4);
+        else count = rng() < 0.35 ? 1 : 0;
+    } else if (zoneIdx === 2) {
+        if (isVillage) count = 3 + Math.floor(rng() * 3);
+        else if (forestNoise > 0.48) count = 24 + Math.floor(rng() * 14);
+        else if (forestNoise > 0.38) count = 6 + Math.floor(rng() * 6);
+        else count = rng() < 0.35 ? 1 : 0;
+    } else if (zoneIdx === 3) {
+        if (isVillage) count = 4 + Math.floor(rng() * 3);
+        else if (forestNoise > 0.49) count = 22 + Math.floor(rng() * 12);
+        else if (forestNoise > 0.38) count = 6 + Math.floor(rng() * 5);
+        else count = rng() < 0.30 ? 1 : 0;
+    } else if (zoneIdx === 6) {
+        count = isVillage ? (1 + Math.floor(rng() * 3)) : (forestNoise > 0.54 ? (4 + Math.floor(rng() * 4)) : (rng() < 0.4 ? 1 : 0));
+    } else if (zoneIdx === 8) {
+        count = isVillage ? (5 + Math.floor(rng() * 4)) : (forestNoise > 0.50 ? (8 + Math.floor(rng() * 6)) : (1 + Math.floor(rng() * 2)));
+    } else if (zoneIdx === 9) {
+        if (isVillage) count = 15 + Math.floor(rng() * 6);
+        else if (forestNoise > 0.38) count = 34 + Math.floor(rng() * 12);
+        else count = 18 + Math.floor(rng() * 8);
+    } else if (zoneIdx === 10 || zoneIdx === 11) {
+        if (isVillage) count = 5 + Math.floor(rng() * 4);
+        else if (forestNoise > 0.48) count = 18 + Math.floor(rng() * 10);
+        else if (forestNoise > 0.36) count = 5 + Math.floor(rng() * 4);
+        else count = rng() < 0.35 ? 1 : 0;
+    } else {
+        if (isVillage) count = 3 + Math.floor(rng() * 3);
+        else if (forestNoise > 0.49) count = 24 + Math.floor(rng() * 14);
+        else if (forestNoise > 0.38) count = 6 + Math.floor(rng() * 5);
+        else count = rng() < 0.30 ? 1 : 0;
+    }
+
+    return isMobile ? Math.ceil(count * 0.45) : count;
+}
+
+/**
+ * Generates 1–3 grove anchor centers within a chunk so trees merge into large forests.
+ */
+function createChunkTreeGroves(xMin, zMin, targetTreeCount, rng) {
+    if (targetTreeCount <= 0) return [];
+    const groveCount = targetTreeCount >= 22 ? 3 : (targetTreeCount >= 10 ? 2 : 1);
+    const groves = [];
+    for (let g = 0; g < groveCount; g++) {
+        groves.push({
+            x: xMin + (0.15 + rng() * 0.70) * CHUNK_SIZE,
+            z: zMin + (0.15 + rng() * 0.70) * CHUNK_SIZE
+        });
+    }
+    return groves;
+}
+
+/**
+ * Picks a clustered tree position around a chunk grove center (or [null, null] if rejected in an open clearing).
+ */
+function pickClusteredTreePosition(xMin, zMin, groves, isVillage, zoneIdx, rng) {
+    let tx, tz;
+    if (!isVillage && groves.length > 0 && rng() < 0.88) {
+        const grove = groves[Math.floor(rng() * groves.length)];
+        const angle = rng() * Math.PI * 2;
+        const maxRadius = groves.length >= 3 ? 25.0 : (groves.length === 2 ? 19.0 : 14.0);
+        const radius = 2.0 + Math.pow(rng(), 0.75) * maxRadius;
+        tx = Math.max(xMin + 3.0, Math.min(xMin + CHUNK_SIZE - 3.0, grove.x + Math.cos(angle) * radius));
+        tz = Math.max(zMin + 3.0, Math.min(zMin + CHUNK_SIZE - 3.0, grove.z + Math.sin(angle) * radius));
+    } else {
+        tx = xMin + (0.06 + rng() * 0.88) * CHUNK_SIZE;
+        tz = zMin + (0.06 + rng() * 0.88) * CHUNK_SIZE;
+        if (!isVillage && zoneIdx !== 9) {
+            const localForest = fbm3((tx + seedOffset.x) * 0.0045, (tz + seedOffset.z) * 0.0045) * 0.5 + 0.5;
+            if (localForest < 0.42 && rng() < 0.70) return [null, null];
+        }
+    }
+    return [tx, tz];
+}
+
 class TerrainChunk {
     constructor(cx, cz) {
         this.cx = cx;
@@ -10070,6 +10181,7 @@ class TerrainChunk {
             if (getRoadFactor(rx, rz) > 0.25) continue;
             const ry = getTerrainHeight(rx, rz);
             if (ry < -2.0) continue;
+            if (currentZoneIndex === 2 && ry > 65.0) continue;
 
             const rs = (currentZoneIndex === 6 || currentZoneIndex === 7 ? 1.25 : currentZoneIndex === 2 ? 1.15 : 1.0) + rng() * (currentZoneIndex === 6 ? 0.85 : 0.50);
             const rockMesh = new THREE.Mesh(zoneRockGeo, zoneRockMat);
@@ -10101,83 +10213,13 @@ class TerrainChunk {
         // ---------------------------------------------------------------------
         // 3. ZONE-SPECIFIC BOTANICAL FLORA (PALMS/CACTI, ALPINE CONIFERS, WOODLANDS)
         // ---------------------------------------------------------------------
-        const forestNoise = fbm3((chunkCenterX + seedOffset.x) * 0.007, (chunkCenterZ + seedOffset.z) * 0.007) * 0.5 + 0.5;
-
-        let targetTreeCount = 0;
-        if (currentZoneIndex === 1) {
-            // Desert Zone: Lush Date Palm groves near oases, sparse Cacti & Palms across dunes
-            const [zoneX, zoneZ] = getZoneCenter(chunkCenterX, chunkCenterZ);
-            const distFromOasis = Math.hypot(chunkCenterX - zoneX - 58.0, chunkCenterZ - zoneZ - 78.0);
-            if (distFromOasis < 95.0) {
-                targetTreeCount = 9 + Math.floor(rng() * 7);
-            } else if (isVillage) {
-                targetTreeCount = 3 + Math.floor(rng() * 4);
-            } else if (forestNoise > 0.45) {
-                targetTreeCount = 3 + Math.floor(rng() * 4);
-            } else {
-                targetTreeCount = 1 + Math.floor(rng() * 2);
-            }
-        } else if (currentZoneIndex === 2) {
-            // Alpine Mountain Zone: Dense Nordic Spruce & Scots Pine timberline forests in passes & lower slopes
-            if (isVillage) {
-                targetTreeCount = 3 + Math.floor(rng() * 3);
-            } else if (forestNoise > 0.46) {
-                targetTreeCount = 12 + Math.floor(rng() * 8);
-            } else {
-                targetTreeCount = 4 + Math.floor(rng() * 5);
-            }
-        } else if (currentZoneIndex === 3) {
-            // Rolling Hills Zone: Scenic hilltop copses, valley oak/beech woods, and pine windbreaks
-            if (isVillage) {
-                targetTreeCount = 4 + Math.floor(rng() * 3);
-            } else if (forestNoise > 0.50) {
-                targetTreeCount = 11 + Math.floor(rng() * 7);
-            } else if (forestNoise > 0.30) {
-                targetTreeCount = 4 + Math.floor(rng() * 4);
-            } else {
-                targetTreeCount = 1 + Math.floor(rng() * 2);
-            }
-        } else if (currentZoneIndex === 6) {
-            // Arizona Monument Valley: Sparse desert Joshua trees, Saguaro cacti & scrub acacias
-            targetTreeCount = isVillage ? (1 + Math.floor(rng() * 3)) : (2 + Math.floor(rng() * 3));
-        } else if (currentZoneIndex === 8) {
-            // Ancient Egypt: Royal Date Palm groves along the Nile & oasis palms
-            targetTreeCount = isVillage ? (5 + Math.floor(rng() * 4)) : (3 + Math.floor(rng() * 4));
-        } else if (currentZoneIndex === 9) {
-            // Tropical Jungle Zone: Dense, multi-layered rainforest canopy & palm/willow understory
-            if (isVillage) {
-                targetTreeCount = 15 + Math.floor(rng() * 6);
-            } else if (forestNoise > 0.35) {
-                targetTreeCount = 26 + Math.floor(rng() * 10);
-            } else {
-                targetTreeCount = 19 + Math.floor(rng() * 8);
-            }
-        } else if (currentZoneIndex === 10 || currentZoneIndex === 11) {
-            // Ancient Greece & Ancient Rome: Mediterranean Cypress avenues, Stone Pines & Olive groves
-            if (isVillage) {
-                targetTreeCount = 5 + Math.floor(rng() * 4);
-            } else if (forestNoise > 0.45) {
-                targetTreeCount = 10 + Math.floor(rng() * 6);
-            } else {
-                targetTreeCount = 4 + Math.floor(rng() * 4);
-            }
-        } else {
-            // Coastal Meadow (default)
-            if (isVillage) {
-                targetTreeCount = 3 + Math.floor(rng() * 3);
-            } else if (forestNoise > 0.52) {
-                targetTreeCount = 14 + Math.floor(rng() * 9);
-            } else if (forestNoise > 0.32) {
-                targetTreeCount = 5 + Math.floor(rng() * 5);
-            } else {
-                targetTreeCount = Math.floor(rng() * 3);
-            }
-        }
-        if (isMobile) targetTreeCount = Math.ceil(targetTreeCount * 0.45);
+        const forestNoise = fbm3((chunkCenterX + seedOffset.x) * 0.0022, (chunkCenterZ + seedOffset.z) * 0.0022) * 0.5 + 0.5;
+        const targetTreeCount = getChunkTargetTreeCount(chunkCenterX, chunkCenterZ, forestNoise, currentZoneIndex, isVillage, isMobile, rng);
+        const treeGroves = createChunkTreeGroves(xMin, zMin, targetTreeCount, rng);
 
         for (let t = 0; t < targetTreeCount; t++) {
-            let tx = xMin + (0.08 + rng() * 0.84) * CHUNK_SIZE;
-            let tz = zMin + (0.08 + rng() * 0.84) * CHUNK_SIZE;
+            const [tx, tz] = pickClusteredTreePosition(xMin, zMin, treeGroves, isVillage, currentZoneIndex, rng);
+            if (tx === null) continue;
 
             if (Math.hypot(tx, tz) < 20) continue; // Keep spawn clear
             if (getRoadFactor(tx, tz) > 0.20) continue; // Keep roads clear
@@ -11459,41 +11501,20 @@ function getFarChunkProps(cx, cz, isMobile) {
         if (getRoadFactor(rx, rz) > 0.25) continue;
         const ry = getTerrainHeight(rx, rz);
         if (ry < -2.0) continue;
+        if (zoneIdx === 2 && ry > 65.0) continue;
         const rs = (zoneIdx === 6 || zoneIdx === 7 ? 1.25 : zoneIdx === 2 ? 1.15 : 1.0) + rng() * (zoneIdx === 6 ? 0.85 : 0.50);
         const rot = rng() * Math.PI * 2;
         rocks.push({ x: rx, y: ry - 0.2, z: rz, scale: rs, rot, zoneIdx });
     }
 
     // 3. Exact deterministic trees pass with exact tree-type classification
-    const forestNoise = fbm3((chunkCenterX + seedOffset.x) * 0.007, (chunkCenterZ + seedOffset.z) * 0.007) * 0.5 + 0.5;
-    let targetTreeCount = 0;
-    if (zoneIdx === 1) {
-        const [zx, zz] = getZoneCenter(chunkCenterX, chunkCenterZ);
-        const distFromOasis = Math.hypot(chunkCenterX - zx - 58.0, chunkCenterZ - zz - 78.0);
-        if (distFromOasis < 95.0) targetTreeCount = 9 + Math.floor(rng() * 7);
-        else if (isVillage) targetTreeCount = 3 + Math.floor(rng() * 4);
-        else if (forestNoise > 0.45) targetTreeCount = 3 + Math.floor(rng() * 4);
-        else targetTreeCount = 1 + Math.floor(rng() * 2);
-    } else if (zoneIdx === 2) {
-        targetTreeCount = isVillage ? (3 + Math.floor(rng() * 3)) : (forestNoise > 0.46 ? (12 + Math.floor(rng() * 8)) : (4 + Math.floor(rng() * 5)));
-    } else if (zoneIdx === 3) {
-        targetTreeCount = isVillage ? (4 + Math.floor(rng() * 3)) : (forestNoise > 0.50 ? (11 + Math.floor(rng() * 7)) : (forestNoise > 0.30 ? (4 + Math.floor(rng() * 4)) : (1 + Math.floor(rng() * 2))));
-    } else if (zoneIdx === 6) {
-        targetTreeCount = isVillage ? (1 + Math.floor(rng() * 3)) : (2 + Math.floor(rng() * 3));
-    } else if (zoneIdx === 8) {
-        targetTreeCount = isVillage ? (5 + Math.floor(rng() * 4)) : (3 + Math.floor(rng() * 4));
-    } else if (zoneIdx === 9) {
-        targetTreeCount = isVillage ? (15 + Math.floor(rng() * 6)) : (forestNoise > 0.35 ? (26 + Math.floor(rng() * 10)) : (19 + Math.floor(rng() * 8)));
-    } else if (zoneIdx === 10 || zoneIdx === 11) {
-        targetTreeCount = isVillage ? (5 + Math.floor(rng() * 4)) : (forestNoise > 0.45 ? (10 + Math.floor(rng() * 6)) : (4 + Math.floor(rng() * 4)));
-    } else {
-        targetTreeCount = isVillage ? (3 + Math.floor(rng() * 3)) : (forestNoise > 0.52 ? (14 + Math.floor(rng() * 9)) : (forestNoise > 0.32 ? (5 + Math.floor(rng() * 5)) : Math.floor(rng() * 3)));
-    }
-    if (isMobile) targetTreeCount = Math.ceil(targetTreeCount * 0.45);
+    const forestNoise = fbm3((chunkCenterX + seedOffset.x) * 0.0022, (chunkCenterZ + seedOffset.z) * 0.0022) * 0.5 + 0.5;
+    const targetTreeCount = getChunkTargetTreeCount(chunkCenterX, chunkCenterZ, forestNoise, zoneIdx, isVillage, isMobile, rng);
+    const treeGroves = createChunkTreeGroves(xMin, zMin, targetTreeCount, rng);
 
     for (let t = 0; t < targetTreeCount; t++) {
-        const tx = xMin + (0.08 + rng() * 0.84) * CHUNK_SIZE;
-        const tz = zMin + (0.08 + rng() * 0.84) * CHUNK_SIZE;
+        const [tx, tz] = pickClusteredTreePosition(xMin, zMin, treeGroves, isVillage, zoneIdx, rng);
+        if (tx === null) continue;
         if (Math.hypot(tx, tz) < 20) continue;
         if (getRoadFactor(tx, tz) > 0.20) continue;
 
