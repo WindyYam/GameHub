@@ -11137,6 +11137,7 @@ const farLodMeshes = {
     house: null,
     adobe: null,
     butte: null,
+    monumentSpire: null,
     canyonCliff: null,
     canyonTower: null
 };
@@ -11255,6 +11256,52 @@ function createFarHazedLambertMaterial(options = {}) {
         ` + shader.fragmentShader.replace(
             '#include <tonemapping_fragment>',
             `gl_FragColor.rgb = applyBabylonAerialHaze(gl_FragColor.rgb, vFarPropWP, uCameraPos, uSunDir, uSunColor, uSkyColor, uSkyTopColor, uHazeStrength);
+            #include <tonemapping_fragment>`
+        );
+    };
+    return mat;
+}
+
+function createFarHazedStandardMaterial(options = {}) {
+    const mat = new THREE.MeshStandardMaterial({
+        map: options.map || null,
+        normalMap: options.normalMap || null,
+        normalScale: options.normalScale || new THREE.Vector2(0.55, 0.55),
+        roughness: options.roughness !== undefined ? options.roughness : 0.88,
+        metalness: options.metalness !== undefined ? options.metalness : 0.02,
+        envMapIntensity: GROUND_ENV_MAP_INTENSITY,
+        side: options.side || THREE.FrontSide,
+        vertexColors: Boolean(options.vertexColors),
+        fog: false
+    });
+    mat.onBeforeCompile = (shader) => {
+        shader.uniforms.uCameraPos = terrainUniforms.uCameraPos;
+        shader.uniforms.uSunDir = terrainUniforms.uSunDir;
+        shader.uniforms.uSunColor = terrainUniforms.uSunColor;
+        shader.uniforms.uSkyColor = terrainUniforms.uSkyColor;
+        shader.uniforms.uSkyTopColor = terrainUniforms.uSkyTopColor;
+        shader.uniforms.uHazeStrength = terrainUniforms.uHazeStrength;
+        shader.vertexShader = 'varying vec3 vFarStdWP;\n' + shader.vertexShader.replace(
+            '#include <begin_vertex>',
+            `#include <begin_vertex>
+            vec4 fsWp = vec4(transformed, 1.0);
+            #ifdef USE_INSTANCING
+            fsWp = instanceMatrix * fsWp;
+            #endif
+            vFarStdWP = (modelMatrix * fsWp).xyz;`
+        );
+        shader.fragmentShader = `
+            uniform vec3 uCameraPos;
+            uniform vec3 uSunDir;
+            uniform vec3 uSunColor;
+            uniform vec3 uSkyColor;
+            uniform vec3 uSkyTopColor;
+            uniform float uHazeStrength;
+            varying vec3 vFarStdWP;
+            ${BABYLON_HAZE_GLSL}
+        ` + shader.fragmentShader.replace(
+            '#include <tonemapping_fragment>',
+            `gl_FragColor.rgb = applyBabylonAerialHaze(gl_FragColor.rgb, vFarStdWP, uCameraPos, uSunDir, uSunColor, uSkyColor, uSkyTopColor, uHazeStrength);
             #include <tonemapping_fragment>`
         );
     };
@@ -11484,21 +11531,132 @@ function buildFarAdobeGeo() {
 }
 
 function buildFarButteGeo() {
-    // Tall tapered Monument Valley sandstone mesa/butte
-    const geo = new THREE.CylinderGeometry(3.8, 7.6, 24.0, 7);
-    geo.translate(0, 12.0, 0);
-    const count = geo.attributes.position.count;
-    const cols = new Float32Array(count * 3);
-    for (let i = 0; i < count; i++) {
-        const y = geo.attributes.position.getY(i);
-        const strata = 0.85 + 0.15 * Math.sin(y * 0.9);
-        cols[i * 3 + 0] = 0.42 * strata;
-        cols[i * 3 + 1] = 0.14 * strata;
-        cols[i * 3 + 2] = 0.07 * strata;
+    // Low-poly Monument Valley Mitten Butte matching createMonumentButteGeometry(34.0, 36.0, 21.5)
+    const baseW = 34.0, l = 36.0, h = 21.5;
+    const parts = [];
+
+    function colorFarMonumentStrata(geo) {
+        geo.computeVertexNormals();
+        const pos = geo.attributes.position;
+        const col = new Float32Array(pos.count * 3);
+        for (let i = 0; i < pos.count; i++) {
+            const vx = pos.getX(i), vy = pos.getY(i), vz = pos.getZ(i);
+            const hFrac = Math.max(0.0, Math.min(1.0, vy / h));
+            const s1 = Math.sin(vy * 1.85 + (vx + vz) * 0.06);
+            const s2 = Math.cos(vy * 4.4 - vx * 0.10) * 0.5;
+            const varnish = Math.sin(Math.atan2(vz, vx) * 9.0) * 0.06;
+            const ao = 0.68 + 0.32 * Math.pow(hFrac, 0.65);
+
+            let r, g, b;
+            if (vy < 5.8) {
+                r = 0.74 + s1 * 0.06;
+                g = 0.27 + s1 * 0.04;
+                b = 0.14 + s1 * 0.02;
+            } else if (vy > h - 2.4) {
+                r = 0.94 + s2 * 0.05;
+                g = 0.54 + s2 * 0.05;
+                b = 0.30 + s2 * 0.04;
+            } else {
+                const buffBand = Math.max(0.0, s1 + s2 * 0.6);
+                r = 0.86 + buffBand * 0.12 + varnish;
+                g = 0.33 + buffBand * 0.16 + varnish * 0.5;
+                b = 0.16 + buffBand * 0.10;
+            }
+            col[i * 3 + 0] = Math.min(1.0, Math.max(0.2, r * ao));
+            col[i * 3 + 1] = Math.min(1.0, Math.max(0.1, g * ao));
+            col[i * 3 + 2] = Math.min(1.0, Math.max(0.06, b * ao));
+        }
+        geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+        applyWorldBoxUVs(geo, 0.16, 0.22);
+        return geo;
     }
-    geo.setAttribute('color', new THREE.BufferAttribute(cols, 3));
-    applyWorldBoxUVs(geo, 0.18, 0.24);
-    return geo;
+
+    // 1. Talus apron skirt
+    const talusH = 6.8;
+    const talus = new THREE.CylinderGeometry(baseW * 0.30, baseW * 0.54, talusH, 10, 2);
+    const tPos = talus.attributes.position;
+    for (let i = 0; i < tPos.count; i++) {
+        const vx = tPos.getX(i), vy = tPos.getY(i), vz = tPos.getZ(i);
+        const ny = (vy + talusH * 0.5) / talusH;
+        const ang = Math.atan2(vz, vx);
+        const flute = 1.0 + (Math.sin(ang * 5.0 + 0.4) * 0.11 + Math.cos(ang * 9.0) * 0.07) * (1.0 - ny * 0.35);
+        tPos.setX(i, vx * flute * 1.06);
+        tPos.setZ(i, vz * flute * (l / baseW) * 0.94);
+    }
+    talus.translate(0, talusH * 0.5, 0);
+    parts.push(colorFarMonumentStrata(talus));
+
+    // 2. Main sandstone cliff massif
+    const cliffH = h - talusH + 1.2;
+    const cliff = new THREE.CylinderGeometry(baseW * 0.24, baseW * 0.29, cliffH, 10, 3);
+    const cPos = cliff.attributes.position;
+    for (let i = 0; i < cPos.count; i++) {
+        const vx = cPos.getX(i), vy = cPos.getY(i), vz = cPos.getZ(i);
+        const ang = Math.atan2(vz, vx);
+        const verticalFlutes = 1.0 + Math.sin(ang * 4.0 + 0.6) * 0.14 + Math.cos(ang * 7.0 - 0.5) * 0.09;
+        cPos.setXYZ(i, vx * verticalFlutes * 0.92 - baseW * 0.05, vy, vz * verticalFlutes * 0.76);
+    }
+    cliff.translate(0, talusH + cliffH * 0.5 - 0.8, 0);
+    parts.push(colorFarMonumentStrata(cliff));
+
+    // 3. Secondary shoulder buttress
+    const shoulderH = cliffH * 0.76;
+    const shoulder = new THREE.CylinderGeometry(baseW * 0.15, baseW * 0.19, shoulderH, 8, 2);
+    shoulder.translate(-baseW * 0.18, talusH + shoulderH * 0.5 - 0.9, -l * 0.08);
+    parts.push(colorFarMonumentStrata(shoulder));
+
+    // 4. Detached "Mitten Thumb" spire
+    const thumbH = cliffH * 0.88;
+    const thumb = new THREE.CylinderGeometry(baseW * 0.055, baseW * 0.105, thumbH, 7, 2);
+    thumb.translate(baseW * 0.25, talusH + thumbH * 0.5 - 1.1, l * 0.06);
+    parts.push(colorFarMonumentStrata(thumb));
+
+    return mergeBufferGeometries(parts);
+}
+
+function buildFarMonumentSpireGeo() {
+    // Low-poly Monument Valley "Three Sisters" Spire Cluster matching createMonumentSpireGeometry(8.4, 24.5)
+    const baseW = 8.4, h = 24.5;
+    const parts = [];
+
+    function colorFarSpireStrata(geo) {
+        geo.computeVertexNormals();
+        const pos = geo.attributes.position;
+        const col = new Float32Array(pos.count * 3);
+        for (let i = 0; i < pos.count; i++) {
+            const vx = pos.getX(i), vy = pos.getY(i), vz = pos.getZ(i);
+            const hFrac = Math.max(0.0, Math.min(1.0, vy / h));
+            const band = Math.sin(vy * 2.4 + (vx + vz) * 0.18);
+            const ao = 0.68 + 0.32 * Math.pow(hFrac, 0.65);
+            const r = (vy < 5.0 ? 0.74 : 0.88 + band * 0.10) * ao;
+            const g = (vy < 5.0 ? 0.26 : 0.34 + band * 0.12) * ao;
+            const b = (vy < 5.0 ? 0.13 : 0.17 + band * 0.08) * ao;
+            col[i * 3 + 0] = Math.min(1.0, r);
+            col[i * 3 + 1] = Math.min(1.0, g);
+            col[i * 3 + 2] = Math.min(1.0, b);
+        }
+        geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+        applyWorldBoxUVs(geo, 0.18, 0.24);
+        return geo;
+    }
+
+    const baseH = 5.6;
+    const baseCone = new THREE.CylinderGeometry(baseW * 0.42, baseW * 0.92, baseH, 9, 2);
+    baseCone.translate(0, baseH * 0.5, 0);
+    parts.push(colorFarSpireStrata(baseCone));
+
+    const spires = [
+        { x:  0.0,           z:  0.0,           rTop: baseW * 0.14, rBot: baseW * 0.28, sh: h - 4.8 },
+        { x:  baseW * 0.28,  z:  baseW * 0.08,  rTop: baseW * 0.11, rBot: baseW * 0.21, sh: (h - 4.8) * 0.74 },
+        { x: -baseW * 0.26,  z: -baseW * 0.10,  rTop: baseW * 0.10, rBot: baseW * 0.19, sh: (h - 4.8) * 0.58 }
+    ];
+    spires.forEach(sp => {
+        const colGeo = new THREE.CylinderGeometry(sp.rTop, sp.rBot, sp.sh, 7, 3);
+        colGeo.translate(sp.x, baseH - 0.8 + sp.sh * 0.5, sp.z);
+        parts.push(colorFarSpireStrata(colGeo));
+    });
+
+    return mergeBufferGeometries(parts);
 }
 
 function buildFarCanyonCliffGeo() {
@@ -11561,29 +11719,33 @@ function ensureFarLodInstancedMeshes(isMobile) {
     if (!farTerrainGroup) return;
     if (!sharedMonumentSandstonePBR) sharedMonumentSandstonePBR = createMonumentSandstonePBR();
     const sandstoneMap = sharedMonumentSandstonePBR ? sharedMonumentSandstonePBR.albedo : null;
+    const sandstoneNorm = sharedMonumentSandstonePBR ? sharedMonumentSandstonePBR.normal : null;
     const treeCap = isMobile ? 700 : 2400;
     const specs = [
-        ['conifer',   buildFarConiferGeo,   true,  treeCap, null],
-        ['cypress',   buildFarCypressGeo,   true,  Math.floor(treeCap * 0.5), null],
-        ['broadleaf', buildFarBroadleafGeo, true,  treeCap, null],
-        ['palm',      buildFarPalmGeo,      true,  Math.floor(treeCap * 0.5), null],
-        ['acacia',    buildFarAcaciaGeo,    true,  Math.floor(treeCap * 0.4), null],
-        ['cactus',    buildFarCactusGeo,    false, Math.floor(treeCap * 0.3), null],
-        ['rock',          buildFarRockGeo,          false, isMobile ? 500 : 1600, null],
-        ['sandstoneRock', buildFarSandstoneRockGeo, false, isMobile ? 500 : 1600, sandstoneMap],
-        ['house',         buildFarHouseGeo,         false, isMobile ? 250 : 700, null],
-        ['adobe',     buildFarAdobeGeo,     false, isMobile ? 120 : 320, null],
-        ['butte',     buildFarButteGeo,     false, isMobile ? 90 : 260, sandstoneMap],
-        ['canyonCliff', buildFarCanyonCliffGeo, false, isMobile ? 70 : 200, sandstoneMap],
-        ['canyonTower', buildFarCanyonTowerGeo, false, isMobile ? 90 : 260, sandstoneMap]
+        ['conifer',   buildFarConiferGeo,   true,  treeCap, null, null],
+        ['cypress',   buildFarCypressGeo,   true,  Math.floor(treeCap * 0.5), null, null],
+        ['broadleaf', buildFarBroadleafGeo, true,  treeCap, null, null],
+        ['palm',      buildFarPalmGeo,      true,  Math.floor(treeCap * 0.5), null, null],
+        ['acacia',    buildFarAcaciaGeo,    true,  Math.floor(treeCap * 0.4), null, null],
+        ['cactus',    buildFarCactusGeo,    false, Math.floor(treeCap * 0.3), null, null],
+        ['rock',          buildFarRockGeo,          false, isMobile ? 500 : 1600, null, null],
+        ['sandstoneRock', buildFarSandstoneRockGeo, false, isMobile ? 500 : 1600, sandstoneMap, sandstoneNorm],
+        ['house',         buildFarHouseGeo,         false, isMobile ? 250 : 700, null, null],
+        ['adobe',     buildFarAdobeGeo,     false, isMobile ? 120 : 320, null, null],
+        ['butte',     buildFarButteGeo,     false, isMobile ? 90 : 260, sandstoneMap, sandstoneNorm],
+        ['monumentSpire', buildFarMonumentSpireGeo, false, isMobile ? 90 : 260, sandstoneMap, sandstoneNorm],
+        ['canyonCliff', buildFarCanyonCliffGeo, false, isMobile ? 70 : 200, sandstoneMap, sandstoneNorm],
+        ['canyonTower', buildFarCanyonTowerGeo, false, isMobile ? 90 : 260, sandstoneMap, sandstoneNorm]
     ];
     const initCol = new THREE.Color(1, 1, 1);
     for (let i = 0; i < specs.length; i++) {
-        const [key, geoFn, isCard, cap, texMap] = specs[i];
+        const [key, geoFn, isCard, cap, texMap, normMap] = specs[i];
         if (!farLodMeshes[key]) {
             const mat = isCard
                 ? createFarHazedLambertMaterial({ map: getBotanicalAtlas(), alphaTest: 0.30, side: THREE.DoubleSide, vertexColors: false, windSway: true })
-                : createFarHazedLambertMaterial({ map: texMap, vertexColors: true, side: THREE.FrontSide });
+                : (texMap && normMap
+                    ? createFarHazedStandardMaterial({ map: texMap, normalMap: normMap, vertexColors: true, side: THREE.DoubleSide })
+                    : createFarHazedLambertMaterial({ map: texMap, vertexColors: true, side: THREE.FrontSide }));
             const mesh = new THREE.InstancedMesh(geoFn(), mat, cap);
             mesh.setColorAt(0, initCol);
             mesh.instanceColor.needsUpdate = true;
@@ -11674,7 +11836,23 @@ function getFarChunkProps(cx, cz, isMobile) {
 
             let kind = 'house';
             if (zoneIdx === 1 || zoneIdx === 8) kind = 'adobe';
-            else if (zoneIdx === 6) kind = (struct.type === 'wall' || struct.type === 'ruin') ? 'sandstoneRock' : 'butte';
+            else if (zoneIdx === 6) {
+                if (struct.type === 'townhouse' || struct.type === 'cottage') {
+                    kind = (idx % 2 === 0) ? 'butte' : 'monumentSpire';
+                } else if (struct.type === 'farmhouse' || struct.type === 'barn') {
+                    if (idx % 2 === 0) {
+                        kind = 'monumentSpire';
+                    } else {
+                        rocks.push({ x: bx, y: baseBy - 0.2, z: bz, scale: struct.scale, rot, zoneIdx });
+                        continue;
+                    }
+                } else if (struct.type === 'ruin') {
+                    kind = 'monumentSpire';
+                } else {
+                    rocks.push({ x: bx, y: baseBy - 0.2, z: bz, scale: struct.scale, rot, zoneIdx });
+                    continue;
+                }
+            }
             else if (zoneIdx === 7) {
                 if (struct.type === 'townhouse' || struct.type === 'cottage') kind = (idx % 2 === 0) ? 'canyonCliff' : 'canyonTower';
                 else if (struct.type === 'farmhouse' || struct.type === 'barn' || struct.type === 'ruin') kind = 'canyonTower';
@@ -11750,7 +11928,7 @@ function getFarChunkProps(cx, cz, isMobile) {
                 } else {
                     let kind = 'house';
                     if (zoneIdx === 1 || zoneIdx === 8) kind = 'adobe';
-                    else if (zoneIdx === 6) kind = 'butte';
+                    else if (zoneIdx === 6) kind = 'monumentSpire';
                     else if (zoneIdx === 7) kind = 'canyonTower';
                     houses.push({ x: hx, y: hy, z: hz, rot: bRot, scale: bScale, kind, zoneIdx, radius: 5.5 * bScale });
                 }
@@ -11915,8 +12093,8 @@ function updateFarPropLODs(playerX, playerZ, force, isMobile) {
 
     const innerRadius = isMobile ? 2 : VIEW_RADIUS;
     const outerRadius = isMobile ? 10 : 16; // Up to 1,280m radius for trees, rocks & houses
-    const counts = { conifer: 0, cypress: 0, broadleaf: 0, palm: 0, acacia: 0, cactus: 0, rock: 0, sandstoneRock: 0, house: 0, adobe: 0, butte: 0, canyonCliff: 0, canyonTower: 0 };
-    const innerCounts = { conifer: 0, cypress: 0, broadleaf: 0, palm: 0, acacia: 0, cactus: 0, rock: 0, sandstoneRock: 0, house: 0, adobe: 0, butte: 0, canyonCliff: 0, canyonTower: 0 };
+    const counts = { conifer: 0, cypress: 0, broadleaf: 0, palm: 0, acacia: 0, cactus: 0, rock: 0, sandstoneRock: 0, house: 0, adobe: 0, butte: 0, monumentSpire: 0, canyonCliff: 0, canyonTower: 0 };
+    const innerCounts = { conifer: 0, cypress: 0, broadleaf: 0, palm: 0, acacia: 0, cactus: 0, rock: 0, sandstoneRock: 0, house: 0, adobe: 0, butte: 0, monumentSpire: 0, canyonCliff: 0, canyonTower: 0 };
     const dummy = new THREE.Object3D();
     const col = new THREE.Color();
 
