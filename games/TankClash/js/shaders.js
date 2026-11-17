@@ -3719,6 +3719,7 @@ const TIGER_SKY_FRAGMENT_SHADER = `
     uniform float uCloudCoverage;
     uniform sampler2D uCloudTex;
     uniform samplerCube uStarTex;
+    uniform samplerCube uMilkyWayTex;
     varying vec3 vWorldPos;
 
     float hash(vec2 p) {
@@ -3887,63 +3888,18 @@ const TIGER_SKY_FRAGMENT_SHADER = `
         vec3 sunEmission = (sunDisc * sunDiscPower * coreTint + sunInnerCore + sunCorona * discTint) * smoothstep(-0.06, 0.015, sunAlt) * horizonVisibility;
         skyCol += sunEmission;
 
-        // Nighttime Milky Way Galaxy Belt, Nebulae, Starfield & Moon
+        // Nighttime Milky Way Galaxy Belt (GPU-baked cubemap), Starfield & Moon
         if (nightFactor > 0.01 && dir.y > -0.02) {
             float horizonVis = smoothstep(-0.02, 0.03, dir.y);
+            vec3 nStarDir = normalize(starDir);
 
-            mat3 galRot = mat3(
-                 0.80, -0.46,  0.38,
-                 0.52,  0.85, -0.10,
-                -0.30,  0.26,  0.92
-            );
-            vec3 galDir = normalize(galRot * starDir);
-            float galLat = galDir.y;
-            vec3 galPos = galDir * vec3(2.8, 5.6, 2.8);
-
-            // True 3D non-repeating domain warp & multi-octave galactic cloud structure (zero tiled texture grid)
-            vec3 galWarp3D = vec3(
-                fbm(galPos * 1.4 + vec3(3.1, 7.4, 1.9)),
-                fbm(galPos * 1.4 + vec3(12.8, 1.9, 6.3)),
-                fbm(galPos * 1.4 + vec3(5.7, 9.2, 14.1))
-            ) - 0.5;
-            vec3 warpedGalPos = galPos + galWarp3D * 0.85;
-
-            float bandProfile = exp(-pow(galLat * 3.8 + galWarp3D.y * 0.45, 2.0));
-            float coreAlignment = dot(galDir, vec3(cos(0.45), 0.0, sin(0.45)));
-            float coreBulge = exp((coreAlignment - 1.0) * 3.4) * exp(-pow(galLat * 2.8, 2.0));
-
-            // Organic clumpy star-clouds and ragged Great Rift dust lanes
-            float clump1 = fbm(warpedGalPos * 2.1);
-            float clump2 = fbm(warpedGalPos * 5.3 + vec3(7.1, 3.4, 9.8));
-            float starCloudStructure = pow(clamp(clump1 * 0.65 + clump2 * 0.48 - 0.14, 0.0, 1.2), 1.85);
-
-            float fineFilaments = ridgedFbm(warpedGalPos * 3.8);
-            float riftBase = fbm(warpedGalPos * 2.6 + vec3(5.2, -3.7, 2.1));
-            float riftDetail = ridgedFbm(warpedGalPos * 6.4 + vec3(1.7, 8.3, -4.2));
-            float darkDustRift = smoothstep(0.34, 0.62, riftBase * 0.68 + riftDetail * 0.35);
-            float riftMask = clamp(darkDustRift * exp(-pow(galLat * 5.8, 2.0)) * 0.88 + smoothstep(0.55, 0.82, fineFilaments) * bandProfile * 0.28, 0.0, 0.94);
-
-            float mwIntensity = clamp((bandProfile * (0.18 + 1.15 * starCloudStructure) + coreBulge * 0.78) * (1.0 - riftMask), 0.0, 1.55);
-
-            vec3 coreColor = vec3(1.0, 0.74, 0.42);
-            vec3 outerWingColor = vec3(0.24, 0.48, 0.98);
-            vec3 nebulaPink = vec3(0.95, 0.24, 0.58);
-            vec3 nebulaCyan = vec3(0.16, 0.82, 0.90);
-
-            // Rich, organic H-II emission nebulae & cyan filament wisps along the galactic arms
-            float nebulaPatch = smoothstep(0.32, 0.72, fbm(galPos * 1.9 + vec3(4.3, 1.1, 7.9)));
-            float nebulaSpots = pow(clamp(fbm(warpedGalPos * 4.2 + vec3(8.1, 2.3, 4.4)) - 0.44, 0.0, 1.0) * 2.0, 2.1) * bandProfile * (0.25 + 0.75 * nebulaPatch);
-            float cyanWisps = pow(clamp(fineFilaments - 0.48, 0.0, 1.0) * 2.05, 2.0) * bandProfile;
-
-            vec3 galaxyCol = mix(outerWingColor, coreColor, clamp(coreBulge * 1.25 + starCloudStructure * 0.42, 0.0, 1.0)) * mwIntensity * 0.68;
-            galaxyCol += nebulaPink * nebulaSpots * (1.0 - riftMask * 0.60) * 1.05;
-            galaxyCol += nebulaCyan * cyanWisps * (1.0 - riftMask * 0.50) * 0.56;
-
-            skyCol += galaxyCol * nightFactor * horizonVis;
+            // RGB = galaxyCol * 0.5 (HDR-packed), A = bandProfile * (1.0 - riftMask * 0.75)
+            vec4 mwSample = textureCube(uMilkyWayTex, nStarDir);
+            skyCol += (mwSample.rgb * 2.0) * nightFactor * horizonVis;
 
             // Unified mipmapped starfield + dense non-repeating Milky Way micro-star grain
-            vec3 starTex = textureCube(uStarTex, normalize(starDir)).rgb;
-            float starGain = mix(1.55, 2.55, bandProfile * (1.0 - riftMask * 0.75));
+            vec3 starTex = textureCube(uStarTex, nStarDir).rgb;
+            float starGain = mix(1.55, 2.55, mwSample.a);
             skyCol += starTex * starGain * nightFactor * horizonVis;
 
             // Crisp Moon disc & atmospheric lunar halo
@@ -4214,6 +4170,147 @@ function createStarCubeTexture() {
     return cubeTex;
 }
 
+let _bakedMilkyWayRT = null;
+function bakeMilkyWayCubeTexture() {
+    if (_bakedMilkyWayRT) return _bakedMilkyWayRT.texture;
+    const r = (typeof window !== 'undefined' && window.renderer) ? window.renderer : null;
+    if (!r) return null;
+
+    const cubeRT = new THREE.WebGLCubeRenderTarget(512, {
+        format: THREE.RGBAFormat,
+        type: THREE.UnsignedByteType,
+        generateMipmaps: true,
+        minFilter: THREE.LinearMipmapLinearFilter,
+        magFilter: THREE.LinearFilter
+    });
+    const cubeCam = new THREE.CubeCamera(0.1, 10, cubeRT);
+    const bakeScene = new THREE.Scene();
+    const bakeGeo = new THREE.BoxGeometry(2, 2, 2);
+    const bakeMat = new THREE.ShaderMaterial({
+        side: THREE.BackSide,
+        depthTest: false,
+        depthWrite: false,
+        vertexShader: `
+            varying vec3 vDir;
+            void main() {
+                vDir = position;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+        `,
+        fragmentShader: `
+            varying vec3 vDir;
+            float hash(vec3 p) {
+                p = fract(p * 0.1031);
+                p += dot(p, p.yzx + 33.33);
+                return fract((p.x + p.y) * p.z);
+            }
+            float noise(vec3 p) {
+                vec3 i = floor(p);
+                vec3 f = fract(p);
+                f = f * f * (3.0 - 2.0 * f);
+                float n000 = hash(i);
+                float n100 = hash(i + vec3(1.0, 0.0, 0.0));
+                float n010 = hash(i + vec3(0.0, 1.0, 0.0));
+                float n110 = hash(i + vec3(1.0, 1.0, 0.0));
+                float n001 = hash(i + vec3(0.0, 0.0, 1.0));
+                float n101 = hash(i + vec3(1.0, 0.0, 1.0));
+                float n011 = hash(i + vec3(0.0, 1.0, 1.0));
+                float n111 = hash(i + vec3(1.0, 1.0, 1.0));
+                float nx00 = mix(n000, n100, f.x);
+                float nx10 = mix(n010, n110, f.x);
+                float nx01 = mix(n001, n101, f.x);
+                float nx11 = mix(n011, n111, f.x);
+                return mix(mix(nx00, nx10, f.y), mix(nx01, nx11, f.y), f.z);
+            }
+            float fbm(vec3 p) {
+                float v = 0.0;
+                float a = 0.5;
+                for (int i = 0; i < 5; i++) {
+                    v += a * noise(p);
+                    p = p.yzx * 2.03 + vec3(13.4, 7.1, 9.2);
+                    a *= 0.5;
+                }
+                return v;
+            }
+            float ridgedFbm(vec3 p) {
+                float v = 0.0;
+                float a = 0.5;
+                for (int i = 0; i < 4; i++) {
+                    float n = 1.0 - abs(noise(p) * 2.0 - 1.0);
+                    v += a * (n * n);
+                    p = p.yzx * 2.12 + vec3(5.2, 19.8, 7.4);
+                    a *= 0.48;
+                }
+                return v;
+            }
+            void main() {
+                vec3 starDir = normalize(vDir);
+                mat3 galRot = mat3(
+                     0.80, -0.46,  0.38,
+                     0.52,  0.85, -0.10,
+                    -0.30,  0.26,  0.92
+                );
+                vec3 galDir = normalize(galRot * starDir);
+                float galLat = galDir.y;
+                vec3 galPos = galDir * vec3(2.8, 5.6, 2.8);
+
+                vec3 galWarp3D = vec3(
+                    fbm(galPos * 1.4 + vec3(3.1, 7.4, 1.9)),
+                    fbm(galPos * 1.4 + vec3(12.8, 1.9, 6.3)),
+                    fbm(galPos * 1.4 + vec3(5.7, 9.2, 14.1))
+                ) - 0.5;
+                vec3 warpedGalPos = galPos + galWarp3D * 0.85;
+
+                float bandProfile = exp(-pow(galLat * 3.8 + galWarp3D.y * 0.45, 2.0));
+                float coreAlignment = dot(galDir, vec3(cos(0.45), 0.0, sin(0.45)));
+                float coreBulge = exp((coreAlignment - 1.0) * 3.4) * exp(-pow(galLat * 2.8, 2.0));
+
+                float clump1 = fbm(warpedGalPos * 2.1);
+                float clump2 = fbm(warpedGalPos * 5.3 + vec3(7.1, 3.4, 9.8));
+                float starCloudStructure = pow(clamp(clump1 * 0.65 + clump2 * 0.48 - 0.14, 0.0, 1.2), 1.85);
+
+                float fineFilaments = ridgedFbm(warpedGalPos * 3.8);
+                float riftBase = fbm(warpedGalPos * 2.6 + vec3(5.2, -3.7, 2.1));
+                float riftDetail = ridgedFbm(warpedGalPos * 6.4 + vec3(1.7, 8.3, -4.2));
+                float darkDustRift = smoothstep(0.34, 0.62, riftBase * 0.68 + riftDetail * 0.35);
+                float riftMask = clamp(darkDustRift * exp(-pow(galLat * 5.8, 2.0)) * 0.88 + smoothstep(0.55, 0.82, fineFilaments) * bandProfile * 0.28, 0.0, 0.94);
+
+                float mwIntensity = clamp((bandProfile * (0.18 + 1.15 * starCloudStructure) + coreBulge * 0.78) * (1.0 - riftMask), 0.0, 1.55);
+
+                vec3 coreColor = vec3(1.0, 0.74, 0.42);
+                vec3 outerWingColor = vec3(0.24, 0.48, 0.98);
+                vec3 nebulaPink = vec3(0.95, 0.24, 0.58);
+                vec3 nebulaCyan = vec3(0.16, 0.82, 0.90);
+
+                float nebulaPatch = smoothstep(0.32, 0.72, fbm(galPos * 1.9 + vec3(4.3, 1.1, 7.9)));
+                float nebulaSpots = pow(clamp(fbm(warpedGalPos * 4.2 + vec3(8.1, 2.3, 4.4)) - 0.44, 0.0, 1.0) * 2.0, 2.1) * bandProfile * (0.25 + 0.75 * nebulaPatch);
+                float cyanWisps = pow(clamp(fineFilaments - 0.48, 0.0, 1.0) * 2.05, 2.0) * bandProfile;
+
+                vec3 galaxyCol = mix(outerWingColor, coreColor, clamp(coreBulge * 1.25 + starCloudStructure * 0.42, 0.0, 1.0)) * mwIntensity * 0.68;
+                galaxyCol += nebulaPink * nebulaSpots * (1.0 - riftMask * 0.60) * 1.05;
+                galaxyCol += nebulaCyan * cyanWisps * (1.0 - riftMask * 0.50) * 0.56;
+
+                float starWeight = clamp(bandProfile * (1.0 - riftMask * 0.75), 0.0, 1.0);
+                gl_FragColor = vec4(clamp(galaxyCol * 0.5, 0.0, 1.0), starWeight);
+            }
+        `
+    });
+    const bakeMesh = new THREE.Mesh(bakeGeo, bakeMat);
+    bakeScene.add(bakeMesh);
+
+    const oldTarget = r.getRenderTarget();
+    const oldAutoClear = r.autoClear;
+    r.autoClear = true;
+    cubeCam.update(r, bakeScene);
+    r.autoClear = oldAutoClear;
+    r.setRenderTarget(oldTarget);
+
+    bakeGeo.dispose();
+    bakeMat.dispose();
+    _bakedMilkyWayRT = cubeRT;
+    return cubeRT.texture;
+}
+
 function createMaldiveSkyDome() {
     const skyGeo = new THREE.SphereGeometry(9000, 64, 32);
     const skyMat = new THREE.ShaderMaterial({
@@ -4227,7 +4324,8 @@ function createMaldiveSkyDome() {
             uTime:            { value: 0 },
             uCloudCoverage:   { value: 0.42 },
             uCloudTex:        { value: createCloudNoiseTexture() },
-            uStarTex:         { value: createStarCubeTexture() }
+            uStarTex:         { value: createStarCubeTexture() },
+            uMilkyWayTex:     { value: bakeMilkyWayCubeTexture() }
         },
         side: THREE.BackSide,
         depthWrite: false,
