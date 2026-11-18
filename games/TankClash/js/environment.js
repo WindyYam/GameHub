@@ -172,10 +172,10 @@ const ZONE_CONFIGS = {
         shortName: 'Jungle',
         icon: '🌴',
         banner: '🌴 ZONE: PACIFIC TROPICAL JUNGLE & RAINFOREST',
-        fogColor: 0xa8c4aa,
+        fogColor: 0xb8c2a8,
         fogDensity: 0.00115,
-        dayHorizonTint: 0x6fa882,
-        groundDayTint: 0x244e28,
+        dayHorizonTint: 0x8fa98c,
+        groundDayTint: 0x4a5230,
         trackDustColor: 0x3e3220
     },
     greece: {
@@ -635,7 +635,73 @@ const SHARED_TERRAIN_GLSL = `
         return t * t * (3.0 - 2.0 * t);
     }
 
+    float getRiverDistance_gpu(float x, float z) {
+        // River 1: East-West Meandering Valley River (passing through z = -64 at x = 0)
+        float riv1BaseZ = sin(uSeedOffset.x * 0.0075) * 26.0 + cos(uSeedOffset.x * 0.017) * 11.0 + sin(uSeedOffset.x * 0.0032) * 18.0;
+        float riv1Z = -64.0 + (sin((x + uSeedOffset.x) * 0.0075) * 26.0 + cos((x + uSeedOffset.x) * 0.017) * 11.0 + sin((x + uSeedOffset.x) * 0.0032) * 18.0) - riv1BaseZ;
+        float dRiv1 = abs(z - riv1Z) * 0.90;
+
+        // River 2: Eastern North-South Meandering River (passing through x = 128 at z = 0, emptying to +Z ocean)
+        float riv2BaseX = sin(uSeedOffset.y * 0.0070) * 28.0 + cos(uSeedOffset.y * 0.016) * 12.0 + sin(uSeedOffset.y * 0.0028) * 18.0;
+        float riv2X = 128.0 + (sin((z + uSeedOffset.y) * 0.0070) * 28.0 + cos((z + uSeedOffset.y) * 0.016) * 12.0 + sin((z + uSeedOffset.y) * 0.0028) * 18.0) - riv2BaseX;
+        float dRiv2 = abs(x - riv2X) * 0.90;
+
+        // River 3: Western North-South Tributary River (passing through x = -128 at z = 0, emptying to +Z ocean)
+        float riv3BaseX = sin(uSeedOffset.y * 0.0080 + 1.4) * 26.0 + cos(uSeedOffset.y * 0.018 + 0.8) * 11.0;
+        float riv3X = -128.0 + (sin((z + uSeedOffset.y) * 0.0080 + 1.4) * 26.0 + cos((z + uSeedOffset.y) * 0.018 + 0.8) * 11.0) - riv3BaseX;
+        float dRiv3 = abs(x - riv3X) * 0.90;
+
+        // Smooth confluence blending between the main river and tributaries
+        float d23 = min(dRiv2, dRiv3);
+        float h = max(7.0 - abs(dRiv1 - d23), 0.0) / 7.0;
+        return min(dRiv1, d23) - h * h * 7.0 * 0.25;
+    }
+
+    float getRiverFactor_gpu(float x, float z) {
+        float dist = getRiverDistance_gpu(x, z);
+        float halfWidth = 22.0;
+        if (dist > halfWidth) return 0.0;
+        float t = 1.0 - (dist / halfWidth);
+        return t * t * (3.0 - 2.0 * t);
+    }
+
+    float getRiversideFactor_gpu(float x, float z) {
+        float dist = getRiverDistance_gpu(x, z);
+        return smoothstep(4.5, 8.2, dist) * (1.0 - smoothstep(13.5, 23.5, dist));
+    }
+
     const float SEA_LEVEL = -2.5;
+
+    float applyRiverTerrainHeight_gpu(float x, float z, float h, float dSpawn, float roadF) {
+        float rivDist = getRiverDistance_gpu(x, z);
+        if (rivDist >= 25.5) return h;
+        vec2 s = vec2(x, z) + uSeedOffset;
+        float bankWobble = sin(s.x * 0.043 + cos(s.y * 0.039) * 1.6) * 1.35;
+        float effDist = max(0.0, rivDist + bankWobble);
+        if (effDist >= 24.5) return h;
+
+        float spawnProtect = smoothstep(26.0, 44.0, dSpawn);
+        if (spawnProtect <= 0.001) return h;
+
+        // Stage 1: Outer valley bank grades down to the riverside beach/cobblestone terrace (-1.15m)
+        float shelfBlend = (1.0 - smoothstep(12.5, 24.5, effDist)) * spawnProtect;
+        float carvedH = mix(h, min(h, -1.15), shelfBlend);
+
+        // Stage 2: Gentle riverside terrace (7.8m..14.0m) sloping into the water channel (0..8.2m, bed at ~ -4.10m)
+        float shoreSlope = 1.0 - smoothstep(7.8, 14.0, effDist);
+        float bedRipple = sin(s.x * 0.08 + s.y * 0.07) * 0.15;
+        float channelDepth = (1.0 - smoothstep(0.0, 8.2, effDist)) * (1.65 + bedRipple);
+        float targetRiverH = -1.15 - shoreSlope * 1.30 - channelDepth;
+        float innerBlend = (1.0 - smoothstep(7.5, 14.0, effDist)) * spawnProtect;
+        carvedH = mix(carvedH, min(carvedH, targetRiverH), innerBlend);
+
+        // Road-river crossing: shallow cobblestone ford / causeway so road vehicles & soldiers cross smoothly
+        if (roadF > 0.01) {
+            float fordH = -2.28 - roadF * 0.14;
+            carvedH = mix(carvedH, max(carvedH, fordH), smoothstep(0.04, 0.55, roadF) * innerBlend);
+        }
+        return carvedH;
+    }
 
     float getZone2Height_gpu(float x, float z, float dSpawn, float roadDist, float roadF, vec2 zoneCenter, float coastalDescent, float bayOpen) {
         vec2 s = vec2(x, z) + uSeedOffset;
@@ -1074,7 +1140,7 @@ const SHARED_TERRAIN_GLSL = `
         for (int i = 0; i < 12; i++) {
             if (w[i] > 0.0) h += w[i] * getZoneTerrainHeight_gpu(x, z, i, dSpawn, roadDist, roadF, zoneCenter, coastalDescent, bayOpen);
         }
-        return h;
+        return applyRiverTerrainHeight_gpu(x, z, h, dSpawn, roadF);
     }
 
     float getTerrainSurfaceHeight_gpu(float x, float z, out vec3 surfaceNormal) {
@@ -1119,7 +1185,71 @@ function getRoadFactor(x, z) {
     return t * t * (3.0 - 2.0 * t);
 }
 
+function getRiverDistance(x, z) {
+    // River 1: East-West Meandering Valley River (passing through z = -64 at x = 0)
+    const riv1BaseZ = Math.sin(seedOffset.x * 0.0075) * 26.0 + Math.cos(seedOffset.x * 0.017) * 11.0 + Math.sin(seedOffset.x * 0.0032) * 18.0;
+    const riv1Z = -64.0 + (Math.sin((x + seedOffset.x) * 0.0075) * 26.0 + Math.cos((x + seedOffset.x) * 0.017) * 11.0 + Math.sin((x + seedOffset.x) * 0.0032) * 18.0) - riv1BaseZ;
+    const dRiv1 = Math.abs(z - riv1Z) * 0.90;
+
+    // River 2: Eastern North-South Meandering River (passing through x = 128 at z = 0, emptying to +Z ocean)
+    const riv2BaseX = Math.sin(seedOffset.z * 0.0070) * 28.0 + Math.cos(seedOffset.z * 0.016) * 12.0 + Math.sin(seedOffset.z * 0.0028) * 18.0;
+    const riv2X = 128.0 + (Math.sin((z + seedOffset.z) * 0.0070) * 28.0 + Math.cos((z + seedOffset.z) * 0.016) * 12.0 + Math.sin((z + seedOffset.z) * 0.0028) * 18.0) - riv2BaseX;
+    const dRiv2 = Math.abs(x - riv2X) * 0.90;
+
+    // River 3: Western North-South Tributary River (passing through x = -128 at z = 0, emptying to +Z ocean)
+    const riv3BaseX = Math.sin(seedOffset.z * 0.0080 + 1.4) * 26.0 + Math.cos(seedOffset.z * 0.018 + 0.8) * 11.0;
+    const riv3X = -128.0 + (Math.sin((z + seedOffset.z) * 0.0080 + 1.4) * 26.0 + Math.cos((z + seedOffset.z) * 0.018 + 0.8) * 11.0) - riv3BaseX;
+    const dRiv3 = Math.abs(x - riv3X) * 0.90;
+
+    // Smooth confluence blending between the main river and tributaries
+    const d23 = Math.min(dRiv2, dRiv3);
+    const h = Math.max(7.0 - Math.abs(dRiv1 - d23), 0.0) / 7.0;
+    return Math.min(dRiv1, d23) - h * h * 7.0 * 0.25;
+}
+
+function getRiverFactor(x, z) {
+    const dist = getRiverDistance(x, z);
+    const halfWidth = 22.0;
+    if (dist > halfWidth) return 0.0;
+    const t = 1.0 - (dist / halfWidth);
+    return t * t * (3.0 - 2.0 * t);
+}
+
+function getRiversideFactor(x, z) {
+    const dist = getRiverDistance(x, z);
+    return smoothstep(4.5, 8.2, dist) * (1.0 - smoothstep(13.5, 23.5, dist));
+}
+
 const SEA_LEVEL = -2.5;
+
+function applyRiverTerrainHeight(x, z, h, dSpawn, roadF) {
+    const rivDist = getRiverDistance(x, z);
+    if (rivDist >= 25.5) return h;
+    const sx = x + seedOffset.x;
+    const sz = z + seedOffset.z;
+    const bankWobble = Math.sin(sx * 0.043 + Math.cos(sz * 0.039) * 1.6) * 1.35;
+    const effDist = Math.max(0.0, rivDist + bankWobble);
+    if (effDist >= 24.5) return h;
+
+    const spawnProtect = smoothstep(26.0, 44.0, dSpawn);
+    if (spawnProtect <= 0.001) return h;
+
+    const shelfBlend = (1.0 - smoothstep(12.5, 24.5, effDist)) * spawnProtect;
+    let carvedH = mix(h, Math.min(h, -1.15), shelfBlend);
+
+    const shoreSlope = 1.0 - smoothstep(7.8, 14.0, effDist);
+    const bedRipple = Math.sin(sx * 0.08 + sz * 0.07) * 0.15;
+    const channelDepth = (1.0 - smoothstep(0.0, 8.2, effDist)) * (1.65 + bedRipple);
+    const targetRiverH = -1.15 - shoreSlope * 1.30 - channelDepth;
+    const innerBlend = (1.0 - smoothstep(7.5, 14.0, effDist)) * spawnProtect;
+    carvedH = mix(carvedH, Math.min(carvedH, targetRiverH), innerBlend);
+
+    if (roadF > 0.01) {
+        const fordH = -2.28 - roadF * 0.14;
+        carvedH = mix(carvedH, Math.max(carvedH, fordH), smoothstep(0.04, 0.55, roadF) * innerBlend);
+    }
+    return carvedH;
+}
 
 function getTerrainHeight(x, z) {
     if (environmentMode === 'studio') return 0;
@@ -1128,7 +1258,10 @@ function getTerrainHeight(x, z) {
     for (let i = 0; i < weights.length; i++) {
         if (weights[i] > 0) height += weights[i] * getZoneTerrainHeight(x, z, i);
     }
-    return height;
+    const dSpawn = Math.hypot(x, z);
+    const roadDist = getRoadDistance(x, z);
+    const roadF = (roadDist > 4.6) ? 0.0 : (1.0 - roadDist / 4.6) * (1.0 - roadDist / 4.6) * (3.0 - 2.0 * (1.0 - roadDist / 4.6));
+    return applyRiverTerrainHeight(x, z, height, dSpawn, roadF);
 }
 
 function getZoneTerrainHeight(x, z, currentZoneIndex) {
@@ -1784,6 +1917,19 @@ terrainMat.onBeforeCompile = (shader) => {
         varying float vTerrainSlope;
         ${SHARED_TERRAIN_GLSL}
         ${BABYLON_HAZE_GLSL}
+
+        vec4 evalRiverCobble_gpu(vec2 p, out vec2 cobbleGrad) {
+            vec2 cell = floor(p);
+            vec2 fracP = fract(p) - 0.5;
+            float h = hash2D_gpu(cell);
+            vec2 jit = vec2(fract(h * 13.7) - 0.5, fract(h * 29.3) - 0.5) * 0.34;
+            vec2 delta = (fracP - jit) * vec2(1.0, 0.82 + 0.36 * fract(h * 7.3));
+            float d = length(delta);
+            float mortarMask = smoothstep(0.34, 0.48, d);
+            float dome = smoothstep(0.48, 0.12, d);
+            cobbleGrad = -delta * (2.6 * dome);
+            return vec4(dome, mortarMask, h, d);
+        }
     ` + shader.fragmentShader;
 
     shader.fragmentShader = shader.fragmentShader.replace(
@@ -1807,12 +1953,14 @@ terrainMat.onBeforeCompile = (shader) => {
 
             float roadDistForNorm = getRoadDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
             float roadFactorNorm = getRoadFactor_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
+            float riverDistNorm = getRiverDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
+            float riversideFactorNorm = getRiversideFactor_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
             float beachFactorNorm = 1.0 - smoothstep(-2.55, -1.35, vTerrainWorldPos.y);
 
             float wZoneNorm[12];
             getZoneWeights12_gpu(vTerrainWorldPos.xz, wZoneNorm);
 
-            float sandBlendFactor = clamp(wZoneNorm[1] * 0.95 + wZoneNorm[8] * 0.95 + beachFactorNorm * 0.92, 0.0, 1.0);
+            float sandBlendFactor = clamp(wZoneNorm[1] * 0.95 + wZoneNorm[8] * 0.95 + beachFactorNorm * 0.92 + riversideFactorNorm * 0.65, 0.0, 1.0);
             float mtnHighRock = wZoneNorm[2] * smoothstep(14.0, 28.0, vTerrainWorldPos.y);
             float snowLineElev = smoothstep(44.0, 72.0, vTerrainWorldPos.y - vTerrainSlope * 20.0);
             float snowBlendFactor = clamp(wZoneNorm[4] * 0.95 + wZoneNorm[2] * snowLineElev * 0.85, 0.0, 1.0);
@@ -1844,10 +1992,17 @@ terrainMat.onBeforeCompile = (shader) => {
                 vec2 uvRockNorm = fract(vec2((vTerrainWorldPos.x - vTerrainWorldPos.z * 0.7) * 0.11, vTerrainWorldPos.y * 0.22 + groundNormWarp.x * 0.08)) * 0.484 + vec2(0.508, 0.508);
                 vec3 nRockSample = texture2D(uTerrainNormalAtlas, uvRockNorm).xyz * 2.0 - 1.0;
 
-                vec2 closeN = nGroundSample.xy * 0.24;
+                deltaSurfN = nGroundSample.xy * 0.26;
+                vec2 closeN = deltaSurfN;
                 closeN = mix(closeN, nSandSample.xy * 0.24, sandBlendFactor);
                 closeN = mix(closeN, nRockSample.xy * 0.32, rockFactorNorm);
                 closeN = mix(closeN, nRoadSample.xy * 0.16, smoothstep(0.04, 0.38, roadFactorNorm));
+
+                if (riversideFactorNorm > 0.01 && riverDistNorm < 24.5) {
+                    float riverCobbleMask = riversideFactorNorm * (0.45 + 0.55 * smoothstep(-0.15, 0.35, valueNoise2D_gpu(posGroundWarped * 0.032)));
+                    vec2 cobbleNormalXY = _cachedCobbleGrad1 * 0.30 + _cachedCobbleGrad2 * 0.14 + nRoadSample.xy * 0.16;
+                    closeN = mix(closeN, cobbleNormalXY, clamp(riverCobbleMask * 0.90 + smoothstep(0.05, 0.45, roadFactorNorm) * 0.5, 0.0, 0.95));
+                }
 
                 if (roadFactorNorm > 0.05) {
                     float rutOffset = roadDistForNorm - 1.35;
@@ -1862,7 +2017,7 @@ terrainMat.onBeforeCompile = (shader) => {
                     float sastrugiPhase = (vTerrainWorldPos.x * 0.65 - vTerrainWorldPos.z * 0.75) * 2.2;
                     closeN += vec2(0.65, -0.75) * cos(sastrugiPhase) * 0.08 * snowBlendFactor * (1.0 - roadFactorNorm);
                 }
-                deltaSurfN += closeN * distFadeClose;
+                deltaSurfN = closeN * distFadeClose;
             }
 
             // 2. Multi-Band Meso & Macro 3D Procedural Relief Layer (active from 15m out to 1650m!)
@@ -2307,21 +2462,23 @@ terrainMat.onBeforeCompile = (shader) => {
                 }
             } else if (localZone == 9) {
                 // ZONE 9: PACIFIC TROPICAL JUNGLE — Deep rainforest humus, vibrant emerald moss, laterite clay & mossy karst
-                vec3 darkHumus     = vec3(0.016, 0.030, 0.009);
-                vec3 emeraldMoss   = vec3(0.024, 0.076, 0.015);
-                vec3 canopySunFern = vec3(0.056, 0.098, 0.020);
-                vec3 lateriteSoil  = vec3(0.095, 0.038, 0.016);
+                vec3 darkHumus     = vec3(0.034, 0.028, 0.014);
+                vec3 emeraldMoss   = vec3(0.050, 0.068, 0.020);
+                vec3 canopySunFern = vec3(0.105, 0.112, 0.030);
+                vec3 lateriteSoil  = vec3(0.135, 0.060, 0.026);
+                vec3 leafLitter    = vec3(0.115, 0.078, 0.032);
 
                 vec3 jungleGround = mix(darkHumus, emeraldMoss, smoothstep(0.20, 0.78, macroPatch * 0.50 + mesoPatch * 0.50));
-                jungleGround = mix(jungleGround, canopySunFern, smoothstep(0.55, 0.88, clumpNoise * mesoPatch) * 0.65);
-                jungleGround = mix(jungleGround, lateriteSoil, clamp(slopeBreak * 0.65 + smoothstep(0.68, 0.90, 1.0 - clumpNoise) * 0.35, 0.0, 0.75));
+                jungleGround = mix(jungleGround, leafLitter, smoothstep(0.40, 0.75, (1.0 - macroPatch) * 0.6 + detailNoise * 0.4) * 0.70);
+                jungleGround = mix(jungleGround, canopySunFern, smoothstep(0.55, 0.88, clumpNoise * mesoPatch) * 0.60);
+                jungleGround = mix(jungleGround, lateriteSoil, clamp(slopeBreak * 0.65 + smoothstep(0.62, 0.88, 1.0 - clumpNoise) * 0.45, 0.0, 0.80));
                 jungleGround *= (0.80 + clumpNoise * 0.26 + detailNoise * 0.14) * (0.95 + windWave * 0.08);
                 diffuseColor.rgb = mix(diffuseColor.rgb, jungleGround, 1.0 - smoothstep(0.08, 0.42, roadMask));
 
                 // Mossy Karst Limestone Mogote Cliffs
                 if (vTerrainSlope > 0.045) {
-                    vec3 karstDark = vec3(0.038, 0.048, 0.034);
-                    vec3 karstLight = vec3(0.095, 0.11, 0.082);
+                    vec3 karstDark = vec3(0.060, 0.056, 0.046);
+                    vec3 karstLight = vec3(0.17, 0.155, 0.125);
                     vec3 karstRock = mix(karstDark, karstLight, contourStrata * 0.60 + clumpNoise * 0.40);
                     diffuseColor.rgb = mix(diffuseColor.rgb, karstRock, smoothstep(0.045, 0.18, vTerrainSlope));
                 }
@@ -2445,6 +2602,86 @@ terrainMat.onBeforeCompile = (shader) => {
             diffuseColor.rgb = mix(diffuseColor.rgb, sandCol, beachMask * (1.0 - roadMask * 0.8));
         }
 
+        // Riverside: Cobblestones ("cobber stone"), alluvial sandbars, pebble shingle, wet waterline silt & riparian moss
+        float riverDist = getRiverDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
+        vec2 _cachedCobbleGrad1 = vec2(0.0);
+        vec2 _cachedCobbleGrad2 = vec2(0.0);
+        if (riverDist < 24.5) {
+            float dSpawnRiv = length(vTerrainWorldPos.xz);
+            float spawnRivFade = smoothstep(26.0, 44.0, dSpawnRiv);
+            float bankNoise = (mesoPatch - 0.5) * 2.8 + (clumpNoise - 0.5) * 1.4;
+            float rDist = max(0.0, riverDist + bankNoise);
+            float estuaryFade = 1.0 - smoothstep(200.0, 340.0, vTerrainWorldPos.z);
+            float riversideZone = (1.0 - smoothstep(14.0, 23.5, rDist)) * spawnRivFade * estuaryFade;
+            if (riversideZone > 0.001) {
+                float cobbleDetailFade = 1.0 - smoothstep(65.0, 210.0, distToCam);
+                vec2 cobbleWarp = vec2(detailNoise - 0.5, microNoise - 0.5) * 0.55;
+                vec4 cobble1 = evalRiverCobble_gpu(vTerrainWorldPos.xz * 2.35 + cobbleWarp, _cachedCobbleGrad1);
+                vec4 cobble2 = evalRiverCobble_gpu(vTerrainWorldPos.xz * 4.8 + vec2(31.7, 14.3) - cobbleWarp, _cachedCobbleGrad2);
+
+                // Mineral color palette for rounded river cobblestones
+                float cid = cobble1.z;
+                vec3 stoneCol = vec3(0.105, 0.115, 0.128);
+                stoneCol = mix(stoneCol, vec3(0.165, 0.145, 0.120), smoothstep(0.22, 0.42, cid));
+                stoneCol = mix(stoneCol, vec3(0.210, 0.165, 0.105), smoothstep(0.48, 0.68, cid));
+                stoneCol = mix(stoneCol, vec3(0.070, 0.072, 0.076), smoothstep(0.72, 0.86, cid));
+                stoneCol = mix(stoneCol, vec3(0.265, 0.245, 0.205), smoothstep(0.88, 0.98, cid));
+                stoneCol *= (0.86 + detailNoise * 0.22 + microNoise * 0.10);
+
+                // Smaller river pebble shingle layer
+                float pid = cobble2.z;
+                vec3 pebbleCol = mix(vec3(0.12, 0.11, 0.095), vec3(0.22, 0.18, 0.13), pid);
+                pebbleCol *= (0.85 + gravelNoise * 0.24);
+                vec3 pebbleMortar = vec3(0.068, 0.055, 0.038);
+                vec3 cobblePebbleCol = mix(pebbleCol * (0.82 + 0.28 * cobble2.x), pebbleMortar, cobble2.y * 0.72 * cobbleDetailFade);
+
+                vec3 sandSiltMortar = vec3(0.065, 0.052, 0.036);
+                vec3 cobbleCol = mix(stoneCol * (0.78 + 0.34 * cobble1.x), sandSiltMortar, cobble1.y * 0.85 * cobbleDetailFade);
+                float finePebbleMix = smoothstep(0.45, 0.82, 1.0 - clumpNoise) * 0.55;
+                cobbleCol = mix(cobbleCol, cobblePebbleCol, finePebbleMix);
+
+                // Alluvial river sand & current ripple bars
+                float riverSandRipple = sin(vTerrainWorldPos.x * 2.6 - vTerrainWorldPos.z * 1.8 + detailNoise * 2.8) * 0.5 + 0.5;
+                vec3 dryRiverSand = mix(vec3(0.19, 0.15, 0.095), vec3(0.27, 0.215, 0.135), riverSandRipple * 0.40 + clumpNoise * 0.35 + detailNoise * 0.25);
+                dryRiverSand *= (0.86 + microNoise * 0.22);
+
+                // Pebble shingle / gravel transition
+                vec3 shingleCol = mix(dryRiverSand * 0.78, cobblePebbleCol, 0.62);
+
+                // Distribute sandbars, shingle, and cobblestone shoals organically along the riverside
+                float barSelect = clamp(mesoPatch * 0.62 + clumpNoise * 0.38, 0.0, 1.0);
+                float sandBarMask = 1.0 - smoothstep(0.28, 0.60, barSelect);
+                float cobbleBarMask = smoothstep(0.36, 0.68, barSelect);
+                float fordMask = smoothstep(0.05, 0.45, roadMask);
+
+                vec3 riversideCol = mix(shingleCol, dryRiverSand, sandBarMask);
+                riversideCol = mix(riversideCol, cobbleCol, clamp(cobbleBarMask * 0.88 + fordMask * 0.85, 0.0, 1.0));
+
+                // Upper bank riparian moss & damp alluvial loam (suppressed in arid/winter zones)
+                float aridRiverFactor = clamp(zoneWeights12[1] + zoneWeights12[6] + zoneWeights12[7] + zoneWeights12[8], 0.0, 1.0);
+                float winterRiverFactor = clamp(zoneWeights12[4], 0.0, 1.0);
+                float bankMossMask = smoothstep(10.5, 16.5, rDist) * (1.0 - smoothstep(17.5, 23.5, rDist))
+                    * smoothstep(0.35, 0.75, clumpNoise) * (1.0 - aridRiverFactor * 0.85) * (1.0 - winterRiverFactor * 0.75);
+                vec3 riparianMoss = mix(vec3(0.028, 0.064, 0.014), vec3(0.050, 0.038, 0.020), detailNoise * 0.55 + slopeBreak * 0.45);
+                riversideCol = mix(riversideCol, riparianMoss, bankMossMask * 0.72);
+
+                // Waterline wet darkening & submerged riverbed silt
+                float wetBank = 1.0 - smoothstep(-2.60, -1.65, vTerrainWorldPos.y);
+                float submergedBed = 1.0 - smoothstep(-2.90, -2.35, vTerrainWorldPos.y);
+                riversideCol *= mix(1.0, 0.45, wetBank * 0.85);
+                riversideCol = mix(riversideCol, vec3(0.030, 0.032, 0.026), submergedBed * 0.55);
+
+                // Subtle winter frost dusting on dry upper cobbles & sandbars in winter zone
+                if (winterRiverFactor > 0.01) {
+                    float snowRim = smoothstep(-2.1, -1.2, vTerrainWorldPos.y) * smoothstep(0.35, 0.85, clumpNoise);
+                    riversideCol = mix(riversideCol, vec3(0.30, 0.34, 0.40), winterRiverFactor * snowRim * 0.55);
+                }
+
+                float dryRoadOverride = smoothstep(0.15, 0.65, roadMask) * smoothstep(-1.95, -1.10, vTerrainWorldPos.y) * 0.55;
+                diffuseColor.rgb = mix(diffuseColor.rgb, riversideCol, riversideZone * (1.0 - dryRoadOverride));
+            }
+        }
+
         // Building Ground Contact Ambient Occlusion
         float buildingAO = 1.0;
         for (int b = 0; b < 32; b++) {
@@ -2485,6 +2722,13 @@ terrainMat.onBeforeCompile = (shader) => {
             roughnessFactor = mix(roughnessFactor, 0.74, wRoughZ[4] * 0.75);
         }
         roughnessFactor = mix(roughnessFactor, 0.26, wetShoreRough * 0.90);
+        float rRiver = getRiverFactor_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
+        float rRiverside = getRiversideFactor_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
+        if (rRiver > 0.01 || rRiverside > 0.01) {
+            float wetRiver = (1.0 - smoothstep(-2.60, -1.65, vTerrainWorldPos.y)) * clamp(rRiver + rRiverside, 0.0, 1.0);
+            roughnessFactor = mix(roughnessFactor, 0.68, rRiverside * (1.0 - wetRiver) * 0.65);
+            roughnessFactor = mix(roughnessFactor, 0.22, wetRiver * 0.92);
+        }
         `
     );
 
@@ -3151,6 +3395,17 @@ const jungleTempleMat = new THREE.MeshStandardMaterial({
 });
 jungleTempleMat.userData.noIndirectSpecular = true;
 
+// Dark mossy volcanic/karst boulders for the jungle floor (same stone texture, much darker & warmer tint)
+const jungleRockMat = new THREE.MeshStandardMaterial({
+    color: new THREE.Color(0x6e6a5a),
+    vertexColors: true,
+    roughness: 0.94,
+    metalness: 0.02,
+    envMapIntensity: GROUND_ENV_MAP_INTENSITY,
+    side: THREE.DoubleSide
+});
+jungleRockMat.userData.noIndirectSpecular = true;
+
 const greekMarbleMat = new THREE.MeshStandardMaterial({
     color: new THREE.Color(0xffffff),
     vertexColors: true,
@@ -3386,20 +3641,23 @@ function createJungleTemplePBR() {
             heights[y * size + x] = h;
 
             const stoneVal = (0.52 + 0.32 * seam) * (0.86 + (blockSeed - 0.5) * 0.14 + relief * 0.22);
-            const rStone = stoneVal * 0.88;
-            const gStone = stoneVal * 0.86;
-            const bStone = stoneVal * 0.78;
+            const rStone = stoneVal * 0.96;
+            const gStone = stoneVal * 0.89;
+            const bStone = stoneVal * 0.80;
 
             // Blend lush jade-emerald moss into recessed mortar joints and mossy stone patches
-            const mAmt = Math.min(0.72, mossMask);
-            const r = rStone * (1.0 - mAmt) + 0.22 * mAmt;
-            const g = gStone * (1.0 - mAmt) + 0.44 * mAmt;
-            const b = bStone * (1.0 - mAmt) + 0.18 * mAmt;
+            // Weathered olive-brown lichen & dark rain-streak staining instead of bright emerald moss
+            const mAmt = Math.min(0.40, mossMask * 0.55);
+            const streak = Math.max(0.0, Math.sin(u * 61.0 + blockIdx * 3.1) * 0.5 + 0.5 - 0.55) * (1.0 - v * 0.5) * 0.9;
+            const dirt = 1.0 - Math.min(0.35, streak);
+            const r = (rStone * (1.0 - mAmt) + 0.34 * mAmt) * dirt;
+            const g = (gStone * (1.0 - mAmt) + 0.33 * mAmt) * dirt;
+            const b = (bStone * (1.0 - mAmt) + 0.20 * mAmt) * dirt;
 
             const idx = (y * size + x) * 4;
             albedoData[idx]     = Math.min(255, Math.max(55, Math.round(r * 255)));
-            albedoData[idx + 1] = Math.min(255, Math.max(60, Math.round(g * 255)));
-            albedoData[idx + 2] = Math.min(255, Math.max(48, Math.round(b * 255)));
+            albedoData[idx + 1] = Math.min(255, Math.max(55, Math.round(g * 255)));
+            albedoData[idx + 2] = Math.min(255, Math.max(45, Math.round(b * 255)));
             albedoData[idx + 3] = 255;
         }
     }
@@ -7539,9 +7797,15 @@ function createCanyonTowerGeometry(baseW = 9.2, h = 17.0) {
 // Boughs, 22 Multi-Tiered 3D Volumetric Broadleaf Canopy Domes (Mid-Story + Emergent Crown),
 // Epiphyte Fern Rosettes, and Foliated Hanging Liana Curtains!
 // ============================================================================
-function createJungleCanopyTreeGeometry() {
+function createJungleCanopyTreeGeometry(variant = 0) {
     const parts = [];
     const trunkH = 13.5;
+    // Per-variant foliage palettes [tint0, tint1] (olive / dry-yellow + flame-tree blooms / dusky blue-green)
+    const PAL = [
+        { a: [0.50, 0.64, 0.24], b: [0.64, 0.70, 0.28], bloom: null },
+        { a: [0.66, 0.62, 0.26], b: [0.52, 0.54, 0.22], bloom: [0.92, 0.38, 0.18] },
+        { a: [0.26, 0.44, 0.28], b: [0.38, 0.54, 0.30], bloom: null }
+    ][variant % 3];
 
     function colorJungleBark(geo, maxY = 14.0) {
         const pos = geo.attributes.position;
@@ -7670,10 +7934,15 @@ function createJungleCanopyTreeGeometry() {
             card.rotateY(ori.ry + cIdx * 0.48);
             card.translate(cx, cy, cz);
 
-            // Mix deep emerald rainforest foliage and sunlit tropical lime-jade foliage
-            const tr = (tintType === 0 ? 0.50 : 0.62) * brightness;
-            const tg = (tintType === 0 ? 0.84 : 0.88) * brightness;
-            const tb = (tintType === 0 ? 0.32 : 0.36) * brightness;
+            // Varied rainforest foliage: olive / dry yellow-green / dusky blue-green, with occasional flowering crowns
+            const pc = (tintType === 0) ? PAL.a : PAL.b;
+            let tr = pc[0] * brightness, tg = pc[1] * brightness, tb = pc[2] * brightness;
+            if (PAL.bloom && cIdx >= 14 && cIdx % 2 === 0) {
+                tr = PAL.bloom[0] * brightness; tg = PAL.bloom[1] * brightness; tb = PAL.bloom[2] * brightness;
+            }
+            // subtle per-cluster hue jitter
+            const jit = 0.90 + hash2D(cIdx * 7.3, variant * 3.1) * 0.20;
+            tr *= jit; tb *= (2.0 - jit);
             applyCanopyVolumeShading(card, crownCenter, tr, tg, tb, 0.38 * brightness);
             parts.push(card);
         });
@@ -7686,7 +7955,7 @@ function createJungleCanopyTreeGeometry() {
         epiphyte.rotateX(Math.PI * 0.36);
         epiphyte.rotateY(fAng);
         epiphyte.translate(0, 7.6, 0);
-        applyCanopyVolumeShading(epiphyte, new THREE.Vector3(0, 7.8, 0), 0.54, 0.86, 0.32, 0.45);
+        applyCanopyVolumeShading(epiphyte, new THREE.Vector3(0, 7.8, 0), 0.40, 0.58, 0.24, 0.45);
         parts.push(epiphyte);
     }
 
@@ -7701,7 +7970,7 @@ function createJungleCanopyTreeGeometry() {
         vineCard.rotateX(0.10);
         vineCard.rotateY(vAng + 0.4);
         vineCard.translate(Math.cos(vAng) * vRad, topY, Math.sin(vAng) * vRad);
-        applyCanopyVolumeShading(vineCard, crownCenter, 0.46, 0.78, 0.30, 0.42);
+        applyCanopyVolumeShading(vineCard, crownCenter, 0.40, 0.52, 0.24, 0.42);
         parts.push(vineCard);
     }
 
@@ -7729,10 +7998,10 @@ function createJungleTempleGeometry() {
             const heightAO = 0.72 + 0.28 * Math.pow(hFrac, 0.65);
             const blockVar = (hash2D(Math.floor(vx * 0.9), Math.floor(vy * 1.5 + vz * 0.9)) - 0.5) * 0.12;
             // Upward-facing terrace ledges & lower steps accumulate lush tropical jade moss
-            const ledgeMoss = Math.min(0.68, Math.max(0.0, (ny > 0.5 ? 0.32 : 0.0) + (1.0 - hFrac) * 0.22 + mossBoost));
-            const r = (baseR * (1.0 - ledgeMoss) + 0.34 * ledgeMoss) * (heightAO + blockVar);
-            const g = (baseG * (1.0 - ledgeMoss) + 0.58 * ledgeMoss) * (heightAO + blockVar);
-            const b = (baseB * (1.0 - ledgeMoss) + 0.26 * ledgeMoss) * (heightAO + blockVar);
+            const ledgeMoss = Math.min(0.42, Math.max(0.0, (ny > 0.5 ? 0.20 : 0.0) + (1.0 - hFrac) * 0.12 + mossBoost * 0.6));
+            const r = (baseR * (1.0 - ledgeMoss) + 0.40 * ledgeMoss) * (heightAO + blockVar);
+            const g = (baseG * (1.0 - ledgeMoss) + 0.42 * ledgeMoss) * (heightAO + blockVar);
+            const b = (baseB * (1.0 - ledgeMoss) + 0.22 * ledgeMoss) * (heightAO + blockVar);
             col[i * 3 + 0] = Math.min(1.0, Math.max(0.25, r));
             col[i * 3 + 1] = Math.min(1.0, Math.max(0.28, g));
             col[i * 3 + 2] = Math.min(1.0, Math.max(0.22, b));
@@ -7949,6 +8218,258 @@ function createJungleTempleGeometry() {
 // (Ruined Classical Sanctuary: Broken Columns, Collapsed Flank Architrave,
 //  Fallen Fluted Marble Drums, Collapsed Roof Breach, Scratches & Cella Ruins)
 // ============================================================================
+// ============================================================================
+// Jungle ancient-site variety: ruined pyramid, round temple, ball court, Puuc palace,
+// stelae plaza & colossal basalt head (all share jungleTempleMat; weathered limestone palette)
+// ============================================================================
+const JUNGLE_STRUCT_H = {
+    jungleTemple: 14.5, jungleRuinPyramid: 10.0, jungleRoundTemple: 11.5,
+    jungleBallCourt: 5.4, junglePalace: 7.0, jungleStelae: 7.0, jungleHead: 4.4
+};
+let sharedJungleStructGeos = null;
+
+// Weighted pick: returns a jungle structure descriptor. pool: array of [key, weight]
+function pickJungleStruct(sel, pool) {
+    let total = 0;
+    pool.forEach(p => { total += p[1]; });
+    let acc = 0;
+    const t = sel * total;
+    for (let i = 0; i < pool.length; i++) {
+        acc += pool[i][1];
+        if (t < acc) return pool[i][0];
+    }
+    return pool[pool.length - 1][0];
+}
+function getJungleStructGeo(key) {
+    if (key === 'jungleTemple') return sharedJungleTempleGeo;
+    return (sharedJungleStructGeos && sharedJungleStructGeos[key]) || sharedJungleTempleGeo;
+}
+const JUNGLE_POOL_MAJOR = [['jungleTemple', 2], ['jungleRoundTemple', 2], ['junglePalace', 3], ['jungleBallCourt', 2], ['jungleRuinPyramid', 3]];
+const JUNGLE_POOL_RUIN = [['jungleRuinPyramid', 3], ['jungleStelae', 3], ['jungleHead', 2], ['jungleBallCourt', 1]];
+const JUNGLE_POOL_ROADSIDE = [['jungleTemple', 2], ['jungleRuinPyramid', 2], ['jungleRoundTemple', 2], ['junglePalace', 2], ['jungleStelae', 2], ['jungleHead', 1], ['jungleBallCourt', 1]];
+
+function jungleStone(geo, base, moss = 0.08, maxH = 12.0, cap = 0.45) {
+    if (!geo.attributes.normal) geo.computeVertexNormals();
+    const pos = geo.attributes.position;
+    const norm = geo.attributes.normal;
+    const col = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i++) {
+        const vx = pos.getX(i), vy = pos.getY(i), vz = pos.getZ(i);
+        const ny = norm.getY(i);
+        const hFrac = Math.max(0.0, Math.min(1.0, vy / maxH));
+        const ao = 0.74 + 0.26 * Math.pow(hFrac, 0.6);
+        const n = (hash2D(Math.floor(vx * 1.7 + vz * 0.3), Math.floor(vy * 2.1 + vz * 1.3)) - 0.5) * 0.16;
+        const m = Math.min(cap, Math.max(0.0, (ny > 0.5 ? 0.18 : 0.0) + (vy < 1.2 ? 0.10 : 0.0) + moss));
+        col[i * 3]     = Math.min(1.0, Math.max(0.2, (base[0] * (1 - m) + 0.40 * m) * (ao + n)));
+        col[i * 3 + 1] = Math.min(1.0, Math.max(0.2, (base[1] * (1 - m) + 0.42 * m) * (ao + n)));
+        col[i * 3 + 2] = Math.min(1.0, Math.max(0.2, (base[2] * (1 - m) + 0.22 * m) * (ao + n)));
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    applyWorldBoxUVs(geo, 0.26, 0.32);
+    return geo;
+}
+
+function jungleBox(parts, w, h, d, x, y, z, base, moss, ry = 0, maxH = 12.0, rz = 0) {
+    const g = new THREE.BoxGeometry(w, h, d);
+    if (rz) g.rotateZ(rz);
+    if (ry) g.rotateY(ry);
+    g.translate(x, y, z);
+    parts.push(jungleStone(g, base, moss, maxH));
+    return g;
+}
+
+// A. Collapsed stepped pyramid with broken summit shrine & scattered fallen blocks
+function createJungleRuinedPyramidGeometry() {
+    const parts = [];
+    const stone = [0.70, 0.66, 0.56];
+    const ochre = [0.78, 0.60, 0.44];
+    jungleBox(parts, 18, 4, 18, 0, -2, 0, [0.56, 0.52, 0.44], 0.2);
+    let y = 0.0;
+    const baseW = 15.5, tierH = 1.6;
+    for (let t = 0; t < 4; t++) {
+        const w = baseW * (1 - t * 0.15);
+        if (t < 3) {
+            jungleBox(parts, w, tierH, w, 0, y + tierH * 0.5, 0, t === 1 ? ochre : stone, 0.10 + t * 0.06);
+        } else {
+            // broken 4th tier: only the rear half survives
+            jungleBox(parts, w, tierH, w * 0.55, 0, y + tierH * 0.5, -w * 0.225, stone, 0.25);
+            jungleBox(parts, w * 0.45, tierH * 0.5, w * 0.30, w * 0.18, y + tierH * 0.25, w * 0.30, [0.62, 0.58, 0.50], 0.30, 0.2);
+        }
+        y += tierH;
+    }
+    // Front stairway, upper steps missing
+    const steps = 9, topY = 3 * tierH, zBot = 9.4, zTop = 5.55;
+    for (let s = 0; s < steps; s++) {
+        if (s >= 7) break;
+        const sTop = (s + 1) * (topY / steps);
+        const sz = zBot - (s + 0.5) * ((zBot - zTop) / steps);
+        const wid = (s === 4) ? 1.7 : 3.2;
+        jungleBox(parts, wid, sTop + 0.3, (zBot - zTop) / steps + 0.1, (s === 4 ? -0.7 : 0), (sTop - 0.3) * 0.5, sz, [0.74, 0.70, 0.60], 0.15);
+    }
+    // Broken summit shrine fragments
+    const sy = 4 * tierH;
+    jungleBox(parts, 5.0, 2.8, 0.7, 0.4, sy + 1.4, -3.6, [0.76, 0.72, 0.62], 0.12);
+    jungleBox(parts, 0.8, 2.6, 4.0, -2.4, sy + 1.3, -1.6, [0.74, 0.70, 0.60], 0.16);
+    jungleBox(parts, 1.4, 1.2, 0.7, 2.2, sy + 0.6, -3.0, [0.70, 0.66, 0.58], 0.20, 0.4);
+    jungleBox(parts, 2.4, 0.5, 0.9, -1.0, sy + 0.25, -0.8, [0.66, 0.62, 0.52], 0.22, 0.7);
+    // Fallen blocks around the base
+    for (let b = 0; b < 12; b++) {
+        const ang = b * 2.399 + 0.4;
+        const rad = 9.6 + hash2D(b * 3.7, 1.3) * 4.0;
+        const bs = 0.8 + hash2D(b * 5.1, 2.7) * 1.1;
+        jungleBox(parts, bs * 1.4, bs, bs, Math.cos(ang) * rad, bs * 0.38, Math.sin(ang) * rad, [0.68, 0.64, 0.55], 0.22, ang, 12.0, (hash2D(b, 9.1) - 0.5) * 0.35);
+    }
+    const merged = mergeBufferGeometries(parts);
+    merged.userData = { useMeshRaycastOnly: true };
+    return merged;
+}
+
+// B. Round Aztec/Huastec-style wind-god temple: circular platforms, tower, thatched cone roof
+function createJungleRoundTempleGeometry() {
+    const parts = [];
+    const add = (g, base, moss, cap) => parts.push(jungleStone(g, base, moss, 12.0, cap));
+    let g = new THREE.CylinderGeometry(9.0, 9.0, 4.0, 22); g.translate(0, -2.0, 0); add(g, [0.55, 0.50, 0.42], 0.2);
+    g = new THREE.CylinderGeometry(8.2, 8.7, 1.1, 22); g.translate(0, 0.55, 0); add(g, [0.76, 0.70, 0.58], 0.08);
+    g = new THREE.CylinderGeometry(7.0, 7.4, 1.0, 22); g.translate(0, 1.6, 0); add(g, [0.72, 0.66, 0.54], 0.10);
+    g = new THREE.CylinderGeometry(5.8, 6.2, 1.0, 20); g.translate(0, 2.6, 0); add(g, [0.78, 0.72, 0.60], 0.10);
+    g = new THREE.CylinderGeometry(3.5, 3.9, 4.2, 16); g.translate(0, 5.2, 0); add(g, [0.80, 0.62, 0.46], 0.04, 0.2);
+    g = new THREE.CylinderGeometry(4.0, 4.0, 0.5, 16); g.translate(0, 7.55, 0); add(g, [0.55, 0.40, 0.30], 0.0, 0.1);
+    g = new THREE.ConeGeometry(4.7, 3.8, 16); g.translate(0, 9.7, 0); add(g, [0.46, 0.36, 0.20], 0.0, 0.05);
+    // dark doorway + lintel + flanking pillars
+    let d = new THREE.BoxGeometry(1.5, 2.4, 1.2); d.translate(0, 4.3, 3.5); parts.push(tintBuildingPart(applyWorldBoxUVs(d, 0.26, 0.26), 0.12, 0.11, 0.10, 12));
+    jungleBox(parts, 2.6, 0.45, 1.4, 0, 5.65, 3.6, [0.82, 0.78, 0.66], 0.05);
+    [-1, 1].forEach(s => jungleBox(parts, 0.45, 2.6, 0.6, s * 1.25, 4.4, 3.7, [0.82, 0.78, 0.66], 0.04));
+    // Front stairs
+    for (let s = 0; s < 8; s++) {
+        const sTop = (s + 1) * (3.1 / 8);
+        jungleBox(parts, 3.2, sTop + 0.3, 0.5, 0, (sTop - 0.3) * 0.5, 9.0 - (s + 0.5) * 0.4, [0.76, 0.72, 0.60], 0.12);
+    }
+    const merged = mergeBufferGeometries(parts);
+    merged.userData = { useMeshRaycastOnly: true, collisionCircles: [{ x: 0, z: 0, r: 8.8 }] };
+    return merged;
+}
+
+// C. Mesoamerican ball court: two parallel stepped walls, stone hoops, end temples
+function createJungleBallCourtGeometry() {
+    const parts = [];
+    const stone = [0.74, 0.70, 0.60];
+    jungleBox(parts, 8.4, 0.3, 23, 0, 0.0, 0, [0.62, 0.58, 0.50], 0.25);
+    jungleBox(parts, 18, 3, 25, 0, -1.5, 0, [0.55, 0.51, 0.44], 0.2);
+    [-1, 1].forEach(s => {
+        jungleBox(parts, 1.5, 1.3, 22, s * 4.75, 0.65, 0, [0.80, 0.74, 0.62], 0.08);
+        jungleBox(parts, 2.2, 3.6, 22, s * 6.6, 1.8, 0, stone, 0.12);
+        jungleBox(parts, 3.6, 0.5, 22.6, s * 6.6, 3.85, 0, [0.82, 0.78, 0.66], 0.06);
+        // carved hoop ring
+        const ring = new THREE.TorusGeometry(0.6, 0.18, 8, 16);
+        ring.rotateY(Math.PI / 2); ring.translate(s * 5.35, 2.7, 0.0);
+        parts.push(jungleStone(ring, [0.70, 0.66, 0.56], 0.05, 12));
+    });
+    // End shrines (west wall's far shrine collapsed)
+    jungleBox(parts, 3.2, 1.9, 3.2, 6.6, 4.9, 8.2, [0.82, 0.76, 0.64], 0.08);
+    jungleBox(parts, 3.2, 1.9, 3.2, 6.6, 4.9, -8.2, [0.80, 0.74, 0.62], 0.10);
+    jungleBox(parts, 3.2, 1.0, 3.0, -6.6, 4.4, 8.2, [0.78, 0.72, 0.60], 0.18);
+    for (let b = 0; b < 6; b++) {
+        const bs = 0.7 + hash2D(b * 2.9, 4.4) * 0.9;
+        jungleBox(parts, bs * 1.3, bs, bs, -8.0 - hash2D(b, 6.3) * 2.0, bs * 0.4, -9.0 + b * 2.4, [0.70, 0.66, 0.56], 0.25, b * 0.8);
+    }
+    const merged = mergeBufferGeometries(parts);
+    merged.userData = {
+        useMeshRaycastOnly: true,
+        collisionBoxes: [
+            { minX: 4.0, maxX: 8.4, minZ: -11.4, maxZ: 11.4 },
+            { minX: -8.4, maxX: -4.0, minZ: -11.4, maxZ: 11.4 }
+        ]
+    };
+    return merged;
+}
+
+// D. Long Puuc-style palace with doorway row, columns, mosaic frieze, collapsed west end
+function createJunglePalaceGeometry() {
+    const parts = [];
+    const stone = [0.80, 0.76, 0.64];
+    jungleBox(parts, 27, 3, 11, 0, -1.5, 0, [0.55, 0.51, 0.44], 0.2);
+    jungleBox(parts, 26, 1.2, 10, 0, 0.6, 0, [0.72, 0.68, 0.58], 0.12);
+    jungleBox(parts, 22, 3.4, 5.6, 0, 2.9, -0.5, stone, 0.06);
+    for (let i = -2; i <= 2; i++) {
+        if (i === -2) continue; // collapsed doorway
+        const d = new THREE.BoxGeometry(1.3, 2.4, 0.6); d.translate(i * 4.0, 2.4, 2.2);
+        parts.push(tintBuildingPart(applyWorldBoxUVs(d, 0.26, 0.26), 0.12, 0.11, 0.10, 12));
+        jungleBox(parts, 1.9, 0.35, 0.7, i * 4.0, 3.75, 2.3, [0.86, 0.82, 0.70], 0.03);
+    }
+    [-1.3, 1.3].forEach(x => jungleBox(parts, 0.4, 2.4, 0.5, x, 2.4, 2.5, [0.86, 0.82, 0.70], 0.03));
+    // Medial moulding + mosaic frieze (east 3/4 only)
+    jungleBox(parts, 17, 0.5, 6.2, 2.5, 4.85, -0.5, [0.84, 0.80, 0.68], 0.05);
+    jungleBox(parts, 16.6, 1.8, 5.8, 2.5, 5.9, -0.5, [0.76, 0.66, 0.52], 0.04);
+    for (let i = 0; i < 16; i++) {
+        const dark = (i % 2 === 0);
+        jungleBox(parts, 0.7, dark ? 1.1 : 0.7, 0.35, -5.5 + i * 1.04, 5.9, 2.5, dark ? [0.50, 0.40, 0.30] : [0.88, 0.84, 0.72], 0.0);
+    }
+    jungleBox(parts, 17.4, 0.4, 6.4, 2.5, 7.0, -0.5, [0.86, 0.82, 0.70], 0.10);
+    // Entrance stairs & rubble heap on the collapsed end
+    for (let s = 0; s < 4; s++) {
+        const sTop = (s + 1) * 0.3;
+        jungleBox(parts, 6.2, sTop + 0.2, 0.7, 4.0, (sTop - 0.2) * 0.5, 5.3 + (3 - s) * 0.6 + 0.3, [0.76, 0.72, 0.60], 0.12);
+    }
+    for (let b = 0; b < 9; b++) {
+        const bs = 0.7 + hash2D(b * 3.3, 7.7) * 1.1;
+        jungleBox(parts, bs * 1.3, bs, bs, -10.5 - hash2D(b, 3.1) * 2.0, 1.2 + bs * 0.35 + (b % 3) * 0.3, -2.0 + b * 0.7, [0.74, 0.70, 0.60], 0.25, b * 1.1, 12, (hash2D(b, 5.5) - 0.5) * 0.5);
+    }
+    const merged = mergeBufferGeometries(parts);
+    merged.userData = { useMeshRaycastOnly: true };
+    return merged;
+}
+
+// E. Stelae plaza: carved standing stones, fallen stela, round altar on a cracked platform
+function createJungleStelaeGeometry() {
+    const parts = [];
+    jungleBox(parts, 11.5, 3, 11.5, 0, -1.5, 0, [0.55, 0.51, 0.44], 0.2);
+    jungleBox(parts, 11, 0.5, 5.4, 0, 0.25, -2.8, [0.72, 0.68, 0.58], 0.20);
+    jungleBox(parts, 10.6, 0.45, 5.0, 0.2, 0.22, 2.9, [0.70, 0.66, 0.56], 0.26, 0.04);
+    let g = new THREE.CylinderGeometry(1.5, 1.8, 0.9, 14); g.translate(0, 0.95, 0); parts.push(jungleStone(g, [0.76, 0.72, 0.62], 0.08, 12));
+    g = new THREE.CylinderGeometry(1.7, 1.7, 0.2, 14); g.translate(0, 1.5, 0); parts.push(jungleStone(g, [0.82, 0.78, 0.66], 0.05, 12));
+    const stelae = [[-4, -3, 6.2, 0.2, 0.03], [3.8, -3.4, 5.4, -0.3, -0.06], [-3.6, 3.2, 4.6, 0.5, 0.0], [4.0, 3.6, 6.8, 0.1, 0.08], [0.0, -4.5, 5.0, 0.0, -0.02]];
+    const circles = [{ x: 0, z: 0, r: 1.9 }];
+    stelae.forEach(([x, z, h, ry, tilt], i) => {
+        const col = i % 2 ? [0.60, 0.58, 0.52] : [0.72, 0.68, 0.58];
+        let s = new THREE.BoxGeometry(1.4, h, 0.6); s.translate(0, h * 0.5, 0); s.rotateZ(tilt); s.rotateY(ry); s.translate(x, 0.5, z);
+        parts.push(jungleStone(s, col, 0.12, 12));
+        let r = new THREE.BoxGeometry(0.9, h * 0.6, 0.12); r.translate(0, h * 0.55, 0.32); r.rotateZ(tilt); r.rotateY(ry); r.translate(x, 0.5, z);
+        parts.push(jungleStone(r, [col[0] * 0.65, col[1] * 0.62, col[2] * 0.58], 0.0, 12));
+        let cp = new THREE.BoxGeometry(1.7, 0.45, 0.8); cp.translate(0, h + 0.2, 0); cp.rotateZ(tilt); cp.rotateY(ry); cp.translate(x, 0.5, z);
+        parts.push(jungleStone(cp, col, 0.10, 12));
+        circles.push({ x: x, z: z, r: 1.0 });
+    });
+    jungleBox(parts, 4.6, 0.6, 1.3, 1.2, 0.8, 0.1 + 5.0 - 5.0 + 0.0, [0.66, 0.62, 0.54], 0.25, 0.6);
+    const merged = mergeBufferGeometries(parts);
+    merged.userData = { useMeshRaycastOnly: true, collisionCircles: circles };
+    return merged;
+}
+
+// F. Colossal Olmec-style basalt head on a plinth
+function createJungleColossalHeadGeometry() {
+    const parts = [];
+    const basalt = [0.50, 0.49, 0.45];
+    jungleBox(parts, 4.6, 3, 4.6, 0, -1.5, 0, [0.52, 0.48, 0.42], 0.2);
+    jungleBox(parts, 4.0, 0.7, 4.0, 0, 0.35, 0, [0.70, 0.66, 0.56], 0.15);
+    const addS = (r, sx, sy, sz, x, y, z, col, moss) => {
+        const s = new THREE.SphereGeometry(r, 16, 12); s.scale(sx, sy, sz); s.translate(x, y, z);
+        parts.push(jungleStone(s, col, moss, 6.0));
+    };
+    addS(1.7, 1.0, 1.0, 1.1, 0, 2.5, 0, basalt, 0.10);                 // skull
+    addS(1.8, 1.02, 0.55, 1.12, 0, 3.55, 0, [0.44, 0.43, 0.40], 0.12);  // helmet cap
+    addS(0.62, 1.0, 0.9, 0.9, -0.95, 1.9, 1.45, basalt, 0.06);          // cheeks
+    addS(0.62, 1.0, 0.9, 0.9, 0.95, 1.9, 1.45, basalt, 0.06);
+    addS(0.45, 0.6, 1.1, 0.8, -1.7, 2.3, 0.0, basalt, 0.06);            // ears
+    addS(0.45, 0.6, 1.1, 0.8, 1.7, 2.3, 0.0, basalt, 0.06);
+    jungleBox(parts, 0.8, 0.8, 0.7, 0, 2.1, 1.85, basalt, 0.04);        // nose
+    jungleBox(parts, 1.5, 0.4, 0.55, 0, 1.45, 1.8, [0.46, 0.45, 0.42], 0.03); // lips
+    jungleBox(parts, 2.3, 0.4, 0.7, 0, 2.95, 1.55, [0.46, 0.45, 0.42], 0.05); // brow
+    [-0.65, 0.65].forEach(x => jungleBox(parts, 0.45, 0.22, 0.25, x, 2.55, 1.95, [0.26, 0.25, 0.23], 0.0)); // eyes
+    const merged = mergeBufferGeometries(parts);
+    merged.userData = { useMeshRaycastOnly: true, collisionCircles: [{ x: 0, z: 0, r: 2.4 }] };
+    return merged;
+}
+
 function createGreekParthenonGeometry(w = 19.5, l = 29.0) {
     const parts = [];
     const maxH = 14.5;
@@ -8903,6 +9424,7 @@ var sharedMonumentSpireGeo = null;
 var sharedCanyonCliffGeo = null;
 var sharedCanyonTowerGeo = null;
 var sharedJungleTreeGeo = null;
+var sharedJungleTreeGeos = null;
 var sharedJungleTempleGeo = null;
 var sharedGreekParthenonGeo = null;
 var sharedGreekTholosGeo = null;
@@ -8971,7 +9493,16 @@ function ensureSharedGeometries() {
     if (!sharedMonumentSpireGeo) sharedMonumentSpireGeo = createMonumentSpireGeometry();
     if (!sharedCanyonCliffGeo) sharedCanyonCliffGeo = createCanyonCliffGeometry();
     if (!sharedCanyonTowerGeo) sharedCanyonTowerGeo = createCanyonTowerGeometry();
-    if (!sharedJungleTreeGeo) sharedJungleTreeGeo = createJungleCanopyTreeGeometry();
+    if (!sharedJungleTreeGeo) sharedJungleTreeGeo = createJungleCanopyTreeGeometry(0);
+    if (!sharedJungleTreeGeos) sharedJungleTreeGeos = [sharedJungleTreeGeo, createJungleCanopyTreeGeometry(1), createJungleCanopyTreeGeometry(2)];
+    if (!sharedJungleStructGeos) sharedJungleStructGeos = {
+        jungleRuinPyramid: createJungleRuinedPyramidGeometry(),
+        jungleRoundTemple: createJungleRoundTempleGeometry(),
+        jungleBallCourt: createJungleBallCourtGeometry(),
+        junglePalace: createJunglePalaceGeometry(),
+        jungleStelae: createJungleStelaeGeometry(),
+        jungleHead: createJungleColossalHeadGeometry()
+    };
     if (!sharedJungleTempleGeo) sharedJungleTempleGeo = createJungleTempleGeometry();
     if (!sharedGreekParthenonGeo) sharedGreekParthenonGeo = createGreekParthenonGeometry();
     if (!sharedGreekTholosGeo) sharedGreekTholosGeo = createGreekTholosGeometry();
@@ -9366,10 +9897,17 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             vGrassZoneWeightsExt2 = vec4(wGrass[8], wGrass[9], wGrass[10], wGrass[11]);
             int localZone = getZoneIndex12_gpu(wGrass);
 
-            // 2. Terrain height & road/beach/building culling
+            // 2. Terrain height & road/river/beach/building culling
             float roadMask = getRoadFactor_gpu(worldXZ.x, worldXZ.y);
             float roadCull = 1.0 - smoothstep(0.06, 0.36, roadMask);
             if (roadCull <= 0.01) {
+                gl_Position = vec4(2.0, 2.0, 2.0, 0.0);
+                return;
+            }
+
+            float riverDistGrass = getRiverDistance_gpu(worldXZ.x, worldXZ.y);
+            float riverCull = smoothstep(13.2, 18.5, riverDistGrass + (tuftRandom - 0.5) * 2.5);
+            if (riverCull <= 0.01) {
                 gl_Position = vec4(2.0, 2.0, 2.0, 0.0);
                 return;
             }
@@ -9459,7 +9997,7 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
                 }
             }
 
-            float totalMask = roadCull * waterCull * spawnCull * bldgCull;
+            float totalMask = roadCull * riverCull * waterCull * spawnCull * bldgCull;
             if (totalMask < 0.28) {
                 gl_Position = vec4(2.0, 2.0, 2.0, 0.0);
                 return;
@@ -9602,7 +10140,7 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
 
             // Convert grass atlas from sRGB to linear space and lift green biomes slightly lighter
             vec3 bladeLinear = pow(max(texelColor.rgb, vec3(0.001)), vec3(2.2));
-            float greenBiomeWeight = clamp(vGrassZoneWeights.x + vGrassZoneWeights.z + vGrassZoneWeights.w + vGrassZoneWeightsExt.y + vGrassZoneWeightsExt2.y + vGrassZoneWeightsExt2.z * 0.5 + vGrassZoneWeightsExt2.w * 0.65, 0.0, 1.0);
+            float greenBiomeWeight = clamp(vGrassZoneWeights.x + vGrassZoneWeights.z + vGrassZoneWeights.w + vGrassZoneWeightsExt.y + vGrassZoneWeightsExt2.z * 0.5 + vGrassZoneWeightsExt2.w * 0.65, 0.0, 1.0);
             vec3 lighterBlade = bladeLinear * vec3(1.24, 1.36, 1.15) + vec3(0.012, 0.026, 0.005);
             bladeLinear = mix(bladeLinear, lighterBlade, greenBiomeWeight * 0.65);
 
@@ -9618,7 +10156,7 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
                 + vec3(0.56, 0.20, 0.10) * vGrassZoneWeightsExt.z
                 + vec3(0.38, 0.26, 0.17) * vGrassZoneWeightsExt.w
                 + vec3(0.68, 0.50, 0.26) * vGrassZoneWeightsExt2.x
-                + vec3(0.022, 0.065, 0.018) * vGrassZoneWeightsExt2.y
+                + vec3(0.046, 0.052, 0.018) * vGrassZoneWeightsExt2.y
                 + vec3(0.10, 0.11, 0.04) * vGrassZoneWeightsExt2.z
                 + vec3(0.06, 0.10, 0.03) * vGrassZoneWeightsExt2.w;
             float bladeLuma = clamp(dot(bladeLinear, vec3(0.299, 0.587, 0.114)) * 2.35, 0.32, 1.45);
@@ -9646,8 +10184,15 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
                 bladeLinear = mix(bladeLinear, egyptScrub, vGrassZoneWeightsExt2.x * 0.85);
             }
             if (vGrassZoneWeightsExt2.y > 0.05) {
-                vec3 jungleBlade = mix(vec3(0.018, 0.095, 0.020), vec3(0.055, 0.21, 0.038), vGrassHeightFrac) * bladeLuma;
-                bladeLinear = mix(bladeLinear, jungleBlade, vGrassZoneWeightsExt2.y * 0.88);
+                vec3 jungleBlade = mix(vec3(0.050, 0.085, 0.024), vec3(0.150, 0.190, 0.050), vGrassHeightFrac) * bladeLuma;
+                // Patchy variety: dry straw-yellow elephant grass, olive fern, and deeper green pockets
+                float jPatch = sin(vGrassWorldPos.x * 0.11 + vGrassWorldPos.z * 0.05) * cos(vGrassWorldPos.z * 0.09 - vGrassWorldPos.x * 0.04) * 0.5 + 0.5;
+                float jFine = fract(sin(dot(floor(vGrassWorldPos.xz * 1.7), vec2(12.9898, 78.233))) * 43758.5453);
+                vec3 jungleStraw = mix(vec3(0.17, 0.13, 0.045), vec3(0.34, 0.27, 0.10), vGrassHeightFrac) * bladeLuma;
+                vec3 jungleDeep  = mix(vec3(0.020, 0.050, 0.020), vec3(0.060, 0.120, 0.045), vGrassHeightFrac) * bladeLuma;
+                jungleBlade = mix(jungleBlade, jungleStraw, smoothstep(0.55, 0.85, jPatch * 0.7 + jFine * 0.3) * 0.75);
+                jungleBlade = mix(jungleBlade, jungleDeep, smoothstep(0.30, 0.10, jPatch) * 0.55);
+                bladeLinear = mix(bladeLinear, jungleBlade, vGrassZoneWeightsExt2.y * 0.92);
             }
             if (vGrassZoneWeightsExt2.z > 0.05) {
                 vec3 greeceBlade = mix(vec3(0.11, 0.14, 0.05), vec3(0.24, 0.26, 0.11), vGrassHeightFrac) * bladeLuma;
@@ -9959,6 +10504,21 @@ function sampleTerrainVertexColor(wx, wz, wy, n, outArr, offset) {
         green += _tvTempCol.g * weights[currentZoneIndex];
         blue += _tvTempCol.b * weights[currentZoneIndex];
     }
+    const riverDist = getRiverDistance(wx, wz);
+    if (riverDist < 23.0 && Math.hypot(wx, wz) > 26.0) {
+        const rivZoneF = 1.0 - smoothstep(13.5, 23.0, riverDist);
+        const bankNoise = fbm3((wx + seedOffset.x) * 0.035, (wz + seedOffset.z) * 0.035) * 0.5 + 0.5;
+        const sandCol = _tvScratchA.setHex(0xb89464);
+        const cobbleCol = _tvScratchB.setHex(0x6e6a62);
+        _tvTempCol.copy(sandCol).lerp(cobbleCol, smoothstep(0.32, 0.72, bankNoise));
+        if (wy < -1.8) {
+            const wetF = 1.0 - smoothstep(-2.8, -1.8, wy);
+            _tvTempCol.lerp(_tvTempDirtCol.setHex(0x282620), wetF * 0.72);
+        }
+        red = mix(red, _tvTempCol.r, rivZoneF * 0.85);
+        green = mix(green, _tvTempCol.g, rivZoneF * 0.85);
+        blue = mix(blue, _tvTempCol.b, rivZoneF * 0.85);
+    }
     outArr[offset] = red;
     outArr[offset + 1] = green;
     outArr[offset + 2] = blue;
@@ -10095,9 +10655,9 @@ class TerrainChunk {
             const wy = getTerrainHeight(wx, wz);
             if (wy < minWy) minWy = wy;
             let meshY = wy;
-            if (wy < -2.25) {
-                const submergeDepth = smoothstep(-2.25, -2.85, wy);
-                meshY -= submergeDepth * 2.5;
+            if (wy < -2.90) {
+                const submergeDepth = smoothstep(-2.90, -3.80, wy);
+                meshY -= submergeDepth * 1.2;
             }
 
             pos.setXYZ(i, lx, meshY, lz);
@@ -10167,7 +10727,7 @@ class TerrainChunk {
                 const baseBy = getTerrainHeight(bx, bz);
                 const norm = getTerrainNormal(bx, bz);
                 const minNormY = (currentZoneIndex === 2) ? 0.80 : 0.85;
-                if (baseBy < -1.8 || norm.y < minNormY || (currentZoneIndex === 2 && baseBy > 16.5)) return;
+                if (baseBy < -1.8 || getRiverDistance(bx, bz) < 20.0 || norm.y < minNormY || (currentZoneIndex === 2 && baseBy > 16.5)) return;
                 const by = Math.max(
                     baseBy,
                     getTerrainHeight(bx - 2.6, bz - 2.6),
@@ -10287,20 +10847,15 @@ class TerrainChunk {
                         resolvedType = 'rock';
                     }
                 } else if (currentZoneIndex === 9) {
-                    // Tropical Jungle: Ancient Overgrown Stepped Temple Pyramids, Shrines & Mossy Megaliths
-                    if (struct.type === 'townhouse' || struct.type === 'cottage') {
-                        bldgGeo = sharedJungleTempleGeo;
-                        height = 14.5 * struct.scale;
-                        resolvedType = 'jungleTemple';
-                    } else if (struct.type === 'barn' || struct.type === 'farmhouse') {
-                        bldgGeo = sharedJungleTempleGeo;
-                        height = 12.0 * struct.scale;
-                        resolvedType = 'jungleTemple';
-                    } else if (struct.type === 'ruin') {
-                        bldgGeo = sharedJungleTempleGeo;
-                        height = 9.5 * struct.scale;
-                        isRuin = true;
-                        resolvedType = 'jungleRuin';
+                    // Tropical Jungle: varied ancient Mesoamerican-style sites (pyramids, round temples, ball courts, palaces, stelae, colossal heads)
+                    const jSel = hash2D(this.cx * 3.7 + idx * 1.9, this.cz * 5.3 + idx * 0.7);
+                    const jPool = (struct.type === 'ruin') ? JUNGLE_POOL_RUIN : JUNGLE_POOL_MAJOR;
+                    if (struct.type === 'townhouse' || struct.type === 'cottage' || struct.type === 'barn' || struct.type === 'farmhouse' || struct.type === 'ruin') {
+                        const jKey = pickJungleStruct(jSel, jPool);
+                        bldgGeo = getJungleStructGeo(jKey);
+                        height = JUNGLE_STRUCT_H[jKey] * struct.scale;
+                        resolvedType = jKey;
+                        if (struct.type === 'ruin') isRuin = true;
                     } else {
                         bldgGeo = sharedRockGeo;
                         height = 2.6 * struct.scale;
@@ -10431,7 +10986,7 @@ class TerrainChunk {
                 const baseHy = canPlaceRoadside ? getTerrainHeight(hx, hz) : -999;
                 const norm = canPlaceRoadside ? getTerrainNormal(hx, hz) : null;
 
-                if (canPlaceRoadside && baseHy > -1.8 && norm && norm.y > 0.84 && (currentZoneIndex !== 2 || baseHy < 15.5)) {
+                if (canPlaceRoadside && baseHy > -1.8 && getRiverDistance(hx, hz) >= 20.0 && norm && norm.y > 0.84 && (currentZoneIndex !== 2 || baseHy < 15.5)) {
                     const hy = Math.max(
                         baseHy,
                         getTerrainHeight(hx - 2.6, hz - 2.6),
@@ -10471,8 +11026,8 @@ class TerrainChunk {
                     } else if (currentZoneIndex === 9) {
                         roadsideMat = jungleTempleMat;
                         allowWall = false;
-                        bType = 'jungleTemple';
-                        bldgGeo = sharedJungleTempleGeo;
+                        bType = pickJungleStruct(roll, JUNGLE_POOL_ROADSIDE);
+                        bldgGeo = getJungleStructGeo(bType);
                     } else if (currentZoneIndex === 10) {
                         roadsideMat = greekMarbleMat;
                         allowWall = false;
@@ -10508,7 +11063,7 @@ class TerrainChunk {
                         x: hx,
                         y: placeHy,
                         z: hz,
-                        height: (bType === 'spire' ? 24.0 : bType === 'pantheon' ? 20.5 : bType === 'obelisk' ? 17.5 : bType === 'romanArch' ? 15.2 : bType === 'jungleTemple' ? 14.5 : bType === 'tholos' ? 11.8 : bType === 'stoa' ? 8.6 : bType === 'colonnade' ? 8.2 : bType === 'ruin' ? 4.2 : (bType === 'townhouse' ? 9.0 : (bType === 'barn' ? 7.5 : 6.6))) * bScale,
+                        height: (bType === 'spire' ? 24.0 : bType === 'pantheon' ? 20.5 : bType === 'obelisk' ? 17.5 : bType === 'romanArch' ? 15.2 : (JUNGLE_STRUCT_H[bType] || 0) > 0 ? JUNGLE_STRUCT_H[bType] : bType === 'tholos' ? 11.8 : bType === 'stoa' ? 8.6 : bType === 'colonnade' ? 8.2 : bType === 'ruin' ? 4.2 : (bType === 'townhouse' ? 9.0 : (bType === 'barn' ? 7.5 : 6.6))) * bScale,
                         isRuin: (bType === 'ruin'),
                         type: bType
                     }, bldgGeo, bScale, bMesh.rotation.y);
@@ -10564,7 +11119,7 @@ class TerrainChunk {
                           : (currentZoneIndex === 8) ? egyptSandstoneMat
                           : (currentZoneIndex === 6) ? monumentRockMat
                           : (currentZoneIndex === 7) ? canyonRockMat
-                          : (currentZoneIndex === 9) ? jungleTempleMat
+                          : (currentZoneIndex === 9) ? jungleRockMat
                           : (currentZoneIndex === 10) ? greekMarbleMat
                           : (currentZoneIndex === 11) ? romanTravertineMat
                           : (currentZoneIndex === 2 || currentZoneIndex === 4) ? mountainRockMat
@@ -10576,6 +11131,7 @@ class TerrainChunk {
             if (Math.hypot(rx, rz) < 26) continue;
             if (Math.hypot(rx - (-19), rz - 22) < 18) continue;
             if (getRoadFactor(rx, rz) > 0.25) continue;
+            if (getRiverDistance(rx, rz) < 11.0) continue;
             const ry = getTerrainHeight(rx, rz);
             if (ry < -2.0) continue;
             if (currentZoneIndex === 2 && ry > 65.0) continue;
@@ -10620,6 +11176,7 @@ class TerrainChunk {
 
             if (Math.hypot(tx, tz) < 20) continue; // Keep spawn clear
             if (getRoadFactor(tx, tz) > 0.20) continue; // Keep roads clear
+            if (getRiverDistance(tx, tz) < 13.0) continue; // Keep river channel & cobble shore clear
 
             let collidesBuilding = false;
             for (let b = 0; b < this.buildings.length; b++) {
@@ -10815,7 +11372,7 @@ class TerrainChunk {
             } else if (currentZoneIndex === 9) {
                 // Tropical Jungle: Giant Emergent Rainforest Canopy Trees, Tall Royal Palms, Weeping Willows & Broadleaf Trees
                 if (treeRoll < 0.62 && sharedJungleTreeGeo) {
-                    treeGeo = sharedJungleTreeGeo;
+                    treeGeo = sharedJungleTreeGeos ? sharedJungleTreeGeos[Math.floor(hash2D(tx * 0.37, tz * 0.53) * 2.999)] : sharedJungleTreeGeo;
                     treeType = 'jungleCanopy';
                     trunkH = 17.5;
                 } else if (treeRoll < 0.76 && sharedPalmGeos && sharedPalmGeos[1]) {
@@ -10970,7 +11527,7 @@ class TerrainChunk {
         for (let b = 0; b < bushCount; b++) {
             const bx = xMin + (0.05 + rng() * 0.90) * CHUNK_SIZE;
             const bz = zMin + (0.05 + rng() * 0.90) * CHUNK_SIZE;
-            if (getRoadFactor(bx, bz) > 0.28) continue;
+            if (getRoadFactor(bx, bz) > 0.28 || getRiverDistance(bx, bz) < 12.5) continue;
             const by = getTerrainHeight(bx, bz);
             if (by < -2.4 || (currentZoneIndex === 2 && by > 15.0)) continue;
             const bs = (currentZoneIndex === 9) ? (1.05 + rng() * 0.95) : (0.75 + rng() * 0.65);
@@ -11276,8 +11833,8 @@ function buildFarRingMesh(centerX, centerZ, halfExtent, step, skipInnerHalf, ySk
         const wz = centerZ - halfExtent + iz * step;
         const wy = getTerrainHeight(wx, wz);
         let meshY = wy;
-        if (wy < -2.25) {
-            meshY -= smoothstep(-2.25, -2.85, wy) * 2.5;
+        if (wy < -2.90) {
+            meshY -= smoothstep(-2.90, -3.80, wy) * 1.2;
         }
         const n = getTerrainNormal(wx, wz);
         sampleTerrainVertexColor(wx, wz, wy, n, rgb, 0);
@@ -11940,7 +12497,7 @@ function getFarChunkProps(cx, cz, isMobile) {
             const baseBy = getTerrainHeight(bx, bz);
             const norm = getTerrainNormal(bx, bz);
             const minNormY = (zoneIdx === 2) ? 0.80 : 0.85;
-            if (baseBy < -1.8 || norm.y < minNormY || (zoneIdx === 2 && baseBy > 16.5)) continue;
+            if (baseBy < -1.8 || getRiverDistance(bx, bz) < 20.0 || norm.y < minNormY || (zoneIdx === 2 && baseBy > 16.5)) continue;
             const by = Math.max(
                 baseBy,
                 getTerrainHeight(bx - 2.6, bz - 2.6),
@@ -11994,7 +12551,7 @@ function getFarChunkProps(cx, cz, isMobile) {
             const baseHy = canPlaceRoadside ? getTerrainHeight(hx, hz) : -999;
             const norm = canPlaceRoadside ? getTerrainNormal(hx, hz) : null;
 
-            if (canPlaceRoadside && baseHy > -1.8 && norm && norm.y > 0.84 && (zoneIdx !== 2 || baseHy < 15.5)) {
+            if (canPlaceRoadside && baseHy > -1.8 && getRiverDistance(hx, hz) >= 20.0 && norm && norm.y > 0.84 && (zoneIdx !== 2 || baseHy < 15.5)) {
                 const hy = Math.max(
                     baseHy,
                     getTerrainHeight(hx - 2.6, hz - 2.6),
@@ -12078,6 +12635,7 @@ function getFarChunkProps(cx, cz, isMobile) {
         if (Math.hypot(rx, rz) < 26) continue;
         if (Math.hypot(rx + 19, rz - 22) < 18) continue;
         if (getRoadFactor(rx, rz) > 0.25) continue;
+        if (getRiverDistance(rx, rz) < 11.0) continue;
         const ry = getTerrainHeight(rx, rz);
         if (ry < -2.0) continue;
         if (zoneIdx === 2 && ry > 65.0) continue;
@@ -12096,6 +12654,7 @@ function getFarChunkProps(cx, cz, isMobile) {
         if (tx === null) continue;
         if (Math.hypot(tx, tz) < 20) continue;
         if (getRoadFactor(tx, tz) > 0.20) continue;
+        if (getRiverDistance(tx, tz) < 13.0) continue;
 
         let collidesBuilding = false;
         for (let b = 0; b < houses.length; b++) {
@@ -12466,6 +13025,10 @@ function initEnvironment(scene) {
     jungleTempleMat.normalMap = sharedJungleTemplePBR.normal;
     jungleTempleMat.normalScale = new THREE.Vector2(0.60, 0.60);
     jungleTempleMat.needsUpdate = true;
+    jungleRockMat.map = sharedJungleTemplePBR.albedo;
+    jungleRockMat.normalMap = sharedJungleTemplePBR.normal;
+    jungleRockMat.normalScale = new THREE.Vector2(0.60, 0.60);
+    jungleRockMat.needsUpdate = true;
 
     if (!sharedGreekMarblePBR) sharedGreekMarblePBR = createGreekMarblePBR();
     greekMarbleMat.map = sharedGreekMarblePBR.albedo;
@@ -12521,9 +13084,10 @@ function createZoneWaterMaterial() {
             varying vec4 vReflClip;
             void main() {
                 vec4 wp = modelMatrix * vec4(position, 1.0);
-                float w1 = sin(wp.x * 0.032 + uTime * 1.45) * cos(wp.z * 0.026 + uTime * 1.15) * 0.22;
-                float w2 = sin(wp.x * 0.085 - wp.z * 0.065 + uTime * 2.15) * 0.09;
-                float w3 = cos(wp.z * 0.16 + uTime * 2.85) * 0.04;
+                float waveScale = mix(0.10, 1.0, smoothstep(120.0, 240.0, wp.z));
+                float w1 = sin(wp.x * 0.032 + uTime * 1.45) * cos(wp.z * 0.026 + uTime * 1.15) * 0.22 * waveScale;
+                float w2 = sin(wp.x * 0.085 - wp.z * 0.065 + uTime * 2.15) * 0.09 * waveScale;
+                float w3 = cos(wp.z * 0.16 + uTime * 2.85) * 0.04 * waveScale;
                 wp.y += w1 + w2 + w3;
                 vWaveHeight = w1 + w2 + w3;
                 vWorldPos = wp.xyz;
@@ -12694,7 +13258,9 @@ function createZoneWaterMaterial() {
                 vec3 foamColor = mix(vec3(0.88, 0.93, 0.96), uSunColor, 0.22) * dayLit;
                 waterCol = mix(waterCol, foamColor, totalFoam);
 
-                float shoreAlpha = smoothstep(-0.20, 0.45, waterDepth);
+                float riverWaterMask = getRiverFactor_gpu(vWorldPos.x, vWorldPos.z);
+                float alphaDepthMax = mix(0.45, 1.05, riverWaterMask);
+                float shoreAlpha = smoothstep(-0.18, alphaDepthMax, waterDepth);
                 waterCol = applyBabylonAerialHaze(waterCol, vWorldPos, cameraPosition, uSunDir, uSunColor, uSkyColor, uSkyTopColor, uHazeStrength);
 
                 gl_FragColor = vec4(waterCol, clamp(shoreAlpha * 0.94 + totalFoam * 0.06, 0.0, 0.98));
@@ -12832,7 +13398,7 @@ function rebuildZoneStaticProps() {
                      : (currentZoneIndex === 6) ? sharedMonumentButteGeo
                      : (currentZoneIndex === 7) ? sharedCanyonCliffGeo
                      : (currentZoneIndex === 8) ? sharedGreatPyramidGeo
-                     : (currentZoneIndex === 9) ? sharedJungleTempleGeo
+                     : (currentZoneIndex === 9) ? getJungleStructGeo('junglePalace')
                      : (currentZoneIndex === 10) ? sharedGreekParthenonGeo
                      : (currentZoneIndex === 11) ? sharedRomanColosseumGeo
                      : sharedCottageGeo;
@@ -12857,7 +13423,8 @@ function rebuildZoneStaticProps() {
                    : (currentZoneIndex === 6) ? 24.0
                    : (currentZoneIndex === 11) ? 21.0
                    : (currentZoneIndex === 7) ? 18.0
-                   : (currentZoneIndex === 9 || currentZoneIndex === 10) ? 14.5
+                   : (currentZoneIndex === 9) ? 7.0
+                   : (currentZoneIndex === 10) ? 14.5
                    : 6.6;
     const cotMesh = new THREE.Mesh(sigBldgGeo, sigBldgMat);
     cotMesh.position.set(cotX, cotY - 0.1, cotZ);
@@ -12891,7 +13458,7 @@ function rebuildZoneStaticProps() {
                   : (currentZoneIndex === 6) ? monumentRockMat
                   : (currentZoneIndex === 7) ? canyonRockMat
                   : (currentZoneIndex === 8) ? egyptSandstoneMat
-                  : (currentZoneIndex === 9) ? jungleTempleMat
+                  : (currentZoneIndex === 9) ? jungleRockMat
                   : (currentZoneIndex === 10) ? greekMarbleMat
                   : (currentZoneIndex === 11) ? romanTravertineMat
                   : rockMat;
@@ -13878,6 +14445,9 @@ window.getTerrainNormal = getTerrainNormal;
 window.getRoadDistance = getRoadDistance;
 window.getRoadCenterX = getRoadCenterX;
 window.getRoadFactor = getRoadFactor;
+window.getRiverDistance = getRiverDistance;
+window.getRiverFactor = getRiverFactor;
+window.getRiversideFactor = getRiversideFactor;
 window.initEnvironment = initEnvironment;
 window.buildEnvironment = buildEnvironment;
 window.updateEnvironment = updateEnvironment;

@@ -239,22 +239,28 @@ function createParticleObject(type, isAdditive, colorHex) {
     let geo;
     if (isSpark) geo = sparkParticleGeo;
     else if (isDirt) geo = createDirtClodGeometry();
+    else if (isFire && typeof window !== 'undefined' && typeof window.createBillboardSmokeGeometry === 'function') geo = window.createBillboardSmokeGeometry();
     else geo = sphereParticleGeo;
 
-    const mat = isDirt
-        ? new THREE.MeshLambertMaterial({
+    let mat;
+    if (isDirt) {
+        mat = new THREE.MeshLambertMaterial({
             color: colorHex,
             transparent: true,
             opacity: 0.90,
             depthWrite: false
-        })
-        : new THREE.MeshBasicMaterial({
+        });
+    } else if (isFire && typeof window !== 'undefined' && typeof window.createVolumetricFireballMaterial === 'function') {
+        mat = window.createVolumetricFireballMaterial(colorHex);
+    } else {
+        mat = new THREE.MeshBasicMaterial({
             color: colorHex,
             transparent: true,
             opacity: isFire ? 0.95 : (isAdditive ? 0.9 : 0.85),
             blending: isAdditive || isFire ? THREE.AdditiveBlending : THREE.NormalBlending,
             depthWrite: false
         });
+    }
 
     const mesh = new THREE.Mesh(geo, mat);
     mesh.renderOrder = (type === 'fire') ? 30 : ((type === 'spark') ? 40 : 20);
@@ -418,6 +424,20 @@ function createTracerObject() {
     return group;
 }
 
+function createShockwaveMaterialInstance(colorHex = 0xfde68a) {
+    if (typeof window !== 'undefined' && typeof window.createShockwaveMaterial === 'function') {
+        return window.createShockwaveMaterial(colorHex);
+    }
+    return new THREE.MeshBasicMaterial({
+        color: colorHex,
+        transparent: true,
+        opacity: 0.85,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending
+    });
+}
+
 function prewarmParticleShaders(renderer, camera) {
     if (!renderer || !camera) return;
 
@@ -446,14 +466,7 @@ function prewarmParticleShaders(renderer, camera) {
         if (pool.length > 0) includeMesh(pool[0].mesh);
     }
 
-    const shockwaveMaterial = new THREE.MeshBasicMaterial({
-        color: 0xfde68a,
-        transparent: true,
-        opacity: 0.85,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending
-    });
+    const shockwaveMaterial = createShockwaveMaterialInstance(0xfde68a);
     const shockwaveMesh = new THREE.Mesh(shockwaveGeo, shockwaveMaterial);
     includeMesh(shockwaveMesh);
 
@@ -525,17 +538,16 @@ function spawnShockwave(pos, maxRadius, duration, colorHex = 0xfde68a) {
     if (!currentScene) return;
 
     const pooled = shockwavePool.pop();
-    const mat = pooled ? pooled.mat : new THREE.MeshBasicMaterial({
-        color: colorHex,
-        transparent: true,
-        opacity: 0.85,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending
-    });
+    const mat = pooled ? pooled.mat : createShockwaveMaterialInstance(colorHex);
     const mesh = pooled ? pooled.mesh : new THREE.Mesh(shockwaveGeo, mat);
     mesh.renderOrder = 25;
-    mat.color.setHex(colorHex);
+    if (mat && mat.color) {
+        if (typeof colorHex === 'number') mat.color.setHex(colorHex);
+        else if (colorHex && colorHex.isColor) mat.color.copy(colorHex);
+    }
+    if (mat && mat.uniforms && mat.uniforms.uProgress) {
+        mat.uniforms.uProgress.value = 0.0;
+    }
     mat.opacity = 0.85;
     mesh.visible = true;
     mesh.position.set(pos.x, pos.y + 0.08, pos.z);
@@ -657,6 +669,7 @@ function spawnParticle(pos, vel, colorHex, startSize, endSize, life, isAdditive 
             oldP.mesh.visible = false;
             if (oldP.isDust && dustPool.length < PARTICLE_POOL_LIMIT) dustPool.push({ mesh: oldP.mesh, mat: oldP.mat });
             else if (oldP.isPooled && smokePool.length < PARTICLE_POOL_LIMIT) smokePool.push({ mesh: oldP.mesh, mat: oldP.mat });
+            else if (oldP.poolKey && reusableParticlePools.get(oldP.poolKey) && reusableParticlePools.get(oldP.poolKey).length < PARTICLE_POOL_LIMIT) reusableParticlePools.get(oldP.poolKey).push({ mesh: oldP.mesh, mat: oldP.mat });
             else { currentScene.remove(oldP.mesh); if (oldP.mat && oldP.mat.dispose) oldP.mat.dispose(); }
         }
     }
@@ -800,16 +813,34 @@ function spawnParticle(pos, vel, colorHex, startSize, endSize, life, isAdditive 
     const pooled = pool && pool.length > 0 ? pool.pop() : null;
     const { mesh, mat } = pooled || createParticleObject(type, isAdditive, colorHex);
     if (pooled) {
-        if (typeof colorHex === 'number') mat.color.setHex(colorHex);
-        else if (colorHex && colorHex.isColor) mat.color.copy(colorHex);
-        mat.opacity = isFire ? 0.95 : (isAdditive ? 0.9 : 0.85);
+        if (mat && mat.color) {
+            if (typeof colorHex === 'number') mat.color.setHex(colorHex);
+            else if (colorHex && colorHex.isColor) mat.color.copy(colorHex);
+        }
+        if (mat && mat.uniforms && mat.uniforms.uAgeProgress) {
+            mat.uniforms.uAgeProgress.value = 0.0;
+        }
+        mat.opacity = (extraOpts && extraOpts.maxOpacity !== undefined)
+            ? extraOpts.maxOpacity
+            : (isFire ? 0.95 : (isAdditive ? 0.9 : 0.85));
         mesh.visible = true;
+    } else if (mat && extraOpts && extraOpts.maxOpacity !== undefined) {
+        mat.opacity = extraOpts.maxOpacity;
     }
     mesh.renderOrder = (type === 'fire') ? 30 : ((type === 'spark') ? 40 : 20);
     mesh.position.copy(pos);
     mesh.scale.setScalar(startSize);
     if (isSpark && vel.lengthSq() > 0.1) {
         mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), vel.clone().normalize());
+        if (mesh.scale && typeof mesh.scale.set === 'function') {
+            const speedStretch = Math.min(4.2, 1.0 + vel.length() * 0.14);
+            mesh.scale.set(startSize * 0.65, startSize * 0.65, startSize * speedStretch);
+        }
+    } else if (isFire) {
+        mesh.rotation.set(0, 0, Math.random() * 6.28);
+        if (mat && mat.uniforms && mat.uniforms.uRoll) {
+            mat.uniforms.uRoll.value = mesh.rotation.z;
+        }
     } else {
         mesh.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
     }
@@ -831,9 +862,10 @@ function spawnParticle(pos, vel, colorHex, startSize, endSize, life, isAdditive 
             (Math.random() - 0.5) * 2.5,
             (Math.random() - 0.5) * 2.5
         ),
-        drag: isSpark ? 0.985 : (isDirt ? 0.96 : (isFire ? 0.92 : 0.94)),
-        buoyancy: isFire ? 3.2 : (type === 'smoke' ? 1.4 : 0.0),
-        gravity: isSpark ? 14.0 : (isDirt ? 18.0 : 0.0)
+        drag: (extraOpts && extraOpts.drag !== undefined) ? extraOpts.drag : (isSpark ? 0.985 : (isDirt ? 0.96 : (isFire ? 0.92 : 0.94))),
+        buoyancy: (extraOpts && extraOpts.buoyancy !== undefined) ? extraOpts.buoyancy : (isFire ? 3.2 : (type === 'smoke' ? 1.4 : 0.0)),
+        gravity: (extraOpts && extraOpts.gravity !== undefined) ? extraOpts.gravity : (isSpark ? 14.0 : (isDirt ? 18.0 : 0.0)),
+        maxOpacity: (extraOpts && extraOpts.maxOpacity !== undefined) ? extraOpts.maxOpacity : undefined
     });
 }
 
@@ -1094,65 +1126,135 @@ function fireSmokeDischargers(tankModel) {
     });
 }
 
-// High-Fidelity Multi-Stage Shell Detonation (Fireball, Shockwave, Sparks, Smoke Column)
+// High-Fidelity Multi-Stage Shell Detonation (Flash Core, Dual Shockwaves, Volumetric Fireball, Mushroom Smoke, Dust/Water Plume, Shrapnel Sparks & Debris)
 function triggerHeavyDetonation(pos, ignorePlayer = false, customBlastRadius = 8.5, customBlastDamage = 100) {
     const blastRad = (typeof customBlastRadius === 'number') ? customBlastRadius : 8.5;
     const blastDmg = (typeof customBlastDamage === 'number') ? customBlastDamage : 100;
     const isLargeBlast = blastRad > 12.0;
 
-    soundFX.playImpactExplosion(pos);
+    if (typeof soundFX !== 'undefined' && soundFX && typeof soundFX.playImpactExplosion === 'function') {
+        soundFX.playImpactExplosion(pos);
+    }
 
     // 1. Blinding Detonation Flash Light
     const flashRadius = Math.round(blastRad * 6.0);
-    spawnDynamicFlash(pos, 0xfff08a, isLargeBlast ? 36.0 : 24.0, flashRadius, isLargeBlast ? 0.25 : 0.18);
+    spawnDynamicFlash(pos, 0xfff08a, isLargeBlast ? 38.0 : 26.0, flashRadius, isLargeBlast ? 0.26 : 0.19);
 
-    // 2. Expanding Ground Blast Shockwave Ring
+    // 2. Expanding Dual-Front Supersonic Blast Shockwave Rings
     spawnShockwave(pos, blastRad, isLargeBlast ? 0.60 : 0.45, 0xfef08a);
-    if (isLargeBlast) {
-        spawnShockwave(pos, blastRad * 1.35, 0.75, 0xf97316);
-    }
+    spawnShockwave(pos, blastRad * (isLargeBlast ? 1.35 : 0.72), isLargeBlast ? 0.75 : 0.34, 0xf97316);
 
-    // 3. Central White-Hot to Fiery Orange Fireball Plume
+    // 3. Central White-Hot Detonation Core + Rolling Volumetric Fireball Plume
     const fireCount = isLargeBlast ? 12 : 7;
     const fireScale = isLargeBlast ? 1.45 : 1.0;
+    spawnParticle(pos, new THREE.Vector3(0, 2.5 * fireScale, 0), 0xfffef0, 0.75 * fireScale, 2.9 * fireScale, 0.18 * fireScale, true, 'fire', {
+        maxOpacity: 0.90,
+        buoyancy: 2.0 * fireScale,
+        drag: 0.90
+    });
+    const fireColors = [0xfffbeb, 0xfbbf24, 0xf59e0b, 0xea580c];
     for (let i = 0; i < fireCount; i++) {
-        const fireVel = new THREE.Vector3(
-            (Math.random() - 0.5) * (8.0 * fireScale),
-            (3.5 + Math.random() * 8.5) * fireScale,
-            (Math.random() - 0.5) * (8.0 * fireScale)
+        const ang = (i / fireCount) * Math.PI * 2 + Math.random() * 0.5;
+        const radOff = (0.45 + Math.random() * 0.65) * fireScale;
+        const firePos = new THREE.Vector3(
+            pos.x + Math.cos(ang) * radOff,
+            pos.y + (0.25 + Math.random() * 0.95) * fireScale,
+            pos.z + Math.sin(ang) * radOff
         );
-        const col = (i % 3 === 0) ? 0xfffbeb : ((i % 3 === 1) ? 0xf59e0b : 0xd97706);
-        spawnParticle(pos, fireVel, col, 0.85 * fireScale, 4.6 * fireScale, (0.35 + Math.random() * 0.25) * fireScale, true, 'fire');
+        const spd = (2.6 + Math.random() * 4.8) * fireScale;
+        const fireVel = new THREE.Vector3(
+            Math.cos(ang) * spd,
+            (4.2 + Math.random() * 8.0) * fireScale,
+            Math.sin(ang) * spd
+        );
+        const col = fireColors[i % fireColors.length];
+        spawnParticle(firePos, fireVel, col, 0.55 * fireScale, 2.35 * fireScale, (0.40 + Math.random() * 0.28) * fireScale, true, 'fire', {
+            maxOpacity: 0.58,
+            buoyancy: 3.6 * fireScale,
+            drag: 0.91
+        });
     }
 
-    // 4. Expanding Ground Dust Crater Eruption Plume
+    // 4. Rising Scorched-Charcoal & Ash-Gray Mushroom Smoke Column
+    const smokeCount = isLargeBlast ? 10 : 6;
+    const stemLimit = Math.floor(smokeCount * 0.45);
+    for (let i = 0; i < smokeCount; i++) {
+        const isCap = i >= stemLimit;
+        const ang = (i / smokeCount) * Math.PI * 2 + Math.random() * 0.45;
+        const horiz = (isCap ? (2.4 + Math.random() * 3.8) : (0.6 + Math.random() * 1.4)) * fireScale;
+        const smokePos = new THREE.Vector3(
+            pos.x + Math.cos(ang) * (isCap ? 0.95 : 0.40) * fireScale,
+            pos.y + (isCap ? 1.45 : 0.45) * fireScale,
+            pos.z + Math.sin(ang) * (isCap ? 0.95 : 0.40) * fireScale
+        );
+        const smokeVel = new THREE.Vector3(
+            Math.cos(ang) * horiz,
+            (isCap ? (9.0 + Math.random() * 4.5) : (5.2 + Math.random() * 3.2)) * fireScale,
+            Math.sin(ang) * horiz
+        );
+        const smokeCol = isCap ? ((i % 2 === 0) ? 0x4b5563 : 0x64748b) : ((i % 2 === 0) ? 0x1b2026 : 0x28303b);
+        const startSz = (isCap ? 0.52 : 0.42) * fireScale;
+        const endSz = (isCap ? (3.0 + Math.random() * 0.8) : (2.2 + Math.random() * 0.6)) * fireScale;
+        const smokeLife = (isCap ? (1.85 + Math.random() * 1.0) : (1.45 + Math.random() * 0.7)) * fireScale;
+        spawnParticle(smokePos, smokeVel, smokeCol, startSz, endSz, smokeLife, false, 'smoke', {
+            maxOpacity: 0.90,
+            drag: 0.93,
+            buoyancy: 3.2 * fireScale
+        });
+    }
+
+    // 5. Expanding Ground Dust Crater Eruption & Water Detonation Plume
     const blastDustCount = isLargeBlast ? 14 : 8;
     const blastDustCol = (window.currentZoneConfig && window.currentZoneConfig.trackDustColor)
         ? window.currentZoneConfig.trackDustColor : 0x6e5843;
     for (let i = 0; i < blastDustCount; i++) {
         const dustAng = Math.random() * Math.PI * 2;
-        const dustSpd = (3.5 + Math.random() * 6.5) * fireScale;
+        const dustSpd = (3.8 + Math.random() * 6.8) * fireScale;
         const dustVel = new THREE.Vector3(
             Math.cos(dustAng) * dustSpd,
-            (1.0 + Math.random() * 3.2) * fireScale,
+            (1.0 + Math.random() * 2.8) * fireScale,
             Math.sin(dustAng) * dustSpd
         );
-        spawnParticle(pos, dustVel, blastDustCol, 0.55 * fireScale, 4.6 * fireScale, (1.2 + Math.random() * 0.7) * fireScale, false, 'dust', {
+        spawnParticle(pos, dustVel, blastDustCol, 0.45 * fireScale, 3.2 * fireScale, (1.2 + Math.random() * 0.7) * fireScale, false, 'dust', {
             maxOpacity: 0.85,
             drag: 0.90,
             buoyancy: -0.05
         });
     }
 
-    // 5. Fountain of Incandescent Shrapnel Sparks
+    const waterLevel = (typeof window !== 'undefined' && typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5;
+    const groundHAtBlast = (typeof getTerrainHeight === 'function') ? getTerrainHeight(pos.x, pos.z) : pos.y;
+    if (groundHAtBlast < waterLevel - 0.05 && pos.y <= waterLevel + 0.8) {
+        const ripplePos = new THREE.Vector3(pos.x, waterLevel + 0.03, pos.z);
+        spawnWaterRipple(ripplePos, blastRad * 0.85, isLargeBlast ? 1.4 : 1.0);
+        spawnWaterRipple(ripplePos, blastRad * 1.40, isLargeBlast ? 1.9 : 1.35);
+        const sprayCount = isLargeBlast ? 8 : 5;
+        for (let w = 0; w < sprayCount; w++) {
+            const sAng = Math.random() * Math.PI * 2;
+            const sSpd = (1.5 + Math.random() * 3.5) * fireScale;
+            const sprayVel = new THREE.Vector3(
+                Math.cos(sAng) * sSpd,
+                (6.5 + Math.random() * 7.5) * fireScale,
+                Math.sin(sAng) * sSpd
+            );
+            spawnParticle(ripplePos, sprayVel, 0xe2f1f8, 0.50 * fireScale, 2.8 * fireScale, (0.75 + Math.random() * 0.45) * fireScale, false, 'dust', {
+                maxOpacity: 0.80,
+                drag: 0.95,
+                buoyancy: -4.8
+            });
+        }
+    }
+
+    // 6. Fountain of Velocity-Stretched Incandescent Shrapnel Sparks
     const sparkCount = isLargeBlast ? 26 : 16;
     for (let i = 0; i < sparkCount; i++) {
         const sparkVel = new THREE.Vector3(
-            (Math.random() - 0.5) * (26.0 * fireScale),
-            (6.0 + Math.random() * 22.0) * fireScale,
-            (Math.random() - 0.5) * (26.0 * fireScale)
+            (Math.random() - 0.5) * (28.0 * fireScale),
+            (7.0 + Math.random() * 23.0) * fireScale,
+            (Math.random() - 0.5) * (28.0 * fireScale)
         );
-        spawnParticle(pos, sparkVel, (Math.random() > 0.3) ? 0xfbbf24 : 0xf97316, 0.18, 0.08, 0.8 + Math.random() * 1.1, true, 'spark');
+        const sparkCol = (i % 4 === 0) ? 0xfffbeb : ((Math.random() > 0.3) ? 0xfbbf24 : 0xf97316);
+        spawnParticle(pos, sparkVel, sparkCol, 0.48, 0.16, 0.8 + Math.random() * 1.1, true, 'spark');
     }
 
     // Blast wave shrapnel damage to nearby soldiers
@@ -1175,18 +1277,20 @@ function triggerHeavyDetonation(pos, ignorePlayer = false, customBlastRadius = 8
         }
     }
 
-    // 6. Heavy Clods of Earth & Shrapnel Debris
+    // 7. Heavy Clods of Earth & Shrapnel Debris
     const dirtCount = isLargeBlast ? 12 : 7;
     for (let i = 0; i < dirtCount; i++) {
+        const dirtAng = Math.random() * Math.PI * 2;
+        const dirtSpd = (4.5 + Math.random() * 8.5) * fireScale;
         const dirtVel = new THREE.Vector3(
-            (Math.random() - 0.5) * (16.0 * fireScale),
-            (4.0 + Math.random() * 14.0) * fireScale,
-            (Math.random() - 0.5) * (16.0 * fireScale)
+            Math.cos(dirtAng) * dirtSpd,
+            (5.5 + Math.random() * 12.5) * fireScale,
+            Math.sin(dirtAng) * dirtSpd
         );
-        spawnParticle(pos, dirtVel, 0x3d3126, 0.32 * fireScale, 0.95 * fireScale, 1.2 + Math.random() * 0.8, false, 'dirt');
+        spawnParticle(pos, dirtVel, 0x33271e, 0.24 * fireScale, 0.18 * fireScale, 1.1 + Math.random() * 0.7, false, 'dirt');
     }
 
-    // 7. Powerful Blast Wave Topples Nearby Trees Radially Along Explosion Force
+    // 8. Powerful Blast Wave Topples Nearby Trees & Jolts Tank Suspension
     const blastTrees = window.swayTrees || [];
     const treeBlastRadius = blastRad * 1.35;
     const blastRadiusSq = treeBlastRadius * treeBlastRadius;
@@ -1203,6 +1307,20 @@ function triggerHeavyDetonation(pos, ignorePlayer = false, customBlastRadius = 8
             if (window.hitTree) {
                 window.hitTree(tree, blastDir, blastForce);
             }
+        }
+    }
+
+    if (typeof window !== 'undefined' && window.tankState && !window.tankState.isKnockedOut && window.tankState.hasTank !== false) {
+        const distToTank = Math.hypot(window.tankState.x - pos.x, window.tankState.z - pos.z);
+        const tremorRange = 42.0 * fireScale;
+        if (distToTank > 0.1 && distToTank < tremorRange) {
+            const tremorFactor = Math.pow(1.0 - distToTank / tremorRange, 1.5) * fireScale;
+            const invDist = 1.0 / distToTank;
+            const dirX = (window.tankState.x - pos.x) * invDist;
+            const dirZ = (window.tankState.z - pos.z) * invDist;
+            if (typeof window.tankState.pitchVel === 'number') window.tankState.pitchVel += dirZ * 0.22 * tremorFactor;
+            if (typeof window.tankState.rollVel === 'number') window.tankState.rollVel += dirX * 0.18 * tremorFactor;
+            if (typeof window.tankState.heaveVel === 'number') window.tankState.heaveVel += 0.35 * tremorFactor;
         }
     }
 }
@@ -2312,6 +2430,8 @@ function updateParticles(dt) {
                 particleDirection.copy(p.vel).normalize();
                 p.mesh.quaternion.setFromUnitVectors(PARTICLE_DIRECTION_AXIS, particleDirection);
             }
+        } else if (p.type === 'fire') {
+            p.mesh.rotation.z += p.rotVel.z * dt;
         } else {
             p.mesh.rotation.x += p.rotVel.x * dt;
             p.mesh.rotation.y += p.rotVel.y * dt;
@@ -2370,16 +2490,37 @@ function updateParticles(dt) {
                     p.mat.uniforms.opacity.value = Math.min(1.0, fadeIn * fadeOut) * maxOp;
                 }
             }
+        } else if (p.type === 'fire') {
+            const currentScale = THREE.MathUtils.lerp(p.startSize, p.endSize, Math.pow(progress, 0.45));
+            p.mesh.scale.setScalar(currentScale);
+
+            if (p.mat && p.mat.uniforms) {
+                if (p.mat.uniforms.uAgeProgress) {
+                    p.mat.uniforms.uAgeProgress.value = progress;
+                }
+                if (p.mat.uniforms.uRoll) {
+                    p.mat.uniforms.uRoll.value = p.mesh.rotation.z;
+                }
+            }
+            if (p.mat) {
+                const maxOp = (p.maxOpacity !== undefined) ? p.maxOpacity : 0.95;
+                p.mat.opacity = Math.max(0, Math.pow(1.0 - progress, 0.85) * maxOp);
+            }
+        } else if (p.type === 'spark') {
+            const currentScale = THREE.MathUtils.lerp(p.startSize, p.endSize, Math.pow(progress, 0.7));
+            const speedStretch = Math.min(4.2, 1.0 + p.vel.length() * 0.14);
+            if (p.mesh.scale && typeof p.mesh.scale.set === 'function') {
+                p.mesh.scale.set(currentScale * 0.65, currentScale * 0.65, currentScale * speedStretch);
+            } else {
+                p.mesh.scale.setScalar(currentScale);
+            }
+            if (p.mat) {
+                p.mat.opacity = Math.max(0, (1.0 - Math.pow(progress, 2.0)));
+            }
         } else {
             const currentScale = THREE.MathUtils.lerp(p.startSize, p.endSize, Math.pow(progress, 0.7));
             p.mesh.scale.setScalar(currentScale);
-
-            // Realistic non-linear alpha decay
-            if (p.type === 'fire') {
-                p.mat.opacity = Math.max(0, (1.0 - progress) * 0.95);
-            } else if (p.type === 'spark') {
-                p.mat.opacity = Math.max(0, (1.0 - Math.pow(progress, 2.0)));
-            } else if (p.mat) {
+            if (p.mat) {
                 p.mat.opacity = Math.max(0, 1.0 - progress);
             }
         }
@@ -2416,8 +2557,11 @@ function updateParticles(dt) {
             continue;
         }
         const t = sw.age / sw.life;
-        const scale = THREE.MathUtils.lerp(0.3, sw.maxRadius, Math.sqrt(t));
+        const scale = THREE.MathUtils.lerp(0.3, sw.maxRadius, Math.pow(t, 0.45));
         sw.mesh.scale.set(scale, scale, scale);
+        if (sw.mat && sw.mat.uniforms && sw.mat.uniforms.uProgress) {
+            sw.mat.uniforms.uProgress.value = t;
+        }
         sw.mat.opacity = Math.max(0, (1.0 - t) * 0.85);
     }
 

@@ -626,22 +626,28 @@ function getPershingSharedAssets(isEnemy) {
             roughness: 0.84,
             metalness: 0.04
         }),
-        glacisDecalMat: new THREE.MeshBasicMaterial({
+        glacisDecalMat: new THREE.MeshStandardMaterial({
             map: base.glacisDecalTex,
+            roughness: 0.85,
+            metalness: 0.02,
             transparent: true,
             depthWrite: false,
             polygonOffset: true,
             polygonOffsetFactor: -2
         }),
-        skirtDecalMat: new THREE.MeshBasicMaterial({
+        skirtDecalMat: new THREE.MeshStandardMaterial({
             map: base.skirtDecalTex,
+            roughness: 0.85,
+            metalness: 0.02,
             transparent: true,
             depthWrite: false,
             polygonOffset: true,
             polygonOffsetFactor: -2
         }),
-        emblemMat: new THREE.MeshBasicMaterial({
+        emblemMat: new THREE.MeshStandardMaterial({
             map: base.emblemTex,
+            roughness: 0.85,
+            metalness: 0.02,
             transparent: true,
             depthWrite: false,
             polygonOffset: true,

@@ -1569,6 +1569,186 @@ function createOpaqueBillboardSmokeMaterial(colorHex = 0x94a3b8) {
     return mat;
 }
 
+// ============================================================================
+// Volumetric Billboard Blackbody Fireball & Supersonic Mach Shockwave Shaders
+// Loopless & texture-reused for zero compile stall and minimal vertex cost
+// ============================================================================
+
+function createVolumetricFireballMaterial(colorHex = 0xf59e0b) {
+    const diffuseTex = getSmokeDiffuseTexture();
+    const color = (colorHex && colorHex.isColor) ? colorHex.clone() : new THREE.Color(colorHex);
+
+    const mat = new THREE.ShaderMaterial({
+        uniforms: {
+            diffuse:         { value: color },
+            opacity:         { value: 0.95 },
+            uAgeProgress:    { value: 0.0 },
+            uRoll:           { value: 0.0 },
+            smokeDiffuseMap: { value: diffuseTex },
+            uTime:           celestialLighting.time
+        },
+        vertexShader: `
+            uniform float uRoll;
+            varying vec2 vUv;
+
+            void main() {
+                vUv = uv;
+                vec4 mvCenter = modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+                float scale = length(vec3(modelMatrix[0][0], modelMatrix[0][1], modelMatrix[0][2]));
+                float c = cos(uRoll);
+                float s = sin(uRoll);
+                vec2 rotated = vec2(position.x * c - position.y * s, position.x * s + position.y * c);
+                mvCenter.xy += rotated * scale;
+                gl_Position = projectionMatrix * mvCenter;
+            }
+        `,
+        fragmentShader: `
+            uniform vec3 diffuse;
+            uniform float opacity;
+            uniform float uAgeProgress;
+            uniform float uRoll;
+            uniform sampler2D smokeDiffuseMap;
+            uniform float uTime;
+
+            varying vec2 vUv;
+
+            void main() {
+                vec2 p = vUv * 2.0 - 1.0;
+                float r2 = dot(p, p);
+                if (r2 > 1.0) discard;
+
+                vec2 scrollUv = vUv * 0.90 + vec2(uTime * 0.055 + uRoll * 0.13, -uAgeProgress * 0.42);
+                vec2 fineUv = vUv * 2.35 + vec2(-uTime * 0.085 - uRoll * 0.27, -uAgeProgress * 0.68);
+                vec4 smokeDiff = texture2D(smokeDiffuseMap, scrollUv);
+                vec4 smokeFine = texture2D(smokeDiffuseMap, fineUv);
+
+                float ang = atan(p.y, p.x);
+                float lobes = sin(ang * 4.0 + uRoll * 2.3 - uAgeProgress * 3.5) * 0.08
+                            + cos(ang * 7.0 - uRoll * 1.9 + uTime * 2.4) * 0.05;
+                float texBreakup = (smokeDiff.r * 0.55 + smokeFine.r * 0.45 - 0.5) * 0.22;
+
+                float r = sqrt(r2);
+                float warpedR = r + lobes + texBreakup;
+                float radial = 1.0 - smoothstep(0.06, 0.86, warpedR);
+                float billowLobe = clamp(smokeDiff.r * 0.65 + smokeFine.g * 0.35, 0.0, 1.0);
+                float filamentMask = smoothstep(0.22, 0.88, radial * mix(0.60, 1.40, billowLobe));
+
+                float lifeCool = 1.0 - smoothstep(0.05, 0.92, uAgeProgress);
+                float coreFlash = (1.0 - smoothstep(0.0, 0.46, r)) * (1.0 - smoothstep(0.0, 0.28, uAgeProgress));
+                float sculpted = pow(radial, 1.25) * (0.25 + 0.95 * pow(billowLobe, 1.25));
+                float heat = clamp(sculpted * mix(0.22, 1.15, lifeCool) + coreFlash * 0.55, 0.0, 1.15);
+
+                float alphaMask = clamp((radial * mix(0.45, 1.30, smokeDiff.a) + coreFlash * 0.28) * opacity * (1.0 - smoothstep(0.40, 1.0, uAgeProgress)), 0.0, 1.0);
+                if (alphaMask < 0.015) discard;
+
+                vec3 whiteHot = vec3(1.0, 0.97, 0.82);
+                vec3 solarGold = mix(vec3(1.0, 0.72, 0.16), clamp(diffuse * 1.10, 0.0, 1.2), 0.35);
+                vec3 orangeFire = vec3(0.98, 0.32, 0.03);
+                vec3 crimsonEmber = vec3(0.46, 0.05, 0.01);
+                vec3 sootRim = vec3(0.11, 0.09, 0.08);
+
+                vec3 thermalCol = mix(sootRim, crimsonEmber, smoothstep(0.04, 0.28, heat));
+                thermalCol = mix(thermalCol, orangeFire, smoothstep(0.26, 0.56, heat));
+                thermalCol = mix(thermalCol, solarGold, smoothstep(0.55, 0.84, heat));
+                thermalCol = mix(thermalCol, whiteHot, smoothstep(0.84, 1.08, heat));
+                thermalCol += orangeFire * filamentMask * lifeCool * 0.22;
+
+                float smoothAlpha = clamp(smoothstep(0.015, 0.60, alphaMask) * (0.34 + 0.24 * lifeCool + coreFlash * 0.28), 0.0, 0.78);
+                gl_FragColor = vec4(thermalCol, smoothAlpha);
+            }
+        `,
+        transparent: true,
+        depthWrite: false,
+        depthTest: true,
+        blending: THREE.AdditiveBlending
+    });
+
+    Object.defineProperty(mat, 'opacity', {
+        get() { return this.uniforms.opacity.value; },
+        set(v) { this.uniforms.opacity.value = v; }
+    });
+
+    Object.defineProperty(mat, 'color', {
+        get() { return this.uniforms.diffuse.value; },
+        set(v) {
+            if (typeof v === 'number') this.uniforms.diffuse.value.setHex(v);
+            else if (v && v.isColor) this.uniforms.diffuse.value.copy(v);
+        }
+    });
+
+    const baseClone = mat.clone.bind(mat);
+    mat.clone = function() {
+        const cloned = baseClone();
+        cloned.uniforms.uTime = celestialLighting.time;
+        return cloned;
+    };
+
+    return mat;
+}
+
+function createShockwaveMaterial(colorHex = 0xfde68a) {
+    const color = (colorHex && colorHex.isColor) ? colorHex.clone() : new THREE.Color(colorHex);
+
+    const mat = new THREE.ShaderMaterial({
+        uniforms: {
+            diffuse:   { value: color },
+            opacity:   { value: 0.85 },
+            uProgress: { value: 0.0 }
+        },
+        vertexShader: `
+            varying vec2 vLocalXZ;
+            void main() {
+                vLocalXZ = position.xz;
+                gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            }
+        `,
+        fragmentShader: `
+            uniform vec3 diffuse;
+            uniform float opacity;
+            uniform float uProgress;
+            varying vec2 vLocalXZ;
+
+            void main() {
+                float radialLen = length(vLocalXZ);
+                float u = clamp((radialLen - 0.2) / 0.8, 0.0, 1.0);
+                float ang = atan(vLocalXZ.y, vLocalXZ.x);
+
+                float bounds = smoothstep(0.0, 0.16, u) * (1.0 - smoothstep(0.84, 1.0, u));
+                float machFront = exp(-pow((u - 0.78) / 0.075, 2.0));
+                float innerWave = exp(-pow((u - 0.44) / 0.11, 2.0)) * 0.36;
+
+                float turb = 0.80 + 0.20 * (sin(ang * 10.0 + uProgress * 6.0) * cos(ang * 7.0 - uProgress * 4.0));
+                float intensity = (machFront + innerWave) * bounds * turb;
+
+                float alpha = clamp(intensity * opacity * 0.78, 0.0, 1.0);
+                if (alpha < 0.01) discard;
+
+                vec3 crestCol = mix(diffuse, vec3(1.0, 0.98, 0.90), clamp(machFront * 0.75, 0.0, 0.75));
+                gl_FragColor = vec4(crestCol, alpha);
+            }
+        `,
+        transparent: true,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+        blending: THREE.AdditiveBlending
+    });
+
+    Object.defineProperty(mat, 'opacity', {
+        get() { return this.uniforms.opacity.value; },
+        set(v) { this.uniforms.opacity.value = v; }
+    });
+
+    Object.defineProperty(mat, 'color', {
+        get() { return this.uniforms.diffuse.value; },
+        set(v) {
+            if (typeof v === 'number') this.uniforms.diffuse.value.setHex(v);
+            else if (v && v.isColor) this.uniforms.diffuse.value.copy(v);
+        }
+    });
+
+    return mat;
+}
+
 
 
 // ============================================================================
@@ -4970,6 +5150,8 @@ window.getSmokeNormalTexture = getSmokeNormalTexture;
 window.createVolumetricSmokeGeometry = createVolumetricSmokeGeometry;
 window.createBillboardSmokeGeometry = createBillboardSmokeGeometry;
 window.createOpaqueBillboardSmokeMaterial = createOpaqueBillboardSmokeMaterial;
+window.createVolumetricFireballMaterial = createVolumetricFireballMaterial;
+window.createShockwaveMaterial = createShockwaveMaterial;
 window.createGrassTuftGeometry = createGrassTuftGeometry;
 window.createGrassMaterial = createGrassMaterial;
 window.createRiverWaterMaterial = createRiverWaterMaterial;

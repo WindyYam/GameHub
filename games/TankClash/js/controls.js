@@ -12,6 +12,17 @@ var camOrbit = {
     distance: 11.5
 };
 
+/**
+ * Update camera orbit yaw and pitch from pointer/touch deltas without artificial
+ * up/down pitch limits (only guarding the spherical poles to prevent gimbal flip).
+ */
+function applyOrbitLookDelta(dx, dy, fpvBaseSens, defaultBaseSens) {
+    const baseSens = (cameraMode === 'fpv') ? fpvBaseSens : defaultBaseSens;
+    const sens = baseSens * getZoomSpeedScale();
+    camOrbit.theta -= dx * sens;
+    camOrbit.phi = THREE.MathUtils.clamp(camOrbit.phi - dy * sens, 0.001, Math.PI - 0.001);
+}
+
 var aimCursorNDC = new THREE.Vector2(0, 0);
 var raycaster = new THREE.Raycaster();
 var worldAimPoint = new THREE.Vector3(0, 1.5, 60);
@@ -104,7 +115,6 @@ function setCameraMode(mode) {
             window.perspCamera.fov = 46;
         } else {
             window.perspCamera.fov = 42;
-            camOrbit.phi = THREE.MathUtils.clamp(camOrbit.phi, 0.45, 1.85);
         }
         window.perspCamera.updateProjectionMatrix();
     }
@@ -330,19 +340,7 @@ function initControls(renderer) {
         }
 
         if (dx !== 0 || dy !== 0) {
-            if (cameraMode === 'fpv') {
-                const sens = 0.0028 * getZoomSpeedScale();
-                camOrbit.theta -= dx * sens;
-                const minPhi = 0.95;
-                const maxPhi = 2.20;
-                camOrbit.phi = THREE.MathUtils.clamp(camOrbit.phi - dy * sens, minPhi, maxPhi);
-            } else {
-                const sens = 0.0032 * getZoomSpeedScale();
-                camOrbit.theta -= dx * sens;
-                const minPhi = (window.playerMode === 'soldier') ? 0.18 : 0.45;
-                const maxPhi = (window.playerMode === 'soldier') ? 2.90 : 1.85;
-                camOrbit.phi = THREE.MathUtils.clamp(camOrbit.phi - dy * sens, minPhi, maxPhi);
-            }
+            applyOrbitLookDelta(dx, dy, 0.0028, 0.0032);
         }
         aimCursorNDC.set(0, 0);
     });
@@ -497,19 +495,7 @@ function initControls(renderer) {
                     touchAimLastX = t.clientX;
                     touchAimLastY = t.clientY;
 
-                    if (cameraMode === 'fpv') {
-                        const sens = 0.0045 * getZoomSpeedScale();
-                        camOrbit.theta -= dx * sens;
-                        const minPhi = 0.95;
-                        const maxPhi = 2.20;
-                        camOrbit.phi = THREE.MathUtils.clamp(camOrbit.phi - dy * sens, minPhi, maxPhi);
-                    } else {
-                        const sens = 0.0055 * getZoomSpeedScale();
-                        camOrbit.theta -= dx * sens;
-                        const minPhi = (window.playerMode === 'soldier') ? 0.18 : 0.45;
-                        const maxPhi = (window.playerMode === 'soldier') ? 2.90 : 1.85;
-                        camOrbit.phi = THREE.MathUtils.clamp(camOrbit.phi - dy * sens, minPhi, maxPhi);
-                    }
+                    applyOrbitLookDelta(dx, dy, 0.0045, 0.0055);
                     break;
                 }
             }
