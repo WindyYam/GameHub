@@ -1151,6 +1151,45 @@ const SHARED_TERRAIN_GLSL = `
         surfaceNormal = normalize(vec3(-gx * 1.8, 4.0, -gz * 1.8));
         return h0;
     }
+
+    float getGrassTerrainSurfaceHeight_gpu(
+        float x, float z,
+        float roadDist, float roadF, float rivDist,
+        float w[12], int dominantZone,
+        float lowGfx, float distCam,
+        out vec3 surfaceNormal
+    ) {
+        vec2 s = vec2(x, z) + uSeedOffset;
+        float dSpawn = length(vec2(x, z));
+        vec2 zoneCenter = floor(getZoneGrid_gpu(vec2(x, z)) + 0.5) * 1600.0;
+
+        float coastalDist = z + (fbm3_gpu(s * 0.009) * 28.0);
+        float coastalSlope = smoothstep(110.0, 360.0, coastalDist) * 12.8;
+        float headland = smoothstep(60.0, 200.0, abs(x)) * smoothstep(60.0, 420.0, coastalDist) * 6.5;
+        float coastalExtent = (1.0 - smoothstep(600.0, 900.0, abs(x))) * (1.0 - smoothstep(750.0, 1200.0, z));
+        float coastalDescent = (-coastalSlope + headland) * coastalExtent;
+        float bayOpen = (1.0 - smoothstep(90.0, 260.0, coastalDist) * (1.0 - smoothstep(220.0, 450.0, abs(x))));
+
+        float h = 0.0;
+        if (w[dominantZone] >= 0.999) {
+            h = getZoneTerrainHeight_gpu(x, z, dominantZone, dSpawn, roadDist, roadF, zoneCenter, coastalDescent, bayOpen);
+        } else {
+            for (int i = 0; i < 12; i++) {
+                if (w[i] > 0.0) h += w[i] * getZoneTerrainHeight_gpu(x, z, i, dSpawn, roadDist, roadF, zoneCenter, coastalDescent, bayOpen);
+            }
+        }
+        if (rivDist < 25.5) {
+            h = applyRiverTerrainHeight_gpu(x, z, h, dSpawn, roadF);
+        }
+        if (lowGfx > 0.5 || distCam > 42.0) {
+            surfaceNormal = vec3(0.0, 1.0, 0.0);
+        } else {
+            float gx = valueNoise2D_gpu((s + vec2(2.0, 0.0)) * 0.015) - valueNoise2D_gpu((s - vec2(2.0, 0.0)) * 0.015);
+            float gz = valueNoise2D_gpu((s + vec2(0.0, 2.0)) * 0.015) - valueNoise2D_gpu((s - vec2(0.0, 2.0)) * 0.015);
+            surfaceNormal = normalize(vec3(-gx * 1.8, 4.0, -gz * 1.8));
+        }
+        return h;
+    }
 `;
 
 function getRoadDistance(x, z) {
@@ -3016,12 +3055,13 @@ const villageMat = new THREE.MeshStandardMaterial({
     vertexColors: true,
     roughness: 0.85,
     metalness: 0.04,
+    alphaTest: 0.42,
     envMapIntensity: GROUND_ENV_MAP_INTENSITY,
     side: THREE.DoubleSide,
     fog: false,
     map: vInitAtlas ? vInitAtlas.albedo : null,
     normalMap: vInitAtlas ? vInitAtlas.normal : null,
-    normalScale: new THREE.Vector2(1.35, 1.35),
+    normalScale: new THREE.Vector2(1.42, 1.42),
     roughnessMap: vInitAtlas ? vInitAtlas.roughness : null
 });
 
@@ -3083,6 +3123,14 @@ villageMat.onBeforeCompile = (shader) => {
             float roofSmooth = smoothstep(0.22, 0.50, vBldgWorldNormal.y) * winterBldgFactorNorm;
             normal = normalize(mix(normal, normalize(vNormal), roofSmooth * 0.82));
         }
+        // Deep scratch/crack normal perturbation selectively on aged/ruined masonry
+        if (vBldgUv.x < 0.50 && vBldgUv.y < 0.50) {
+            float diag1 = abs(fract((vBldgModelPos.x * 1.45 + vBldgModelPos.y * 1.85 - vBldgModelPos.z * 1.35) * 0.55) - 0.5);
+            float diag2 = abs(fract((vBldgModelPos.z * 1.65 - vBldgModelPos.y * 2.15 + vBldgModelPos.x * 0.85) * 0.48) - 0.5);
+            float microS = smoothstep(0.035, 0.0, diag1) * step(0.1, sin(vBldgModelPos.y * 2.4 + vBldgModelPos.x * 1.7))
+                         + smoothstep(0.030, 0.0, diag2) * step(0.2, cos(vBldgModelPos.z * 2.9 - vBldgModelPos.y * 1.5));
+            normal = normalize(normal + vec3(microS * 0.16, -microS * 0.20, 0.0));
+        }
         #endif
         `
     );
@@ -3094,6 +3142,34 @@ villageMat.onBeforeCompile = (shader) => {
         float wBldgZone[6];
         getZoneWeights6_gpu(vBldgWorldPos.xz, wBldgZone);
         float winterBldgFactor = clamp(wBldgZone[4] + wBldgZone[2] * smoothstep(58.0, 76.0, vBldgWorldPos.y), 0.0, 1.0);
+
+        // Velvety organic moss & aged ruin scratches/cracks strictly on Q2 masonry/stone/ruin surfaces
+        #ifdef USE_COLOR
+        bool isQ2Masonry = (vBldgUv.x < 0.50 && vBldgUv.y < 0.50);
+        if (isQ2Masonry) {
+            float vertexMossHint = smoothstep(1.08, 1.32, vColor.g / max(0.02, max(vColor.r, vColor.b)));
+            float mossN = sin(vBldgWorldPos.x * 3.9 + vBldgWorldPos.z * 3.1) * cos(vBldgWorldPos.y * 4.4 - vBldgWorldPos.x * 2.1) * 0.5 + 0.5;
+            float fineMoss = sin(vBldgWorldPos.x * 13.0 + vBldgWorldPos.z * 11.0) * 0.5 + 0.5;
+            vec3 mossVelvet = mix(vec3(0.09, 0.19, 0.05), vec3(0.23, 0.37, 0.10), mossN * 0.72 + fineMoss * 0.28);
+
+            // Replace brick pattern smoothly on 3D moss cushions (vertexMossHint) & dappled damp ledges
+            float ledgeMoss = smoothstep(0.56, 0.88, mossN) * smoothstep(0.55, 0.94, vBldgWorldNormal.y) * 0.34;
+            float mossBlend = max(vertexMossHint * 0.90, ledgeMoss);
+            if (mossBlend > 0.01) {
+                diffuseColor.rgb = mix(diffuseColor.rgb, mossVelvet, clamp(mossBlend, 0.0, 0.90));
+            }
+
+            // Aged weathered cracks & diagonal battle scratches selectively on dark/ruined masonry (leaving clean houses manicured)
+            float isRuinAged = smoothstep(0.56, 0.36, max(vColor.r, vColor.b)) * (1.0 - vertexMossHint);
+            if (isRuinAged > 0.02) {
+                float crackA = smoothstep(0.032, 0.0, abs(fract((vBldgModelPos.x * 1.45 + vBldgModelPos.y * 1.85 - vBldgModelPos.z * 1.35 + sin(vBldgModelPos.y * 3.8) * 0.14) * 0.55) - 0.5));
+                float crackB = smoothstep(0.026, 0.0, abs(fract((vBldgModelPos.z * 1.65 - vBldgModelPos.y * 2.15 + vBldgModelPos.x * 0.85 + cos(vBldgModelPos.x * 4.2) * 0.12) * 0.48) - 0.5));
+                float scratchFine = smoothstep(0.86, 0.99, sin(vBldgModelPos.x * 9.5 + vBldgModelPos.y * 14.2 - vBldgModelPos.z * 8.1) * cos(vBldgModelPos.y * 11.0 + vBldgModelPos.x * 5.2));
+                float scarMask = clamp(crackA * 0.75 + crackB * 0.65 + scratchFine * 0.55, 0.0, 1.0) * isRuinAged;
+                diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * 0.24, scarMask * 0.82);
+            }
+        }
+        #endif
 
         bool isRoofSurface = (vBldgWorldNormal.y > 0.22) && (vBldgModelPos.y > 1.2 || (vBldgUv.x > 0.50 && vBldgUv.y > 0.50));
 
@@ -3132,6 +3208,21 @@ villageMat.onBeforeCompile = (shader) => {
 
     injectCloudShadowFragment(shader, 'vBldgWorldPos', true);
 };
+
+let sharedVillageDepthMaterial = null;
+function getVillageDepthMaterial() {
+    if (!sharedVillageDepthMaterial) {
+        const vAtlas = getVillageAtlas();
+        sharedVillageDepthMaterial = new THREE.MeshDepthMaterial({
+            depthPacking: THREE.RGBADepthPacking,
+            map: vAtlas ? vAtlas.albedo : null,
+            alphaTest: 0.42,
+            side: THREE.DoubleSide
+        });
+    }
+    return sharedVillageDepthMaterial;
+}
+villageMat.customDepthMaterial = getVillageDepthMaterial();
 
 const rockMat = new THREE.MeshStandardMaterial({
     color: new THREE.Color(0x8a8479).convertSRGBToLinear(),
@@ -4475,67 +4566,58 @@ function createLimestoneRockGeometry() {
 // Q2: Fieldstone Masonry [0..0.5, 0..0.5]
 // Q3: Timber Planks [0.5..1.0, 0..0.5]
 // ============================================================================
-function createPitchedRoofGeometry(w, l, hRoof) {
+function createPitchedRoofGeometry(w, l, hRoof, includeGableInfill = true) {
     const hw = w * 0.5;
     const hl = l * 0.5;
+    const slabT = 0.20;
     const positions = [];
     const normals = [];
     const uvs = [];
 
-    // Left slope
-    const nl = new THREE.Vector3(-hRoof, hw, 0).normalize();
-    positions.push(
-        -hw, 0, hl,   0, hRoof, hl,   -hw, 0, -hl,
-        -hw, 0, -hl,  0, hRoof, hl,   0, hRoof, -hl
-    );
-    for (let i = 0; i < 6; i++) {
-        normals.push(nl.x, nl.y, nl.z);
+    const pushQuad = (ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz, u0, u1, v0, v1) => {
+        const abx = bx - ax, aby = by - ay, abz = bz - az;
+        const acx = cx - ax, acy = cy - ay, acz = cz - az;
+        const n = new THREE.Vector3(
+            aby * acz - abz * acy,
+            abz * acx - abx * acz,
+            abx * acy - aby * acx
+        ).normalize();
+        positions.push(
+            ax, ay, az, bx, by, bz, cx, cy, cz,
+            cx, cy, cz, bx, by, bz, dx, dy, dz
+        );
+        for (let i = 0; i < 6; i++) normals.push(n.x, n.y, n.z);
+        uvs.push(u0, v0, u1, v0, u0, v1, u0, v1, u1, v0, u1, v1);
+    };
+
+    // Top left & right sloped roof surfaces (u runs along ridge Z, v runs from eave to ridge so barrel tiles drape downward)
+    pushQuad(-hw, slabT, -hl,  -hw, slabT, hl,  0, hRoof + slabT, -hl,  0, hRoof + slabT, hl,  0, 1, 0, 1);
+    pushQuad(hw, slabT, hl,  hw, slabT, -hl,  0, hRoof + slabT, hl,  0, hRoof + slabT, -hl,  0, 1, 0, 1);
+
+    // Underside soffits (visible beneath deep overhanging eaves)
+    pushQuad(-hw, 0, hl,  -hw, 0, -hl,  0, hRoof, hl,  0, hRoof, -hl,  0, 0.4, 0, 0.3);
+    pushQuad(hw, 0, -hl,  hw, 0, hl,  0, hRoof, -hl,  0, hRoof, hl,  0, 0.4, 0, 0.3);
+
+    // Outer left & right eave fascia edges
+    pushQuad(-hw, 0, hl,  -hw, slabT, hl,  -hw, 0, -hl,  -hw, slabT, -hl,  0, 1, 0, 0.15);
+    pushQuad(hw, 0, -hl,  hw, slabT, -hl,  hw, 0, hl,  hw, slabT, hl,  0, 1, 0, 0.15);
+
+    // Front (+Z) & Back (-Z) angled rake thickness strips closing the 3D roof slabs
+    pushQuad(-hw, 0, hl,  0, hRoof, hl,  -hw, slabT, hl,  0, hRoof + slabT, hl,  0, 1, 0, 0.15);
+    pushQuad(0, hRoof, hl,  hw, 0, hl,  0, hRoof + slabT, hl,  hw, slabT, hl,  0, 1, 0, 0.15);
+    pushQuad(0, hRoof, -hl,  -hw, 0, -hl,  0, hRoof + slabT, -hl,  -hw, slabT, -hl,  0, 1, 0, 0.15);
+    pushQuad(hw, 0, -hl,  0, hRoof, -hl,  hw, slabT, -hl,  0, hRoof + slabT, -hl,  0, 1, 0, 0.15);
+
+    // Optional solid gable infill triangles (enabled for standalone porch & dormer canopies)
+    if (includeGableInfill) {
+        positions.push(-hw, 0, hl, hw, 0, hl, 0, hRoof, hl);
+        normals.push(0, 0, 1, 0, 0, 1, 0, 0, 1);
+        uvs.push(0, 0, 1, 0, 0.5, 1);
+
+        positions.push(hw, 0, -hl, -hw, 0, -hl, 0, hRoof, -hl);
+        normals.push(0, 0, -1, 0, 0, -1, 0, 0, -1);
+        uvs.push(0, 0, 1, 0, 0.5, 1);
     }
-    uvs.push(
-        0, 0,  1, 0,  0, 1,
-        0, 1,  1, 0,  1, 1
-    );
-
-    // Right slope
-    const nr = new THREE.Vector3(hRoof, hw, 0).normalize();
-    positions.push(
-        0, hRoof, hl,   hw, 0, hl,   0, hRoof, -hl,
-        0, hRoof, -hl,  hw, 0, hl,   hw, 0, -hl
-    );
-    for (let i = 0; i < 6; i++) {
-        normals.push(nr.x, nr.y, nr.z);
-    }
-    uvs.push(
-        0, 0,  1, 0,  0, 1,
-        0, 1,  1, 0,  1, 1
-    );
-
-    // Front gable (+Z)
-    positions.push(
-        -hw, 0, hl,   hw, 0, hl,   0, hRoof, hl
-    );
-    normals.push(0, 0, 1,  0, 0, 1,  0, 0, 1);
-    uvs.push(0, 0,  1, 0,  0.5, 1);
-
-    // Back gable (-Z)
-    positions.push(
-        hw, 0, -hl,   -hw, 0, -hl,   0, hRoof, -hl
-    );
-    normals.push(0, 0, -1,  0, 0, -1,  0, 0, -1);
-    uvs.push(0, 0,  1, 0,  0.5, 1);
-
-    // Bottom face (-Y)
-    positions.push(
-        -hw, 0, -hl,   hw, 0, -hl,   -hw, 0, hl,
-        -hw, 0, hl,    hw, 0, -hl,   hw, 0, hl
-    );
-    for (let i = 0; i < 6; i++) {
-        normals.push(0, -1, 0);
-    }
-    uvs.push(
-        0, 0,  1, 0,  0, 1,
-        0, 1,  1, 0,  1, 1
-    );
 
     const geom = new THREE.BufferGeometry();
     geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
@@ -4558,141 +4640,405 @@ function tintBuildingPart(geo, r, g, b, maxH = 5.0) {
     return geo;
 }
 
+// Helper: Creates a double-sided vertical rectangular quad mapped directly to an atlas sub-box
+function createCutoutQuadGeometry(width, height, uMin, uMax, vMin, vMax) {
+    const hw = width * 0.5;
+    const hh = height * 0.5;
+    const positions = new Float32Array([
+        -hw, -hh, 0,
+         hw, -hh, 0,
+        -hw,  hh, 0,
+         hw,  hh, 0
+    ]);
+    const normals = new Float32Array([
+        0, 0, 1,  0, 0, 1,  0, 0, 1,  0, 0, 1
+    ]);
+    const uvs = new Float32Array([
+        uMin, vMin,
+        uMax, vMin,
+        uMin, vMax,
+        uMax, vMax
+    ]);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(normals, 3));
+    geo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+    geo.setIndex([0, 1, 2, 2, 1, 3]);
+    return geo;
+}
+
+// Helper: Builds a multi-bay fence segment with solid capped posts & Q0 alpha-cutout picket/iron panels
+function buildCutoutFenceSegment(parts, x0, z0, x1, z1, baseY, fenceH, postTint, fenceTint, maxH = 3.0) {
+    const dx = x1 - x0;
+    const dz = z1 - z0;
+    const len = Math.hypot(dx, dz);
+    if (len < 0.35) return;
+
+    const tx = dx / len;
+    const tz = dz / len;
+    const yaw = Math.atan2(-tz, tx);
+    const numBays = Math.max(1, Math.round(len / 1.85));
+    const bayLen = len / numBays;
+
+    for (let b = 0; b <= numBays; b++) {
+        const px = x0 + dx * (b / numBays);
+        const pz = z0 + dz * (b / numBays);
+        // Anchored 0.45m below floorY so posts sit solidly on gentle terrain slopes
+        const postTotalH = fenceH + 0.58;
+        const post = new THREE.BoxGeometry(0.16, postTotalH, 0.16);
+        setGeometryUVBox(post, 0.52, 0.98, 0.02, 0.48);
+        post.translate(px, baseY - 0.45 + postTotalH * 0.5, pz);
+        tintBuildingPart(post, postTint[0], postTint[1], postTint[2], maxH);
+        parts.push(post);
+
+        const cap = new THREE.BoxGeometry(0.22, 0.08, 0.22);
+        setGeometryUVBox(cap, 0.02, 0.48, 0.02, 0.48);
+        cap.translate(px, baseY + fenceH + 0.15, pz);
+        tintBuildingPart(cap, postTint[0] * 1.06, postTint[1] * 1.06, postTint[2] * 1.06, maxH);
+        parts.push(cap);
+
+        if (b < numBays) {
+            const mx = px + tx * (bayLen * 0.5);
+            const mz = pz + tz * (bayLen * 0.5);
+            const panelW = Math.max(0.25, bayLen - 0.10);
+            const panel = createCutoutQuadGeometry(panelW, fenceH, 0.03, 0.47, 0.53, 0.725);
+            panel.rotateY(yaw);
+            panel.translate(mx, baseY + fenceH * 0.5, mz);
+            tintBuildingPart(panel, fenceTint[0], fenceTint[1], fenceTint[2], maxH);
+            parts.push(panel);
+        }
+    }
+}
+
+// Helper: Adds refined window trim (bracketed sill, cornice header, cross-mullions, flanking louvered shutters, optional glass)
+function buildExteriorWindowDetail(parts, cx, cy, cz, winW, winH, thick, axis, trimTint, shutterTint, includeGlass, maxH) {
+    const isZFace = (axis === 'z');
+    const faceSign = isZFace ? (cz >= 0 ? 1 : -1) : (cx >= 0 ? 1 : -1);
+
+    const addBox = (sx, sy, sz, ox, oy, oz, u0, u1, v0, v1, rgb) => {
+        const g = new THREE.BoxGeometry(sx, sy, sz);
+        setGeometryUVBox(g, u0, u1, v0, v1);
+        g.translate(cx + ox, cy + oy, cz + oz);
+        tintBuildingPart(g, rgb[0], rgb[1], rgb[2], maxH);
+        parts.push(g);
+    };
+
+    // Molded projecting sill & stepped pediment lintel
+    if (isZFace) {
+        addBox(winW + 0.24, 0.09, thick + 0.14, 0, -winH * 0.5, 0, 0.02, 0.48, 0.02, 0.48, [0.80, 0.77, 0.71]);
+        addBox(winW + 0.28, 0.12, thick + 0.16, 0, winH * 0.5 + 0.02, 0, 0.02, 0.48, 0.02, 0.48, [0.82, 0.79, 0.73]);
+        // Thin cross-mullions
+        addBox(0.05, winH, 0.05, 0, 0, 0, 0.52, 0.98, 0.02, 0.48, [0.88, 0.85, 0.78]);
+        addBox(winW, 0.045, 0.05, 0, 0.12, 0, 0.52, 0.98, 0.02, 0.48, [0.88, 0.85, 0.78]);
+    } else {
+        addBox(thick + 0.14, 0.09, winW + 0.24, 0, -winH * 0.5, 0, 0.02, 0.48, 0.02, 0.48, [0.80, 0.77, 0.71]);
+        addBox(thick + 0.16, 0.12, winW + 0.28, 0, winH * 0.5 + 0.02, 0, 0.02, 0.48, 0.02, 0.48, [0.82, 0.79, 0.73]);
+        addBox(0.05, winH, 0.05, 0, 0, 0, 0.52, 0.98, 0.02, 0.48, [0.88, 0.85, 0.78]);
+        addBox(0.05, 0.045, winW, 0, 0.12, 0, 0.52, 0.98, 0.02, 0.48, [0.88, 0.85, 0.78]);
+    }
+
+    // Optional solid dark-glazed window backing for closed front piers / 2nd-floor bays
+    if (includeGlass) {
+        if (isZFace) {
+            addBox(winW, winH, 0.04, 0, 0, faceSign * (thick * 0.5 + 0.015), 0.52, 0.98, 0.02, 0.48, [0.14, 0.18, 0.28]);
+            // Mullions visible in front of glass
+            addBox(0.05, winH, 0.04, 0, 0, faceSign * (thick * 0.5 + 0.03), 0.52, 0.98, 0.02, 0.48, [0.90, 0.88, 0.82]);
+            addBox(winW, 0.045, 0.04, 0, 0.12, faceSign * (thick * 0.5 + 0.03), 0.52, 0.98, 0.02, 0.48, [0.90, 0.88, 0.82]);
+        } else {
+            addBox(0.04, winH, winW, faceSign * (thick * 0.5 + 0.015), 0, 0, 0.52, 0.98, 0.02, 0.48, [0.14, 0.18, 0.28]);
+            addBox(0.04, winH, 0.05, faceSign * (thick * 0.5 + 0.03), 0, 0, 0.52, 0.98, 0.02, 0.48, [0.90, 0.88, 0.82]);
+            addBox(0.04, 0.045, winW, faceSign * (thick * 0.5 + 0.03), 0.12, 0, 0.52, 0.98, 0.02, 0.48, [0.90, 0.88, 0.82]);
+        }
+    }
+
+    // Louvered exterior shutters strictly outside the aperture width so bullets/rays never collide
+    if (shutterTint) {
+        const shutW = Math.min(0.46, winW * 0.36);
+        const shutOffset = winW * 0.5 + shutW * 0.5 + 0.08;
+        [-1, 1].forEach(s => {
+            if (isZFace) {
+                addBox(shutW, winH - 0.04, 0.06, s * shutOffset, 0, faceSign * (thick * 0.5 + 0.035), 0.52, 0.98, 0.02, 0.48, shutterTint);
+            } else {
+                addBox(0.06, winH - 0.04, shutW, faceSign * (thick * 0.5 + 0.035), 0, s * shutOffset, 0.52, 0.98, 0.02, 0.48, shutterTint);
+            }
+        });
+    }
+}
+
+const WALL_TILE_W = 4.2;
+const WALL_TILE_H = 6.0;
+
+// Helper: Maps BoxGeometry wall faces to uniform world-space texel density so front, back, and sides
+// share identical brick and clapboard dimensions without horizontal or vertical stretching.
+function applyUniformWallUVs(geo, sx, sy, sz, cy, segX, segY, segZ, uMin, uMax, vMin, vMax, baseY) {
+    const pos = geo.attributes.position;
+    const norm = geo.attributes.normal;
+    const uv = geo.attributes.uv;
+    if (!pos || !uv) return geo;
+
+    const uSpan = uMax - uMin;
+    const vSpan = vMax - vMin;
+    const segWX = sx / Math.max(1, segX);
+    const segWZ = sz / Math.max(1, segZ);
+    const segHY = sy / Math.max(1, segY);
+
+    for (let i = 0; i < pos.count; i++) {
+        const lx = pos.getX(i);
+        const ly = pos.getY(i);
+        const lz = pos.getZ(i);
+        const nx = norm ? norm.getX(i) : 0;
+        const ny = norm ? norm.getY(i) : 0;
+        const nz = norm ? norm.getZ(i) : 1;
+
+        let u = uMin;
+        let v = vMin;
+
+        if (Math.abs(ny) > 0.5) {
+            const tx = Math.min(1, Math.max(0, (lx + sx * 0.5) / sx));
+            const tz = Math.min(1, Math.max(0, (lz + sz * 0.5) / sz));
+            u = uMin + Math.min(1.0, (tx * sx) / WALL_TILE_W) * uSpan;
+            v = vMin + Math.min(0.15, (tz * sz) / WALL_TILE_H) * vSpan;
+        } else {
+            if (Math.abs(nz) >= Math.abs(nx)) {
+                const kx = Math.round(((lx + sx * 0.5) / sx) * segX);
+                const uHigh = uMin + Math.min(1.0, segWX / WALL_TILE_W) * uSpan;
+                u = (kx % 2 === 0) ? uMin : uHigh;
+            } else {
+                const kz = Math.round(((lz + sz * 0.5) / sz) * segZ);
+                const uHigh = uMin + Math.min(1.0, segWZ / WALL_TILE_W) * uSpan;
+                u = (kz % 2 === 0) ? uMin : uHigh;
+            }
+
+            if (segY === 1) {
+                const wy = Math.max(0.0, (ly + cy) - baseY);
+                v = vMin + Math.min(1.0, wy / WALL_TILE_H) * vSpan;
+            } else {
+                const ky = Math.round(((ly + sy * 0.5) / sy) * segY);
+                const vHigh = vMin + Math.min(1.0, segHY / WALL_TILE_H) * vSpan;
+                v = (ky % 2 === 0) ? vMin : vHigh;
+            }
+        }
+        uv.setXY(i, u, v);
+    }
+    return geo;
+}
+
+function createUniformWallBox(sx, sy, sz, cx, cy, cz, uMin, uMax, vMin, vMax, baseY) {
+    const segX = Math.max(1, Math.ceil(sx / WALL_TILE_W));
+    const segY = Math.max(1, Math.ceil(sy / WALL_TILE_H));
+    const segZ = Math.max(1, Math.ceil(sz / WALL_TILE_W));
+    const box = new THREE.BoxGeometry(sx, sy, sz, segX, segY, segZ);
+    applyUniformWallUVs(box, sx, sy, sz, cy, segX, segY, segZ, uMin, uMax, vMin, vMax, baseY);
+    box.translate(cx, cy, cz);
+    return box;
+}
+
+// Helper: Builds a solid 3D triangular brick/wood gable wall split cleanly at center (x = 0) with uniform texel scale
+function createUniformGableWall(w, gableH, wt, yBase, zCenter, uMin, uMax, vMin, vMax) {
+    const hw = w * 0.5;
+    const hwt = wt * 0.5;
+    const zF = zCenter + hwt;
+    const zB = zCenter - hwt;
+    const uSpan = uMax - uMin;
+    const vSpan = vMax - vMin;
+    const uEdge = uMin + Math.min(1.0, hw / WALL_TILE_W) * uSpan;
+    const vTop = vMin + Math.min(1.0, gableH / WALL_TILE_H) * vSpan;
+
+    const positions = [
+        // Front (+Z) left & right halves (meets flush at x = 0 so |du/dx| matches rectangular walls)
+        -hw, yBase, zF,   0, yBase, zF,   0, yBase + gableH, zF,
+        0, yBase, zF,     hw, yBase, zF,  0, yBase + gableH, zF,
+        // Back (-Z) right & left halves
+        0, yBase, zB,     -hw, yBase, zB, 0, yBase + gableH, zB,
+        hw, yBase, zB,    0, yBase, zB,   0, yBase + gableH, zB,
+        // Top sloped gable caps (tucked under roof)
+        -hw, yBase, zB,   -hw, yBase, zF,  0, yBase + gableH, zF,
+        -hw, yBase, zB,   0, yBase + gableH, zF,  0, yBase + gableH, zB,
+        0, yBase + gableH, zF,  hw, yBase, zF,  hw, yBase, zB,
+        0, yBase + gableH, zF,  hw, yBase, zB,  0, yBase + gableH, zB
+    ];
+    const uvs = [
+        uEdge, vMin,  uMin, vMin,  uMin, vTop,
+        uMin, vMin,   uEdge, vMin, uMin, vTop,
+        uMin, vMin,   uEdge, vMin, uMin, vTop,
+        uEdge, vMin,  uMin, vMin,  uMin, vTop,
+        uMin, vMin,   uEdge, vMin, uMin, vTop,
+        uMin, vMin,   uMin, vTop,  uEdge, vTop,
+        uMin, vTop,   uEdge, vMin, uMin, vMin,
+        uMin, vTop,   uMin, vMin,  uEdge, vTop
+    ];
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    geo.computeVertexNormals();
+    return geo;
+}
+
 // Helper: Builds a hollow walk-in house shell with 4 outer walls, 3D window openings, interior floor,
-// timber architectural framing, and an open front doorway with a swung-open door panel.
+// uniform brick/wood scaling across all faces, gables, louvered shutters, open front door, and cutout courtyard fence.
 function buildHollowHouseShell(parts, opts) {
-    const w = opts.w || 5.0;
-    const h = opts.h || 3.4;
-    const l = opts.l || 6.6;
-    const wt = opts.wallThick || 0.32;
-    const doorW = opts.doorW || 1.65;
-    const doorH = opts.doorH || 2.45;
+    const w = opts.w || 6.6;
+    const h = opts.h || 4.0;
+    const l = opts.l || 8.4;
+    const wt = opts.wallThick || 0.34;
+    const doorW = opts.doorW || 1.72;
+    const doorH = opts.doorH || 2.52;
     const floorY = opts.floorY !== undefined ? opts.floorY : 0.16;
-    // Default to Village Atlas Q2 (clean masonry/plaster without baked painted windows)
+    // Default to Village Atlas Q2 (clean masonry/brick without baked painted windows)
     const u0 = opts.u0 !== undefined ? opts.u0 : 0.02;
     const u1 = opts.u1 !== undefined ? opts.u1 : 0.48;
     const v0 = opts.v0 !== undefined ? opts.v0 : 0.02;
     const v1 = opts.v1 !== undefined ? opts.v1 : 0.48;
-    const tint = opts.tint || [0.92, 0.88, 0.80];
+    const style = opts.style || (u0 > 0.50 ? 'wood' : 'brick');
+    const tint = opts.tint || (style === 'wood' ? [0.82, 0.62, 0.42] : [0.88, 0.56, 0.46]);
     const foundTint = opts.foundTint || [0.62, 0.59, 0.55];
     const floorTint = opts.floorTint || [0.58, 0.44, 0.30];
     const doorTint = opts.doorTint || [0.42, 0.28, 0.18];
+    const quoinTint = opts.quoinTint || [0.86, 0.82, 0.74];
+    const corniceTint = opts.corniceTint || ((style === 'wood') ? doorTint : quoinTint);
+    const shutterTint = opts.shutterTint !== undefined
+        ? opts.shutterTint
+        : (style === 'wood' ? [0.54, 0.22, 0.19] : (style === 'adobe' ? [0.28, 0.48, 0.58] : [0.22, 0.40, 0.27]));
 
     const addPart = (geo, uMin, uMax, vMin, vMax, rgb) => {
         setGeometryUVBox(geo, uMin, uMax, vMin, vMax);
-        if (rgb) tintBuildingPart(geo, rgb[0], rgb[1], rgb[2], h + 1.5);
+        if (rgb) tintBuildingPart(geo, rgb[0], rgb[1], rgb[2], h + 2.5);
         parts.push(geo);
     };
 
+    const addUniformWall = (sx, sy, sz, cx, cy, cz, rgb) => {
+        const g = createUniformWallBox(sx, sy, sz, cx, cy, cz, u0, u1, v0, v1, floorY);
+        if (rgb) tintBuildingPart(g, rgb[0], rgb[1], rgb[2], h + 2.5);
+        parts.push(g);
+    };
+
     // 1. Sub-terrain foundation plinth (stops at y = floorY - 0.02 so doorway is never blocked)
-    const foundH = 1.35;
-    const found = new THREE.BoxGeometry(w + 0.28, foundH, l + 0.28);
-    found.translate(0, floorY - 0.02 - foundH * 0.5, 0);
-    addPart(found, 0.02, 0.48, 0.02, 0.48, foundTint);
+    const foundH = 1.45;
+    const found = createUniformWallBox(w + 0.32, foundH, l + 0.32, 0, floorY - 0.02 - foundH * 0.5, 0, 0.02, 0.48, 0.02, 0.48, floorY - foundH);
+    tintBuildingPart(found, foundTint[0], foundTint[1], foundTint[2], h + 2.5);
+    parts.push(found);
+
+    // Molded stone water-table plinth skirt around lower wall perimeter (clear of front doorway)
+    const plinthH = 0.34;
+    const plinthBack = createUniformWallBox(w + 0.14, plinthH, wt + 0.08, 0, floorY + plinthH * 0.5, -l * 0.5 + wt * 0.5 - 0.02, 0.02, 0.48, 0.02, 0.48, floorY);
+    tintBuildingPart(plinthBack, foundTint[0], foundTint[1], foundTint[2], h + 2.5);
+    parts.push(plinthBack);
+    [-1, 1].forEach(side => {
+        const plinthSide = createUniformWallBox(wt + 0.08, plinthH, l + 0.10, side * (w * 0.5 - wt * 0.5 + 0.02), floorY + plinthH * 0.5, 0, 0.02, 0.48, 0.02, 0.48, floorY);
+        tintBuildingPart(plinthSide, foundTint[0], foundTint[1], foundTint[2], h + 2.5);
+        parts.push(plinthSide);
+    });
 
     // 2. Interior Floor Slab (top surface sits exactly at y = floorY so rugs above never Z-fight)
     const floorSlab = new THREE.BoxGeometry(w - wt * 0.5, 0.12, l - wt * 0.5);
     floorSlab.translate(0, floorY - 0.06, 0);
     addPart(floorSlab, 0.52, 0.98, 0.02, 0.48, floorTint);
 
-    // 3. Back Wall (-Z) with 3D framed window opening
-    const winW = Math.min(1.4, w * 0.30);
-    const winH = 1.05;
-    const winSillH = 1.15;
+    // 3. Back Wall (-Z) with 3D framed window opening (uniform brick/wood scale)
+    const winW = Math.min(1.55, w * 0.28);
+    const winH = 1.15;
+    const winSillH = 1.12;
     const backZ = -l * 0.5 + wt * 0.5;
-    const backSill = new THREE.BoxGeometry(w, winSillH, wt);
-    backSill.translate(0, floorY + winSillH * 0.5, backZ);
-    addPart(backSill, u0, u1, v0, v1, tint);
+    addUniformWall(w, winSillH, wt, 0, floorY + winSillH * 0.5, backZ, tint);
 
     const backLintelH = Math.max(0.3, h - (winSillH + winH));
-    const backLintel = new THREE.BoxGeometry(w, backLintelH, wt);
-    backLintel.translate(0, floorY + h - backLintelH * 0.5, backZ);
-    addPart(backLintel, u0, u1, v0, v1, tint);
+    addUniformWall(w, backLintelH, wt, 0, floorY + h - backLintelH * 0.5, backZ, tint);
 
     const backPierW = (w - winW) * 0.5;
     [-1, 1].forEach(side => {
-        const pier = new THREE.BoxGeometry(backPierW, winH, wt);
-        pier.translate(side * (winW * 0.5 + backPierW * 0.5), floorY + winSillH + winH * 0.5, backZ);
-        addPart(pier, u0, u1, v0, v1, tint);
+        addUniformWall(backPierW, winH, wt, side * (winW * 0.5 + backPierW * 0.5), floorY + winSillH + winH * 0.5, backZ, tint);
     });
+    buildExteriorWindowDetail(parts, 0, floorY + winSillH + winH * 0.5, backZ, winW, winH, wt, 'z', doorTint, shutterTint, false, h + 1.5);
 
-    // Back window 3D timber sill, lintel & mullion frame
-    const backWinSill = new THREE.BoxGeometry(winW + 0.18, 0.08, wt + 0.08);
-    backWinSill.translate(0, floorY + winSillH, backZ);
-    addPart(backWinSill, 0.52, 0.98, 0.02, 0.48, doorTint);
-    const backWinHead = new THREE.BoxGeometry(winW + 0.18, 0.08, wt + 0.08);
-    backWinHead.translate(0, floorY + winSillH + winH, backZ);
-    addPart(backWinHead, 0.52, 0.98, 0.02, 0.48, doorTint);
-    const backMullionV = new THREE.BoxGeometry(0.06, winH, 0.06);
-    backMullionV.translate(0, floorY + winSillH + winH * 0.5, backZ);
-    addPart(backMullionV, 0.52, 0.98, 0.02, 0.48, doorTint);
-
-    // 4. Left (-X) & Right (+X) Side Walls with 3D window openings
-    const sideWinL = Math.min(1.5, l * 0.26);
+    // 4. Left (-X) & Right (+X) Side Walls with 3D window openings (uniform brick/wood scale matching front!)
+    const sideWinL = Math.min(1.70, l * 0.24);
     const sidePierL = (l - sideWinL) * 0.5;
     [-1, 1].forEach(side => {
         const sideX = side * (w * 0.5 - wt * 0.5);
-        const sSill = new THREE.BoxGeometry(wt, winSillH, l);
-        sSill.translate(sideX, floorY + winSillH * 0.5, 0);
-        addPart(sSill, u0, u1, v0, v1, tint);
-
-        const sLintel = new THREE.BoxGeometry(wt, backLintelH, l);
-        sLintel.translate(sideX, floorY + h - backLintelH * 0.5, 0);
-        addPart(sLintel, u0, u1, v0, v1, tint);
+        addUniformWall(wt, winSillH, l, sideX, floorY + winSillH * 0.5, 0, tint);
+        addUniformWall(wt, backLintelH, l, sideX, floorY + h - backLintelH * 0.5, 0, tint);
 
         [-1, 1].forEach(zSide => {
-            const sPier = new THREE.BoxGeometry(wt, winH, sidePierL);
-            sPier.translate(sideX, floorY + winSillH + winH * 0.5, zSide * (sideWinL * 0.5 + sidePierL * 0.5));
-            addPart(sPier, u0, u1, v0, v1, tint);
+            addUniformWall(wt, winH, sidePierL, sideX, floorY + winSillH + winH * 0.5, zSide * (sideWinL * 0.5 + sidePierL * 0.5), tint);
         });
-
-        // Side window 3D timber sill, header & mullion crossbars
-        const sillTrim = new THREE.BoxGeometry(wt + 0.08, 0.08, sideWinL + 0.18);
-        sillTrim.translate(sideX, floorY + winSillH, 0);
-        addPart(sillTrim, 0.52, 0.98, 0.02, 0.48, doorTint);
-
-        const headTrim = new THREE.BoxGeometry(wt + 0.08, 0.08, sideWinL + 0.18);
-        headTrim.translate(sideX, floorY + winSillH + winH, 0);
-        addPart(headTrim, 0.52, 0.98, 0.02, 0.48, doorTint);
-
-        const sideMullionV = new THREE.BoxGeometry(0.06, winH, 0.06);
-        sideMullionV.translate(sideX, floorY + winSillH + winH * 0.5, 0);
-        addPart(sideMullionV, 0.52, 0.98, 0.02, 0.48, doorTint);
+        buildExteriorWindowDetail(parts, sideX, floorY + winSillH + winH * 0.5, 0, sideWinL, winH, wt, 'x', doorTint, shutterTint, false, h + 1.5);
     });
 
-    // 5. Front Wall (+Z) split around the Open Walk-In Doorway
+    // 5. Front Wall (+Z) split around the Open Walk-In Doorway (uniform brick/wood scale)
     const frontZ = l * 0.5 - wt * 0.5;
     const frontPierW = Math.max(0.45, (w - doorW) * 0.5);
     [-1, 1].forEach(side => {
-        const fPier = new THREE.BoxGeometry(frontPierW, h, wt);
-        fPier.translate(side * (doorW * 0.5 + frontPierW * 0.5), floorY + h * 0.5, frontZ);
-        addPart(fPier, u0, u1, v0, v1, tint);
+        const pierX = side * (doorW * 0.5 + frontPierW * 0.5);
+        addUniformWall(frontPierW, h, wt, pierX, floorY + h * 0.5, frontZ, tint);
+
+        const fPlinth = createUniformWallBox(frontPierW + 0.06, plinthH, wt + 0.08, pierX, floorY + plinthH * 0.5, frontZ + 0.02, 0.02, 0.48, 0.02, 0.48, floorY);
+        tintBuildingPart(fPlinth, foundTint[0], foundTint[1], foundTint[2], h + 2.5);
+        parts.push(fPlinth);
+
+        // Decorative exterior flanking shuttered windows on wide front piers
+        if (frontPierW >= 1.55) {
+            const frontWinW = Math.min(1.05, frontPierW * 0.50);
+            buildExteriorWindowDetail(parts, pierX, floorY + winSillH + winH * 0.5, frontZ, frontWinW, winH * 0.94, wt, 'z', doorTint, shutterTint, true, h + 1.5);
+        }
     });
 
     const doorLintelH = Math.max(0.28, h - doorH);
-    const doorLintel = new THREE.BoxGeometry(doorW, doorLintelH, wt);
-    doorLintel.translate(0, floorY + doorH + doorLintelH * 0.5, frontZ);
-    addPart(doorLintel, u0, u1, v0, v1, tint);
+    addUniformWall(doorW, doorLintelH, wt, 0, floorY + doorH + doorLintelH * 0.5, frontZ, tint);
 
-    // 6. Corner Timber Framing Posts (gives crisp architectural definition without UV distortion)
-    [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([cx, cz]) => {
-        const cornerPost = new THREE.BoxGeometry(0.14, h, 0.14);
-        cornerPost.translate(cx * (w * 0.5 - 0.04), floorY + h * 0.5, cz * (l * 0.5 - 0.04));
-        addPart(cornerPost, 0.52, 0.98, 0.02, 0.48, doorTint);
-    });
+    // Optional Brick/Wood Triangular Gable Walls above Front & Back Eaves
+    const gableH = opts.gableH || 0;
+    if (gableH > 0.1) {
+        [frontZ, backZ].forEach(gz => {
+            const gWall = createUniformGableWall(w, gableH, wt, floorY + h, gz, u0, u1, v0, v1);
+            tintBuildingPart(gWall, tint[0], tint[1], tint[2], h + gableH + 1.5);
+            parts.push(gWall);
+        });
+    }
 
-    // 7. Door Frame Jambs, Threshold Step & Swung-Open Wooden Door Leaf
+    // Molded upper eave frieze cornice band
+    const cornice = new THREE.BoxGeometry(w + 0.24, 0.18, l + 0.24);
+    cornice.translate(0, floorY + h - 0.08, 0);
+    addPart(cornice, (style === 'wood') ? 0.52 : 0.02, (style === 'wood') ? 0.98 : 0.48, 0.02, 0.48, corniceTint);
+
+    // 6. Architectural Corner Trim: Carved Timber Posts (Wood) or Dressed Stone Quoins (Brick/Stone)
+    if (style === 'wood') {
+        [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([cx, cz]) => {
+            const cornerPost = new THREE.BoxGeometry(0.18, h, 0.18);
+            cornerPost.translate(cx * (w * 0.5 - 0.04), floorY + h * 0.5, cz * (l * 0.5 - 0.04));
+            addPart(cornerPost, 0.52, 0.98, 0.02, 0.48, doorTint);
+            const brace = new THREE.BoxGeometry(0.22, 0.42, 0.22);
+            brace.translate(cx * (w * 0.5 - 0.04), floorY + h - 0.34, cz * (l * 0.5 - 0.04));
+            addPart(brace, 0.52, 0.98, 0.02, 0.48, doorTint);
+        });
+    } else if (style === 'brick' || style === 'stone') {
+        const quoinStep = 0.58;
+        const rows = Math.max(4, Math.floor((h - 0.35) / quoinStep));
+        [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([cx, cz]) => {
+            for (let q = 0; q < rows; q++) {
+                const longX = (q % 2 === 0);
+                const qGeo = new THREE.BoxGeometry(longX ? 0.42 : 0.26, 0.34, longX ? 0.26 : 0.42);
+                qGeo.translate(
+                    cx * (w * 0.5 - (longX ? 0.16 : 0.08)),
+                    floorY + 0.45 + q * quoinStep,
+                    cz * (l * 0.5 - (longX ? 0.08 : 0.16))
+                );
+                addPart(qGeo, 0.02, 0.48, 0.02, 0.48, quoinTint);
+            }
+        });
+    }
+
+    // 7. Elegant Portico Pilasters, Header Pediment, Threshold Step & Swung-Open Wooden Door Leaf
     [-1, 1].forEach(side => {
-        const jamb = new THREE.BoxGeometry(0.10, doorH, wt + 0.06);
-        jamb.translate(side * (doorW * 0.5 - 0.03), floorY + doorH * 0.5, frontZ);
-        addPart(jamb, 0.52, 0.98, 0.02, 0.48, doorTint);
+        const jamb = new THREE.BoxGeometry(0.14, doorH + 0.06, wt + 0.12);
+        jamb.translate(side * (doorW * 0.5 - 0.02), floorY + doorH * 0.5, frontZ + 0.02);
+        addPart(jamb, (style === 'wood') ? 0.52 : 0.02, (style === 'wood') ? 0.98 : 0.48, 0.02, 0.48, (style === 'wood') ? doorTint : quoinTint);
     });
-    const headerJamb = new THREE.BoxGeometry(doorW + 0.16, 0.12, wt + 0.08);
-    headerJamb.translate(0, floorY + doorH + 0.02, frontZ);
-    addPart(headerJamb, 0.52, 0.98, 0.02, 0.48, doorTint);
+    const headerJamb = new THREE.BoxGeometry(doorW + 0.34, 0.18, wt + 0.16);
+    headerJamb.translate(0, floorY + doorH + 0.06, frontZ + 0.03);
+    addPart(headerJamb, (style === 'wood') ? 0.52 : 0.02, (style === 'wood') ? 0.98 : 0.48, 0.02, 0.48, (style === 'wood') ? doorTint : quoinTint);
 
-    const doorStep = new THREE.BoxGeometry(doorW + 0.45, 0.14, 0.65);
-    doorStep.translate(0, floorY - 0.07, l * 0.5 + 0.25);
+    const doorStep = new THREE.BoxGeometry(doorW + 0.65, 0.14, 0.85);
+    doorStep.translate(0, floorY - 0.07, l * 0.5 + 0.35);
     addPart(doorStep, 0.02, 0.48, 0.02, 0.48, foundTint);
 
     // Open wooden door panel swung outward on its left hinge so player can walk right in
@@ -4704,203 +5050,396 @@ function buildHollowHouseShell(parts, opts) {
     doorLeaf.translate(-doorW * 0.5 + 0.06, floorY + leafH * 0.5 + 0.02, l * 0.5 + 0.02);
     addPart(doorLeaf, 0.52, 0.98, 0.02, 0.48, doorTint);
 
-    return { w, h, l, wallThick: wt, doorW, doorH, floorY, winW, winH, winSillH, sideWinL };
+    // 8. Surrounding Courtyard Alpha-Cutout Fence with Open Front Walkway Gate
+    const includeFence = (opts.includeFence !== false);
+    if (includeFence) {
+        const fenceH = opts.fenceH || 1.08;
+        const fenceFrontOffset = opts.fenceFrontOffset !== undefined ? opts.fenceFrontOffset : 1.95;
+        const fenceSideOffset = opts.fenceSideOffset !== undefined ? opts.fenceSideOffset : 1.45;
+        const fenceZ = l * 0.5 + fenceFrontOffset;
+        const backFenceZ = -l * 0.5 - 0.90;
+        const fenceX = w * 0.5 + fenceSideOffset;
+        const gateHalfW = doorW * 0.5 + 0.72;
+        const fenceTint = opts.fenceTint || (style === 'wood' ? [0.76, 0.58, 0.40] : [0.92, 0.89, 0.82]);
+        const postTint = opts.postTint || (style === 'wood' ? [0.46, 0.31, 0.19] : [0.76, 0.72, 0.66]);
+
+        buildCutoutFenceSegment(parts, -fenceX, fenceZ, -gateHalfW, fenceZ, floorY, fenceH, postTint, fenceTint, h + 1.5);
+        buildCutoutFenceSegment(parts, gateHalfW, fenceZ, fenceX, fenceZ, floorY, fenceH, postTint, fenceTint, h + 1.5);
+        buildCutoutFenceSegment(parts, -fenceX, backFenceZ, -fenceX, fenceZ, floorY, fenceH, postTint, fenceTint, h + 1.5);
+        buildCutoutFenceSegment(parts, fenceX, backFenceZ, fenceX, fenceZ, floorY, fenceH, postTint, fenceTint, h + 1.5);
+        buildCutoutFenceSegment(parts, -fenceX, backFenceZ, fenceX, backFenceZ, floorY, fenceH, postTint, fenceTint, h + 1.5);
+    }
+
+    return {
+        w, h, l, wallThick: wt, doorW, doorH, floorY, winW, winH, winSillH, sideWinL,
+        houseStyle: style,
+        hasCutoutFence: includeFence
+    };
 }
 
 function createEuropeanCottageGeometry() {
     const parts = [];
-    const w = 5.0, h = 3.2, l = 6.6;
+    const w = 6.6, h = 4.0, l = 8.4;
     const floorY = 0.16;
+    const roofW = w + 1.4;
+    const roofH = 2.85;
+    const gableH = roofH * (w / roofW);
+    const eaveDrop = roofH - gableH;
+    const wallTint = [0.86, 0.54, 0.42];
+    const roofTint = [0.76, 0.38, 0.26];
 
     const spec = buildHollowHouseShell(parts, {
-        w, h, l, wallThick: 0.32, doorW: 1.65, doorH: 2.45, floorY,
-        tint: [0.94, 0.90, 0.82],
-        foundTint: [0.64, 0.61, 0.57],
+        w, h, l, wallThick: 0.34, doorW: 1.72, doorH: 2.52, floorY, gableH,
+        style: 'brick',
+        u0: 0.02, u1: 0.48, v0: 0.02, v1: 0.48,
+        tint: wallTint,
+        foundTint: [0.64, 0.59, 0.53],
         floorTint: [0.58, 0.44, 0.30],
-        doorTint: [0.42, 0.28, 0.18]
+        doorTint: [0.44, 0.30, 0.20],
+        quoinTint: [0.88, 0.82, 0.72],
+        shutterTint: [0.34, 0.44, 0.34],
+        fenceTint: [0.88, 0.82, 0.72],
+        postTint: [0.50, 0.36, 0.26]
     });
 
-    // Overhanging Pitched Terracotta Roof with Exposed Eaves (Q1: [0.5..1.0, 0.5..1.0])
-    const roof = createPitchedRoofGeometry(w + 1.2, l + 1.3, 2.65);
+    // Overhanging Pitched Russet-Terracotta Roof matching warm brick palette (Q1: [0.5..1.0, 0.5..1.0])
+    const roof = createPitchedRoofGeometry(roofW, l + 1.4, roofH, false);
     setGeometryUVBox(roof, 0.52, 0.98, 0.52, 0.98);
-    roof.translate(0, floorY + h, 0);
-    parts.push(roof);
+    roof.translate(0, floorY + h - eaveDrop, 0);
+    parts.push(tintBuildingPart(roof, roofTint[0], roofTint[1], roofTint[2], h + roofH + 1.0));
 
-    // Eave fascia rafter beam (Q3: Timber)
-    const fasciaL = new THREE.BoxGeometry(0.18, 0.22, l + 1.35);
-    setGeometryUVBox(fasciaL, 0.52, 0.98, 0.02, 0.48);
-    fasciaL.translate(-(w + 1.2) * 0.5, floorY + h - 0.05, 0);
-    parts.push(fasciaL);
+    // Eave fascia rafter beams (Q3: Timber)
+    [-1, 1].forEach(side => {
+        const fascia = new THREE.BoxGeometry(0.18, 0.20, l + 1.44);
+        setGeometryUVBox(fascia, 0.52, 0.98, 0.02, 0.48);
+        fascia.translate(side * roofW * 0.5, floorY + h - eaveDrop + 0.06, 0);
+        parts.push(tintBuildingPart(fascia, 0.46, 0.32, 0.20, h + 1.0));
+    });
 
-    const fasciaR = new THREE.BoxGeometry(0.18, 0.22, l + 1.35);
-    setGeometryUVBox(fasciaR, 0.52, 0.98, 0.02, 0.48);
-    fasciaR.translate((w + 1.2) * 0.5, floorY + h - 0.05, 0);
-    parts.push(fasciaR);
+    // Front Pitched Roof Dormer Window (uniform brickwork + matching russet roof)
+    const dormerY = floorY + h + 0.55;
+    const dormer = createUniformWallBox(1.55, 1.15, 1.65, 0, dormerY + 0.55, l * 0.22, 0.02, 0.48, 0.02, 0.48, dormerY);
+    parts.push(tintBuildingPart(dormer, wallTint[0], wallTint[1], wallTint[2], h + 2.5));
+    const dormerRoof = createPitchedRoofGeometry(1.85, 1.95, 0.75, true);
+    setGeometryUVBox(dormerRoof, 0.52, 0.98, 0.52, 0.98);
+    dormerRoof.translate(0, dormerY + 1.05, l * 0.22 + 0.06);
+    parts.push(tintBuildingPart(dormerRoof, roofTint[0], roofTint[1], roofTint[2], h + 3.0));
+    buildExteriorWindowDetail(parts, 0, dormerY + 0.55, l * 0.22, 0.85, 0.78, 1.65, 'z', [0.44, 0.30, 0.20], [0.34, 0.44, 0.34], true, h + 2.5);
 
-    // Corbeled Fieldstone Chimney Stack & Pots (Q2)
-    const chim = new THREE.BoxGeometry(0.85, 3.0, 0.85);
-    setGeometryUVBox(chim, 0.02, 0.48, 0.02, 0.48);
-    chim.translate(w * 0.24, floorY + h + 1.4, -l * 0.25);
-    parts.push(chim);
+    // Corbeled Brick Chimney Stack & Twin Terracotta Pots (Q2 uniform brick)
+    const chim = createUniformWallBox(0.95, 3.3, 0.95, w * 0.24, floorY + h + 1.45, -l * 0.24, 0.02, 0.48, 0.02, 0.48, floorY + h - 0.2);
+    parts.push(tintBuildingPart(chim, 0.82, 0.48, 0.38, h + 3.5));
+
+    const chimCap = new THREE.BoxGeometry(1.12, 0.20, 1.12);
+    setGeometryUVBox(chimCap, 0.02, 0.48, 0.02, 0.48);
+    chimCap.translate(w * 0.24, floorY + h + 3.15, -l * 0.24);
+    parts.push(tintBuildingPart(chimCap, 0.88, 0.82, 0.72, h + 3.6));
 
     for (let cp = -1; cp <= 1; cp += 2) {
-        const pot = new THREE.CylinderGeometry(0.12, 0.15, 0.65, 8);
-        setGeometryUVBox(pot, 0.52, 0.98, 0.52, 0.98); // Terracotta
-        pot.translate(w * 0.24 + cp * 0.2, floorY + h + 3.1, -l * 0.25);
-        parts.push(pot);
+        const pot = new THREE.CylinderGeometry(0.13, 0.16, 0.70, 8);
+        setGeometryUVBox(pot, 0.52, 0.98, 0.52, 0.98);
+        pot.translate(w * 0.24 + cp * 0.22, floorY + h + 3.48, -l * 0.24);
+        parts.push(tintBuildingPart(pot, roofTint[0], roofTint[1], roofTint[2], h + 4.0));
     }
 
     // Front Timber Entrance Porch Canopy above Open Door (Q3 Posts, Q1 Tiled Roof)
-    const porchRoof = createPitchedRoofGeometry(2.3, 1.7, 0.85);
+    const porchRoof = createPitchedRoofGeometry(2.6, 1.9, 0.95, true);
     setGeometryUVBox(porchRoof, 0.52, 0.98, 0.52, 0.98);
-    porchRoof.translate(0, floorY + 2.65, l * 0.5 + 0.75);
-    parts.push(porchRoof);
+    porchRoof.translate(0, floorY + 2.75, l * 0.5 + 0.85);
+    parts.push(tintBuildingPart(porchRoof, roofTint[0], roofTint[1], roofTint[2], h + 1.0));
 
-    [-0.95, 0.95].forEach(px => {
-        const post = new THREE.BoxGeometry(0.14, 2.55, 0.14);
+    [-1.08, 1.08].forEach(px => {
+        const post = new THREE.BoxGeometry(0.16, 2.75, 0.16);
         setGeometryUVBox(post, 0.52, 0.98, 0.02, 0.48);
-        post.translate(px, floorY + 1.25, l * 0.5 + 1.45);
-        parts.push(post);
+        post.translate(px, floorY + 1.38, l * 0.5 + 1.55);
+        parts.push(tintBuildingPart(post, 0.48, 0.34, 0.22, h));
     });
 
     const merged = mergeBufferGeometries(parts);
-    merged.userData = { enterableSpec: spec };
+    merged.userData = {
+        enterableSpec: spec,
+        houseStyle: 'brick',
+        hasCutoutFence: spec.hasCutoutFence,
+        colorScheme: { wall: wallTint, roof: roofTint }
+    };
     return merged;
 }
 
-// 5G. Smoldering Ruined House (Walk-In & Standable Multi-Level Ruin with Stepped Masonry Ledges)
+// 5G. Overgrown Weathered Ruined House (Aged, Battle-Scratched Masonry, Sculpted Moss & Alpha-Cutout Climbing Vines)
+function tintWeatheredRuinPart(geo, r, g, b, mossWeight = 0.42) {
+    const pos = geo.attributes.position;
+    const norm = geo.attributes.normal;
+    const c = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i++) {
+        const vx = pos.getX(i), vy = pos.getY(i), vz = geo.attributes.position.getZ(i);
+        const ny = norm ? norm.getY(i) : 0.0;
+        const soot = 0.46 + 0.36 * Math.min(1.0, Math.max(0.0, (vy + 0.2) / 3.4));
+        const streak = 0.86 + 0.22 * Math.sin(vx * 3.1 + vy * 2.4 - vz * 2.7);
+        const scratchBand = (Math.abs(Math.sin(vx * 5.8 + vy * 8.4 + vz * 4.2)) > 0.92) ? 0.68 : 1.0;
+
+        let cr = r * soot * streak * scratchBand;
+        let cg = g * soot * streak * scratchBand;
+        let cb = b * soot * streak * scratchBand;
+
+        // Lush moss tinting on upward broken ledges, damp lower masonry, & damp corners
+        const dampBase = Math.max(0.0, 1.0 - Math.max(0.0, vy) / 1.15) * 0.55;
+        const topMoss = Math.max(0.0, ny - 0.35) * 0.85;
+        const patchNoise = Math.sin(vx * 2.3 + vz * 2.1 + vy * 1.4) * 0.5 + 0.5;
+        const m = Math.min(0.75, mossWeight * (dampBase + topMoss * (0.45 + patchNoise * 0.65)));
+        cr = cr * (1.0 - m) + 0.18 * m;
+        cg = cg * (1.0 - m) + 0.42 * m;
+        cb = cb * (1.0 - m) + 0.14 * m;
+
+        c[i * 3 + 0] = cr;
+        c[i * 3 + 1] = cg;
+        c[i * 3 + 2] = cb;
+    }
+    geo.setAttribute('color', new THREE.BufferAttribute(c, 3));
+    return geo;
+}
+
+function addMossCushion(parts, x, y, z, sx, sy, sz, rot = 0.4, r = 0.19, g = 0.44, b = 0.14) {
+    const pad = new THREE.DodecahedronGeometry(1.0, 1);
+    const p = pad.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+        const vx = p.getX(i), vy = p.getY(i), vz = p.getZ(i);
+        const lump = 0.88 + 0.24 * Math.sin(vx * 4.5 + vz * 3.7);
+        p.setXYZ(i, vx * sx * lump, Math.max(-0.25 * sy, vy * sy * lump), vz * sz * lump);
+    }
+    pad.computeVertexNormals();
+    pad.rotateY(rot);
+    pad.translate(x, y, z);
+    setGeometryUVBox(pad, 0.02, 0.48, 0.02, 0.48);
+    const col = new Float32Array(p.count * 3);
+    for (let i = 0; i < p.count; i++) {
+        const shade = 0.75 + 0.28 * Math.max(0.0, Math.min(1.0, (pad.attributes.normal.getY(i) + 1.0) * 0.5));
+        col[i * 3 + 0] = r * shade;
+        col[i * 3 + 1] = g * shade;
+        col[i * 3 + 2] = b * shade;
+    }
+    pad.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    parts.push(pad);
+}
+
+function addCutoutVineDrape(parts, width, height, arch, rotY, rotX, px, py, pz, tintRgb = [0.68, 0.86, 0.56]) {
+    const vine = createCurvedFoliageCard(width, height, arch, 0.03, 0.47, 0.76, 0.98);
+    vine.rotateX(rotX);
+    vine.rotateY(rotY);
+    vine.translate(px, py, pz);
+    tintBuildingPart(vine, tintRgb[0], tintRgb[1], tintRgb[2], 6.0);
+    parts.push(vine);
+}
+
+function add3DScratchCrack(parts, x, y, z, len, thickness, rotY, rotZ) {
+    const t = Math.min(thickness, 0.035);
+    const crack = new THREE.BoxGeometry(t, len, t);
+    setGeometryUVBox(crack, 0.02, 0.48, 0.02, 0.48);
+    crack.rotateZ(rotZ);
+    crack.rotateY(rotY);
+    crack.translate(x, y, z);
+    tintBuildingPart(crack, 0.14, 0.12, 0.10, 5.0);
+    parts.push(crack);
+}
+
 function createRuinedHouseGeometry() {
     const parts = [];
-    const w = 5.4, h = 3.0, l = 6.6;
+    const w = 6.8, h = 3.9, l = 8.2;
 
-    function tintRuinPart(geo, r, g, b) {
-        const c = new Float32Array(geo.attributes.position.count * 3);
-        for (let i = 0; i < geo.attributes.position.count; i++) {
-            const vy = geo.attributes.position.getY(i);
-            const soot = 0.42 + 0.38 * Math.min(1.0, Math.max(0.0, (2.4 - Math.max(0, vy)) / 2.4));
-            c[i * 3 + 0] = r * soot;
-            c[i * 3 + 1] = g * soot;
-            c[i * 3 + 2] = b * soot;
-        }
-        geo.setAttribute('color', new THREE.BufferAttribute(c, 3));
-        return geo;
-    }
-
-    // 1. Sub-terrain foundation skirt & walkable stone/rubble floor slab (top at y = 0.32m)
+    // 1. Sub-terrain foundation skirt & walkable weathered stone floor slab (top at y = 0.34m)
     const foundH = 3.6;
-    const foundation = new THREE.BoxGeometry(w + 0.4, foundH, l + 0.4);
+    const foundation = new THREE.BoxGeometry(w + 0.45, foundH, l + 0.45);
     setGeometryUVBox(foundation, 0.02, 0.48, 0.02, 0.48);
     foundation.translate(0, -foundH * 0.5 + 0.04, 0);
-    parts.push(tintRuinPart(foundation, 0.55, 0.52, 0.48));
+    parts.push(tintWeatheredRuinPart(foundation, 0.56, 0.53, 0.49, 0.55));
 
-    const floorH = 0.32;
+    const floorH = 0.34;
     const floorSlab = new THREE.BoxGeometry(w, floorH, l);
     setGeometryUVBox(floorSlab, 0.02, 0.48, 0.02, 0.48);
     floorSlab.translate(0, floorH * 0.5, 0);
-    parts.push(tintRuinPart(floorSlab, 0.68, 0.64, 0.60));
+    parts.push(tintWeatheredRuinPart(floorSlab, 0.68, 0.64, 0.60, 0.48));
 
-    // 2. Standing broken perimeter walls (leaving wide walk-in breaches on front-left +Z and right +X)
+    // 2. Standing broken perimeter walls with jagged battlements & weathered brick/stone
     // Back gable wall (-Z)
-    const gableWall = new THREE.BoxGeometry(w, h * 1.15, 0.56);
+    const gableWall = new THREE.BoxGeometry(w, h * 1.15, 0.58);
     setGeometryUVBox(gableWall, 0.02, 0.48, 0.02, 0.48);
-    gableWall.translate(0, h * 0.575, -l * 0.5 + 0.28);
-    parts.push(tintRuinPart(gableWall, 0.65, 0.60, 0.56));
+    gableWall.translate(0, h * 0.575, -l * 0.5 + 0.29);
+    parts.push(tintWeatheredRuinPart(gableWall, 0.72, 0.56, 0.48, 0.42));
+
+    // Stepped jagged upper gable battlements & crumbling brick teeth
+    [[-1.95, 0.92, 1.85], [-0.45, 1.38, 1.55], [1.15, 0.78, 1.60], [2.45, 0.52, 1.20]].forEach(([bx, bh, bw]) => {
+        const tooth = new THREE.BoxGeometry(bw, bh, 0.54);
+        setGeometryUVBox(tooth, 0.02, 0.48, 0.02, 0.48);
+        tooth.translate(bx, h * 1.15 + bh * 0.5 - 0.05, -l * 0.5 + 0.29);
+        parts.push(tintWeatheredRuinPart(tooth, 0.70, 0.54, 0.46, 0.52));
+    });
 
     // Tall brick chimney (-X, -Z corner)
-    const chimney = new THREE.BoxGeometry(0.95, 4.4, 0.95);
+    const chimney = new THREE.BoxGeometry(1.05, 5.2, 1.05);
     setGeometryUVBox(chimney, 0.02, 0.48, 0.02, 0.48);
-    chimney.translate(-w * 0.28, 2.2, -l * 0.34);
-    parts.push(tintRuinPart(chimney, 0.58, 0.54, 0.50));
+    chimney.translate(-w * 0.28, 2.6, -l * 0.34);
+    parts.push(tintWeatheredRuinPart(chimney, 0.68, 0.48, 0.40, 0.40));
 
-    // Left standing wall segment (-X)
-    const leftWall = new THREE.BoxGeometry(0.56, 2.15, l * 0.72);
+    // Left standing wall segment (-X) with broken jagged top stones
+    const leftWall = new THREE.BoxGeometry(0.58, 2.55, l * 0.72);
     setGeometryUVBox(leftWall, 0.02, 0.48, 0.02, 0.48);
-    leftWall.translate(-w * 0.5 + 0.28, 1.075, -l * 0.14);
-    parts.push(tintRuinPart(leftWall, 0.70, 0.66, 0.62));
+    leftWall.translate(-w * 0.5 + 0.29, 1.275, -l * 0.14);
+    parts.push(tintWeatheredRuinPart(leftWall, 0.70, 0.65, 0.59, 0.52));
 
     // Front-right standing wall corner (+Z, +X)
-    const frontRightWall = new THREE.BoxGeometry(w * 0.38, 1.95, 0.56);
+    const frontRightWall = new THREE.BoxGeometry(w * 0.38, 2.35, 0.58);
     setGeometryUVBox(frontRightWall, 0.02, 0.48, 0.02, 0.48);
-    frontRightWall.translate(w * 0.31, 0.975, l * 0.5 - 0.28);
-    parts.push(tintRuinPart(frontRightWall, 0.72, 0.68, 0.64));
+    frontRightWall.translate(w * 0.31, 1.175, l * 0.5 - 0.29);
+    parts.push(tintWeatheredRuinPart(frontRightWall, 0.72, 0.67, 0.62, 0.48));
 
-    // 3. Stepped climbable masonry ruin ledges (so soldiers can walk/jump up and stand on the ruin!)
-    const step1 = new THREE.BoxGeometry(2.1, 0.76, 2.2);
+    // 3. Stepped climbable masonry ruin ledges (aligned with walkablePlatforms & collisionBoxes)
+    const step1 = new THREE.BoxGeometry(2.4, 0.80, 2.4);
     setGeometryUVBox(step1, 0.02, 0.48, 0.02, 0.48);
-    step1.translate(w * 0.26, 0.38, 0.9);
-    parts.push(tintRuinPart(step1, 0.72, 0.68, 0.64));
+    step1.translate(w * 0.25, 0.40, 1.1);
+    parts.push(tintWeatheredRuinPart(step1, 0.70, 0.66, 0.61, 0.54));
 
-    const step2 = new THREE.BoxGeometry(2.1, 1.24, 2.2);
+    const step2 = new THREE.BoxGeometry(2.4, 1.28, 2.4);
     setGeometryUVBox(step2, 0.02, 0.48, 0.02, 0.48);
-    step2.translate(w * 0.26, 0.62, -1.1);
-    parts.push(tintRuinPart(step2, 0.70, 0.66, 0.62));
+    step2.translate(w * 0.25, 0.64, -1.2);
+    parts.push(tintWeatheredRuinPart(step2, 0.68, 0.64, 0.59, 0.56));
 
-    const step3 = new THREE.BoxGeometry(1.8, 1.68, 1.8);
+    const step3 = new THREE.BoxGeometry(2.1, 1.76, 2.1);
     setGeometryUVBox(step3, 0.02, 0.48, 0.02, 0.48);
-    step3.translate(-0.4, 0.84, -1.6);
-    parts.push(tintRuinPart(step3, 0.66, 0.62, 0.58));
+    step3.translate(-0.4, 0.88, -1.8);
+    parts.push(tintWeatheredRuinPart(step3, 0.66, 0.62, 0.56, 0.58));
 
-    // Charred dark fallen timber rafters above the high back corner
+    // 4. Charred dark fallen timber rafters above the high back corner
     for (let r = -1; r <= 1; r++) {
-        const rafter = new THREE.BoxGeometry(0.18, 2.8, 0.18);
+        const rafter = new THREE.BoxGeometry(0.20, 3.2, 0.20);
         setGeometryUVBox(rafter, 0.52, 0.98, 0.02, 0.48);
-        rafter.rotateZ(0.72 + (r * 0.04));
-        rafter.translate(-1.1, h * 0.86, -1.5 + r * 0.85);
-        parts.push(tintRuinPart(rafter, 0.25, 0.20, 0.16));
+        rafter.rotateZ(0.74 + r * 0.05);
+        rafter.translate(-1.35, h * 0.90, -1.8 + r * 1.05);
+        parts.push(tintWeatheredRuinPart(rafter, 0.24, 0.19, 0.15, 0.25));
     }
+
+    // 5. 3D Flush Surface Scratches, Fissure Scars & Fallen Rubble Stones
+    add3DScratchCrack(parts, 0.8, 2.5, -l * 0.5 + 0.58, 1.85, 0.03, 0.0, 0.34);
+    add3DScratchCrack(parts, -1.2, 2.1, -l * 0.5 + 0.005, 1.55, 0.03, 0.0, -0.42);
+    add3DScratchCrack(parts, -w * 0.5 + 0.585, 1.45, -1.1, 1.35, 0.03, Math.PI * 0.5, 0.48);
+    add3DScratchCrack(parts, w * 0.30, 1.35, l * 0.5 - 0.005, 1.25, 0.03, 0.0, -0.38);
+    [[-1.8, 0.42, 2.1, 0.55], [1.9, 0.40, 2.8, 0.48], [-2.2, 0.44, -0.4, 0.52]].forEach(([rx, ry, rz, rs], idx) => {
+        const rubble = new THREE.DodecahedronGeometry(rs, 0);
+        setGeometryUVBox(rubble, 0.02, 0.48, 0.02, 0.48);
+        rubble.scale(1.2, 0.65, 1.0);
+        rubble.rotateY(idx * 1.1);
+        rubble.translate(rx, ry, rz);
+        parts.push(tintWeatheredRuinPart(rubble, 0.62, 0.58, 0.54, 0.55));
+    });
+
+    // 6. Sculpted 3D Moss Cushions on Wall Crests, Steps & Foundation Corners
+    addMossCushion(parts, -w * 0.5 + 0.28, 2.58, -1.8, 0.42, 0.18, 0.95, 0.2);
+    addMossCushion(parts, -w * 0.5 + 0.28, 2.58,  0.4, 0.38, 0.16, 0.80, 1.1);
+    addMossCushion(parts, w * 0.31, 2.38, l * 0.5 - 0.28, 0.85, 0.18, 0.40, 0.5);
+    addMossCushion(parts, -0.45, h * 1.15 + 1.32, -l * 0.5 + 0.28, 0.72, 0.20, 0.38, 0.1);
+    addMossCushion(parts, -w * 0.28, 5.22, -l * 0.34, 0.58, 0.18, 0.58, 0.8);
+    addMossCushion(parts, -w * 0.5 + 0.65, 0.40, 2.1, 0.75, 0.20, 0.65, 0.4);
+    addMossCushion(parts, w * 0.5 - 0.35, 0.40, -1.8, 0.65, 0.18, 0.72, 1.6);
+
+    // 7. Alpha-Cutout Climbing & Hanging Vines Clinging to Walls, Chimney & Broken Archway
+    // Interior & exterior faces of back standing gable wall (-Z)
+    addCutoutVineDrape(parts, 2.4, 4.1, 0.14, 0.0, 0.0, -1.1, 0.35, -l * 0.5 + 0.64);
+    addCutoutVineDrape(parts, 2.2, 3.6, 0.12, Math.PI, 0.0, 1.4, 0.55, -l * 0.5 - 0.06);
+    addCutoutVineDrape(parts, 2.0, 3.2, 0.10, 0.0, 0.0, 1.6, 1.25, -l * 0.5 + 0.64);
+    // Climbing vines wrapping tall chimney stack
+    addCutoutVineDrape(parts, 1.25, 4.6, 0.10, 0.0, 0.0, -w * 0.28, 0.45, -l * 0.34 + 0.58);
+    addCutoutVineDrape(parts, 1.25, 4.3, 0.10, Math.PI * 0.5, 0.0, -w * 0.28 + 0.58, 0.65, -l * 0.34);
+    // Left broken wall vines (-X) & Front-right corner vines (+Z)
+    addCutoutVineDrape(parts, 2.4, 2.45, 0.14, Math.PI * 0.5, 0.0, -w * 0.5 + 0.64, 0.25, -0.8);
+    addCutoutVineDrape(parts, 2.2, 2.35, 0.12, -Math.PI * 0.5, 0.0, -w * 0.5 - 0.06, 0.30, -1.6);
+    addCutoutVineDrape(parts, 2.1, 2.25, 0.12, 0.0, 0.0, w * 0.31, 0.25, l * 0.5 + 0.06);
+    addCutoutVineDrape(parts, 1.9, 2.10, 0.12, Math.PI, 0.0, w * 0.31, 0.30, l * 0.5 - 0.64);
+    // Hanging vine curtain trailing down from the charred upper rafters
+    addCutoutVineDrape(parts, 2.1, 2.15, 0.24, 0.4, 0.18, -1.45, 1.75, -1.65);
 
     const merged = mergeBufferGeometries(parts);
     merged.userData = {
         useMeshRaycastOnly: true,
+        hasScratches: true,
+        hasVines: true,
+        hasMoss: true,
         collisionBoxes: [
             // Full-height standing walls & chimney
-            { minX: -w * 0.5, maxX: w * 0.5, minZ: -l * 0.5, maxZ: -l * 0.5 + 0.58 },
-            { minX: -w * 0.28 - 0.5, maxX: -w * 0.28 + 0.5, minZ: -l * 0.34 - 0.5, maxZ: -l * 0.34 + 0.5 },
-            { minX: -w * 0.5, maxX: -w * 0.5 + 0.58, minZ: -l * 0.5, maxZ: l * 0.22 },
-            { minX: w * 0.12, maxX: w * 0.5, minZ: l * 0.5 - 0.58, maxZ: l * 0.5 },
+            { minX: -w * 0.5, maxX: w * 0.5, minZ: -l * 0.5, maxZ: -l * 0.5 + 0.60 },
+            { minX: -w * 0.28 - 0.55, maxX: -w * 0.28 + 0.55, minZ: -l * 0.34 - 0.55, maxZ: -l * 0.34 + 0.55 },
+            { minX: -w * 0.5, maxX: -w * 0.5 + 0.60, minZ: -l * 0.5, maxZ: l * 0.22 },
+            { minX: w * 0.12, maxX: w * 0.5, minZ: l * 0.5 - 0.60, maxZ: l * 0.5 },
             // Stepped climbable ruin ledges (height-capped so soldiers can climb & stand on top!)
-            { minX: w * 0.26 - 1.05, maxX: w * 0.26 + 1.05, minZ: -0.2, maxZ: 2.0, maxY: 0.76 },
-            { minX: w * 0.26 - 1.05, maxX: w * 0.26 + 1.05, minZ: -2.2, maxZ: 0.0, maxY: 1.24 },
-            { minX: -1.3, maxX: 0.5, minZ: -2.5, maxZ: -0.7, maxY: 1.68 }
+            { minX: w * 0.25 - 1.20, maxX: w * 0.25 + 1.20, minZ: -0.1, maxZ: 2.3, maxY: 0.80 },
+            { minX: w * 0.25 - 1.20, maxX: w * 0.25 + 1.20, minZ: -2.4, maxZ: 0.0, maxY: 1.28 },
+            { minX: -1.45, maxX: 0.65, minZ: -2.85, maxZ: -0.75, maxY: 1.76 }
         ],
         walkablePlatforms: [
             { minX: -w * 0.5 - 0.15, maxX: w * 0.5 + 0.15, minZ: -l * 0.5 - 0.15, maxZ: l * 0.5 + 0.15, y: floorH },
-            { minX: w * 0.26 - 1.05, maxX: w * 0.26 + 1.05, minZ: -0.2, maxZ: 2.0, y: 0.76 },
-            { minX: w * 0.26 - 1.05, maxX: w * 0.26 + 1.05, minZ: -2.2, maxZ: 0.0, y: 1.24 },
-            { minX: -1.3, maxX: 0.5, minZ: -2.5, maxZ: -0.7, y: 1.68 }
+            { minX: w * 0.25 - 1.20, maxX: w * 0.25 + 1.20, minZ: -0.1, maxZ: 2.3, y: 0.80 },
+            { minX: w * 0.25 - 1.20, maxX: w * 0.25 + 1.20, minZ: -2.4, maxZ: 0.0, y: 1.28 },
+            { minX: -1.45, maxX: 0.65, minZ: -2.85, maxZ: -0.75, y: 1.76 }
         ]
     };
     return merged;
 }
 
-// 5H. European Farm Barn with Walk-In Open Double Doors
+// 5H. Large Wooden Timber Farm Barn & Lodge with Walk-In Double Doors & Matching Chestnut-Shingle Roof
 function createBarnGeometry() {
     const parts = [];
-    const w = 6.4, h = 4.0, l = 9.6;
+    const w = 8.0, h = 5.0, l = 11.4;
     const floorY = 0.16;
+    const roofW = w + 1.5;
+    const roofH = 3.55;
+    const gableH = roofH * (w / roofW);
+    const eaveDrop = roofH - gableH;
+    const wallTint = [0.78, 0.56, 0.36];
+    const roofTint = [0.50, 0.33, 0.21];
 
     const spec = buildHollowHouseShell(parts, {
-        w, h, l, wallThick: 0.34, doorW: 2.15, doorH: 2.85, floorY,
+        w, h, l, wallThick: 0.36, doorW: 2.35, doorH: 3.15, floorY, gableH,
+        style: 'wood',
         u0: 0.52, u1: 0.98, v0: 0.02, v1: 0.48,
-        tint: [0.78, 0.58, 0.42],
-        floorTint: [0.54, 0.42, 0.28],
-        doorTint: [0.42, 0.28, 0.18]
+        tint: wallTint,
+        foundTint: [0.56, 0.51, 0.45],
+        floorTint: [0.54, 0.40, 0.26],
+        doorTint: [0.38, 0.25, 0.16],
+        shutterTint: [0.46, 0.28, 0.18],
+        fenceTint: [0.74, 0.54, 0.36],
+        postTint: [0.38, 0.25, 0.16],
+        fenceH: 1.15
     });
 
-    // High Terracotta Gambrel Barn Roof (Q1: Terracotta Tiles)
-    const roof = createPitchedRoofGeometry(w + 1.2, l + 1.3, 3.2);
+    // High Dark Roasted-Chestnut Shingle Roof matching amber-cedar timber palette
+    const roof = createPitchedRoofGeometry(roofW, l + 1.5, roofH, false);
     setGeometryUVBox(roof, 0.52, 0.98, 0.52, 0.98);
-    roof.translate(0, floorY + h, 0);
-    parts.push(roof);
+    roof.translate(0, floorY + h - eaveDrop, 0);
+    parts.push(tintBuildingPart(roof, roofTint[0], roofTint[1], roofTint[2], h + roofH + 1.0));
 
-    // Overhanging Hayloft Crane Timber Awning (Q3)
-    const loftAwning = new THREE.BoxGeometry(1.6, 0.22, 1.4);
-    setGeometryUVBox(loftAwning, 0.52, 0.98, 0.02, 0.48);
-    loftAwning.translate(0, floorY + h + 1.4, l * 0.5 + 0.75);
-    parts.push(loftAwning);
+    // Overhanging Hayloft Crane Timber Awning & Hayloft Shutter Doors (Q3 Wood)
+    const loftAwning = createPitchedRoofGeometry(2.1, 1.6, 0.85, true);
+    setGeometryUVBox(loftAwning, 0.52, 0.98, 0.52, 0.98);
+    loftAwning.translate(0, floorY + h + 1.55, l * 0.5 + 0.72);
+    parts.push(tintBuildingPart(loftAwning, roofTint[0], roofTint[1], roofTint[2], h + 3.0));
+
+    const loftDoor = new THREE.BoxGeometry(1.55, 1.45, 0.14);
+    setGeometryUVBox(loftDoor, 0.52, 0.98, 0.02, 0.48);
+    loftDoor.translate(0, floorY + h + 0.82, l * 0.5 - 0.10);
+    parts.push(tintBuildingPart(loftDoor, 0.44, 0.28, 0.17, h + 2.5));
+
+    // Exposed horizontal timber eave beams
+    [-1, 1].forEach(side => {
+        const beam = new THREE.BoxGeometry(0.22, 0.24, l + 1.54);
+        setGeometryUVBox(beam, 0.52, 0.98, 0.02, 0.48);
+        beam.translate(side * roofW * 0.5, floorY + h - eaveDrop + 0.05, 0);
+        parts.push(tintBuildingPart(beam, 0.38, 0.25, 0.16, h + 1.0));
+    });
 
     const merged = mergeBufferGeometries(parts);
-    merged.userData = { enterableSpec: spec };
+    merged.userData = {
+        enterableSpec: spec,
+        houseStyle: 'wood',
+        hasCutoutFence: spec.hasCutoutFence,
+        colorScheme: { wall: wallTint, roof: roofTint }
+    };
     return merged;
 }
 
@@ -5329,7 +5868,7 @@ function createSandstoneRockGeometry(isRedMonument = false) {
 // 5M. North African Desert Adobe / Mud-Brick Kasbah House (Flat Roof, Parapet, Corner Watchtower & Open Walk-In Door)
 function createDesertKasbahGeometry() {
     const parts = [];
-    const w = 5.4, h = 3.6, l = 6.4;
+    const w = 6.8, h = 4.2, l = 8.2;
     const floorY = 0.16;
 
     function tintAdobe(geo, r, g, b) {
@@ -5337,7 +5876,7 @@ function createDesertKasbahGeometry() {
         const c = new Float32Array(pos.count * 3);
         for (let i = 0; i < pos.count; i++) {
             const vy = pos.getY(i);
-            const sunBake = 0.72 + 0.28 * Math.min(1.0, Math.max(0.0, vy / 5.5));
+            const sunBake = 0.72 + 0.28 * Math.min(1.0, Math.max(0.0, vy / 6.2));
             c[i * 3 + 0] = r * sunBake;
             c[i * 3 + 1] = g * sunBake;
             c[i * 3 + 2] = b * sunBake;
@@ -5347,165 +5886,191 @@ function createDesertKasbahGeometry() {
     }
 
     const spec = buildHollowHouseShell(parts, {
-        w, h, l, wallThick: 0.34, doorW: 1.65, doorH: 2.45, floorY,
+        w, h, l, wallThick: 0.36, doorW: 1.75, doorH: 2.55, floorY,
+        style: 'adobe',
         tint: [0.96, 0.84, 0.70],
         foundTint: [0.86, 0.74, 0.60],
         floorTint: [0.76, 0.64, 0.50],
-        doorTint: [0.48, 0.34, 0.22]
+        doorTint: [0.48, 0.34, 0.22],
+        shutterTint: [0.34, 0.46, 0.52],
+        fenceTint: [0.74, 0.60, 0.44],
+        postTint: [0.84, 0.72, 0.58],
+        fenceH: 1.02
     });
 
     // Flat Roof Slab & Parapet Rim (Q2 Masonry)
     const roofY = floorY + h;
-    const roofSlab = new THREE.BoxGeometry(w, 0.24, l);
+    const roofSlab = new THREE.BoxGeometry(w, 0.26, l);
     setGeometryUVBox(roofSlab, 0.02, 0.48, 0.02, 0.48);
-    roofSlab.translate(0, roofY + 0.10, 0);
+    roofSlab.translate(0, roofY + 0.12, 0);
     parts.push(tintAdobe(roofSlab, 0.90, 0.78, 0.64));
 
-    const paraF = new THREE.BoxGeometry(w + 0.25, 0.55, 0.35);
+    const paraF = new THREE.BoxGeometry(w + 0.28, 0.62, 0.36);
     setGeometryUVBox(paraF, 0.02, 0.48, 0.02, 0.48);
-    paraF.translate(0, roofY + 0.35, l * 0.5);
+    paraF.translate(0, roofY + 0.38, l * 0.5);
     parts.push(tintAdobe(paraF, 0.92, 0.80, 0.66));
 
-    const paraB = new THREE.BoxGeometry(w + 0.25, 0.55, 0.35);
+    const paraB = new THREE.BoxGeometry(w + 0.28, 0.62, 0.36);
     setGeometryUVBox(paraB, 0.02, 0.48, 0.02, 0.48);
-    paraB.translate(0, roofY + 0.35, -l * 0.5);
+    paraB.translate(0, roofY + 0.38, -l * 0.5);
     parts.push(tintAdobe(paraB, 0.92, 0.80, 0.66));
 
-    const paraL = new THREE.BoxGeometry(0.35, 0.55, l + 0.25);
+    const paraL = new THREE.BoxGeometry(0.36, 0.62, l + 0.28);
     setGeometryUVBox(paraL, 0.02, 0.48, 0.02, 0.48);
-    paraL.translate(-w * 0.5, roofY + 0.35, 0);
+    paraL.translate(-w * 0.5, roofY + 0.38, 0);
     parts.push(tintAdobe(paraL, 0.92, 0.80, 0.66));
 
-    const paraR = new THREE.BoxGeometry(0.35, 0.55, l + 0.25);
+    const paraR = new THREE.BoxGeometry(0.36, 0.62, l + 0.28);
     setGeometryUVBox(paraR, 0.02, 0.48, 0.02, 0.48);
-    paraR.translate(w * 0.5, roofY + 0.35, 0);
+    paraR.translate(w * 0.5, roofY + 0.38, 0);
     parts.push(tintAdobe(paraR, 0.92, 0.80, 0.66));
 
     // Elevated Kasbah Watchtower Turret on Corner
-    const turret = new THREE.BoxGeometry(2.4, 2.2, 2.4);
+    const turret = new THREE.BoxGeometry(2.7, 2.5, 2.7);
     setGeometryUVBox(turret, 0.02, 0.48, 0.02, 0.48);
-    turret.translate(-w * 0.28, roofY + 1.2, -l * 0.28);
+    turret.translate(-w * 0.28, roofY + 1.35, -l * 0.28);
     parts.push(tintAdobe(turret, 0.96, 0.84, 0.70));
 
     [[-1, -1], [1, -1], [-1, 1], [1, 1]].forEach(([cx, cz]) => {
-        const merlon = new THREE.BoxGeometry(0.65, 0.55, 0.65);
+        const merlon = new THREE.BoxGeometry(0.72, 0.62, 0.72);
         setGeometryUVBox(merlon, 0.02, 0.48, 0.02, 0.48);
-        merlon.translate(-w * 0.28 + cx * 0.85, roofY + 2.55, -l * 0.28 + cz * 0.85);
+        merlon.translate(-w * 0.28 + cx * 0.96, roofY + 2.90, -l * 0.28 + cz * 0.96);
         parts.push(tintAdobe(merlon, 0.94, 0.82, 0.68));
     });
 
     // Projecting Cedar Roof Beams (Vigas) & Shaded Courtyard Arcade Porch (Q3 Timber)
     for (let v = -2; v <= 2; v++) {
-        const viga = new THREE.BoxGeometry(w + 0.7, 0.16, 0.16);
+        const viga = new THREE.BoxGeometry(w + 0.85, 0.18, 0.18);
         setGeometryUVBox(viga, 0.52, 0.98, 0.02, 0.48);
-        viga.translate(0, roofY - 0.15, v * 1.25);
+        viga.translate(0, roofY - 0.15, v * 1.45);
         parts.push(tintAdobe(viga, 0.55, 0.40, 0.26));
     }
 
-    const awning = new THREE.BoxGeometry(2.8, 0.20, 1.5);
+    const awning = new THREE.BoxGeometry(3.2, 0.22, 1.75);
     setGeometryUVBox(awning, 0.52, 0.98, 0.02, 0.48);
-    awning.translate(0, floorY + 2.65, l * 0.5 + 0.70);
+    awning.translate(0, floorY + 2.80, l * 0.5 + 0.82);
     parts.push(tintAdobe(awning, 0.62, 0.45, 0.30));
 
-    [-1.15, 1.15].forEach(px => {
-        const pillar = new THREE.BoxGeometry(0.28, 2.55, 0.28);
+    [-1.32, 1.32].forEach(px => {
+        const pillar = new THREE.BoxGeometry(0.30, 2.72, 0.30);
         setGeometryUVBox(pillar, 0.02, 0.48, 0.02, 0.48);
-        pillar.translate(px, floorY + 1.28, l * 0.5 + 1.25);
+        pillar.translate(px, floorY + 1.36, l * 0.5 + 1.48);
         parts.push(tintAdobe(pillar, 0.90, 0.78, 0.64));
     });
 
     const merged = mergeBufferGeometries(parts);
-    merged.userData = { enterableSpec: spec };
+    merged.userData = { enterableSpec: spec, houseStyle: 'adobe', hasCutoutFence: spec.hasCutoutFence };
     return merged;
 }
 
-// 5N. Desert Ruined Sandstone / Mud-Brick Compound (Walk-In & Standable Multi-Level Ruin)
+// 5N. Desert Ruined Sandstone / Mud-Brick Compound (Aged, Scratched, Mossy & Vine-Draped Ruin)
 function createDesertRuinGeometry() {
     const parts = [];
-    const w = 5.6, h = 3.1, l = 6.6;
-
-    function tintSandRuin(geo, r, g, b) {
-        const c = new Float32Array(geo.attributes.position.count * 3);
-        for (let i = 0; i < geo.attributes.position.count; i++) {
-            const vy = geo.attributes.position.getY(i);
-            const shade = 0.55 + 0.38 * Math.min(1.0, Math.max(0.0, Math.max(0, vy) / 3.5));
-            c[i * 3 + 0] = r * shade;
-            c[i * 3 + 1] = g * shade;
-            c[i * 3 + 2] = b * shade;
-        }
-        geo.setAttribute('color', new THREE.BufferAttribute(c, 3));
-        return geo;
-    }
+    const w = 6.8, h = 3.9, l = 7.6;
 
     // 1. Sub-terrain foundation skirt & walkable sandstone floor slab (top at y = 0.35m)
     const foundH = 3.8;
-    const foundation = new THREE.BoxGeometry(w + 0.4, foundH, l + 0.4);
+    const foundation = new THREE.BoxGeometry(w + 0.45, foundH, l + 0.45);
     setGeometryUVBox(foundation, 0.02, 0.48, 0.02, 0.48);
     foundation.translate(0, -foundH * 0.5 + 0.04, 0);
-    parts.push(tintSandRuin(foundation, 0.78, 0.60, 0.38));
+    parts.push(tintWeatheredRuinPart(foundation, 0.78, 0.60, 0.38, 0.26));
 
     const floorH = 0.35;
     const floorSlab = new THREE.BoxGeometry(w, floorH, l);
     setGeometryUVBox(floorSlab, 0.02, 0.48, 0.02, 0.48);
     floorSlab.translate(0, floorH * 0.5, 0);
-    parts.push(tintSandRuin(floorSlab, 0.90, 0.71, 0.47));
+    parts.push(tintWeatheredRuinPart(floorSlab, 0.88, 0.70, 0.47, 0.24));
 
     // 2. Standing broken watchtower (-X, -Z corner) & breached adobe/sandstone walls
-    const brokenTower = new THREE.BoxGeometry(2.3, h * 1.25, 2.3);
+    const brokenTower = new THREE.BoxGeometry(2.65, h * 1.28, 2.65);
     setGeometryUVBox(brokenTower, 0.02, 0.48, 0.02, 0.48);
-    brokenTower.translate(-w * 0.28, h * 0.625, -l * 0.28);
-    parts.push(tintSandRuin(brokenTower, 0.88, 0.68, 0.45));
+    brokenTower.translate(-w * 0.28, h * 0.64, -l * 0.28);
+    parts.push(tintWeatheredRuinPart(brokenTower, 0.86, 0.67, 0.44, 0.25));
 
-    const leftWall = new THREE.BoxGeometry(0.58, 2.2, l * 0.68);
+    // Jagged desert watchtower broken merlons
+    [[-0.85, -0.85, 0.85], [0.85, -0.85, 0.55], [-0.85, 0.85, 0.65]].forEach(([mx, mz, mh]) => {
+        const mBlock = new THREE.BoxGeometry(0.75, mh, 0.75);
+        setGeometryUVBox(mBlock, 0.02, 0.48, 0.02, 0.48);
+        mBlock.translate(-w * 0.28 + mx, h * 1.28 + mh * 0.5 - 0.05, -l * 0.28 + mz);
+        parts.push(tintWeatheredRuinPart(mBlock, 0.84, 0.65, 0.42, 0.28));
+    });
+
+    const leftWall = new THREE.BoxGeometry(0.60, 2.55, l * 0.68);
     setGeometryUVBox(leftWall, 0.02, 0.48, 0.02, 0.48);
-    leftWall.translate(-w * 0.5 + 0.29, 1.1, -l * 0.16);
-    parts.push(tintSandRuin(leftWall, 0.90, 0.70, 0.46));
+    leftWall.translate(-w * 0.5 + 0.30, 1.275, -l * 0.16);
+    parts.push(tintWeatheredRuinPart(leftWall, 0.88, 0.68, 0.45, 0.28));
 
-    const backWall = new THREE.BoxGeometry(w * 0.74, 2.3, 0.58);
+    const backWall = new THREE.BoxGeometry(w * 0.74, 2.65, 0.60);
     setGeometryUVBox(backWall, 0.02, 0.48, 0.02, 0.48);
-    backWall.translate(-w * 0.13, 1.15, -l * 0.5 + 0.29);
-    parts.push(tintSandRuin(backWall, 0.87, 0.67, 0.44));
+    backWall.translate(-w * 0.13, 1.325, -l * 0.5 + 0.30);
+    parts.push(tintWeatheredRuinPart(backWall, 0.86, 0.66, 0.43, 0.26));
 
-    const archWall = new THREE.BoxGeometry(w * 0.48, h * 0.92, 0.58);
+    const archWall = new THREE.BoxGeometry(w * 0.48, h * 0.94, 0.60);
     setGeometryUVBox(archWall, 0.02, 0.48, 0.02, 0.48);
-    archWall.translate(w * 0.26, h * 0.46, l * 0.5 - 0.29);
-    parts.push(tintSandRuin(archWall, 0.85, 0.65, 0.42));
+    archWall.translate(w * 0.26, h * 0.47, l * 0.5 - 0.30);
+    parts.push(tintWeatheredRuinPart(archWall, 0.84, 0.64, 0.41, 0.24));
+
+    // Exposed weathered desert cedar beams protruding from watchtower
+    for (let v = 0; v < 3; v++) {
+        const viga = new THREE.BoxGeometry(0.18, 0.18, 3.2);
+        setGeometryUVBox(viga, 0.52, 0.98, 0.02, 0.48);
+        viga.rotateY(0.12 * (v - 1));
+        viga.translate(-w * 0.28 + (v - 1) * 0.75, h * 0.92, -l * 0.28 + 0.35);
+        parts.push(tintWeatheredRuinPart(viga, 0.42, 0.30, 0.18, 0.15));
+    }
 
     // 3. Stepped climbable sandstone ruin blocks (so soldiers can climb & stand on the ruin!)
-    const step1 = new THREE.BoxGeometry(2.2, 0.80, 2.2);
+    const step1 = new THREE.BoxGeometry(2.4, 0.82, 2.3);
     setGeometryUVBox(step1, 0.02, 0.48, 0.02, 0.48);
-    step1.translate(w * 0.26, 0.40, 0.6);
-    parts.push(tintSandRuin(step1, 0.92, 0.72, 0.48));
+    step1.translate(w * 0.25, 0.41, 0.8);
+    parts.push(tintWeatheredRuinPart(step1, 0.90, 0.70, 0.47, 0.26));
 
-    const step2 = new THREE.BoxGeometry(2.2, 1.28, 2.2);
+    const step2 = new THREE.BoxGeometry(2.4, 1.32, 2.3);
     setGeometryUVBox(step2, 0.02, 0.48, 0.02, 0.48);
-    step2.translate(w * 0.26, 0.64, -1.4);
-    parts.push(tintSandRuin(step2, 0.90, 0.70, 0.46));
+    step2.translate(w * 0.25, 0.66, -1.5);
+    parts.push(tintWeatheredRuinPart(step2, 0.88, 0.68, 0.45, 0.28));
 
-    const step3 = new THREE.BoxGeometry(1.9, 1.75, 1.9);
+    const step3 = new THREE.BoxGeometry(2.1, 1.80, 2.1);
     setGeometryUVBox(step3, 0.02, 0.48, 0.02, 0.48);
-    step3.translate(0.3, 0.875, -1.8);
-    parts.push(tintSandRuin(step3, 0.88, 0.68, 0.45));
+    step3.translate(0.3, 0.90, -1.9);
+    parts.push(tintWeatheredRuinPart(step3, 0.86, 0.66, 0.44, 0.30));
+
+    // 4. Aged 3D sandstone scratches/cracks, oasis moss patches & arid climbing creeper vines
+    add3DScratchCrack(parts, -w * 0.28 + 0.5, 2.6, -l * 0.28 + 1.34, 2.1, 0.06, 0.0, 0.28);
+    add3DScratchCrack(parts, 0.4, 1.5, -l * 0.5 + 0.61, 1.5, 0.06, 0.0, -0.35);
+    add3DScratchCrack(parts, w * 0.26, 1.9, l * 0.5 + 0.02, 1.6, 0.06, 0.0, 0.40);
+
+    addMossCushion(parts, -w * 0.5 + 0.30, 2.58, -1.2, 0.40, 0.16, 0.85, 0.3, 0.26, 0.40, 0.16);
+    addMossCushion(parts, w * 0.26, 0.42, 2.1, 0.65, 0.16, 0.58, 1.2, 0.24, 0.38, 0.15);
+    addMossCushion(parts, -w * 0.28, 0.40, 0.9, 0.55, 0.14, 0.60, 0.7, 0.25, 0.39, 0.16);
+
+    addCutoutVineDrape(parts, 2.2, 3.8, 0.12, 0.0, 0.0, -w * 0.28, 0.45, -l * 0.28 + 1.38, [0.46, 0.58, 0.28]);
+    addCutoutVineDrape(parts, 2.0, 2.4, 0.12, Math.PI * 0.5, 0.0, -w * 0.5 + 0.66, 0.25, -0.9, [0.44, 0.55, 0.27]);
+    addCutoutVineDrape(parts, 2.1, 2.8, 0.12, 0.0, 0.0, w * 0.26, 0.25, l * 0.5 + 0.06, [0.46, 0.57, 0.28]);
+    addCutoutVineDrape(parts, 1.9, 2.6, 0.12, Math.PI, 0.0, -0.6, 0.30, -l * 0.5 - 0.06, [0.42, 0.54, 0.26]);
 
     const merged = mergeBufferGeometries(parts);
     merged.userData = {
         useMeshRaycastOnly: true,
+        hasScratches: true,
+        hasVines: true,
+        hasMoss: true,
         collisionBoxes: [
             // Full-height watchtower & standing wall segments
-            { minX: -w * 0.28 - 1.15, maxX: -w * 0.28 + 1.15, minZ: -l * 0.28 - 1.15, maxZ: -l * 0.28 + 1.15 },
-            { minX: -w * 0.5, maxX: -w * 0.5 + 0.60, minZ: -l * 0.5, maxZ: l * 0.18 },
-            { minX: -w * 0.5, maxX: w * 0.24, minZ: -l * 0.5, maxZ: -l * 0.5 + 0.60 },
-            { minX: w * 0.02, maxX: w * 0.5, minZ: l * 0.5 - 0.60, maxZ: l * 0.5 },
+            { minX: -w * 0.28 - 1.32, maxX: -w * 0.28 + 1.32, minZ: -l * 0.28 - 1.32, maxZ: -l * 0.28 + 1.32 },
+            { minX: -w * 0.5, maxX: -w * 0.5 + 0.62, minZ: -l * 0.5, maxZ: l * 0.18 },
+            { minX: -w * 0.5, maxX: w * 0.24, minZ: -l * 0.5, maxZ: -l * 0.5 + 0.62 },
+            { minX: w * 0.02, maxX: w * 0.5, minZ: l * 0.5 - 0.62, maxZ: l * 0.5 },
             // Stepped climbable ruin blocks (height-capped so soldiers can climb & stand on top!)
-            { minX: w * 0.26 - 1.1, maxX: w * 0.26 + 1.1, minZ: -0.5, maxZ: 1.7, maxY: 0.80 },
-            { minX: w * 0.26 - 1.1, maxX: w * 0.26 + 1.1, minZ: -2.5, maxZ: -0.3, maxY: 1.28 },
-            { minX: -0.65, maxX: 1.25, minZ: -2.75, maxZ: -0.85, maxY: 1.75 }
+            { minX: w * 0.25 - 1.2, maxX: w * 0.25 + 1.2, minZ: -0.35, maxZ: 1.95, maxY: 0.82 },
+            { minX: w * 0.25 - 1.2, maxX: w * 0.25 + 1.2, minZ: -2.65, maxZ: -0.35, maxY: 1.32 },
+            { minX: -0.75, maxX: 1.35, minZ: -2.95, maxZ: -0.85, maxY: 1.80 }
         ],
         walkablePlatforms: [
             { minX: -w * 0.5 - 0.15, maxX: w * 0.5 + 0.15, minZ: -l * 0.5 - 0.15, maxZ: l * 0.5 + 0.15, y: floorH },
-            { minX: w * 0.26 - 1.1, maxX: w * 0.26 + 1.1, minZ: -0.5, maxZ: 1.7, y: 0.80 },
-            { minX: w * 0.26 - 1.1, maxX: w * 0.26 + 1.1, minZ: -2.5, maxZ: -0.3, y: 1.28 },
-            { minX: -0.65, maxX: 1.25, minZ: -2.75, maxZ: -0.85, y: 1.75 }
+            { minX: w * 0.25 - 1.2, maxX: w * 0.25 + 1.2, minZ: -0.35, maxZ: 1.95, y: 0.82 },
+            { minX: w * 0.25 - 1.2, maxX: w * 0.25 + 1.2, minZ: -2.65, maxZ: -0.35, y: 1.32 },
+            { minX: -0.75, maxX: 1.35, minZ: -2.95, maxZ: -0.85, y: 1.80 }
         ]
     };
     return merged;
@@ -5612,141 +6177,235 @@ function createMountainBunkerGeometry() {
     return mergeBufferGeometries(parts);
 }
 
-// 5Q. Two-Story European Village Townhouse / Manor with Steep Gable Roof & Open Walk-In Door
+// 5Q. Grand Two-Story European Brick Townhouse / Manor with Balcony, Dormers, Iron Cutout Fence & Burgundy-Slate Roof
 function createVillageTownhouseGeometry() {
     const parts = [];
-    const w = 5.2, h = 4.6, l = 6.8;
+    const w = 7.6, h = 5.8, l = 9.6;
     const floorY = 0.16;
+    const roofW = w + 1.3;
+    const roofH = 3.15;
+    const gableH = roofH * (w / roofW);
+    const eaveDrop = roofH - gableH;
+    const wallTint = [0.78, 0.44, 0.38];
+    const roofTint = [0.48, 0.32, 0.30];
 
     const spec = buildHollowHouseShell(parts, {
-        w, h, l, wallThick: 0.34, doorW: 1.65, doorH: 2.48, floorY,
-        tint: [0.96, 0.91, 0.84],
-        foundTint: [0.62, 0.60, 0.58],
+        w, h, l, wallThick: 0.36, doorW: 1.76, doorH: 2.55, floorY, gableH,
+        style: 'brick',
+        u0: 0.02, u1: 0.48, v0: 0.02, v1: 0.48,
+        tint: wallTint,
+        foundTint: [0.64, 0.61, 0.58],
         floorTint: [0.56, 0.40, 0.26],
-        doorTint: [0.38, 0.25, 0.16]
+        doorTint: [0.36, 0.24, 0.15],
+        quoinTint: [0.86, 0.82, 0.76],
+        shutterTint: [0.30, 0.33, 0.38],
+        fenceTint: [0.32, 0.34, 0.38],
+        postTint: [0.82, 0.79, 0.74],
+        fenceH: 1.14
     });
 
-    // Timber belt-course band between 1st and 2nd floor
-    const belt = new THREE.BoxGeometry(w + 0.14, 0.18, l + 0.14);
-    setGeometryUVBox(belt, 0.52, 0.98, 0.02, 0.48);
-    belt.translate(0, floorY + 2.65, 0);
-    parts.push(tintBuildingPart(belt, 0.42, 0.29, 0.18, h));
+    // Dressed limestone belt-course band between 1st and 2nd floor
+    const belt = new THREE.BoxGeometry(w + 0.20, 0.22, l + 0.20);
+    setGeometryUVBox(belt, 0.02, 0.48, 0.02, 0.48);
+    belt.translate(0, floorY + 2.95, 0);
+    parts.push(tintBuildingPart(belt, 0.86, 0.82, 0.76, h + 1.0));
 
-    // Steep Slate/Terracotta Roof
-    const roof = createPitchedRoofGeometry(w + 1.1, l + 1.2, 3.1);
+    // Upper 2nd-story shuttered facade bay windows (front, back, sides — safely below eaveDrop)
+    const upperWinY = floorY + 4.18;
+    [-w * 0.28, w * 0.28].forEach(wx => {
+        buildExteriorWindowDetail(parts, wx, upperWinY, l * 0.5 - 0.18, 1.05, 1.12, 0.36, 'z', [0.36, 0.24, 0.15], [0.30, 0.33, 0.38], true, h + 1.0);
+        buildExteriorWindowDetail(parts, wx, upperWinY, -l * 0.5 + 0.18, 1.05, 1.12, 0.36, 'z', [0.36, 0.24, 0.15], [0.30, 0.33, 0.38], true, h + 1.0);
+    });
+    [-l * 0.24, l * 0.24].forEach(wz => {
+        [-1, 1].forEach(sx => {
+            buildExteriorWindowDetail(parts, sx * (w * 0.5 - 0.18), upperWinY, wz, 1.10, 1.12, 0.36, 'x', [0.36, 0.24, 0.15], [0.30, 0.33, 0.38], true, h + 1.0);
+        });
+    });
+
+    // Second-story central French balcony above front entrance with alpha-cutout wrought-iron balustrade
+    const balcDeck = new THREE.BoxGeometry(2.8, 0.16, 1.05);
+    setGeometryUVBox(balcDeck, 0.02, 0.48, 0.02, 0.48);
+    balcDeck.translate(0, floorY + 3.05, l * 0.5 + 0.45);
+    parts.push(tintBuildingPart(balcDeck, 0.82, 0.78, 0.72, h + 1.0));
+    buildCutoutFenceSegment(parts, -1.35, l * 0.5 + 0.94, 1.35, l * 0.5 + 0.94, floorY + 3.12, 0.85, [0.28, 0.30, 0.34], [0.32, 0.34, 0.38], h + 1.0);
+    buildExteriorWindowDetail(parts, 0, upperWinY + 0.06, l * 0.5 - 0.18, 1.20, 1.32, 0.36, 'z', [0.36, 0.24, 0.15], [0.30, 0.33, 0.38], true, h + 1.0);
+
+    // Steep Heritage Burgundy-Slate Roof + Twin Dormers (matching brick palette)
+    const roof = createPitchedRoofGeometry(roofW, l + 1.3, roofH, false);
     setGeometryUVBox(roof, 0.52, 0.98, 0.52, 0.98);
-    roof.translate(0, floorY + h, 0);
-    parts.push(tintBuildingPart(roof, 0.72, 0.38, 0.28, h + 3.0));
+    roof.translate(0, floorY + h - eaveDrop, 0);
+    parts.push(tintBuildingPart(roof, roofTint[0], roofTint[1], roofTint[2], h + roofH + 1.0));
 
-    // Twin brick chimneys
+    [-w * 0.24, w * 0.24].forEach(dx => {
+        const dBox = createUniformWallBox(1.35, 1.05, 1.55, dx, floorY + h + 0.85, l * 0.24, 0.02, 0.48, 0.02, 0.48, floorY + h + 0.2);
+        parts.push(tintBuildingPart(dBox, wallTint[0], wallTint[1], wallTint[2], h + 2.5));
+        const dRoof = createPitchedRoofGeometry(1.60, 1.80, 0.65, true);
+        setGeometryUVBox(dRoof, 0.52, 0.98, 0.52, 0.98);
+        dRoof.translate(dx, floorY + h + 1.30, l * 0.24 + 0.04);
+        parts.push(tintBuildingPart(dRoof, roofTint[0], roofTint[1], roofTint[2], h + 3.0));
+        buildExteriorWindowDetail(parts, dx, floorY + h + 0.85, l * 0.24, 0.72, 0.70, 1.55, 'z', [0.36, 0.24, 0.15], null, true, h + 3.0);
+    });
+
+    // Twin brick chimneys with uniform brickwork & limestone caps
     [-1, 1].forEach(side => {
-        const chim = new THREE.BoxGeometry(0.75, 2.8, 0.75);
-        setGeometryUVBox(chim, 0.02, 0.48, 0.02, 0.48);
-        chim.translate(side * (w * 0.30), floorY + h + 1.5, -l * 0.28);
-        parts.push(tintBuildingPart(chim, 0.70, 0.44, 0.36, h + 3.5));
+        const chim = createUniformWallBox(0.88, 3.2, 0.88, side * (w * 0.30), floorY + h + 1.6, -l * 0.26, 0.02, 0.48, 0.02, 0.48, floorY + h);
+        parts.push(tintBuildingPart(chim, 0.76, 0.42, 0.36, h + 4.0));
     });
 
     const merged = mergeBufferGeometries(parts);
-    merged.userData = { enterableSpec: spec };
+    merged.userData = { enterableSpec: spec, houseStyle: 'brick', hasCutoutFence: spec.hasCutoutFence, colorScheme: { wall: wallTint, roof: roofTint } };
     return merged;
 }
 
-// 5R. Rustic Normandy / Highland Stone Farmhouse with Veranda & Open Walk-In Door
+// 5R. Sprawling Country Villa / Stone & Brick Farmhouse with Colonnaded Veranda & Warm Burnt-Umber Roof
 function createStoneFarmhouseGeometry() {
     const parts = [];
-    const w = 5.8, h = 3.4, l = 7.4;
+    const w = 8.4, h = 4.3, l = 10.6;
     const floorY = 0.16;
+    const roofW = w + 1.5;
+    const roofH = 2.85;
+    const gableH = roofH * (w / roofW);
+    const eaveDrop = roofH - gableH;
+    const wallTint = [0.86, 0.74, 0.58];
+    const roofTint = [0.64, 0.44, 0.30];
 
     const spec = buildHollowHouseShell(parts, {
-        w, h, l, wallThick: 0.34, doorW: 1.70, doorH: 2.45, floorY,
+        w, h, l, wallThick: 0.36, doorW: 1.80, doorH: 2.55, floorY, gableH,
+        style: 'brick',
         u0: 0.02, u1: 0.48, v0: 0.02, v1: 0.48,
-        tint: [0.82, 0.78, 0.70],
+        tint: wallTint,
         foundTint: [0.58, 0.55, 0.50],
-        floorTint: [0.52, 0.40, 0.28],
-        doorTint: [0.44, 0.30, 0.18]
+        floorTint: [0.54, 0.40, 0.28],
+        doorTint: [0.42, 0.28, 0.17],
+        quoinTint: [0.80, 0.72, 0.60],
+        shutterTint: [0.36, 0.42, 0.30],
+        fenceTint: [0.78, 0.62, 0.44],
+        postTint: [0.48, 0.34, 0.20],
+        fenceH: 1.05,
+        fenceFrontOffset: 2.25
     });
 
-    const roof = createPitchedRoofGeometry(w + 1.3, l + 1.4, 2.75);
+    const roof = createPitchedRoofGeometry(roofW, l + 1.5, roofH, false);
     setGeometryUVBox(roof, 0.52, 0.98, 0.52, 0.98);
-    roof.translate(0, floorY + h, 0);
-    parts.push(tintBuildingPart(roof, 0.56, 0.48, 0.42, h + 3.0));
+    roof.translate(0, floorY + h - eaveDrop, 0);
+    parts.push(tintBuildingPart(roof, roofTint[0], roofTint[1], roofTint[2], h + roofH + 1.0));
 
-    // Stone hearth chimney on left wall
-    const hearthChim = new THREE.BoxGeometry(0.95, h + 2.4, 1.25);
-    setGeometryUVBox(hearthChim, 0.02, 0.48, 0.02, 0.48);
-    hearthChim.translate(-w * 0.5 - 0.35, floorY + (h + 2.4) * 0.5, -0.4);
-    parts.push(tintBuildingPart(hearthChim, 0.68, 0.64, 0.58, h + 2.5));
+    // Wide Colonnaded Timber Front Veranda Porch (clear of doorway walk-in path)
+    const verRoof = createPitchedRoofGeometry(w * 0.76, 2.0, 0.82, true);
+    setGeometryUVBox(verRoof, 0.52, 0.98, 0.52, 0.98);
+    verRoof.translate(0, floorY + 2.82, l * 0.5 + 0.90);
+    parts.push(tintBuildingPart(verRoof, roofTint[0], roofTint[1], roofTint[2], h + 1.0));
+
+    [-w * 0.36, -1.45, 1.45, w * 0.36].forEach(vx => {
+        const col = new THREE.BoxGeometry(0.18, 2.85, 0.18);
+        setGeometryUVBox(col, 0.52, 0.98, 0.02, 0.48);
+        col.translate(vx, floorY + 1.42, l * 0.5 + 1.65);
+        parts.push(tintBuildingPart(col, 0.46, 0.32, 0.20, h));
+    });
+
+    // Veranda deck & flanking wooden cutout veranda balustrade wings (open central stairs)
+    const verDeck = new THREE.BoxGeometry(w * 0.74, 0.16, 1.75);
+    setGeometryUVBox(verDeck, 0.52, 0.98, 0.02, 0.48);
+    verDeck.translate(0, floorY - 0.06, l * 0.5 + 0.85);
+    parts.push(tintBuildingPart(verDeck, 0.54, 0.40, 0.28, 2.0));
+    buildCutoutFenceSegment(parts, -w * 0.36, l * 0.5 + 1.65, -1.45, l * 0.5 + 1.65, floorY + 0.04, 0.88, [0.46, 0.32, 0.20], [0.78, 0.62, 0.44], 3.0);
+    buildCutoutFenceSegment(parts, 1.45, l * 0.5 + 1.65, w * 0.36, l * 0.5 + 1.65, floorY + 0.04, 0.88, [0.46, 0.32, 0.20], [0.78, 0.62, 0.44], 3.0);
+
+    // Tall stone hearth chimney on left wall (uniform masonry)
+    const hearthChim = createUniformWallBox(1.05, h + 2.8, 1.38, -w * 0.5 - 0.40, floorY + (h + 2.8) * 0.5, -0.5, 0.02, 0.48, 0.02, 0.48, floorY);
+    parts.push(tintBuildingPart(hearthChim, 0.74, 0.66, 0.56, h + 3.0));
 
     const merged = mergeBufferGeometries(parts);
-    merged.userData = { enterableSpec: spec };
+    merged.userData = { enterableSpec: spec, houseStyle: 'brick', hasCutoutFence: spec.hasCutoutFence, colorScheme: { wall: wallTint, roof: roofTint } };
     return merged;
 }
 
-// 5S. Desert Whitewashed & Sandstone Domed Adobe House (Koubba) with Open Walk-In Door
+// 5S. Desert Whitewashed & Sandstone Domed Adobe House (Koubba) with Courtyard Fence & Open Walk-In Door
 function createDesertAdobeHouseGeometry() {
     const parts = [];
-    const w = 5.2, h = 3.4, l = 6.0;
+    const w = 6.4, h = 3.9, l = 7.8;
     const floorY = 0.16;
 
     const spec = buildHollowHouseShell(parts, {
-        w, h, l, wallThick: 0.34, doorW: 1.65, doorH: 2.42, floorY,
+        w, h, l, wallThick: 0.34, doorW: 1.72, doorH: 2.50, floorY,
+        style: 'adobe',
         tint: [0.94, 0.89, 0.81],
         foundTint: [0.80, 0.70, 0.58],
         floorTint: [0.72, 0.60, 0.48],
-        doorTint: [0.36, 0.48, 0.58] // Traditional oasis blue-stained timber door
+        doorTint: [0.36, 0.48, 0.58], // Traditional oasis blue-stained timber door
+        shutterTint: [0.32, 0.48, 0.58],
+        fenceTint: [0.82, 0.74, 0.62],
+        postTint: [0.78, 0.68, 0.56],
+        fenceH: 0.98
     });
 
     const roofY = floorY + h;
-    const roofCap = new THREE.BoxGeometry(w + 0.18, 0.28, l + 0.18);
+    const roofCap = new THREE.BoxGeometry(w + 0.22, 0.32, l + 0.22);
     setGeometryUVBox(roofCap, 0.02, 0.48, 0.02, 0.48);
-    roofCap.translate(0, roofY + 0.12, 0);
+    roofCap.translate(0, roofY + 0.14, 0);
     parts.push(tintBuildingPart(roofCap, 0.90, 0.84, 0.76, roofY + 2.0));
 
     // Domed rooftop cupola (Koubba)
-    const dome = new THREE.SphereGeometry(1.55, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.52);
+    const dome = new THREE.SphereGeometry(1.85, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.52);
     setGeometryUVBox(dome, 0.02, 0.48, 0.02, 0.48);
-    dome.translate(0, roofY + 0.22, -0.35);
-    parts.push(tintBuildingPart(dome, 0.96, 0.92, 0.85, roofY + 2.0));
+    dome.translate(0, roofY + 0.26, -0.35);
+    parts.push(tintBuildingPart(dome, 0.96, 0.92, 0.85, roofY + 2.2));
 
     const merged = mergeBufferGeometries(parts);
-    merged.userData = { enterableSpec: spec };
+    merged.userData = { enterableSpec: spec, houseStyle: 'adobe', hasCutoutFence: spec.hasCutoutFence, colorScheme: { wall: [0.94, 0.89, 0.81], roof: [0.96, 0.92, 0.85] } };
     return merged;
 }
 
-// 5T. Alpine Timber & Stone Mountain Chalet with Wide Eaves, Balcony & Open Walk-In Door
+// 5T. Elegant Two-Story Wooden Alpine Chalet with Carved Balcony, Wide Eaves & Espresso-Larch Shingle Roof
 function createAlpineChaletGeometry() {
     const parts = [];
-    const w = 5.6, h = 3.6, l = 6.8;
+    const w = 7.6, h = 4.9, l = 9.2;
     const floorY = 0.16;
+    const roofW = w + 1.8;
+    const roofH = 2.75;
+    const gableH = roofH * (w / roofW);
+    const eaveDrop = roofH - gableH;
+    const wallTint = [0.82, 0.62, 0.42];
+    const roofTint = [0.46, 0.33, 0.24];
 
     const spec = buildHollowHouseShell(parts, {
-        w, h, l, wallThick: 0.34, doorW: 1.68, doorH: 2.45, floorY,
+        w, h, l, wallThick: 0.34, doorW: 1.75, doorH: 2.52, floorY, gableH,
+        style: 'wood',
         u0: 0.52, u1: 0.98, v0: 0.02, v1: 0.48,
-        tint: [0.68, 0.50, 0.34],
+        tint: wallTint,
         foundTint: [0.62, 0.65, 0.70],
         floorTint: [0.58, 0.44, 0.30],
-        doorTint: [0.42, 0.28, 0.18]
+        doorTint: [0.40, 0.26, 0.16],
+        shutterTint: [0.54, 0.26, 0.22],
+        fenceTint: [0.78, 0.58, 0.38],
+        postTint: [0.42, 0.28, 0.16],
+        fenceH: 1.08
     });
 
-    // Broad low-pitched Alpine snow-dusted roof
-    const roof = createPitchedRoofGeometry(w + 1.8, l + 1.8, 2.35);
-    setGeometryUVBox(roof, 0.02, 0.48, 0.02, 0.48);
-    roof.translate(0, floorY + h, 0);
-    parts.push(tintBuildingPart(roof, 0.86, 0.90, 0.95, h + 3.0));
+    // Broad low-pitched Alpine espresso-larch shingle roof matching honey-pine walls
+    const roof = createPitchedRoofGeometry(roofW, l + 1.8, roofH, false);
+    setGeometryUVBox(roof, 0.52, 0.98, 0.52, 0.98);
+    roof.translate(0, floorY + h - eaveDrop, 0);
+    parts.push(tintBuildingPart(roof, roofTint[0], roofTint[1], roofTint[2], h + roofH + 1.0));
 
-    // Front timber balcony rail above open doorway
-    const balcDeck = new THREE.BoxGeometry(w * 0.78, 0.14, 1.15);
+    // Upper chalet windows above front balcony
+    [-w * 0.24, w * 0.24].forEach(wx => {
+        buildExteriorWindowDetail(parts, wx, floorY + 3.92, l * 0.5 - 0.17, 1.05, 0.92, 0.34, 'z', [0.40, 0.26, 0.16], [0.54, 0.26, 0.22], true, h + 1.0);
+    });
+
+    // Front timber balcony with alpha-cutout carved balustrade
+    const balcDeck = new THREE.BoxGeometry(w * 0.86, 0.16, 1.30);
     setGeometryUVBox(balcDeck, 0.52, 0.98, 0.02, 0.48);
-    balcDeck.translate(0, floorY + 2.65, l * 0.5 + 0.52);
-    parts.push(tintBuildingPart(balcDeck, 0.52, 0.36, 0.22, h));
+    balcDeck.translate(0, floorY + 2.82, l * 0.5 + 0.58);
+    parts.push(tintBuildingPart(balcDeck, 0.48, 0.32, 0.19, h));
+    buildCutoutFenceSegment(parts, -w * 0.42, l * 0.5 + 1.18, w * 0.42, l * 0.5 + 1.18, floorY + 2.90, 0.78, [0.40, 0.26, 0.16], [0.78, 0.58, 0.38], h + 1.0);
 
-    const balcRail = new THREE.BoxGeometry(w * 0.78, 0.62, 0.10);
-    setGeometryUVBox(balcRail, 0.52, 0.98, 0.02, 0.48);
-    balcRail.translate(0, floorY + 3.02, l * 0.5 + 1.02);
-    parts.push(tintBuildingPart(balcRail, 0.56, 0.39, 0.24, h));
+    // Alpine stone chimney stack (uniform masonry)
+    const chim = createUniformWallBox(0.90, 2.8, 0.90, -w * 0.26, floorY + h + 1.5, -l * 0.20, 0.02, 0.48, 0.02, 0.48, floorY + h);
+    parts.push(tintBuildingPart(chim, 0.64, 0.66, 0.70, h + 3.5));
 
     const merged = mergeBufferGeometries(parts);
-    merged.userData = { enterableSpec: spec };
+    merged.userData = { enterableSpec: spec, houseStyle: 'wood', hasCutoutFence: spec.hasCutoutFence, colorScheme: { wall: wallTint, roof: roofTint } };
     return merged;
 }
 
@@ -6797,6 +7456,7 @@ function getInteriorMaterial() {
             envMapIntensity: GROUND_ENV_MAP_INTENSITY,
             side: THREE.DoubleSide
         });
+        sharedInteriorMat.userData = sharedInteriorMat.userData || {};
         sharedInteriorMat.userData.noIndirectSpecular = true;
     }
     return sharedInteriorMat;
@@ -9834,6 +10494,7 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             uniform float uPatchSize;
             uniform float uMinRadius;
             uniform float uMaxRadius;
+            uniform float uLowGraphics;
             varying vec2 vGrassAtlasUv;
             varying vec3 vGrassWorldPos;
             varying float vGrassHeightFrac;
@@ -9881,10 +10542,9 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
                 return;
             }
 
-            // Camera Frustum Culling
+            // Camera Frustum Culling (no normalize() needed)
             if (distFromCam > 10.0) {
-                float viewDot = dot(normalize(relXZ), uCameraForwardXZ);
-                if (viewDot < -0.10) {
+                if (dot(relXZ, uCameraForwardXZ) < -0.10 * distFromCam) {
                     gl_Position = vec4(2.0, 2.0, 2.0, 0.0);
                     return;
                 }
@@ -9898,7 +10558,8 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             int localZone = getZoneIndex12_gpu(wGrass);
 
             // 2. Terrain height & road/river/beach/building culling
-            float roadMask = getRoadFactor_gpu(worldXZ.x, worldXZ.y);
+            float roadDistGrass = getRoadDistance_gpu(worldXZ.x, worldXZ.y);
+            float roadMask = (roadDistGrass > 4.6) ? 0.0 : (1.0 - roadDistGrass / 4.6) * (1.0 - roadDistGrass / 4.6) * (3.0 - 2.0 * (1.0 - roadDistGrass / 4.6));
             float roadCull = 1.0 - smoothstep(0.06, 0.36, roadMask);
             if (roadCull <= 0.01) {
                 gl_Position = vec4(2.0, 2.0, 2.0, 0.0);
@@ -9913,7 +10574,7 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             }
 
             vec3 surfNorm;
-            float groundY = getTerrainSurfaceHeight_gpu(worldXZ.x, worldXZ.y, surfNorm);
+            float groundY = getGrassTerrainSurfaceHeight_gpu(worldXZ.x, worldXZ.y, roadDistGrass, roadMask, riverDistGrass, wGrass, localZone, uLowGraphics, distFromCam, surfNorm);
             vTerrainNormalUp = normalize(normalMatrix * surfNorm);
 
             float waterCull = smoothstep(-1.4, 0.5, groundY) * (1.0 - smoothstep(0.22, 0.38, 1.0 - surfNorm.y));
@@ -9989,11 +10650,16 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             }
 
             float bldgCull = 1.0;
-            for (int b = 0; b < 32; b++) {
-                if (b >= uBuildingCount) break;
-                float dB = length(worldXZ - uBuildings[b].xy);
-                if (dB < uBuildings[b].z + 0.8) {
-                    bldgCull = min(bldgCull, smoothstep(uBuildings[b].z - 0.2, uBuildings[b].z + 0.8, dB));
+            if (uBuildingCount > 0 && distFromCam < 140.0) {
+                for (int b = 0; b < 32; b++) {
+                    if (b >= uBuildingCount) break;
+                    vec2 dBVec = worldXZ - uBuildings[b].xy;
+                    float rOuter = uBuildings[b].z + 0.8;
+                    float dBSq = dot(dBVec, dBVec);
+                    if (dBSq < rOuter * rOuter) {
+                        float dB = sqrt(dBSq);
+                        bldgCull = min(bldgCull, smoothstep(uBuildings[b].z - 0.2, rOuter, dB));
+                    }
                 }
             }
 
@@ -10012,12 +10678,12 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
 
             // Regional variation: preserve the original flower-rich look across most of the world,
             // with natural variations including areas with only very few flowers
-            float regionVar = valueNoise2D_gpu(meadowPos * 0.008 + vec2(71.0, 93.0)) * 0.5 + 0.5;
+            float regionVar = (uLowGraphics > 0.5) ? flowerPatch : (valueNoise2D_gpu(meadowPos * 0.008 + vec2(71.0, 93.0)) * 0.5 + 0.5);
             float areaFlowerMod = smoothstep(0.28, 0.52, regionVar);
 
             float flowerChance = mix(0.005, origFlowerChance, areaFlowerMod);
             flowerChance *= (1.0 - vGrassZoneWeights.y) * (1.0 - vGrassZoneWeightsExt.z) * (1.0 - vGrassZoneWeightsExt.w) * (1.0 - vGrassZoneWeightsExt2.x) * (1.0 - vGrassZoneWeightsExt2.y);
-            float flowerColor = valueNoise2D_gpu(meadowPos * 0.035 + vec2(31.0, 17.0));
+            float flowerColor = (uLowGraphics > 0.5) ? (tuftRandom - 0.5) : valueNoise2D_gpu(meadowPos * 0.035 + vec2(31.0, 17.0));
             float noPlumeZone = clamp(vGrassZoneWeights.y + vGrassZoneWeightsExt.z + vGrassZoneWeightsExt.w + vGrassZoneWeightsExt2.x + vGrassZoneWeightsExt2.y, 0.0, 1.0);
             float plumeThreshold = mix(mix(0.90, 0.50, areaFlowerMod), 1.0, noPlumeZone);
 
@@ -10030,8 +10696,8 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             // become a patch, so clusters are rare, randomly placed, and different per world seed.
             float speciesHeightMul = 1.0;
             float greenMeadowMask = (1.0 - vGrassZoneWeights.y) * (1.0 - vGrassZoneWeightsExt.x) * (1.0 - vGrassZoneWeightsExt.z) * (1.0 - vGrassZoneWeightsExt.w) * (1.0 - vGrassZoneWeightsExt2.x) * (1.0 - vGrassZoneWeightsExt2.y);
-            if (greenMeadowMask > 0.5) {
-                float speciesRand = fract(tuftRandom * 7.31 + aInstanceData.w * 3.17);
+            float speciesRand = fract(tuftRandom * 7.31 + aInstanceData.w * 3.17);
+            if (greenMeadowMask > 0.5 && speciesRand < 0.16 && (uLowGraphics < 0.5 || distFromCam < 42.0)) {
                 for (int sp = 0; sp < 6; sp++) {
                     float fsp = float(sp);
                     // Pampas (sp==1) forms large, low-frequency stands; the rest are small, rare clusters
@@ -10046,7 +10712,7 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
                     }
                 }
             }
-            float heightPatch = valueNoise2D_gpu(meadowPos * 0.035 + vec2(13.0, 47.0)) * 0.5 + 0.5;
+            float heightPatch = (uLowGraphics > 0.5) ? flowerPatch : (valueNoise2D_gpu(meadowPos * 0.035 + vec2(13.0, 47.0)) * 0.5 + 0.5);
             float heightVar = (0.68 + 0.62 * tuftRandom) * (0.78 + 0.44 * heightPatch) * zoneCull * speciesHeightMul;
             vGrassAtlasUv = vec2(
                 (colIdx + clamp(uv.x, 0.02, 0.98)) * 0.1,
@@ -10056,11 +10722,11 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
 
             float windT = uTime * uWindSpeed;
             float wave1 = sin(worldXZ.x * 0.14 + worldXZ.y * 0.12 + windT * 2.4);
-            float wave2 = (distFromCam < 65.0)
-                ? cos(worldXZ.x * 0.35 - worldXZ.y * 0.28 + windT * 3.6) * 0.45 * (1.0 - smoothstep(48.0, 65.0, distFromCam))
+            float wave2 = (uLowGraphics < 0.5 && distFromCam < 55.0)
+                ? cos(worldXZ.x * 0.35 - worldXZ.y * 0.28 + windT * 3.6) * 0.45 * (1.0 - smoothstep(42.0, 55.0, distFromCam))
                 : 0.0;
             float windDistFade = 1.0 - smoothstep(140.0, 230.0, distFromCam) * 0.45;
-            float windWave = (wave1 + wave2) * pow(max(uv.y, 0.0), 1.65) * 0.38 * windDistFade;
+            float windWave = (wave1 + wave2) * (uv.y * sqrt(max(uv.y, 0.0))) * 0.38 * windDistFade;
 
             vec3 localP = transformed;
             float distWidthBoost = 1.0 + smoothstep(32.0, 200.0, distFromCam) * 0.9;
@@ -10139,7 +10805,8 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             if (texelColor.a * alphaBoost < 0.40) discard;
 
             // Convert grass atlas from sRGB to linear space and lift green biomes slightly lighter
-            vec3 bladeLinear = pow(max(texelColor.rgb, vec3(0.001)), vec3(2.2));
+            vec3 tc = max(texelColor.rgb, vec3(0.001));
+            vec3 bladeLinear = tc * tc * (0.72 + 0.28 * tc);
             float greenBiomeWeight = clamp(vGrassZoneWeights.x + vGrassZoneWeights.z + vGrassZoneWeights.w + vGrassZoneWeightsExt.y + vGrassZoneWeightsExt2.z * 0.5 + vGrassZoneWeightsExt2.w * 0.65, 0.0, 1.0);
             vec3 lighterBlade = bladeLinear * vec3(1.24, 1.36, 1.15) + vec3(0.012, 0.026, 0.005);
             bladeLinear = mix(bladeLinear, lighterBlade, greenBiomeWeight * 0.65);
@@ -10211,9 +10878,11 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             float backLight = pow(max(dot(-viewDir, sunDir), 0.0), 2.1);
 
             // Blade-contour edge mask + alpha rim + subtle upper blade translucency
-            float edgeMask = smoothstep(0.18, 0.68, texture2D(uGrassEdgeAtlas, vGrassAtlasUv).r);
             float alphaRim = smoothstep(0.36, 0.48, texelColor.a) * (1.0 - smoothstep(0.58, 0.78, texelColor.a));
             float bladeInterior = smoothstep(0.66, 0.88, texelColor.a);
+            float edgeMask = (uLowGraphics < 0.5 && vGrassDistCam < 55.0)
+                ? smoothstep(0.18, 0.68, texture2D(uGrassEdgeAtlas, vGrassAtlasUv).r)
+                : alphaRim;
             float edgeOnly = clamp((edgeMask * 1.08 + alphaRim * 1.18) * (1.0 - bladeInterior * 0.78), 0.0, 1.0);
             float interiorTranslucency = bladeInterior * 0.22;
 
@@ -10222,9 +10891,12 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             float edgeAndTip = clamp((edgeOnly + interiorTranslucency) * heightWeight, 0.0, 1.0);
 
             // Multi-scale natural variety across meadow tufts
-            float macroWave = sin(vGrassWorldPos.x * 0.08 + vGrassWorldPos.z * 0.07) * cos(vGrassWorldPos.x * 0.05 - vGrassWorldPos.z * 0.09) * 0.5 + 0.5;
-            float microRand = fract(sin(dot(floor(vGrassWorldPos.xz * 2.8), vec2(12.9898, 78.233))) * 43758.5453);
-            float sssVariety = mix(0.60, 1.38, macroWave * 0.65 + microRand * 0.35);
+            float sssVariety = 1.0;
+            if (uLowGraphics < 0.5 && vGrassDistCam < 65.0) {
+                float macroWave = sin(vGrassWorldPos.x * 0.08 + vGrassWorldPos.z * 0.07) * cos(vGrassWorldPos.x * 0.05 - vGrassWorldPos.z * 0.09) * 0.5 + 0.5;
+                float microRand = fract(sin(dot(floor(vGrassWorldPos.xz * 2.8), vec2(12.9898, 78.233))) * 43758.5453);
+                sssVariety = mix(0.60, 1.38, macroWave * 0.65 + microRand * 0.35);
+            }
 
             vec3 sssColor = bladeLinear * 1.85 + uSunColor * (bladeLinear * 1.25 + vec3(0.03, 0.045, 0.01)) * 0.48;
             float distSssFade = 1.0 - smoothstep(50.0, 165.0, vGrassDistCam) * 0.70;
@@ -10270,7 +10942,7 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             reflectedLight.indirectSpecular *= 0.04;
             float sssShadow = 1.0;
             #if defined( USE_SHADOWMAP ) && NUM_DIR_LIGHT_SHADOWS > 0
-                if ( receiveShadow && uLowGraphics < 0.5 ) {
+                if ( receiveShadow && uLowGraphics < 0.5 && vGrassDistCam < 60.0 ) {
                     DirectionalLightShadow sssDirShadow = directionalLightShadows[ 0 ];
                     sssShadow = getShadow(
                         directionalShadowMap[ 0 ],
@@ -10279,20 +10951,11 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
                         sssDirShadow.shadowRadius,
                         vDirectionalShadowCoord[ 0 ]
                     );
-                    #if NUM_DIR_LIGHT_SHADOWS > 1
-                        DirectionalLightShadow sssDirShadow1 = directionalLightShadows[ 1 ];
-                        float sssShadow1 = getShadow(
-                            directionalShadowMap[ 1 ],
-                            sssDirShadow1.shadowMapSize,
-                            sssDirShadow1.shadowBias,
-                            sssDirShadow1.shadowRadius,
-                            vDirectionalShadowCoord[ 1 ]
-                        );
-                        sssShadow = min( sssShadow, sssShadow1 );
-                    #endif
                 }
             #endif
-            float _grassCloudLit = sampleCloudShadowFactor(vGrassWorldPos, uCloudSunDir, uCloudTime, uCloudTex, uCloudShadowParams);
+            float _grassCloudLit = (uLowGraphics < 0.5 && vGrassDistCam < 90.0)
+                ? sampleCloudShadowFactor(vGrassWorldPos, uCloudSunDir, uCloudTime, uCloudTex, uCloudShadowParams)
+                : 1.0;
             totalEmissiveRadiance += grassSss * sssShadow * _grassCloudLit;
             `
         );
@@ -10614,6 +11277,22 @@ function pickClusteredTreePosition(xMin, zMin, groves, isVillage, zoneIdx, rng) 
     return [tx, tz];
 }
 
+/**
+ * Shared deterministic village layout template used by both near TerrainChunk generation and far-LOD prop caching
+ * so varied house sizes (compact cottages up to grand barns/townhouses) and generous yard offsets match 1:1.
+ */
+function getVillageTemplates(isCrossroadsVillage, isWestVillage) {
+    return [
+        { rx: -22, rz: -20, type: 'cottage', rot: 0.35, scale: 0.88 },
+        { rx: 22, rz: -22, type: 'barn', rot: -0.42, scale: 1.24 },
+        { rx: -21, rz: 20, type: isWestVillage ? 'ruin' : 'townhouse', rot: 1.25, scale: 1.16 },
+        { rx: 24, rz: 21, type: isWestVillage ? 'farmhouse' : 'barn', rot: -1.15, scale: 1.04 },
+        { rx: -11, rz: 4, type: isCrossroadsVillage ? 'townhouse' : 'farmhouse', rot: 0.12, scale: 0.94 },
+        { rx: 14, rz: -32, type: 'wall', rot: 0.05, scale: 1.05 },
+        { rx: -14, rz: 32, type: 'wall', rot: 0.08, scale: 1.05 }
+    ];
+}
+
 class TerrainChunk {
     constructor(cx, cz) {
         this.cx = cx;
@@ -10705,15 +11384,7 @@ class TerrainChunk {
         const isVillage = isCrossroadsVillage || isEastVillage || isWestVillage || isProceduralVillage;
 
         if (isVillage) {
-            const villageTemplates = [
-                { rx: -16, rz: -14, type: 'cottage', rot: 0.35, scale: 1.05 },
-                { rx: 16, rz: -16, type: 'barn', rot: -0.42, scale: 1.10 },
-                { rx: -15, rz: 15, type: isWestVillage ? 'ruin' : 'townhouse', rot: 1.25, scale: 0.98 },
-                { rx: 18, rz: 16, type: isWestVillage ? 'farmhouse' : 'barn', rot: -1.15, scale: 1.02 },
-                { rx: 0, rz: 2, type: isCrossroadsVillage ? 'townhouse' : 'farmhouse', rot: 0.12, scale: 1.0 },
-                { rx: -1, rz: -26, type: 'wall', rot: 0.05, scale: 1.0 },
-                { rx: 1, rz: 26, type: 'wall', rot: 0.08, scale: 1.0 }
-            ];
+            const villageTemplates = getVillageTemplates(isCrossroadsVillage, isWestVillage);
 
             villageTemplates.forEach((struct, idx) => {
                 let bx = chunkCenterX + struct.rx + (rng() - 0.5) * 4.0;
@@ -10727,7 +11398,7 @@ class TerrainChunk {
                 const baseBy = getTerrainHeight(bx, bz);
                 const norm = getTerrainNormal(bx, bz);
                 const minNormY = (currentZoneIndex === 2) ? 0.80 : 0.85;
-                if (baseBy < -1.8 || getRiverDistance(bx, bz) < 20.0 || norm.y < minNormY || (currentZoneIndex === 2 && baseBy > 16.5)) return;
+                if (baseBy < -1.8 || getRiverDistance(bx, bz) < 20.0 || getRoadDistance(bx, bz) < 9.5 || norm.y < minNormY || (currentZoneIndex === 2 && baseBy > 16.5)) return;
                 const by = Math.max(
                     baseBy,
                     getTerrainHeight(bx - 2.6, bz - 2.6),
@@ -10914,19 +11585,19 @@ class TerrainChunk {
                     // Meadow & Rolling Hills: European Cottages, Townhouses, Stone Farmhouses & Barns
                     if (struct.type === 'cottage') {
                         bldgGeo = sharedCottageGeo;
-                        height = 6.6 * struct.scale;
+                        height = 7.0 * struct.scale;
                     } else if (struct.type === 'townhouse') {
                         bldgGeo = sharedTownhouseGeo || sharedCottageGeo;
-                        height = 9.0 * struct.scale;
+                        height = 9.2 * struct.scale;
                     } else if (struct.type === 'farmhouse') {
                         bldgGeo = sharedFarmhouseGeo || sharedCottageGeo;
-                        height = 6.5 * struct.scale;
+                        height = 7.4 * struct.scale;
                     } else if (struct.type === 'barn') {
                         bldgGeo = sharedBarnGeo;
-                        height = 7.5 * struct.scale;
+                        height = 8.8 * struct.scale;
                     } else if (struct.type === 'ruin') {
                         bldgGeo = sharedRuinGeo;
-                        height = 4.2 * struct.scale;
+                        height = 5.4 * struct.scale;
                         isRuin = true;
                     } else {
                         bldgGeo = sharedStoneWallGeo;
@@ -10952,6 +11623,7 @@ class TerrainChunk {
                 bMesh.scale.setScalar(struct.scale);
                 bMesh.castShadow = true;
                 bMesh.receiveShadow = true;
+                if (chosenBldgMat === villageMat) bMesh.customDepthMaterial = getVillageDepthMaterial();
                 this.group.add(bMesh);
 
                 this.raycastMeshes.push(bMesh);
@@ -11046,13 +11718,14 @@ class TerrainChunk {
                         else { bType = 'barn'; bldgGeo = sharedBarnGeo; }
                     }
                     const placeHy = (bldgGeo && bldgGeo.userData && bldgGeo.userData.enterableSpec) ? hy : baseHy;
-                    const bScale = 0.95 + rng() * 0.25;
+                    const bScale = 0.86 + rng() * 0.46;
                     const bMesh = new THREE.Mesh(bldgGeo, roadsideMat);
                     bMesh.position.set(hx, placeHy - 0.15, hz);
                     bMesh.rotation.y = rng() * Math.PI * 2;
                     bMesh.scale.setScalar(bScale);
                     bMesh.castShadow = true;
                     bMesh.receiveShadow = true;
+                    if (roadsideMat === villageMat) bMesh.customDepthMaterial = getVillageDepthMaterial();
                     this.group.add(bMesh);
 
                     this.raycastMeshes.push(bMesh);
@@ -11063,7 +11736,7 @@ class TerrainChunk {
                         x: hx,
                         y: placeHy,
                         z: hz,
-                        height: (bType === 'spire' ? 24.0 : bType === 'pantheon' ? 20.5 : bType === 'obelisk' ? 17.5 : bType === 'romanArch' ? 15.2 : (JUNGLE_STRUCT_H[bType] || 0) > 0 ? JUNGLE_STRUCT_H[bType] : bType === 'tholos' ? 11.8 : bType === 'stoa' ? 8.6 : bType === 'colonnade' ? 8.2 : bType === 'ruin' ? 4.2 : (bType === 'townhouse' ? 9.0 : (bType === 'barn' ? 7.5 : 6.6))) * bScale,
+                        height: (bType === 'spire' ? 24.0 : bType === 'pantheon' ? 20.5 : bType === 'obelisk' ? 17.5 : bType === 'romanArch' ? 15.2 : (JUNGLE_STRUCT_H[bType] || 0) > 0 ? JUNGLE_STRUCT_H[bType] : bType === 'tholos' ? 11.8 : bType === 'stoa' ? 8.6 : bType === 'colonnade' ? 8.2 : bType === 'ruin' ? 5.4 : (bType === 'townhouse' ? 9.2 : (bType === 'barn' ? 8.8 : (bType === 'farmhouse' ? 7.4 : 7.0)))) * bScale,
                         isRuin: (bType === 'ruin'),
                         type: bType
                     }, bldgGeo, bScale, bMesh.rotation.y);
@@ -11084,6 +11757,7 @@ class TerrainChunk {
                         wMesh.scale.setScalar(bScale);
                         wMesh.castShadow = true;
                         wMesh.receiveShadow = true;
+                        wMesh.customDepthMaterial = getVillageDepthMaterial();
                         this.group.add(wMesh);
                         this.raycastMeshes.push(wMesh);
                         aimRaycastMeshes.push(wMesh);
@@ -12159,8 +12833,8 @@ function buildFarSandstoneRockGeo() {
 }
 
 function buildFarHouseGeo() {
-    // Low-poly pitched-roof house (unit width ~7.5m, wall height 3.4m, roof peak 5.8m)
-    const w = 3.8, d = 3.2, h = 3.4, peak = 5.8;
+    // Low-poly pitched-roof house matching enlarged near-LOD houses (~9.2m wide, wall height 4.2m, roof peak 7.1m)
+    const w = 4.6, d = 4.2, h = 4.2, peak = 7.1;
     const pos = [
         // Front/Back/Sides walls
         -w,0,d,  w,0,d,  w,h,d,  -w,h,d,
@@ -12192,8 +12866,8 @@ function buildFarHouseGeo() {
 }
 
 function buildFarAdobeGeo() {
-    const geo = new THREE.BoxGeometry(6.8, 4.8, 6.2);
-    geo.translate(0, 2.4, 0);
+    const geo = new THREE.BoxGeometry(7.6, 5.1, 7.2);
+    geo.translate(0, 2.55, 0);
     const count = geo.attributes.position.count;
     const cols = new Float32Array(count * 3);
     for (let i = 0; i < count; i++) {
@@ -12475,15 +13149,7 @@ function getFarChunkProps(cx, cz, isMobile) {
     const isVillage = isCrossroadsVillage || isEastVillage || isWestVillage || isProceduralVillage;
 
     if (isVillage) {
-        const villageTemplates = [
-            { rx: -16, rz: -14, type: 'cottage', rot: 0.35, scale: 1.05 },
-            { rx: 16, rz: -16, type: 'barn', rot: -0.42, scale: 1.10 },
-            { rx: -15, rz: 15, type: isWestVillage ? 'ruin' : 'townhouse', rot: 1.25, scale: 0.98 },
-            { rx: 18, rz: 16, type: isWestVillage ? 'farmhouse' : 'barn', rot: -1.15, scale: 1.02 },
-            { rx: 0, rz: 2, type: isCrossroadsVillage ? 'townhouse' : 'farmhouse', rot: 0.12, scale: 1.0 },
-            { rx: -1, rz: -26, type: 'wall', rot: 0.05, scale: 1.0 },
-            { rx: 1, rz: 26, type: 'wall', rot: 0.08, scale: 1.0 }
-        ];
+        const villageTemplates = getVillageTemplates(isCrossroadsVillage, isWestVillage);
         for (let idx = 0; idx < villageTemplates.length; idx++) {
             const struct = villageTemplates[idx];
             let bx = chunkCenterX + struct.rx + (rng() - 0.5) * 4.0;
@@ -12497,7 +13163,7 @@ function getFarChunkProps(cx, cz, isMobile) {
             const baseBy = getTerrainHeight(bx, bz);
             const norm = getTerrainNormal(bx, bz);
             const minNormY = (zoneIdx === 2) ? 0.80 : 0.85;
-            if (baseBy < -1.8 || getRiverDistance(bx, bz) < 20.0 || norm.y < minNormY || (zoneIdx === 2 && baseBy > 16.5)) continue;
+            if (baseBy < -1.8 || getRiverDistance(bx, bz) < 20.0 || getRoadDistance(bx, bz) < 9.5 || norm.y < minNormY || (zoneIdx === 2 && baseBy > 16.5)) continue;
             const by = Math.max(
                 baseBy,
                 getTerrainHeight(bx - 2.6, bz - 2.6),
@@ -12535,7 +13201,7 @@ function getFarChunkProps(cx, cz, isMobile) {
                 else if (struct.type === 'farmhouse' || struct.type === 'barn' || struct.type === 'ruin') kind = 'canyonTower';
                 else kind = 'sandstoneRock';
             }
-            houses.push({ x: bx, y: by, z: bz, rot, scale: struct.scale, kind, zoneIdx, radius: 5.5 * struct.scale });
+            houses.push({ x: bx, y: by, z: bz, rot, scale: struct.scale, kind, zoneIdx, radius: 6.8 * struct.scale });
         }
     } else if (distFromSpawn > 35 && rng() < 0.36) {
         const roadDistCenter = getRoadDistance(chunkCenterX, chunkCenterZ);
@@ -12598,7 +13264,7 @@ function getFarChunkProps(cx, cz, isMobile) {
                     else if (roll < 0.84) bType = 'townhouse';
                     else bType = 'barn';
                 }
-                const bScale = 0.95 + rng() * 0.25;
+                const bScale = 0.86 + rng() * 0.46;
                 const bRot = rng() * Math.PI * 2;
                 if (bType === 'rock') {
                     rocks.push({ x: hx, y: baseHy - 0.2, z: hz, scale: bScale, rot: bRot, zoneIdx });
@@ -12607,7 +13273,7 @@ function getFarChunkProps(cx, cz, isMobile) {
                     if (zoneIdx === 1 || zoneIdx === 8) kind = 'adobe';
                     else if (zoneIdx === 6) kind = 'monumentSpire';
                     else if (zoneIdx === 7) kind = 'canyonTower';
-                    houses.push({ x: hx, y: hy, z: hz, rot: bRot, scale: bScale, kind, zoneIdx, radius: 5.5 * bScale });
+                    houses.push({ x: hx, y: hy, z: hz, rot: bRot, scale: bScale, kind, zoneIdx, radius: 6.8 * bScale });
                 }
                 if (allowWall && rng() < 0.60) {
                     rng();
@@ -12985,14 +13651,19 @@ function initEnvironment(scene) {
     terrainMeshRef = chunksGroup;
     window.terrainMeshRef = chunksGroup;
 
-    // Apply Village PBR Atlas to villageMat
+    // Apply Village PBR Atlas to villageMat & depth material for cutout fences/vines
     const vAtlas = getVillageAtlas();
     if (vAtlas) {
         villageMat.map = vAtlas.albedo;
         villageMat.normalMap = vAtlas.normal;
-        villageMat.normalScale = new THREE.Vector2(1.35, 1.35);
+        villageMat.normalScale = new THREE.Vector2(1.42, 1.42);
         villageMat.roughnessMap = vAtlas.roughness;
         villageMat.needsUpdate = true;
+        const vDepth = getVillageDepthMaterial();
+        if (vDepth) {
+            vDepth.map = vAtlas.albedo;
+            vDepth.needsUpdate = true;
+        }
     }
 
     if (!terrainUniforms.uTerrainNormalAtlas.value) {
@@ -13432,6 +14103,7 @@ function rebuildZoneStaticProps() {
     cotMesh.scale.setScalar(cotScale);
     cotMesh.castShadow = true;
     cotMesh.receiveShadow = true;
+    if (sigBldgMat === villageMat) cotMesh.customDepthMaterial = getVillageDepthMaterial();
     zoneStaticGroup.add(cotMesh);
     aimRaycastMeshes.push(cotMesh);
     zoneStaticRaycastMeshes.push(cotMesh);
@@ -13864,16 +14536,15 @@ function buildEnvironment(scene) {
         const tuftGeo = createCrossedTuftGeometry();
         const billboardGeo = createBillboardTuftGeometry();
 
-        const isMobile = (typeof window.isMobileBrowser === "function" && window.isMobileBrowser()) || (typeof window.isMobileDevice === "function" && window.isMobileDevice());
-        const closePatchSize = isMobile ? 74.0 : 96.0;
-        const closeRadius    = isMobile ? 37.0 : 48.0;
-        const tuftCount      = isMobile ? 10000 : 16000; // Matches PC close-range density (~1.83 vs ~1.74 tufts/m²)
-        const midPatchSize   = isMobile ? 160.0 : 192.0;
-        const midRadius      = isMobile ? 80.0 : 98.0;
-        const midCount       = isMobile ? 12000 : 30000;
-        const farPatchSize   = isMobile ? 320.0 : 460.0;
-        const farMaxRadius   = isMobile ? 160.0 : 230.0;
-        const farCount       = isMobile ? 20000 : 90000;
+        const closePatchSize = 96.0;
+        const closeRadius    = 48.0;
+        const tuftCount      = 14000;
+        const midPatchSize   = 192.0;
+        const midRadius      = 98.0;
+        const midCount       = 24000;
+        const farPatchSize   = 460.0;
+        const farMaxRadius   = 230.0;
+        const farCount       = 45000;
 
         grassLOD0Mesh = createTexturedToroidalGrass(tuftGeo, tuftCount, closePatchSize, 0.0, closeRadius, false);
         grassLOD0MidMesh = createTexturedToroidalGrass(billboardGeo, midCount, midPatchSize, closeRadius, midRadius, true);
@@ -13883,11 +14554,13 @@ function buildEnvironment(scene) {
         grassLOD0Mesh.renderOrder = 1;
         grassLOD0MidMesh.renderOrder = 2;
         grassLOD0FarMesh.renderOrder = 3;
+        grassLOD0FarMesh.receiveShadow = false;
 
-        const closeBillboardCount = isMobile ? 6000 : 8000;
+        const closeBillboardCount = 7000;
         grassBillboardCloseMesh = createTexturedToroidalGrass(billboardGeo, closeBillboardCount, midPatchSize, 0.0, midRadius, true);
         grassBillboardCloseMesh.visible = false;
         grassBillboardCloseMesh.renderOrder = 1;
+        grassBillboardCloseMesh.receiveShadow = false;
 
         envGroup.add(grassLOD0Mesh);
         envGroup.add(grassLOD0MidMesh);
@@ -14299,16 +14972,57 @@ function setGrassMode(mode) {
     currentGrassMode = mode;
 
     if (mode === 'high') {
-        if (grassLOD0Mesh) grassLOD0Mesh.visible = true;
-        if (grassLOD0MidMesh) grassLOD0MidMesh.visible = true;
-        if (grassBillboardCloseMesh) grassBillboardCloseMesh.visible = false;
-        if (grassLOD0FarMesh) grassLOD0FarMesh.visible = true;
+        if (grassLOD0Mesh) {
+            grassLOD0Mesh.visible = true;
+            grassLOD0Mesh.receiveShadow = true;
+        }
+        if (grassLOD0MidMesh) {
+            grassLOD0MidMesh.visible = true;
+            grassLOD0MidMesh.receiveShadow = true;
+        }
+        if (grassBillboardCloseMesh) {
+            grassBillboardCloseMesh.visible = false;
+            grassBillboardCloseMesh.receiveShadow = false;
+        }
+        if (grassLOD0FarMesh) {
+            grassLOD0FarMesh.visible = true;
+            grassLOD0FarMesh.receiveShadow = false;
+        }
+    } else if (mode === 'medium') {
+        if (grassLOD0Mesh) {
+            grassLOD0Mesh.visible = true;
+            grassLOD0Mesh.receiveShadow = false;
+        }
+        if (grassLOD0MidMesh) {
+            grassLOD0MidMesh.visible = true;
+            grassLOD0MidMesh.receiveShadow = false;
+        }
+        if (grassBillboardCloseMesh) {
+            grassBillboardCloseMesh.visible = false;
+            grassBillboardCloseMesh.receiveShadow = false;
+        }
+        if (grassLOD0FarMesh) {
+            grassLOD0FarMesh.visible = true;
+            grassLOD0FarMesh.receiveShadow = false;
+        }
     } else if (mode === 'low') {
         // Lowest res tier billboard grass covers ground instead of nothing
-        if (grassLOD0Mesh) grassLOD0Mesh.visible = false;
-        if (grassLOD0MidMesh) grassLOD0MidMesh.visible = false;
-        if (grassBillboardCloseMesh) grassBillboardCloseMesh.visible = true;
-        if (grassLOD0FarMesh) grassLOD0FarMesh.visible = true;
+        if (grassLOD0Mesh) {
+            grassLOD0Mesh.visible = false;
+            grassLOD0Mesh.receiveShadow = false;
+        }
+        if (grassLOD0MidMesh) {
+            grassLOD0MidMesh.visible = false;
+            grassLOD0MidMesh.receiveShadow = false;
+        }
+        if (grassBillboardCloseMesh) {
+            grassBillboardCloseMesh.visible = true;
+            grassBillboardCloseMesh.receiveShadow = false;
+        }
+        if (grassLOD0FarMesh) {
+            grassLOD0FarMesh.visible = false;
+            grassLOD0FarMesh.receiveShadow = false;
+        }
     } else if (mode === 'off') {
         if (grassLOD0Mesh) grassLOD0Mesh.visible = false;
         if (grassLOD0MidMesh) grassLOD0MidMesh.visible = false;
@@ -14326,8 +15040,7 @@ function setGraphicsMode(mode) {
     if (grassUniforms && grassUniforms.uLowGraphics) {
         grassUniforms.uLowGraphics.value = (next === 'high') ? 0.0 : 1.0;
     }
-    // Keep full 3D + mid + far grass in High & Medium; use lightweight close billboards in Low
-    setGrassMode(next === 'low' ? 'low' : 'high');
+    setGrassMode(next);
 
     // Update HUD Graphic button label & styling
     const labelEl = document.getElementById('hud-graphic-label') || document.getElementById('hud-grass-label');

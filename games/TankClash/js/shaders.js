@@ -3285,14 +3285,20 @@ function createGrassTuftAtlasTexture() {
     tex.encoding = THREE.sRGBEncoding;
     tex.wrapS = THREE.ClampToEdgeWrapping;
     tex.wrapT = THREE.ClampToEdgeWrapping;
-    tex.anisotropy = 4;
+    tex.generateMipmaps = false;
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.anisotropy = 2;
     _grassTuftAtlasTex = tex;
 
     const edgeTex = new THREE.CanvasTexture(edgeCanvas);
     edgeTex.encoding = THREE.LinearEncoding;
     edgeTex.wrapS = THREE.ClampToEdgeWrapping;
     edgeTex.wrapT = THREE.ClampToEdgeWrapping;
-    edgeTex.anisotropy = 4;
+    edgeTex.generateMipmaps = false;
+    edgeTex.minFilter = THREE.LinearFilter;
+    edgeTex.magFilter = THREE.LinearFilter;
+    edgeTex.anisotropy = 1;
     _grassTuftEdgeTex = edgeTex;
 
     return tex;
@@ -3340,170 +3346,147 @@ function createVillagePBRAtlas() {
 
     // ------------------------------------------------------------------------
     // Q0: Top-Left (0..512, 0..512 in canvas = UV [0.0..0.5, 0.5..1.0])
-    // Half-Timbered Stucco Wall + Stone Plinth + Casement Windows + Oak Door
+    // Alpha-Cutout Sprite Atlas (Opaque house walls exclusively use Q2/Q3):
+    //   - Upper Band (y = 10..246 -> v: 0.76..0.99): Climbing Vines, Ivy Leaves & Hanging Moss
+    //   - Lower Band (y = 264..504 -> v: 0.51..0.74): Ornamental Wooden Picket & Wrought-Iron Fence
     // ------------------------------------------------------------------------
     aCtx.save();
     aCtx.beginPath();
     aCtx.rect(0, 0, half, half);
     aCtx.clip();
+    aCtx.clearRect(0, 0, half, half);
 
-    // Warm aged limewashed stucco plaster background
-    const stuccoGrad = aCtx.createLinearGradient(0, 0, 0, half);
-    stuccoGrad.addColorStop(0.0, '#d8d0c2'); // Under-eave shadow AO
-    stuccoGrad.addColorStop(0.12, '#ede6d8');
-    stuccoGrad.addColorStop(0.74, '#e5decb');
-    stuccoGrad.addColorStop(1.0, '#c6bda8');
-    aCtx.fillStyle = stuccoGrad;
-    aCtx.fillRect(0, 0, half, half);
-
-    // Subtle plaster trowel mottling & vertical rain stains
-    for (let i = 0; i < 900; i++) {
-        const px = vRand() * half;
-        const py = vRand() * 390;
-        const pr = 4 + vRand() * 18;
-        aCtx.fillStyle = (i % 2 === 0) ? 'rgba(165, 152, 132, 0.14)' : 'rgba(255, 252, 245, 0.14)';
-        aCtx.beginPath();
-        aCtx.arc(px, py, pr, 0, Math.PI * 2);
-        aCtx.fill();
-    }
-
-    // Lower Stone Plinth Course (y = 392..512)
-    aCtx.fillStyle = '#5a554c';
-    aCtx.fillRect(0, 392, half, 120);
-    for (let row = 0; row < 4; row++) {
-        const ry = 394 + row * 29;
-        let rx = (row % 2) * -24;
-        while (rx < half) {
-            const bw = 38 + Math.floor(vRand() * 28);
-            const shade = 92 + Math.floor((vRand() - 0.5) * 34);
-            aCtx.fillStyle = `rgb(${shade + 6}, ${shade + 2}, ${shade - 4})`;
-            aCtx.fillRect(rx + 2, ry + 2, bw - 4, 25);
-            rx += bw;
-        }
-    }
-    // Ground contact damp moss AO at bottom of plinth
-    const plinthAO = aCtx.createLinearGradient(0, 465, 0, 512);
-    plinthAO.addColorStop(0, 'rgba(30, 36, 24, 0.0)');
-    plinthAO.addColorStop(1, 'rgba(22, 28, 18, 0.65)');
-    aCtx.fillStyle = plinthAO;
-    aCtx.fillRect(0, 465, half, 47);
-
-    // Authentic Dark Oak Half-Timbering Framework (Fachwerk)
-    function drawTimberBeam(x, y, w, h) {
-        aCtx.fillStyle = '#38281c';
-        aCtx.fillRect(x, y, w, h);
-        aCtx.strokeStyle = 'rgba(22, 15, 10, 0.65)';
-        aCtx.lineWidth = 2;
-        aCtx.strokeRect(x, y, w, h);
-    }
-    // Horizontal sill, mid-plate, and top-plate beams
-    drawTimberBeam(0, 0, half, 16);
-    drawTimberBeam(0, 188, half, 16);
-    drawTimberBeam(0, 378, half, 16);
-    // Vertical posts
-    [0, 166, 334, 496].forEach(vx => drawTimberBeam(vx, 0, 16, 392));
-
-    // Diagonal corner braces
-    aCtx.strokeStyle = '#38281c';
-    aCtx.lineWidth = 13;
-    [[12, 188, 72, 16], [498, 188, 438, 16], [12, 204, 72, 378], [498, 204, 438, 378]].forEach(([x0, y0, x1, y1]) => {
+    // Q0 Upper Band: Alpha-Cutout Climbing Ivy Vines & Hanging Moss (y = 10..246)
+    const drawVineStem = (x0, y0, cx1, cy1, x1, y1, width, col) => {
+        aCtx.strokeStyle = col;
+        aCtx.lineWidth = width;
+        aCtx.lineCap = 'round';
         aCtx.beginPath();
         aCtx.moveTo(x0, y0);
-        aCtx.lineTo(x1, y1);
+        aCtx.quadraticCurveTo(cx1, cy1, x1, y1);
         aCtx.stroke();
+    };
+    const drawIvyLeaf = (lx, ly, ang, sz, tone) => {
+        aCtx.save();
+        aCtx.translate(lx, ly);
+        aCtx.rotate(ang);
+        const rBase = Math.floor(38 + tone * 42);
+        const gBase = Math.floor(86 + tone * 62);
+        const bBase = Math.floor(28 + tone * 28);
+        aCtx.fillStyle = `rgb(${rBase}, ${gBase}, ${bBase})`;
+        aCtx.beginPath();
+        aCtx.moveTo(0, -sz);
+        aCtx.bezierCurveTo(sz * 0.95, -sz * 0.45, sz * 1.05, sz * 0.55, 0, sz * 0.85);
+        aCtx.bezierCurveTo(-sz * 1.05, sz * 0.55, -sz * 0.95, -sz * 0.45, 0, -sz);
+        aCtx.closePath();
+        aCtx.fill();
+        aCtx.strokeStyle = `rgba(${Math.min(255, rBase + 38)}, ${Math.min(255, gBase + 46)}, ${bBase + 18}, 0.92)`;
+        aCtx.lineWidth = 1.4;
+        aCtx.beginPath();
+        aCtx.moveTo(0, -sz * 0.72);
+        aCtx.lineTo(0, sz * 0.65);
+        aCtx.stroke();
+        aCtx.restore();
+    };
+
+    // Main winding vine stems & tendrils across Q0 upper band
+    for (let s = 0; s < 14; s++) {
+        const sx = 24 + (s / 13) * (half - 48) + (vRand() - 0.5) * 22;
+        const bend = (vRand() - 0.5) * 65;
+        const yTop = 14 + vRand() * 28;
+        const yBot = 175 + vRand() * 68;
+        drawVineStem(sx, yTop, sx + bend, (yTop + yBot) * 0.5, sx + (vRand() - 0.5) * 38, yBot, 3.6 + vRand() * 3.0, '#4c3826');
+        drawVineStem(sx + bend * 0.35, yTop + 36, sx + bend * 0.9, (yTop + yBot) * 0.65, sx + bend * 0.5, yBot - 16, 2.2, '#5e4930');
+    }
+    // Dense overlapping ivy leaf clusters & moss sprigs
+    for (let l = 0; l < 185; l++) {
+        const lx = 18 + vRand() * (half - 36);
+        const hangEnv = Math.sin((lx / half) * Math.PI);
+        const maxY = 188 + hangEnv * 54;
+        const ly = 16 + Math.pow(vRand(), 0.78) * (maxY - 16);
+        const ang = (vRand() - 0.5) * 2.2 + Math.PI;
+        const sz = 7.5 + vRand() * 9.5;
+        drawIvyLeaf(lx, ly, ang, sz, vRand());
+    }
+
+    // Q0 Lower Band: Alpha-Cutout Ornamental Fence (y = 264..504 -> v: 0.51..0.74)
+    // Neutral warm cream-oak & charcoal iron palette so vertex colors tint to cottage picket, timber rail, or manor balustrade
+    const fTopY = 274;
+    const fBotY = 498;
+    // Upper and lower horizontal rails
+    [324, 444].forEach(ry => {
+        const railGrad = aCtx.createLinearGradient(0, ry, 0, ry + 22);
+        railGrad.addColorStop(0.0, '#d6ccb8');
+        railGrad.addColorStop(0.5, '#bfb29c');
+        railGrad.addColorStop(1.0, '#8d7f68');
+        aCtx.fillStyle = railGrad;
+        aCtx.fillRect(0, ry, half, 22);
+        aCtx.strokeStyle = '#5c4e3e';
+        aCtx.lineWidth = 2;
+        aCtx.strokeRect(0, ry, half, 22);
     });
+    // Base plinth bar so fence bottom meets posts cleanly
+    aCtx.fillStyle = '#8b7d68';
+    aCtx.fillRect(0, fBotY - 12, half, 14);
 
-    // Recessed Multi-Pane Casement Windows with Wooden Shutters & Stone Sills
-    function drawCasementWindow(wx, wy, ww, wh) {
-        // Louvered wooden shutters on left and right
-        const shutW = Math.floor(ww * 0.34);
-        [-shutW - 4, ww + 4].forEach(sxOff => {
-            const sx = wx + sxOff;
-            aCtx.fillStyle = '#2d4a34'; // Classic European forest-green shutter
-            aCtx.fillRect(sx, wy + 2, shutW, wh - 4);
-            aCtx.strokeStyle = '#1b2e20';
-            aCtx.lineWidth = 2;
-            aCtx.strokeRect(sx, wy + 2, shutW, wh - 4);
-            for (let ly = wy + 8; ly < wy + wh - 6; ly += 6) {
-                aCtx.fillStyle = 'rgba(18, 32, 22, 0.65)';
-                aCtx.fillRect(sx + 3, ly, shutW - 6, 2);
-            }
+    // 16 Ornamental pointed pickets & wrought-iron filigree scrolls across x = 0..512
+    const picketCount = 16;
+    const pitch = half / picketCount;
+    for (let p = 0; p < picketCount; p++) {
+        const cx = p * pitch + pitch * 0.5;
+        const pw = 16;
+        // Carved decorative crossbar ring in open bay
+        if (p < picketCount) {
+            aCtx.strokeStyle = '#4c4640';
+            aCtx.lineWidth = 3.2;
+            aCtx.beginPath();
+            aCtx.arc(p * pitch, 390, 9.5, 0, Math.PI * 2);
+            aCtx.stroke();
+        }
+        // Main vertical pointed picket
+        const pGrad = aCtx.createLinearGradient(cx - pw * 0.5, 0, cx + pw * 0.5, 0);
+        pGrad.addColorStop(0.0, '#a89a82');
+        pGrad.addColorStop(0.35, '#e2dac8');
+        pGrad.addColorStop(0.75, '#c8bba4');
+        pGrad.addColorStop(1.0, '#8c7e68');
+        aCtx.fillStyle = pGrad;
+        aCtx.beginPath();
+        aCtx.moveTo(cx, fTopY);
+        aCtx.lineTo(cx + pw * 0.5, fTopY + 24);
+        aCtx.lineTo(cx + pw * 0.5, fBotY);
+        aCtx.lineTo(cx - pw * 0.5, fBotY);
+        aCtx.lineTo(cx - pw * 0.5, fTopY + 24);
+        aCtx.closePath();
+        aCtx.fill();
+
+        // Crisp bevel border & subtle vertical grain
+        aCtx.strokeStyle = '#564a3b';
+        aCtx.lineWidth = 1.6;
+        aCtx.stroke();
+        aCtx.fillStyle = 'rgba(65, 52, 38, 0.28)';
+        aCtx.fillRect(cx - 2, fTopY + 26, 2, fBotY - fTopY - 34);
+
+        // Ornamental iron rivet bolts at rail junctions
+        [335, 455].forEach(by => {
+            aCtx.fillStyle = '#383430';
+            aCtx.beginPath();
+            aCtx.arc(cx, by, 3.2, 0, Math.PI * 2);
+            aCtx.fill();
         });
-
-        // Heavy oak outer window frame
-        aCtx.fillStyle = '#322216';
-        aCtx.fillRect(wx - 4, wy - 4, ww + 8, wh + 8);
-
-        // Dark reflective glass interior with subtle sky reflection gradient
-        const glassGrad = aCtx.createLinearGradient(wx, wy, wx + ww, wy + wh);
-        glassGrad.addColorStop(0.0, '#1e2c3a');
-        glassGrad.addColorStop(0.45, '#2b3e50');
-        glassGrad.addColorStop(0.55, '#16202a');
-        glassGrad.addColorStop(1.0, '#22303e');
-        aCtx.fillStyle = glassGrad;
-        aCtx.fillRect(wx, wy, ww, wh);
-
-        // Warm interior curtain/candlelight hint
-        aCtx.fillStyle = 'rgba(215, 175, 110, 0.16)';
-        aCtx.fillRect(wx + 4, wy + wh * 0.45, ww - 8, wh * 0.5);
-
-        // Whitewashed wooden casement muntin bars (6-pane grid)
-        aCtx.fillStyle = '#dfd8c8';
-        aCtx.fillRect(wx + ww * 0.5 - 2, wy, 4, wh);
-        aCtx.fillRect(wx, wy + wh * 0.34 - 1.5, ww, 3);
-        aCtx.fillRect(wx, wy + wh * 0.67 - 1.5, ww, 3);
-
-        // Protruding stone window sill & lintel shadow
-        aCtx.fillStyle = '#8c8578';
-        aCtx.fillRect(wx - 8, wy + wh + 3, ww + 16, 8);
-        aCtx.fillStyle = 'rgba(0, 0, 0, 0.35)';
-        aCtx.fillRect(wx - 6, wy + wh + 11, ww + 12, 4);
     }
-
-    // Upper floor windows (3 bays)
-    drawCasementWindow(62, 54, 56, 82);
-    drawCasementWindow(228, 54, 56, 82);
-    drawCasementWindow(394, 54, 56, 82);
-
-    // Lower floor windows (left & right bays)
-    drawCasementWindow(62, 242, 56, 86);
-    drawCasementWindow(394, 242, 56, 86);
-
-    // Center Bay: Heavy Planked Oak Cottage Door with Stone Arch Surround
-    const dx = 216, dy = 236, dw = 80, dh = 154;
-    aCtx.fillStyle = '#787166';
-    aCtx.fillRect(dx - 10, dy - 10, dw + 20, dh + 12);
-    aCtx.fillStyle = '#4e3422';
-    aCtx.fillRect(dx, dy, dw, dh);
-    for (let px = dx + 10; px < dx + dw; px += 12) {
-        aCtx.fillStyle = 'rgba(24, 15, 9, 0.55)';
-        aCtx.fillRect(px, dy, 2, dh);
-    }
-    // Wrought-iron strap hinges & ring handle
-    aCtx.fillStyle = '#1e2226';
-    aCtx.fillRect(dx + 2, dy + 28, 42, 6);
-    aCtx.fillRect(dx + 2, dy + 112, 42, 6);
-    aCtx.beginPath();
-    aCtx.arc(dx + dw - 14, dy + 76, 5, 0, Math.PI * 2);
-    aCtx.fill();
-    // Small glazed transom window in door top
-    aCtx.fillStyle = '#243442';
-    aCtx.fillRect(dx + 16, dy + 14, dw - 32, 28);
-    aCtx.strokeStyle = '#322216';
-    aCtx.lineWidth = 3;
-    aCtx.strokeRect(dx + 16, dy + 14, dw - 32, 28);
     aCtx.restore();
 
     // ------------------------------------------------------------------------
     // Q1: Top-Right (512..1024, 0..512 in canvas = UV [0.5..1.0, 0.5..1.0])
-    // Authentic Scalloped Terracotta Barrel Clay Roof Tiles (Imbrex & Tegula)
+    // Neutral-Tintable Scalloped Barrel Clay / Shingle Roof Tiles (Imbrex & Tegula)
+    // Neutral light warm grey base allows vertex colors to match each house palette cleanly.
     // ------------------------------------------------------------------------
     aCtx.save();
     aCtx.beginPath();
     aCtx.rect(half, 0, half, half);
     aCtx.clip();
 
-    aCtx.fillStyle = '#8c3820';
+    aCtx.fillStyle = '#aba299';
     aCtx.fillRect(half, 0, half, half);
 
     const tileRows = 16;
@@ -3515,36 +3498,37 @@ function createVillagePBRAtlas() {
         const ty = r * rowH;
         for (let c = 0; c < tileCols; c++) {
             const tx = half + c * colW;
-            const hueJitter = (vRand() - 0.5) * 28;
-            const isWeathered = vRand() > 0.82;
-            const baseR = isWeathered ? (112 + hueJitter) : (164 + hueJitter);
-            const baseG = isWeathered ? (68 + hueJitter * 0.6) : (72 + hueJitter * 0.6);
-            const baseB = isWeathered ? (48 + hueJitter * 0.4) : (42 + hueJitter * 0.4);
+            const hueJitter = (vRand() - 0.5) * 26;
+            const isWeathered = vRand() > 0.84;
+            const shadeMult = isWeathered ? 0.78 : 1.0;
+            const baseR = (198 + hueJitter) * shadeMult;
+            const baseG = (186 + hueJitter * 0.9) * shadeMult;
+            const baseB = (174 + hueJitter * 0.8) * shadeMult;
 
             // Curved barrel tile gradient (lit crest, shaded trough)
             const tGrad = aCtx.createLinearGradient(tx, ty, tx + colW, ty);
-            tGrad.addColorStop(0.0, `rgb(${Math.floor(baseR * 0.68)}, ${Math.floor(baseG * 0.68)}, ${Math.floor(baseB * 0.68)})`);
-            tGrad.addColorStop(0.42, `rgb(${Math.min(255, Math.floor(baseR * 1.15))}, ${Math.min(255, Math.floor(baseG * 1.12))}, ${Math.min(255, Math.floor(baseB * 1.08))})`);
-            tGrad.addColorStop(1.0, `rgb(${Math.floor(baseR * 0.58)}, ${Math.floor(baseG * 0.58)}, ${Math.floor(baseB * 0.58)})`);
+            tGrad.addColorStop(0.0, `rgb(${Math.floor(baseR * 0.66)}, ${Math.floor(baseG * 0.66)}, ${Math.floor(baseB * 0.66)})`);
+            tGrad.addColorStop(0.42, `rgb(${Math.min(255, Math.floor(baseR * 1.16))}, ${Math.min(255, Math.floor(baseG * 1.16))}, ${Math.min(255, Math.floor(baseB * 1.15))})`);
+            tGrad.addColorStop(1.0, `rgb(${Math.floor(baseR * 0.56)}, ${Math.floor(baseG * 0.56)}, ${Math.floor(baseB * 0.56)})`);
 
             aCtx.fillStyle = tGrad;
             aCtx.fillRect(tx, ty, colW + 1, rowH + 1);
 
             // Scalloped bottom overlap shadow under each tile course
-            aCtx.fillStyle = 'rgba(28, 12, 8, 0.52)';
+            aCtx.fillStyle = 'rgba(26, 20, 16, 0.50)';
             aCtx.beginPath();
             aCtx.arc(tx + colW * 0.5, ty + rowH, colW * 0.52, 0, Math.PI);
             aCtx.fill();
         }
     }
-    // Subtle golden-green roof moss patches
-    for (let m = 0; m < 45; m++) {
+    // Subtle neutral ambient patina / lichen mottling
+    for (let m = 0; m < 40; m++) {
         const mx = half + vRand() * half;
         const my = vRand() * half;
-        const mr = 8 + vRand() * 24;
+        const mr = 8 + vRand() * 22;
         const mGrad = aCtx.createRadialGradient(mx, my, 1, mx, my, mr);
-        mGrad.addColorStop(0, 'rgba(78, 92, 38, 0.38)');
-        mGrad.addColorStop(1, 'rgba(78, 92, 38, 0.0)');
+        mGrad.addColorStop(0, 'rgba(92, 90, 72, 0.24)');
+        mGrad.addColorStop(1, 'rgba(92, 90, 72, 0.0)');
         aCtx.fillStyle = mGrad;
         aCtx.beginPath();
         aCtx.arc(mx, my, mr, 0, Math.PI * 2);
@@ -3554,95 +3538,136 @@ function createVillagePBRAtlas() {
 
     // ------------------------------------------------------------------------
     // Q2: Bottom-Left (0..512, 512..1024 in canvas = UV [0.0..0.5, 0.0..0.5])
-    // Coursed European Fieldstone & Weathered Chimney Brick Masonry
+    // Crisp Flemish-Bond Brick & Dressed Stone Masonry (Clean Courses for Houses & Ruins)
     // ------------------------------------------------------------------------
     aCtx.save();
     aCtx.beginPath();
     aCtx.rect(0, half, half, half);
     aCtx.clip();
 
-    // Mortar base
-    aCtx.fillStyle = '#48433c';
+    // Fine warm lime mortar bed
+    aCtx.fillStyle = '#746c60';
     aCtx.fillRect(0, half, half, half);
 
-    const stoneRows = 14;
-    const sRowH = half / stoneRows;
-    for (let r = 0; r < stoneRows; r++) {
-        const sy = half + r * sRowH;
-        let sx = (r % 2) * -28;
+    const brickRows = 24;
+    const bRowH = half / brickRows;
+    for (let r = 0; r < brickRows; r++) {
+        const sy = half + r * bRowH;
+        let sx = (r % 2) * -26;
+        let colStep = 0;
         while (sx < half) {
-            const sw = 44 + Math.floor(vRand() * 38);
-            const isBrickTone = vRand() > 0.65;
-            const shade = 95 + Math.floor((vRand() - 0.5) * 42);
-            const sr = isBrickTone ? Math.min(255, shade + 26) : (shade + 6);
-            const sg = isBrickTone ? (shade - 6) : (shade + 3);
-            const sb = isBrickTone ? (shade - 16) : (shade - 3);
+            // Alternating stretcher & header rhythm for refined European Flemish-bond brickwork
+            const isHeader = ((colStep + r) % 3) === 0;
+            const sw = (isHeader ? 26 : 52) + Math.floor(vRand() * 8);
+            const shade = 148 + Math.floor((vRand() - 0.5) * 34);
+            const warmBias = (vRand() > 0.30) ? 14 : 6;
+            const sr = Math.min(255, shade + warmBias);
+            const sg = Math.min(255, shade + Math.floor(warmBias * 0.25));
+            const sb = Math.max(48, shade - Math.floor(warmBias * 0.35));
 
             aCtx.fillStyle = `rgb(${sr}, ${sg}, ${sb})`;
-            aCtx.fillRect(sx + 3, sy + 3, sw - 5, sRowH - 5);
+            aCtx.fillRect(sx + 2, sy + 2, sw - 4, bRowH - 3.5);
 
-            // Top bevel highlight & bottom shadow for 3D relief
+            // Subtle crisp bevel highlight & mortar shadow
             aCtx.fillStyle = 'rgba(255, 250, 240, 0.16)';
-            aCtx.fillRect(sx + 3, sy + 3, sw - 5, 3);
-            aCtx.fillStyle = 'rgba(15, 12, 10, 0.35)';
-            aCtx.fillRect(sx + 3, sy + sRowH - 5, sw - 5, 3);
+            aCtx.fillRect(sx + 2, sy + 2, sw - 4, 2);
+            aCtx.fillStyle = 'rgba(24, 18, 14, 0.30)';
+            aCtx.fillRect(sx + 2, sy + bRowH - 3.5, sw - 4, 2);
+
+            // Subtle natural clay/mineral speckles
+            for (let p = 0; p < 2; p++) {
+                aCtx.fillStyle = (p === 0) ? 'rgba(42, 32, 26, 0.16)' : 'rgba(220, 206, 190, 0.14)';
+                aCtx.fillRect(sx + 5 + vRand() * Math.max(4, sw - 10), sy + 4 + vRand() * Math.max(4, bRowH - 8), 2.5, 2);
+            }
             sx += sw;
+            colStep++;
         }
     }
     aCtx.restore();
 
     // ------------------------------------------------------------------------
     // Q3: Bottom-Right (512..1024, 512..1024 in canvas = UV [0.5..1.0, 0.0..0.5])
-    // Weathered Barn Timber Planks & Beams
+    // Refined Wooden Clapboard Siding, Carved Timber Joinery & Wood Grain
     // ------------------------------------------------------------------------
     aCtx.save();
     aCtx.beginPath();
     aCtx.rect(half, half, half, half);
     aCtx.clip();
 
-    aCtx.fillStyle = '#523b28';
+    aCtx.fillStyle = '#8b6e4e';
     aCtx.fillRect(half, half, half, half);
 
-    const plankCols = 16;
-    const pColW = half / plankCols;
-    for (let c = 0; c < plankCols; c++) {
-        const px = half + c * pColW;
-        const delta = Math.floor((vRand() - 0.5) * 24);
-        aCtx.fillStyle = `rgb(${84 + delta}, ${60 + Math.floor(delta * 0.75)}, ${42 + Math.floor(delta * 0.55)})`;
-        aCtx.fillRect(px + 2, half, pColW - 3, half);
+    const clapRows = 20;
+    const cRowH = half / clapRows;
+    for (let r = 0; r < clapRows; r++) {
+        const py = half + r * cRowH;
+        const delta = Math.floor((vRand() - 0.5) * 26);
+        const rCol = Math.min(255, 162 + delta);
+        const gCol = Math.min(255, 132 + Math.floor(delta * 0.8));
+        const bCol = Math.min(255, 98 + Math.floor(delta * 0.6));
 
-        // Vertical wood grain streaks
-        for (let g = 0; g < 12; g++) {
-            const gx = px + 3 + vRand() * (pColW - 6);
-            const gy = half + vRand() * (half - 60);
-            aCtx.fillStyle = (g % 2 === 0) ? 'rgba(32, 20, 12, 0.28)' : 'rgba(135, 102, 72, 0.18)';
-            aCtx.fillRect(gx, gy, 1.5, 45 + vRand() * 80);
+        // Lapped clapboard bevel gradient (lit top edge, deep undercut seam below)
+        const cGrad = aCtx.createLinearGradient(0, py, 0, py + cRowH);
+        cGrad.addColorStop(0.0, `rgb(${Math.min(255, rCol + 18)}, ${Math.min(255, gCol + 15)}, ${Math.min(255, bCol + 12)})`);
+        cGrad.addColorStop(0.76, `rgb(${rCol}, ${gCol}, ${bCol})`);
+        cGrad.addColorStop(0.92, `rgb(${Math.floor(rCol * 0.66)}, ${Math.floor(gCol * 0.64)}, ${Math.floor(bCol * 0.62)})`);
+        cGrad.addColorStop(1.0, '#2a1c12');
+        aCtx.fillStyle = cGrad;
+        aCtx.fillRect(half, py, half, cRowH);
+
+        // Horizontal wood grain fibers & knots
+        for (let g = 0; g < 10; g++) {
+            const gx = half + vRand() * (half - 70);
+            const gy = py + 4 + vRand() * Math.max(4, cRowH - 10);
+            aCtx.fillStyle = (g % 2 === 0) ? 'rgba(42, 26, 14, 0.24)' : 'rgba(218, 188, 148, 0.16)';
+            aCtx.fillRect(gx, gy, 42 + vRand() * 88, 1.5);
         }
-        // Dark seam gap between boards
-        aCtx.fillStyle = '#1e140c';
-        aCtx.fillRect(px, half, 2, half);
+
+        // Staggered vertical plank butt-joints with peg bolts
+        const jointX = half + (((r * 173 + 91) % 3) * 148) + 64;
+        aCtx.fillStyle = 'rgba(26, 16, 10, 0.68)';
+        aCtx.fillRect(jointX, py, 2.5, cRowH - 2);
+        aCtx.fillStyle = 'rgba(34, 22, 14, 0.55)';
+        aCtx.fillRect(jointX - 6, py + cRowH * 0.42, 3, 3);
+        aCtx.fillRect(jointX + 5, py + cRowH * 0.42, 3, 3);
     }
-    // Horizontal barn battens
-    [half + 90, half + 256, half + 420].forEach(by => {
-        aCtx.fillStyle = '#3b2819';
-        aCtx.fillRect(half, by, half, 18);
+    // Vertical timber stile studs at edges + weathered scratches
+    [half + 2, half + half - 14].forEach(bx => {
+        aCtx.fillStyle = 'rgba(48, 32, 20, 0.35)';
+        aCtx.fillRect(bx, half, 12, half);
     });
     aCtx.restore();
 
     // ------------------------------------------------------------------------
-    // Compute Sobel Normal Map & Roughness Map from Albedo Luminance
+    // Compute Sobel Normal Map & Roughness Map + Color-Dilate Q0 Cutout Edges
     // ------------------------------------------------------------------------
-    const aData = aCtx.getImageData(0, 0, size, size).data;
+    const aImg = aCtx.getImageData(0, 0, size, size);
+    const aData = aImg.data;
     const nImg = nCtx.createImageData(size, size);
     const rImg = rCtx.createImageData(size, size);
     const lum = new Float32Array(size * size);
 
-    for (let i = 0; i < size * size; i++) {
-        const p = i * 4;
-        lum[i] = (aData[p] * 0.299 + aData[p + 1] * 0.587 + aData[p + 2] * 0.114) / 255.0;
+    for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+            const i = y * size + x;
+            const p = i * 4;
+            const alpha = aData[p + 3];
+            // Mip-safe edge color fill on transparent Q0 pixels so bilinear filtering never bleeds black halos
+            if (x < half && y < half && alpha < 16) {
+                if (y < 256) {
+                    aData[p] = 54; aData[p + 1] = 94; aData[p + 2] = 36;
+                } else {
+                    aData[p] = 176; aData[p + 1] = 162; aData[p + 2] = 140;
+                }
+            }
+            lum[i] = (alpha < 100)
+                ? 0.0
+                : ((aData[p] * 0.299 + aData[p + 1] * 0.587 + aData[p + 2] * 0.114) / 255.0);
+        }
     }
+    aCtx.putImageData(aImg, 0, 0);
 
-    const bumpScale = 4.8;
+    const bumpScale = 5.0;
     for (let y = 0; y < size; y++) {
         const ym = Math.max(0, y - 1);
         const yp = Math.min(size - 1, y + 1);
@@ -3669,11 +3694,10 @@ function createVillagePBRAtlas() {
             nImg.data[idx + 2] = Math.floor((nz * 0.5 + 0.5) * 255);
             nImg.data[idx + 3] = 255;
 
-            // Window glass panes in Q0 have low roughness (shiny reflection)
             const val = lum[y * size + x];
-            let rough = Math.floor(185 + (1.0 - val) * 55);
-            if (x < half && y < half && aData[idx + 2] > aData[idx] + 10) {
-                rough = 45; // Glass pane specular glint
+            let rough = Math.floor(182 + (1.0 - val) * 58);
+            if (x < half && y < 256 && aData[idx + 3] >= 100) {
+                rough = 152; // Waxy ivy vine cuticle highlight
             }
             rImg.data[idx] = rImg.data[idx + 1] = rImg.data[idx + 2] = Math.min(255, rough);
             rImg.data[idx + 3] = 255;

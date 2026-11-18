@@ -181,7 +181,7 @@ const sphereParticleGeo = new THREE.DodecahedronGeometry(1, 1);
 const sparkParticleGeo  = new THREE.BoxGeometry(0.12, 0.12, 0.35);
 const shockwaveGeo      = new THREE.RingGeometry(0.2, 1.0, 32);
 shockwaveGeo.rotateX(-Math.PI / 2);
-const waterRippleGeo    = new THREE.PlaneGeometry(2, 2);
+const waterRippleGeo    = THREE.PlaneGeometry ? new THREE.PlaneGeometry(2, 2) : new THREE.RingGeometry(0.01, 1.4, 24);
 waterRippleGeo.rotateX(-Math.PI / 2);
 const shellCoreGeo = new THREE.CylinderGeometry(0.048, 0.048, 1.4, 8);
 const shellFlameGeo = new THREE.CylinderGeometry(0.075, 0.02, 2.4, 8);
