@@ -2012,6 +2012,7 @@ const babylonPost = {
     ssaoSupported: false,
     hdrRT: null,
     bloomRTs: [],
+    bloomUpRTs: [],
     aoRT: null,
     aoBlurRT: null,
     quadScene: null,
@@ -2288,7 +2289,7 @@ const babylonPost = {
         const w = Math.max(64, size.x);
         const h = Math.max(64, size.y);
         const needSSAO = !!(useSSAO && this.ssaoSupported);
-        const hasCorrectTargets = this.hdrRT && this.hdrRT.width === w && this.hdrRT.height === h && (!needSSAO || (this.hdrRT.depthTexture && this.aoRT));
+        const hasCorrectTargets = this.hdrRT && this.hdrRT.width === w && this.hdrRT.height === h && this.bloomRTs.length === 4 && this.bloomUpRTs.length === 3 && (!needSSAO || (this.hdrRT.depthTexture && this.aoRT));
         if (hasCorrectTargets) return;
 
         if (this.hdrRT) {
@@ -2297,6 +2298,8 @@ const babylonPost = {
         }
         for (const rt of this.bloomRTs) rt.dispose();
         this.bloomRTs.length = 0;
+        for (const rt of this.bloomUpRTs) rt.dispose();
+        this.bloomUpRTs.length = 0;
         if (this.aoRT) { this.aoRT.dispose(); this.aoRT = null; }
         if (this.aoBlurRT) { this.aoBlurRT.dispose(); this.aoBlurRT = null; }
 
@@ -2327,14 +2330,18 @@ const babylonPost = {
             this.aoRT = new THREE.WebGLRenderTarget(bw, bh, aoOpts);
             this.aoBlurRT = new THREE.WebGLRenderTarget(bw, bh, aoOpts);
         }
+        const bloomOpts = {
+            minFilter: THREE.LinearFilter,
+            magFilter: THREE.LinearFilter,
+            format: THREE.RGBAFormat,
+            type: THREE.HalfFloatType,
+            depthBuffer: false
+        };
         for (let i = 0; i < 4; i++) {
-            this.bloomRTs.push(new THREE.WebGLRenderTarget(bw, bh, {
-                minFilter: THREE.LinearFilter,
-                magFilter: THREE.LinearFilter,
-                format: THREE.RGBAFormat,
-                type: THREE.HalfFloatType,
-                depthBuffer: false
-            }));
+            this.bloomRTs.push(new THREE.WebGLRenderTarget(bw, bh, bloomOpts));
+            if (i < 3) {
+                this.bloomUpRTs.push(new THREE.WebGLRenderTarget(bw, bh, bloomOpts));
+            }
             bw = Math.max(8, bw >> 1);
             bh = Math.max(8, bh >> 1);
         }
@@ -2394,21 +2401,23 @@ const babylonPost = {
                 src = dst;
             }
 
-            // Upsample chain back to mip 0
+            // Upsample chain back to mip 0 into dedicated targets to avoid FBO/texture feedback loops
+            let upSrc = this.bloomRTs[this.bloomRTs.length - 1];
             for (let i = this.bloomRTs.length - 1; i > 0; i--) {
                 const hi = this.bloomRTs[i - 1];
-                const lo = this.bloomRTs[i];
-                this.upsampleMat.uniforms.tSrc.value = lo.texture;
+                const dst = this.bloomUpRTs[i - 1];
+                this.upsampleMat.uniforms.tSrc.value = upSrc.texture;
                 this.upsampleMat.uniforms.tAdd.value = hi.texture;
-                this.upsampleMat.uniforms.uTexel.value.set(1.0 / lo.width, 1.0 / lo.height);
+                this.upsampleMat.uniforms.uTexel.value.set(1.0 / upSrc.width, 1.0 / upSrc.height);
                 this.quadMesh.material = this.upsampleMat;
-                renderer.setRenderTarget(hi);
+                renderer.setRenderTarget(dst);
                 renderer.render(this.quadScene, this.quadCam);
+                upSrc = dst;
             }
 
             // Composite HDR + SSAO + Bloom -> ACES -> sRGB -> Screen
             this.compositeMat.uniforms.tScene.value = this.hdrRT.texture;
-            this.compositeMat.uniforms.tBloom.value = this.bloomRTs[0].texture;
+            this.compositeMat.uniforms.tBloom.value = upSrc.texture;
             this.compositeMat.uniforms.tAO.value = doSSAO ? this.aoRT.texture : null;
             this.compositeMat.uniforms.uUseSSAO.value = doSSAO ? 1.0 : 0.0;
             this.compositeMat.uniforms.uExposure.value = renderer.toneMappingExposure || 1.08;
