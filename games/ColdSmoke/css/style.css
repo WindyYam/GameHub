@@ -1,0 +1,582 @@
+:root {
+  color-scheme: dark;
+  --ink: #05080d; --snow: #f4f7fb; --dim: rgba(244, 247, 251, .66); --faint: rgba(244, 247, 251, .40); --hair: rgba(244, 247, 251, .22); --sun: #ffd08a;
+  --f-song: "Noto Serif SC", "Songti SC", "STSong", "Source Han Serif SC", "Noto Serif CJK SC", "SimSun", serif;
+  --f-lat: "Jost", "Futura", "Avenir Next", "Century Gothic", "Segoe UI", system-ui, sans-serif;
+  --f-ui: "Jost", "Futura", "Avenir Next", "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Microsoft YaHei", system-ui, sans-serif;
+}
+html, body { height: 100%; margin: 0; }
+body { background: var(--ink); color: var(--snow); overflow: hidden; overscroll-behavior: none; font-family: var(--f-ui); -webkit-text-size-adjust: 100%; }
+#app { position: fixed; inset: 0; overflow: hidden; background: var(--ink); user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; touch-action: none;
+  /* the frame the picture is shown in: its size (set from script) and the safe margins on each of its own sides */
+  --cw: 100vw; --ch: 100vh;
+  --sl: env(safe-area-inset-left, 0px); --sr: env(safe-area-inset-right, 0px); --st: env(safe-area-inset-top, 0px); --sb: env(safe-area-inset-bottom, 0px);
+  /* (--xl … --xb: room for the host's own buttons over the page, inside 小红书 only, set from script in the frame's own sides: 19c_xhs.js) */
+  --xl: 0px; --xr: 0px; --xt: 0px; --xb: 0px;
+  --gl: max(20px, var(--sl), var(--xl)); --gr: max(20px, var(--sr), var(--xr)); --gt: calc(max(var(--st), var(--xt)) + 16px); --gb: calc(max(var(--sb), var(--xb)) + 18px);
+  --col: calc(var(--gl) + clamp(4px, calc(var(--cw) * .04), 76px)); }
+/* a phone held upright: the picture is laid on its side and the player turns the phone (works with the rotation lock on) */
+#app.rot { inset: auto; left: 50%; top: 50%; width: 100vh; height: 100vw; transform: translate(-50%, -50%) rotate(90deg);
+  --sl: env(safe-area-inset-top, 0px); --sr: env(safe-area-inset-bottom, 0px); --st: env(safe-area-inset-right, 0px); --sb: env(safe-area-inset-left, 0px); }
+#app.rot.flip { transform: translate(-50%, -50%) rotate(-90deg);
+  --sl: env(safe-area-inset-bottom, 0px); --sr: env(safe-area-inset-top, 0px); --st: env(safe-area-inset-left, 0px); --sb: env(safe-area-inset-right, 0px); }
+#view { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+/* the picture comes up out of black once the first frame exists */
+#veil { position: absolute; inset: 0; background: var(--ink); opacity: 1; transition: opacity 1.6s cubic-bezier(.3, 0, .2, 1); pointer-events: none; }
+#veil.lift { opacity: 0; }
+/* soft shade top and bottom so type stays readable over sky and over sunlit snow */
+#shade { position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity 1.2s ease;
+  background: linear-gradient(to bottom, rgba(5, 8, 13, .42), rgba(5, 8, 13, 0) 22%, rgba(5, 8, 13, 0) 68%, rgba(5, 8, 13, .50)); }
+#shade.on { opacity: 1; }
+#shade.run { background: linear-gradient(to bottom, rgba(5, 8, 13, .24), rgba(5, 8, 13, 0) 14%, rgba(5, 8, 13, 0) 82%, rgba(5, 8, 13, .34)); }
+/* wide: the words stand in a column on the left, on a shade that leaves the rest of the picture alone */
+#shade::before { content: ""; position: absolute; inset: 0; opacity: 0; transition: opacity 1.4s ease;
+  background: linear-gradient(90deg, rgba(5, 8, 13, .80), rgba(5, 8, 13, .64) 17%, rgba(5, 8, 13, .34) 33%, rgba(5, 8, 13, .10) 46%, rgba(5, 8, 13, 0) 57%); }
+#app.wide #shade.on::before { opacity: 1; } #app.wide #shade.run::before { opacity: 0; }
+#app.wide #shade { background: linear-gradient(to bottom, rgba(5, 8, 13, .30), rgba(5, 8, 13, 0) 20%, rgba(5, 8, 13, 0) 72%, rgba(5, 8, 13, .50)); }
+#app.wide #shade.run { background: linear-gradient(to bottom, rgba(5, 8, 13, .22), rgba(5, 8, 13, 0) 16%, rgba(5, 8, 13, 0) 80%, rgba(5, 8, 13, .32)); }
+.layer { position: absolute; inset: 0; pointer-events: none; opacity: 0; visibility: hidden; transition: opacity .7s ease, visibility 0s linear .7s; }
+.layer.on { opacity: 1; visibility: visible; transition: opacity .9s ease, visibility 0s; }
+
+/* ---- wordmark, shared by the loading and the title page */
+.mark { display: flex; flex-direction: column; align-items: center; text-align: center; }
+.mark .cn { font-family: var(--f-song); font-weight: 700; font-size: clamp(46px, 15vmin, 84px); line-height: 1; letter-spacing: .42em; margin-right: -.42em; text-shadow: 0 2px 30px rgba(5, 8, 13, .35); }
+.mark .rule { width: 26px; height: 1px; background: var(--sun); margin: clamp(14px, 4vmin, 22px) 0 clamp(12px, 3.4vmin, 18px); }
+.mark .en { font-family: var(--f-lat); font-weight: 400; font-size: clamp(10px, 2.9vmin, 13px); letter-spacing: .62em; margin-right: -.62em; color: rgba(244, 247, 251, .88); text-shadow: 0 1px 12px rgba(5, 8, 13, .55); }
+#load .mark .en { color: var(--dim); text-shadow: none; }
+
+/* ---- loading */
+#load { display: flex; flex-direction: column; align-items: center; justify-content: center; background: var(--ink); }
+#load .mark .cn { font-size: clamp(38px, 12vmin, 64px); text-shadow: none; }
+#load .bar { width: min(calc(var(--cw) * .46), 190px); height: 1px; background: var(--hair); margin-top: clamp(34px, 9vmin, 52px); overflow: hidden; }
+#load .bar i { display: block; height: 100%; background: var(--sun); transform-origin: 0 50%; transform: scaleX(0); transition: transform .5s cubic-bezier(.2, .6, .2, 1); }
+#load .stage { margin-top: 14px; height: 16px; font-size: 11px; letter-spacing: .5em; margin-right: -.5em; color: var(--faint); }
+
+/* ---- title */
+#title { display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: calc(var(--gt) + clamp(18px, calc(var(--ch) * .07), 64px)) var(--gr) calc(var(--gb) + clamp(10px, calc(var(--ch) * .03), 28px)) var(--gl); box-sizing: border-box; }
+#title .tag { margin: clamp(16px, 4.4vmin, 24px) 0 0; font-family: var(--f-song); font-weight: 300; font-size: clamp(13px, 3.7vmin, 16px); letter-spacing: .34em; margin-right: -.34em; color: var(--snow); text-shadow: 0 1px 14px rgba(5, 8, 13, .5); }
+#title .mark > *, #title .cta > * { opacity: 0; transform: translateY(8px); transition: opacity 1.1s ease, transform 1.1s cubic-bezier(.2, .6, .2, 1); }
+#title.on .mark > *, #title.on .cta > * { opacity: 1; transform: none; }
+#title.on .mark > :nth-child(1) { transition-delay: .5s; } #title.on .mark > :nth-child(2) { transition-delay: .8s; } #title.on .mark > :nth-child(3) { transition-delay: .95s; } #title.on .mark > :nth-child(4) { transition-delay: 1.25s; }
+#title.on .cta > :nth-child(1) { transition-delay: 1.7s; } #title.on .cta > :nth-child(2) { transition-delay: 1.9s; } #title.on .cta > :nth-child(3) { transition-delay: 2.05s; }
+.cta { display: flex; flex-direction: column; align-items: center; text-align: center; width: 100%; }
+#go { pointer-events: auto; position: relative; appearance: none; -webkit-appearance: none; border: 0; background: linear-gradient(180deg, #f7d6a2, #eeb25c); color: #1b1408; border-radius: 999px;
+  min-width: 184px; height: 54px; padding: 0 34px; font-family: var(--f-song); font-weight: 500; font-size: 18px; letter-spacing: .9em; text-indent: .9em; cursor: pointer;
+  box-shadow: 0 6px 22px rgba(255, 186, 96, .20), 0 1px 0 rgba(255, 255, 255, .5) inset; transition: filter .25s ease, transform .25s ease; }
+#go::after { content: ""; position: absolute; inset: -8px; border-radius: 999px; border: 1px solid rgba(255, 214, 150, .8); opacity: 0; animation: breathe 3.2s ease-in-out infinite; }
+#go:active { filter: brightness(.92); transform: scale(.98); }
+@media (hover: hover) { #go:hover { filter: brightness(1.06); } }
+#go:focus-visible { outline: 2px solid var(--sun); outline-offset: 4px; }
+/* (Variants 'gold' b: the start button is dark glass with a hairline of gold and gold words, like the buttons beside it; the breathing ring stays) */
+#app.line #go { background: rgba(8, 12, 20, .34); color: #ffd9a0; box-shadow: inset 0 0 0 1px rgba(255, 208, 138, .9), 0 6px 22px rgba(5, 8, 13, .25); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+@media (hover: hover) { #app.line #go:hover { filter: none; background: rgba(8, 12, 20, .5); } }
+@keyframes breathe { 0%, 100% { opacity: 0; transform: scale(.96); } 50% { opacity: .9; transform: scale(1); } }
+.cta .how { margin: 18px 0 0; font-size: 13px; letter-spacing: .16em; color: var(--snow); text-shadow: 0 1px 10px rgba(5, 8, 13, .6); }
+.cta .fine { margin: 10px 0 0; max-width: 30em; font-size: 11px; line-height: 1.7; letter-spacing: .1em; color: var(--dim); text-shadow: 0 1px 10px rgba(5, 8, 13, .6); text-wrap: balance; }
+
+/* ---- in play: only what is needed */
+#hud .spd { position: absolute; left: var(--gl); bottom: var(--gb); display: flex; flex-direction: column; align-items: flex-start; text-shadow: 0 1px 16px rgba(5, 8, 13, .55); }
+#app { --spd: clamp(44px, 13vmin, 64px); } #app.wide { --spd: clamp(40px, 11.5vmin, 88px); }
+#hud .spd b { font-family: var(--f-lat); font-weight: 300; font-size: var(--spd); line-height: .9; letter-spacing: -.01em; font-variant-numeric: tabular-nums; min-width: 1.7em; }
+#hud .unit { font-family: var(--f-lat); font-weight: 500; font-size: 10px; letter-spacing: .34em; color: var(--dim); margin-top: 8px; }
+#hud .tach { width: clamp(64px, 19vmin, 92px); height: 1px; background: var(--hair); margin-top: 9px; overflow: hidden; }
+#hud .tach i { display: block; height: 100%; background: var(--sun); transform-origin: 0 50%; transform: scaleX(0); }
+#hud .drop { position: absolute; right: var(--gr); bottom: var(--gb); display: flex; flex-direction: column; align-items: flex-end; text-shadow: 0 1px 16px rgba(5, 8, 13, .55); }
+#hud .drop b { font-family: var(--f-lat); font-weight: 300; font-size: clamp(24px, 7vmin, 34px); line-height: 1; font-variant-numeric: tabular-nums; }
+#hud .drop .unit { letter-spacing: .3em; margin-right: -.3em; }
+/* the hour, under the corner buttons and lined up with them: the weather and the time, then which part of the day. The rule sits on the
+   outer edge, the way the run's card has one on the left. It steps back with the speed while the day card is up, and leaves the corner
+   when that card is mirrored onto the right (a phone, the sun on the left) */
+#clock { position: absolute; right: max(calc(var(--gr) - 6px), var(--sr), var(--xr)); top: calc(max(var(--gt) - 8px, var(--st), var(--xt)) + 50px); padding-right: 14px; text-align: right; text-shadow: 0 1px 16px rgba(5, 8, 13, .55); transition: opacity 1.2s ease; }
+#clock::before { content: ""; position: absolute; right: 0; top: 2px; bottom: 2px; width: 1px; background: var(--sun); }
+#clock .t { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+#clock svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+#clock b { font-family: var(--f-lat); font-weight: 300; font-size: clamp(20px, 5.2vmin, 36px); line-height: 1; letter-spacing: .02em; font-variant-numeric: tabular-nums; }
+#clock .sub { display: block; margin-top: 6px; font-family: var(--f-lat), var(--f-song); font-weight: 500; font-size: clamp(10px, 1.7vmin, 12px); letter-spacing: .16em; color: var(--dim); white-space: nowrap; }
+#app.daycard #clock { opacity: .3; } #app.daycard.dayright:not(.desk) #clock { opacity: 0; }
+#app.en #clock .sub { letter-spacing: .06em; }
+/* the name of the run, each time the mountain changes */
+#seg { position: absolute; left: var(--gl); top: calc(var(--gt) + 2px); padding-left: 14px; opacity: 0; transform: translateX(-10px); transition: opacity .9s ease, transform .9s cubic-bezier(.2, .6, .2, 1); text-shadow: 0 1px 16px rgba(5, 8, 13, .6); }
+#seg::before { content: ""; position: absolute; left: 0; top: 2px; bottom: 2px; width: 1px; background: var(--sun); transform-origin: 50% 0; transform: scaleY(0); transition: transform .7s cubic-bezier(.2, .6, .2, 1) .1s; }
+#seg.on { opacity: 1; transform: none; } #seg.on::before { transform: none; }
+#seg small { display: block; font-family: var(--f-lat); font-weight: 500; font-size: 10px; letter-spacing: .34em; color: var(--dim); }
+#seg b { display: block; margin-top: 7px; font-family: var(--f-song); font-weight: 300; font-size: clamp(26px, 7.6vmin, 36px); line-height: 1.1; letter-spacing: .3em; }
+/* how the run just left went, one line under the name of the next: it opens under the name (the amber rule draws down with it), stays about
+   three seconds and leaves with the card. It closes again only once the card has gone, so nothing moves while it is seen */
+#app { --spf: 12px; --spg: clamp(8px, 1.5vmin, 12px); --rh: calc(var(--spf) * 1.5 + var(--spg)); } #app.desk { --spf: clamp(12px, 1.75vmin, 15px); }
+#seg .split { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .55s cubic-bezier(.2, .6, .2, 1); }
+#seg.res .split { grid-template-rows: 1fr; }
+#seg .split > p { min-height: 0; overflow: hidden; margin: 0; }
+#split > span { display: block; padding-top: var(--spg); font-family: var(--f-ui); font-size: var(--spf); line-height: 1.5; letter-spacing: .1em; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--snow);
+  text-shadow: 0 1px 2px rgba(5, 8, 13, .42), 0 0 14px rgba(5, 8, 13, .5);          /* (small type over bright snow wants a tighter shade than the name above it) */
+  opacity: 0; transform: translateX(-8px); transition: opacity .45s ease, transform .6s cubic-bezier(.2, .6, .2, 1); }
+#seg.res #split > span { opacity: 1; transform: none; transition: opacity .7s ease .18s, transform .8s cubic-bezier(.2, .6, .2, 1) .18s; }
+#split .k { font-style: normal; color: rgba(244, 247, 251, .78); letter-spacing: .26em; }
+#split .d { font-style: normal; color: var(--faint); margin: 0 .62em 0 .5em; }
+#split u { text-decoration: none; margin-left: .28em; font-family: var(--f-lat); font-size: .8em; letter-spacing: .06em; color: var(--dim); }
+/* (a best of its kind today: a small amber rise after the figure that beat it, edged dark so it holds on snow) */
+#split .up { display: inline-block; width: 0; height: 0; margin-left: .55em; vertical-align: .08em; border-left: .31em solid transparent; border-right: .31em solid transparent; border-bottom: .54em solid var(--sun);
+  filter: drop-shadow(0 1px 1.5px rgba(5, 8, 13, .55)); opacity: 0; transform: translateY(3px); transition: opacity .4s ease, transform .5s cubic-bezier(.2, .6, .2, 1); }
+#seg.res #split .up { opacity: 1; transform: none; transition-delay: .75s; }
+/* (meanwhile the hint and the toast under the card step down to make room, and come back once it has gone) */
+#app.wide.res #hint { transform: translate(-10px, var(--rh)); } #app.wide.res #hint.on { transform: translateY(var(--rh)); }
+#app.res #say { transform: translate(-10px, var(--rh)); } #app.res #say.on { transform: translateY(var(--rh)); }
+/* ---- the day card, at sunset and at sunrise: the run so far, set like a film title. On a desk in the lower left above the speed, under the
+   horizon where the sun is; held in the hands up in the left column (see below). Line by line it comes in, the figures run up to
+   their values, and after five seconds it goes the way it came */
+#day { position: absolute; z-index: 0; left: var(--gl); bottom: calc(var(--gb) + var(--spd) * .9 + 40px + clamp(22px, 5vmin, 54px)); pointer-events: none; text-shadow: 0 1px 2px rgba(5, 8, 13, .3), 0 1px 18px rgba(5, 8, 13, .62); transition: opacity .3s ease; }
+/* (held in the hands the lower corners are under the thumbs: the card stands high, where the name of a run stands, and on the right, mirrored,
+   when the sun is on the left half of the picture) */
+#app:not(.desk) #day { bottom: auto; top: calc(var(--gt) + var(--spd) * .9 + 54px); }
+#app:not(.desk) #day.r { left: auto; right: var(--gr); text-align: right; }
+#day.r .k { margin-right: -.5em; } #day.r .t { margin-right: -.42em; } #day.r .rule { margin-left: auto; transform-origin: 100% 50%; }
+#day.r .fs { justify-content: flex-end; } #day.r .fs > div { align-items: flex-end; } #day.r .fs span { margin-right: -.3em; }
+#day.r::before { left: -55%; right: calc(-1 * var(--gr)); background: radial-gradient(ellipse at 76% 56%, rgba(5, 8, 13, .36), rgba(5, 8, 13, .15) 45%, rgba(5, 8, 13, 0) 72%); }
+#day.held { opacity: 0; }
+/* (the corner it stands in is shaded a little while it is there, as a title is set where the picture is darker) */
+#day::before { content: ""; position: absolute; z-index: -1; left: calc(-1 * var(--gl)); right: -55%; top: -42%; bottom: -34%; background: radial-gradient(ellipse at 24% 56%, rgba(5, 8, 13, .36), rgba(5, 8, 13, .15) 45%, rgba(5, 8, 13, 0) 72%); opacity: 0; transition: opacity 1.4s ease; }
+#day.on::before { opacity: 1; transition: opacity 1.1s ease; }
+/* (while it is up, the live numbers step back: it has the floor for those few seconds. The drop goes altogether, the card's own 落差 standing
+   for it: two drops on the screen at once, one fixed at the hour and one still counting, would disagree) */
+#hud .spd, #hud .drop { transition: opacity 1.2s ease; } #app.daycard #hud .spd { opacity: .3; } #app.daycard #hud .drop { opacity: 0; }
+#day > * { display: block; opacity: 0; transition: opacity .9s ease, transform 1.1s cubic-bezier(.2, .6, .2, 1), letter-spacing 1.8s cubic-bezier(.2, .6, .2, 1); }
+#day .k { font-family: var(--f-lat); font-weight: 500; font-size: clamp(9px, 1.5vmin, 12px); letter-spacing: .9em; color: var(--dim); }
+#day .t { margin-top: clamp(6px, 1.5vmin, 13px); font-family: var(--f-song); font-weight: 300; font-size: clamp(30px, 8vmin, 66px); line-height: 1.04; letter-spacing: .62em; transform: translateY(10px); }
+#day .rule { width: clamp(26px, 4vmin, 44px); height: 1px; margin: clamp(11px, 2.6vmin, 22px) 0 clamp(11px, 2.4vmin, 20px); background: var(--sun); transform-origin: 0 50%; transform: scaleX(0); }
+#day .fs { display: flex; gap: clamp(18px, 3.8vmin, 42px); }
+#day .fs > div { display: flex; flex-direction: column; align-items: flex-start; opacity: 0; transform: translateY(6px); transition: opacity .8s ease, transform 1s cubic-bezier(.2, .6, .2, 1); }
+#day .fs b { font-family: var(--f-lat); font-weight: 300; font-size: clamp(20px, 4.5vmin, 38px); line-height: 1; letter-spacing: .01em; font-variant-numeric: tabular-nums; }
+#day .fs span { margin-top: clamp(5px, 1.1vmin, 9px); font-family: var(--f-lat); font-weight: 500; font-size: clamp(9px, 1.45vmin, 12px); letter-spacing: .3em; white-space: nowrap; color: var(--dim); }
+#day.on > *, #day.on .fs > div { opacity: 1; transform: none; }
+#day.on .k { letter-spacing: .5em; } #day.on .t { letter-spacing: .42em; transition-delay: .2s; } #day.on .rule { transition-delay: .55s; } #day.on .fs { transition-delay: .8s; }
+#day.on .fs > div:nth-child(1) { transition-delay: .85s; } #day.on .fs > div:nth-child(2) { transition-delay: .97s; } #day.on .fs > div:nth-child(3) { transition-delay: 1.09s; } #day.on .fs > div:nth-child(4) { transition-delay: 1.21s; }
+/* how to steer, until the first real turn */
+#hint { position: absolute; left: 50%; bottom: calc(var(--gb) + clamp(92px, calc(var(--ch) * .17), 150px)); display: flex; align-items: center; gap: 12px; height: 46px; padding: 0 22px 0 16px; border-radius: 999px; background: rgba(5, 8, 13, .46); white-space: nowrap;
+  opacity: 0; transform: translate(-50%, 8px); transition: opacity .8s ease, transform .8s cubic-bezier(.2, .6, .2, 1); }
+#hint.on { opacity: 1; transform: translate(-50%, 0); }
+#hint span { font-size: 13px; letter-spacing: .22em; margin-right: -.22em; }
+#hint i { display: block; position: relative; width: 44px; height: 34px; flex: none; }
+#hint.tilt i::before { content: ""; position: absolute; left: 50%; top: 50%; width: 17px; height: 28px; margin: -14px 0 0 -8.5px; border: 1.5px solid var(--snow); border-radius: 4.5px; box-sizing: border-box; animation: rock 2.4s ease-in-out infinite; }
+#hint.drag i::before { content: ""; position: absolute; left: 2px; right: 2px; top: 50%; height: 1px; background: var(--faint); }
+#hint.drag i::after { content: ""; position: absolute; left: 50%; top: 50%; width: 13px; height: 13px; margin: -6.5px 0 0 -6.5px; border-radius: 50%; background: var(--snow); animation: slide 2.4s ease-in-out infinite; }
+#hint.keys, #hint.pace, #hint.moves { padding-left: 22px; } #hint.keys i, #hint.pace i, #hint.moves i { display: none; }
+@keyframes rock { 0%, 100% { transform: rotate(-19deg); } 50% { transform: rotate(19deg); } }
+@keyframes slide { 0%, 100% { transform: translateX(-15px); } 50% { transform: translateX(15px); } }
+/* ---- the corner: one glass capsule for the few things always within reach (the menu once a run is on, the whole screen where the browser
+   allows it, sound). Each glyph is there only while it has something to do; the capsule closes up round whatever is left */
+#bar { position: absolute; right: max(calc(var(--gr) - 6px), var(--sr), var(--xr)); top: max(calc(var(--gt) - 8px), var(--st), var(--xt)); display: flex; gap: 2px; padding: 3px; border-radius: 999px; background: rgba(5, 8, 13, .26); box-shadow: inset 0 0 0 1px rgba(244, 247, 251, .10);
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); opacity: 0; visibility: hidden; transition: opacity .8s ease, visibility 0s linear .8s; }
+#bar.on { opacity: 1; visibility: visible; transition: opacity .8s ease, visibility 0s; }
+#app.menuopen #bar { opacity: 0; visibility: hidden; transition: opacity .25s ease, visibility 0s linear .25s; }          /* (the menu has its own 设置: sound, full screen, language) */
+#bar button { display: none; width: 40px; height: 40px; padding: 0; margin: 0; border: 0; border-radius: 50%; background: none; color: var(--snow); cursor: pointer; opacity: .86; transition: background .2s ease, color .2s ease; }
+#bar button.on, #app.run #mn { display: block; }
+#bar svg { width: 19px; height: 19px; display: block; margin: auto; fill: none; stroke: currentColor; stroke-width: 1.45; stroke-linecap: round; stroke-linejoin: round; }
+#bar button:focus-visible { outline: 2px solid var(--sun); outline-offset: -4px; }
+@media (hover: hover) { #bar button:hover { background: rgba(244, 247, 251, .10); opacity: 1; } }
+#bar button:active { color: var(--sun); }
+#snd .off { display: none; } #snd.mute .off { display: inline; } #snd.mute .wave { display: none; } #snd.mute { color: var(--dim); }
+#fs .in { display: none; } #fs.full .in { display: inline; } #fs.full .out { display: none; }
+/* ---- the menu. In a run it is the pause: the world holds still (the snow keeps falling), the picture goes soft behind a shade that is darkest
+   on the left, where a column of words in the title's face lists what can be done; the part chosen opens on the right. Whatever is picked
+   there happens at once in the picture behind, so the player sees it before skiing on. On the title page the same menu, with 出发 on top */
+#menu { position: absolute; inset: 0; display: flex; align-items: stretch; opacity: 0; visibility: hidden; transition: opacity .3s ease, visibility 0s linear .3s; --mf: clamp(16px, 2.75vmin, 23px); --mg: clamp(5px, 1.3vmin, 12px); }
+#menu.on { opacity: 1; visibility: visible; transition: opacity .35s ease, visibility 0s; }
+#menu .scrim { position: absolute; inset: 0; -webkit-backdrop-filter: blur(6px) saturate(1.05); backdrop-filter: blur(6px) saturate(1.05);
+  background: linear-gradient(90deg, rgba(5, 8, 13, .78), rgba(5, 8, 13, .52) 34%, rgba(5, 8, 13, .30) 70%, rgba(5, 8, 13, .22)); }
+#menu nav { position: relative; flex: none; display: flex; flex-direction: column; justify-content: flex-start; gap: var(--mg); width: clamp(168px, calc(var(--cw) * .22), 270px); padding: var(--gt) 0 var(--gb) var(--col); overflow-y: auto; scrollbar-width: none; }
+#menu nav::-webkit-scrollbar { display: none; }
+#menu .mk { font-family: var(--f-lat); font-size: clamp(10px, 1.5vmin, 12px); font-weight: 500; letter-spacing: .42em; color: var(--dim); margin-bottom: calc(var(--mg) * .6); white-space: nowrap; }
+#menu nav button { position: relative; appearance: none; -webkit-appearance: none; align-self: flex-start; margin: 0; padding: 2px 0; border: 0; background: none; font-family: var(--f-song); font-weight: 300; font-size: var(--mf); line-height: 1.35;
+  letter-spacing: .32em; color: var(--dim); text-align: left; white-space: nowrap; cursor: pointer; transition: color .25s ease; }
+#menu nav button::before { content: ""; position: absolute; left: -30px; top: 50%; width: 18px; height: 1px; background: var(--sun); transform: scaleX(0); transform-origin: 100% 50%; transition: transform .35s cubic-bezier(.2, .6, .2, 1); }
+/* (用户 2026-11-19 21:19 UTC「菜单要有层级 modal 然后可以轻松退回去」) every layer has its 返回 at the same place, its top left corner */
+#menu nav button.back, #rpick .bk { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; margin: 0 0 0 -12px; padding: 0 14px 0 6px; font-family: var(--f-ui); font-size: 14px; font-weight: 500; letter-spacing: .2em; color: var(--snow); }
+#menu nav button.back svg, #rpick .bk svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+#menu nav button.back::before { display: none; }
+#menu nav button.on { color: var(--snow); } #menu nav button.on::before { transform: none; }
+#menu nav button.sm { font-size: calc(var(--mf) * .78); }
+#menu nav button.xs { margin-top: calc(var(--mg) * .6); font-family: var(--f-ui); font-size: 11px; letter-spacing: .3em; color: var(--faint); }
+#menu nav button.xs.on { color: var(--snow); }
+#menu nav #m-go { font-size: calc(var(--mf) * 1.08); font-weight: 500; color: var(--sun); }
+#menu nav button[hidden] { display: none; }
+@media (hover: hover) { #menu nav button:hover { color: var(--snow); } #menu nav #m-go:hover { color: #ffe2b5; } }
+#menu nav button:focus-visible { outline: 2px solid var(--sun); outline-offset: 3px; border-radius: 4px; }
+#menu .msep { display: block; flex: none; width: 62%; height: 1px; background: var(--hair); margin: calc(var(--mg) * .4) 0; }
+#menu .mpane { position: relative; flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: flex-start; padding: var(--gt) var(--gr) var(--gb) clamp(24px, calc(var(--cw) * .06), 110px); overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; scrollbar-width: none; }
+#menu .mpane::-webkit-scrollbar { display: none; }
+#menu section { display: none; flex-direction: column; gap: clamp(10px, 2vmin, 16px); max-width: 760px; }
+/* (centred in the pane by its margins, not by the pane: a part taller than the pane then starts at its top and scrolls, never cut off above) */
+#menu section.on { margin-top: auto; margin-bottom: auto; }
+#menu nav > :first-child { margin-top: auto; } #menu nav > :last-child { margin-bottom: auto; } #menu section.on { display: flex; }
+#menu h4 { margin: 0; font-family: var(--f-lat); font-weight: 500; font-size: clamp(10px, 1.5vmin, 12px); letter-spacing: .4em; color: var(--dim); white-space: nowrap; }
+#menu h4 + * { margin-top: -2px; } #menu .gap { height: clamp(4px, 1.5vmin, 12px); }
+#menu kbd { margin-left: .7em; padding: 0 .4em; border: 1px solid var(--hair); border-radius: 4px; font-family: var(--f-lat); font-size: .95em; letter-spacing: .05em; color: var(--faint); }
+#app:not(.desk) #menu kbd, #app:not(.desk) #menu .desk-only { display: none; } #app.desk #menu .hand-only { display: none; }
+#menu .note { margin: 0; font-size: clamp(11px, 1.6vmin, 13px); letter-spacing: .12em; line-height: 1.7; color: var(--dim); }
+#menu .mpane button { appearance: none; -webkit-appearance: none; margin: 0; border: 0; font: inherit; color: var(--snow); cursor: pointer; }
+#menu .mpane button:focus-visible { outline: 2px solid var(--sun); outline-offset: 2px; }
+/* (the hours and the weather: dark glass tiles with a drawing of the sun's place, or the snow, the same make as the views; the one in force
+   ringed amber. No colours of their own: the picture behind already shows the hour) */
+#menu .cards { display: grid; grid-template-columns: repeat(7, minmax(0, clamp(78px, 11vmin, 108px))); gap: clamp(6px, 1.1vmin, 9px); }
+#menu .cards.wxc { grid-template-columns: repeat(4, minmax(0, clamp(72px, 10vmin, 100px))); }
+#app:not(.desk) #menu .cards { grid-template-columns: repeat(7, minmax(0, 78px)); } #app:not(.desk) #menu .cards.wxc { grid-template-columns: repeat(4, minmax(0, 68px)); }
+#app:not(.dev) .dev-only { display: none !important; }
+#menu .tune { display: flex; flex-direction: column; gap: 8px; max-width: 460px; }
+#menu .tune .trow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 0; font-size: 12px; letter-spacing: .08em; color: var(--dim); }
+#menu .tune input[type="number"] { width: 4.8em; height: 28px; margin: 0; padding: 0 8px; border: 0; border-radius: 8px; background: rgba(5, 8, 13, .35); box-shadow: inset 0 0 0 1px var(--hair); color: var(--snow); font: inherit; font-variant-numeric: tabular-nums; user-select: text; -webkit-user-select: text; }
+#menu .tune input[type="checkbox"] { accent-color: var(--sun); width: 15px; height: 15px; margin: 0; }
+#menu .tune .now { margin: 0; font-family: var(--f-lat); letter-spacing: .12em; color: var(--sun); }
+#menu .cards button { position: relative; height: clamp(56px, 10.5vmin, 88px); border-radius: 10px; box-shadow: inset 0 0 0 1px var(--hair); background: rgba(5, 8, 13, .25); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px;
+  font-size: clamp(11px, 1.6vmin, 13px); letter-spacing: .14em; color: var(--dim); transition: box-shadow .2s ease, color .2s ease; }
+#menu .cards button.on { box-shadow: 0 0 0 2px var(--sun); color: var(--snow); }
+#menu .cards svg { width: 32px; height: 23px; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+@media (hover: hover) { #menu .cards button:hover { color: var(--snow); } }
+#menu .cards button.now::after { content: ""; position: absolute; right: 8px; top: 8px; width: 5px; height: 5px; border-radius: 50%; background: var(--sun); box-shadow: 0 0 6px rgba(255, 208, 138, .8); }
+/* (words to pick from: a pill each, the one in force filled amber) */
+#menu .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+#menu .chips button, #menu .pill { position: relative; height: clamp(34px, 5.4vmin, 40px); padding: 0 16px; border-radius: 999px; box-shadow: inset 0 0 0 1px var(--hair); background: rgba(5, 8, 13, .25);
+  font-size: clamp(13px, 1.8vmin, 15px); letter-spacing: .16em; color: var(--dim); white-space: nowrap; transition: background .2s ease, color .2s ease, box-shadow .2s ease; }
+#menu .chips button.on, #menu .chips button.hit { background: var(--sun); color: #1b1408; box-shadow: none; }
+#menu .chips .sep { flex: none; width: 1px; align-self: stretch; margin: 6px 4px; background: var(--hair); }
+@media (hover: hover) { #menu .chips button:hover, #menu .pill:hover { color: var(--snow); box-shadow: inset 0 0 0 1px rgba(244, 247, 251, .5); } #menu .chips button.on:hover { color: #1b1408; } }
+#menu .pill { color: var(--snow); } #menu .pill.on { background: var(--sun); color: #1b1408; box-shadow: none; }
+/* (Variants 'gold' b: the one in force is ringed in gold, not filled) */
+#app.line #menu .chips button.on, #app.line #menu .chips button.hit, #app.line #menu .pill.on { background: rgba(255, 208, 138, .08); color: var(--sun); box-shadow: inset 0 0 0 1px var(--sun); }
+@media (hover: hover) { #app.line #menu .chips button.on:hover { color: var(--sun); } }
+/* (the views: a tile each, a small drawing of where the lens stands) */
+#menu .tiles { display: grid; grid-template-columns: repeat(3, minmax(0, clamp(96px, 15vmin, 150px))); gap: clamp(7px, 1.2vmin, 10px); }
+#app:not(.desk) #menu .tiles { grid-template-columns: repeat(5, minmax(0, 84px)); }
+#menu .tiles button { height: clamp(56px, 11vmin, 96px); border-radius: 10px; box-shadow: inset 0 0 0 1px var(--hair); background: rgba(5, 8, 13, .25); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  font-size: clamp(11px, 1.6vmin, 13px); letter-spacing: .14em; color: var(--dim); transition: box-shadow .2s ease, color .2s ease; }
+#menu .tiles button.on { box-shadow: 0 0 0 2px var(--sun); color: var(--snow); }
+#menu .tiles svg { width: 30px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.3; stroke-linecap: round; stroke-linejoin: round; }
+@media (hover: hover) { #menu .tiles button:hover { color: var(--snow); } }
+#menu .seedrow { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; }
+#menu .daily { margin: 10px 0 0; font-size: 13px; letter-spacing: .04em; color: var(--sun); } #menu .daily em { font-style: normal; opacity: .72; margin-right: .6em; }
+#sw-skied { display: flex; flex-direction: column; gap: 14px; } #sw-skied button { align-self: flex-start; } #sw-skied .daily { margin: 6px 0 0; }
+.cta .more button.on { color: var(--sun); box-shadow: inset 0 0 0 1px rgba(255, 208, 138, .55); } #menu .seedrow b { font-family: var(--f-lat); font-weight: 300; font-size: clamp(26px, 5vmin, 40px); letter-spacing: .06em; font-variant-numeric: tabular-nums; }
+/* (every key and every touch, in two columns) */
+#menu .keys { display: grid; grid-template-columns: auto 1fr; gap: clamp(6px, 1.2vmin, 10px) 18px; align-items: center; font-size: clamp(12px, 1.75vmin, 14px); letter-spacing: .1em; }
+#menu .keys2 { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 10px clamp(30px, calc(var(--cw) * .06), 70px); }
+#menu .keys b { justify-self: start; padding: 2px 8px; border: 1px solid var(--hair); border-radius: 5px; font-family: var(--f-lat); font-weight: 500; font-size: .95em; letter-spacing: .06em; white-space: nowrap; }
+#menu .keys span { color: var(--dim); }
+#menu .opts { display: flex; flex-wrap: wrap; gap: 10px; }
+/* (the versions the owner picks between: not part of the game, a page of their own, in groups, two columns where there is room) */
+#menu section[data-sec="vers"] { max-width: none; }
+#menu .vhead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px; }
+#menu .vgrid { columns: 2 300px; column-gap: clamp(24px, calc(var(--cw) * .05), 56px); }
+#menu .vgrp { break-inside: avoid; margin-bottom: 10px; }
+#menu .vgrp > i { display: block; font-style: normal; font-size: 11px; letter-spacing: .3em; color: var(--sun); margin: 2px 0 2px; }
+#menu .vrow { display: flex; align-items: center; gap: 4px; min-height: 34px; border-top: 1px solid rgba(244, 247, 251, .07); }
+#menu .vrow > span { flex: none; width: 6.4em; font-size: 12px; letter-spacing: .12em; color: var(--dim); }
+#menu .vrow button { position: relative; padding: 3px 10px; border-radius: 999px; background: none; font-size: 13px; letter-spacing: .1em; color: var(--dim); }
+#menu .vrow button.on { background: rgba(244, 247, 251, .15); color: var(--snow); }
+#menu .vrow button.rec::after, #menu .vreset::after { content: ""; position: absolute; top: 3px; right: 3px; width: 3px; height: 3px; border-radius: 50%; background: rgba(255, 208, 138, .9); }
+#menu .vreset { position: relative; } #menu .vreset.idle { opacity: .45; cursor: default; }
+/* (the boards, inside 小红书 only: which board, which period, my place, then the list, scrolling in its own box) */
+#menu .rk-p { margin-top: -4px; } #menu .rk-p button { height: 30px; padding: 0 13px; font-size: 12px; }
+#menu .rk-me { margin: 2px 0 0; font-family: var(--f-lat); font-size: clamp(13px, 1.9vmin, 15px); letter-spacing: .12em; color: var(--sun); }
+#menu .rk-list { margin: 0; padding: 0 10px 0 0; list-style: none; max-height: calc(var(--ch) * .44);  /* (the frame's own height: 44vh is the screen's, the frame's width when it is laid on its side) */ overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; }
+#menu .rk-list li { display: flex; align-items: baseline; min-height: 30px; border-top: 1px solid rgba(244, 247, 251, .07); font-size: clamp(12px, 1.75vmin, 14px); letter-spacing: .08em; }
+#menu .rk-list b { flex: none; width: 3em; font-family: var(--f-lat); font-weight: 300; color: var(--dim); font-variant-numeric: tabular-nums; }
+#menu .rk-list li.top b { color: var(--sun); }
+#menu .rk-list span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 12px; }
+#menu .rk-list em { flex: none; font-style: normal; font-family: var(--f-lat); color: var(--dim); font-variant-numeric: tabular-nums; }
+#menu .rk-list .rk-none { color: var(--dim); }
+#day .rk { margin-top: clamp(10px, 2vmin, 16px); font-family: var(--f-lat); font-weight: 500; font-size: clamp(9px, 1.45vmin, 12px); letter-spacing: .24em; color: var(--sun); white-space: nowrap; }
+#day .rk:empty { display: none; }
+/* held in the hands the menu is the whole of a short screen: smaller words, a narrower column */
+#app:not(.desk) #menu { --mf: 16px; --mg: 4px; } #app:not(.desk) #menu nav { width: 168px; } #app:not(.desk) #menu .mpane { padding-left: 40px; }
+/* what a key just changed, said once: in the column of type on the left, clear of the sun (at the gate where the name of a run would stand, in a run under the hints) */
+#say { position: absolute; left: var(--col); top: calc(var(--gt) + 2px); display: flex; align-items: center; gap: 12px; height: 34px; padding: 0 18px; border-radius: 999px; background: rgba(5, 8, 13, .40); white-space: nowrap; pointer-events: none;
+  opacity: 0; transform: translateX(-10px); transition: opacity .5s ease, transform .5s cubic-bezier(.2, .6, .2, 1); }
+#say.on { opacity: 1; transform: none; }
+#app.run #say { left: var(--gl); top: calc(var(--ht) + 56px); }
+#say small { font-size: 11px; letter-spacing: .34em; margin-right: -.34em; color: var(--dim); } #say b { font-weight: 400; font-size: 13px; letter-spacing: .2em; margin-right: -.2em; } #say b:empty { display: none; }
+#app.wide.short #say { height: 32px; } #app.wide.short.run #say { top: calc(var(--ht) + 48px); }
+/* a change of place is a cut: the picture dips to black over it, the words stay */
+#cut { position: absolute; inset: 0; background: var(--ink); opacity: 0; pointer-events: none; } #cut.slow { transition: opacity .26s ease; }
+/* held in the hands: the two moves, under the right thumb (the left one steers). Jump in the corner where the thumb lies, accelerate a reach inward.
+   (owner 2026-11-19: subtle, little of the picture taken. Each is drawn as a hairline ring smaller than the button (::after), the button itself,
+   what a thumb can hit, stays as large; the view button is its glyph alone) */
+#pad button { position: absolute; appearance: none; -webkit-appearance: none; margin: 0; padding: 0; border: 0; border-radius: 50%; background: rgba(5, 8, 13, .30); box-shadow: inset 0 0 0 1px rgba(244, 247, 251, .36); color: var(--snow); font-family: var(--f-ui); text-shadow: 0 1px 8px rgba(5, 8, 13, .5);
+  pointer-events: auto; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; transition: background .12s ease, color .12s ease, transform .12s ease, box-shadow .12s ease; }
+#jump { right: calc(var(--gr) + 8px); bottom: calc(var(--gb) + 38px); width: 72px; height: 72px; font-size: 15px; }
+#tuck { right: calc(var(--gr) + 94px); bottom: calc(var(--gb) + 2px); width: 60px; height: 60px; font-size: 11px; letter-spacing: .1em; text-indent: .1em; }
+#pad button { background: none; box-shadow: none; isolation: isolate; color: rgba(244, 247, 251, .88); text-shadow: 0 0 3px rgba(5, 8, 13, .7); }
+#pad button::after { content: ""; position: absolute; inset: 9px; border-radius: 50%; z-index: -1; background: rgba(5, 8, 13, .10); box-shadow: inset 0 0 0 1px rgba(244, 247, 251, .5), 0 0 3px rgba(5, 8, 13, .35); transition: background .12s ease, box-shadow .12s ease; }
+#vw::after { display: none; } #pad #vw { color: rgba(244, 247, 251, .75); }
+#pad button.down { background: none; color: #1b1408; text-shadow: none; transform: scale(.95); } #pad button.down::after { background: rgba(255, 208, 138, .92); box-shadow: none; }
+/* (held, the jump loads: the ring round it closes as the legs fold) */
+#jump::before { content: ""; position: absolute; inset: 3px; border-radius: 50%; background: conic-gradient(var(--sun) calc(var(--k, 0) * 1turn), rgba(244, 247, 251, 0) 0); opacity: 0; transition: opacity .2s ease;
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 1.5px)); mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #000 calc(100% - 1.5px)); }
+#jump.down::before { opacity: 1; }
+/* (at a keyboard there is no button to ring: while the jump key is held the same ring stands at the foot of the picture, under the skier. Variants 'kring') */
+#chg { position: absolute; left: 50%; bottom: calc(var(--gb, 0px) + 11%); width: 64px; height: 64px; margin-left: -32px; border-radius: 50%; pointer-events: none; opacity: 0; transition: opacity .12s ease;
+  background: rgba(5, 8, 13, .42); box-shadow: 0 2px 14px rgba(5, 8, 13, .35); }
+/* (on bright snow a pale ring on a pale ground was not seen at all: the ring sits on a dark disc, thick, its track still visible when empty) */
+#chg::before { content: ""; position: absolute; inset: 5px; border-radius: 50%; background: conic-gradient(var(--sun) calc(var(--k, 0) * 1turn), rgba(244, 247, 251, .3) 0);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 6px), #000 calc(100% - 5px)); mask: radial-gradient(farthest-side, transparent calc(100% - 6px), #000 calc(100% - 5px)); }
+#app.desk #chg.on { opacity: 1; } #app:not(.desk) #chg { display: none; }
+#app.desk #pad { display: none; }
+/* (under the open sheet of switches the two buttons step aside) */
+#pad button { transition: background .12s ease, color .12s ease, transform .12s ease, box-shadow .12s ease, opacity .3s ease; }
+#app.menuopen #pad button { opacity: 0; pointer-events: none; }
+/* the left thumb's cross (owner 2026-11-19): up 前压, down 后压, across steers, as the steering finger already does; a hairline plus and two small
+   words at rest in the corner, nothing more. A thumb put down anywhere carries it there (the drag is measured from where it came down) and
+   lights the arm it pushes along; let go, it goes back to the corner. The tilt steers at the same time (Input.update) */
+#cross { position: absolute; left: calc(var(--gl) + 4px); bottom: var(--gb); width: 104px; height: 104px; pointer-events: none; color: var(--snow); font-family: var(--f-ui); filter: drop-shadow(0 0 2px rgba(5, 8, 13, .6)); transition: opacity .3s ease; }
+#app.desk #cross, #app.menuopen #cross { opacity: 0; }
+#cross i, #cross b { position: absolute; display: block; }
+#cross .h { left: 14px; top: 52px; width: 76px; height: 1px; background: rgba(244, 247, 251, .35); }
+#cross .v { left: 52px; top: 20px; width: 1px; height: 64px; background: rgba(244, 247, 251, .35); }
+#cross b { left: 0; width: 104px; text-align: center; font-size: 11px; line-height: 14px; letter-spacing: .1em; font-weight: 400; opacity: .7; transition: color .12s ease, opacity .12s ease; }
+#cross .up { top: 0; } #cross .dn { bottom: 0; } #cross b.on { color: var(--sun); opacity: 1; }
+#app:not(.fa) #cross .v, #app:not(.fa) #cross b { display: none; }
+#cross .arm { left: 52.5px; top: 52px; width: 1px; height: 1px; transform-origin: 0 50%; transform: scaleX(0); background: var(--sun); }
+#cross .dot { left: 49px; top: 49px; width: 7px; height: 7px; border-radius: 50%; background: rgba(244, 247, 251, .7); }
+#cross.held .dot { background: var(--sun); }
+/* (held in the hands the drop stands on the speed's own line) */
+#hud #drop2 { display: none; font-style: normal; margin-left: 1.3em; } #app:not(.desk) #hud #drop2 { display: inline; }
+/* the title's other ways in: the menu at its scene, its views, its keys. Quieter than 出发, beside it */
+.cta .act { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: clamp(8px, 1.6vmin, 16px); }
+#app.wide .cta .act { justify-content: flex-start; }
+.cta .more { display: flex; flex-wrap: wrap; gap: clamp(6px, 1.2vmin, 10px); }
+.cta .more button { pointer-events: auto; appearance: none; -webkit-appearance: none; margin: 0; border: 0; display: inline-flex; align-items: center; gap: 8px; height: clamp(38px, 7.4vmin, 52px); padding: 0 clamp(14px, 2.4vmin, 22px);
+  border-radius: 999px; background: rgba(5, 8, 13, .38); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); box-shadow: inset 0 0 0 1px var(--hair); color: var(--snow); font-family: var(--f-ui); font-size: clamp(13px, 2vmin, 16px);
+  letter-spacing: .24em; text-indent: .12em; cursor: pointer; transition: box-shadow .25s ease, color .25s ease; }
+.cta .more button[hidden] { display: none; }
+.cta .more svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+@media (hover: hover) { .cta .more button:hover { box-shadow: inset 0 0 0 1px rgba(255, 208, 138, .7); } }
+.cta .more button:active { color: var(--sun); } .cta .more button:focus-visible { outline: 2px solid var(--sun); outline-offset: 3px; }
+/* (and in a run, held in the hands: the next view, over the jump) */
+#vw { right: calc(var(--gr) + 22px); bottom: calc(var(--gb) + 124px); width: 44px; height: 44px; }
+#vw svg { width: 20px; height: 20px; display: block; margin: auto; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+/* the steering finger. The drag is measured from where the finger came down, so that is drawn: a hairline from there to the finger, and a
+   tick each side where the carve ends and the skid begins; past the tick the line is amber. Faint, and gone with the finger */
+#steer { position: absolute; left: 0; top: 0; width: 0; height: 0; opacity: 0; transition: opacity .3s ease; filter: drop-shadow(0 0 2px rgba(5, 8, 13, .7)); --c: 80px; }
+#steer.on { opacity: 1; transition: opacity .12s ease; }
+#steer i { position: absolute; display: block; background: rgba(244, 247, 251, .62); transition: background .18s ease; }
+#steer .l { left: 0; top: -.5px; width: 1px; height: 1px; transform-origin: 0 50%; }
+#steer .v { left: -.5px; top: 0; width: 1px; height: 1px; transform-origin: 50% 0; transform: scaleY(0); display: none; } #app.fa #steer .v { display: block; }
+.fa-only { display: none !important; } #app.fa .fa-only { display: revert !important; } #app.fa .nofa { display: none !important; }
+#steer .o { left: -2.5px; top: -2.5px; width: 5px; height: 5px; border-radius: 50%; }
+#steer .a, #steer .b { top: -7px; width: 1px; height: 14px; } #steer .a { left: calc(var(--c) * -1); } #steer .b { left: var(--c); }
+#steer.over .l, #steer.over.neg .a, #steer.over:not(.neg) .b { background: var(--sun); }
+/* ---- a run set down (the pause key or glyph, a call, another window): the picture waits under a shade and the way back is a word.
+   The same page says so when the picture itself is lost (the graphics device taken away): then the whole of it is the button */
+#pause { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(5, 8, 13, .5); opacity: 0; visibility: hidden; transition: opacity .3s ease, visibility 0s linear .3s; }
+#pause.on { opacity: 1; visibility: visible; transition: opacity .35s ease, visibility 0s; }
+#pause .card { display: flex; flex-direction: column; align-items: center; text-align: center; transform: translateY(8px); transition: transform .45s cubic-bezier(.2, .6, .2, 1); text-shadow: 0 1px 14px rgba(5, 8, 13, .5); }
+#pause.on .card { transform: none; }
+#pause small { font-size: clamp(11px, 1.5vmin, 12px); font-weight: 500; letter-spacing: .5em; margin-right: -.5em; color: var(--dim); }
+#pause b { margin-top: clamp(8px, 2vmin, 14px); font-weight: 400; font-size: clamp(20px, 4.4vmin, 36px); line-height: 1.2; letter-spacing: .5em; margin-right: -.5em; }
+#pause .rule { width: 26px; height: 1px; background: var(--sun); margin: clamp(12px, 3.4vmin, 22px) 0 clamp(14px, 4vmin, 26px); }
+#pause button { appearance: none; -webkit-appearance: none; margin: 0; border: 0; border-radius: 999px; min-width: clamp(172px, 26vmin, 212px); font-family: var(--f-ui); cursor: pointer; text-shadow: none; }
+#pause button:focus-visible { outline: 2px solid var(--sun); outline-offset: 4px; }
+#pause .keys { margin: 16px 0 0; font-size: 11px; letter-spacing: .2em; color: var(--faint); } #pause .keys b { margin: 0 .5em 0 0; font-family: var(--f-lat); font-size: 11px; font-weight: 500; letter-spacing: .08em; color: var(--dim); } #app:not(.desk) #pause .keys { display: none; }
+#pause.lost { background: rgba(5, 8, 13, .84); cursor: pointer; } #pause.lost button, #pause.lost .keys { display: none; }
+#app.bare .layer, #app.bare #veil, #app.bare #shade, #app.bare #bar, #app.bare #menu, #app.bare #say, #app.bare #cut, #app.bare #pause { display: none; }
+/* ---- wide (a browser window, a phone on its side): the way it is meant to be seen */
+#app.wide #title { align-items: flex-start; justify-content: center; gap: clamp(18px, calc(var(--ch) * .07), 58px); padding: var(--gt) var(--gr) calc(var(--gb) + var(--ch) * .07) var(--col); }
+#app.wide #title .mark { align-items: flex-start; text-align: left; }
+#app.wide .mark .cn { font-size: clamp(44px, 13.5vmin, 132px); }
+#app.wide #title .mark .rule { width: clamp(26px, 4vmin, 44px); margin: clamp(12px, 3.6vmin, 34px) 0 clamp(11px, 3.2vmin, 30px); }
+#app.wide #title .mark .en { font-size: clamp(10px, 2.3vmin, 19px); }
+#app.wide #title .tag { margin-top: clamp(13px, 3.6vmin, 34px); font-size: clamp(13px, 2.7vmin, 23px); }
+#app.wide #title .cta { align-items: flex-start; text-align: left; width: auto; }
+#app.wide #go { height: clamp(46px, 9.6vmin, 68px); min-width: clamp(150px, 31vmin, 236px); font-size: clamp(16px, 3.3vmin, 23px); }
+#app.wide .cta .how { margin-top: clamp(12px, 3vmin, 24px); font-size: clamp(12px, 2.2vmin, 16px); }
+#app.wide .cta .fine { position: absolute; left: var(--col); bottom: var(--gb); margin: 0; max-width: none; font-size: clamp(10px, 1.75vmin, 13px); color: var(--dim); }
+#app.wide .cta .keys { position: absolute; right: var(--gr); bottom: var(--gb); margin: 0; font-size: clamp(10px, 1.75vmin, 13px); letter-spacing: .2em; color: var(--dim); text-shadow: 0 1px 10px rgba(5, 8, 13, .6); }
+#app.wide .cta .keys b { font-weight: 500; color: var(--snow); margin-right: .5em; } #app.wide .cta .keys b:not(:first-child) { margin-left: 1.6em; }
+.cta .keys { display: none; } #app.wide.desk .cta .keys { display: block; }
+/* (the hint stands in the column of type on the left, under the name of the run: the middle of the sky is the sun's, and the bottom of the
+   picture belongs to the skier and the snow going by) */
+#app { --ht: calc(var(--gt) + clamp(24px, 6.2vmin, 46px) * 1.1 + clamp(9px, 1.7vmin, 13px) * 1.45 + 27px); }
+#app:not(.desk) { --ht: calc(var(--gt) + var(--spd) * .9 + clamp(24px, 6.2vmin, 46px) * 1.1 + clamp(9px, 1.7vmin, 13px) * 1.45 + 74px); }
+#app.wide #hint { left: var(--gl); bottom: auto; top: var(--ht); background: rgba(5, 8, 13, .36); transform: translateX(-10px); } #app.wide #hint.on { transform: none; }
+#app.wide.short #hint { height: 38px; padding: 0 18px 0 12px; gap: 9px; } #app.wide.short #hint span { font-size: 12px; } #app.wide.short #hint.keys, #app.wide.short #hint.pace, #app.wide.short #hint.moves { padding-left: 18px; }
+#app.wide #hint.tilt i::before { width: 28px; height: 17px; margin: -8.5px 0 0 -14px; }
+#app.wide #hud .drop b { font-size: clamp(22px, 5.6vmin, 44px); }
+#app.wide #hud .unit { font-size: clamp(9px, 1.7vmin, 13px); } #app.wide #seg b { font-size: clamp(24px, 6.2vmin, 46px); } #app.wide #seg small { font-size: clamp(9px, 1.7vmin, 13px); }
+/* held in the hands: the bottom corners are where the thumbs lie (and where a steering finger drags), so the numbers stand at the top */
+#app:not(.desk) #hud .spd { bottom: auto; top: var(--gt); }
+#app:not(.desk) #hud .drop { display: none; }  /* (held in the hands the drop rides with the speed: the top right is the corner's) */
+#app:not(.desk) #seg { top: calc(var(--gt) + var(--spd) * .9 + 54px); }
+/* (a short screen held in the hands: under the speed is the horizon and the city, the one place the eye goes. The name of the run stands
+   beside the speed instead, up in the sky, its foot level with the speed's) */
+#app.short:not(.desk) #seg { top: calc(var(--gt) + 4px); left: calc(var(--gl) + var(--spd) * 1.8 + 22px); }
+#app.wide.short #title { gap: clamp(14px, calc(var(--ch) * .055), 30px); padding-bottom: calc(var(--gb) + var(--ch) * .09); }
+/* ---- English (#app.en, set by I18N): the Song lines become a light Latin serif, and the wide spacing that suits single characters is drawn in */
+#app.en { --f-song: "Cormorant Garamond", "Noto Serif SC", Georgia, "Times New Roman", serif; }
+#app.en #title .tag { font-size: clamp(16px, 4.4vmin, 20px); letter-spacing: .14em; margin-right: -.14em; font-style: italic; }
+#app.en.wide #title .tag { font-size: clamp(16px, 3.2vmin, 28px); }
+#app.en #go { letter-spacing: .3em; text-indent: .3em; font-size: 20px; text-transform: uppercase; }
+#app.en.wide #go { font-size: clamp(16px, 3.1vmin, 22px); }
+/* (Variants 'tbtn' b: the title's buttons stand in one column under the name, rounded squares rather than pills, all one width.
+   出发 is the first and a little taller, with the gold hairline; the rest keep the plain hairline. Short screens tighten the column) */
+#app.vbtn .cta .act { flex-direction: column; flex-wrap: nowrap; align-items: stretch; width: clamp(190px, 34vmin, 260px); gap: clamp(6px, 1.3vmin, 10px); }
+#app.vbtn .cta .more { flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: clamp(6px, 1.3vmin, 10px); }
+#app.vbtn #go, #app.vbtn .cta .more button { box-sizing: border-box; width: 100%; min-width: 0; margin: 0; border-radius: 12px; justify-content: center; }
+#app.vbtn #go { display: flex; align-items: center; height: clamp(44px, 10.5vmin, 60px); padding: 0 16px; font-size: clamp(16px, 3vmin, 21px); letter-spacing: .8em; text-indent: .8em; }
+#app.vbtn #go::after { border-radius: 16px; inset: -5px; }
+#app.vbtn .cta .more button { height: clamp(38px, 8.6vmin, 50px); padding: 0 16px; }
+#app.vbtn.wide.short #title { gap: clamp(10px, calc(var(--ch) * .04), 22px); padding-bottom: calc(var(--gb) + var(--ch) * .07); }
+/* (held in the hands the mountain's name shows for a moment at the top of this column, so the column starts under it and the buttons tighten) */
+#app.vbtn.wide:not(.desk) #title { justify-content: flex-start; gap: clamp(10px, calc(var(--ch) * .035), 20px); padding-top: calc(var(--gt) + 50px); padding-bottom: calc(var(--gb) + 10px); }
+#app.vbtn.wide:not(.desk) .mark .cn { font-size: clamp(40px, 11.5vmin, 96px); }
+#app.vbtn.wide:not(.desk) #title .mark .rule { margin: clamp(8px, 2.4vmin, 20px) 0 clamp(8px, 2.2vmin, 18px); }
+#app.vbtn.wide:not(.desk) #title .tag { margin-top: clamp(8px, 2.6vmin, 22px); }
+#app.vbtn:not(.desk) #go { height: 42px; } #app.vbtn:not(.desk) .cta .more button { height: 36px; }
+#app.vbtn:not(.desk) .cta .act, #app.vbtn:not(.desk) .cta .more { gap: 6px; }
+#app.vbtn.wide:not(.desk) .cta .how { margin-top: 10px; }
+#app.en.vbtn #go { letter-spacing: .3em; text-indent: .3em; }
+/* (用户 2026-11-19 19:29 / 19:56 UTC: 竖拿手机时标题页挤在一起被切掉、按钮太小看不清点不到) A phone on its side is low: there the column of buttons
+   under the name keeps 出发 on its own line and puts the other three side by side under it, so the whole column fits the height without
+   making any button smaller. And held in the hands no button anywhere is less than a fingertip (44 px) on its short side. */
+#app.vbtn.short:not(.desk) .cta .act { width: clamp(250px, 40vmin, 300px); }
+#app.vbtn.short:not(.desk) .cta .more { flex-direction: row; }
+#app.vbtn.short:not(.desk) .cta .more button { flex: 1 1 0; height: 44px; padding: 0 8px; gap: 6px; letter-spacing: .1em; }
+#app.vbtn.short:not(.desk) #go { height: 46px; }
+#app.vbtn.wide.short:not(.desk) #title { padding-top: calc(var(--gt) + clamp(16px, calc(var(--ch) - 330px), 50px)); }
+#app:not(.desk) button { min-height: 44px; min-width: 44px; }
+#app:not(.desk) #menu nav button { padding: 6px 0; }
+#app.en .cta .how, #app.en .cta .fine, #app.en #hint span, #app.en #say b { letter-spacing: .06em; }
+/* ---- 菜单方案 B (用户 2026-11-22 15:59 UTC「直接按推荐来做」: 排行榜要好找、菜单更简单; 19_ui.js layoutB, 92_rings.js). Only on #app.mb,
+   which the iPhone / Vision Pro apps never get: their native controls keep the old layout. The title: 自由滑 and 挑战 side by side, the same
+   size and look; under them one row of small buttons (排行榜 · 设置; 视角 is the first part of 设置). The menu: one short column, then a row of small tiles */
+#app.mb .cta .act { display: grid; grid-template-columns: 1fr 1fr; align-items: stretch; width: clamp(300px, 50vmin, 420px); gap: clamp(8px, 1.4vmin, 12px); }
+/* (一起滑 on the title, where the web build has it: a third big button the same as 自由滑 and 挑战; the row grows to fit three) */
+#app.mb .cta .act.mp3 { grid-template-columns: 1fr 1fr 1fr; width: clamp(330px, 56vmin, 470px); }
+#app.mb.vbtn.short:not(.desk) .cta .act.mp3 { width: clamp(330px, 50vmin, 380px); }
+#app.mb .cta .act > #mpgo { pointer-events: auto; position: relative; appearance: none; -webkit-appearance: none; border: 0; cursor: pointer; box-sizing: border-box; width: 100%; min-width: 0; margin: 0; display: flex; align-items: center; justify-content: center; gap: 0; border-radius: 12px; height: clamp(46px, 10.5vmin, 62px); padding: 0 8px;
+  font-family: var(--f-song); font-size: clamp(16px, 3vmin, 21px); font-weight: 500; letter-spacing: .3em; text-indent: .3em; white-space: nowrap;
+  background: rgba(8, 12, 20, .34); color: #ffd9a0; box-shadow: inset 0 0 0 1px rgba(255, 208, 138, .9), 0 6px 22px rgba(5, 8, 13, .25); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+#app.mb .cta .act > #mpgo svg { display: none; }
+#app.mb:not(.desk) .cta .act > #mpgo { height: 46px; }
+#app.mb .cta .act.mp3 #go, #app.mb .cta .act.mp3 #go2, #app.mb .cta .act.mp3 > #mpgo { letter-spacing: .15em; text-indent: .15em; }
+/* (a build without 一起滑 (小红书) keeps the button hidden: its display above must not bring it back) */
+#app.mb .cta .act > #mpgo[hidden] { display: none; }
+/* (English: the big buttons read alike, none in capitals, on one line; three of them in a row tighten) */
+#app.en.mb #go, #app.en.mb #go2, #app.en.mb .cta .act > #mpgo { text-transform: none; letter-spacing: .06em; text-indent: .06em; white-space: nowrap; }
+#app.en.mb .cta .act.mp3 > #go, #app.en.mb .cta .act.mp3 > #go2, #app.en.mb .cta .act.mp3 > #mpgo { font-size: clamp(14px, 2.6vmin, 18px); }
+#app.mb .cta .more { grid-column: 1 / -1; display: flex; flex-direction: row; flex-wrap: nowrap; align-items: stretch; gap: clamp(6px, 1.2vmin, 10px); }
+#app.mb .cta .more button { flex: 1 1 0; min-width: 0; width: auto; box-sizing: border-box; justify-content: center; border-radius: 12px; height: clamp(40px, 8vmin, 50px); padding: 0 8px; gap: 6px; letter-spacing: .14em; }
+#app.mb #go, #app.mb #go2 { box-sizing: border-box; width: 100%; min-width: 0; margin: 0; display: flex; align-items: center; justify-content: center; border-radius: 12px; height: clamp(46px, 10.5vmin, 62px); padding: 0 10px; font-size: clamp(16px, 3vmin, 21px); letter-spacing: .6em; text-indent: .6em; }
+#app.mb #go::after { border-radius: 16px; inset: -5px; }
+#go2 { pointer-events: auto; position: relative; appearance: none; -webkit-appearance: none; border: 0; cursor: pointer; font-family: var(--f-song); font-weight: 500;
+  background: rgba(8, 12, 20, .34); color: #ffd9a0; box-shadow: inset 0 0 0 1px rgba(255, 208, 138, .9), 0 6px 22px rgba(5, 8, 13, .25); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); transition: filter .25s ease, transform .25s ease, background .25s ease; }
+#app:not(.line) #go2 { background: linear-gradient(180deg, #f7d6a2, #eeb25c); color: #1b1408; box-shadow: 0 6px 22px rgba(255, 186, 96, .20), 0 1px 0 rgba(255, 255, 255, .5) inset; -webkit-backdrop-filter: none; backdrop-filter: none; }
+@media (hover: hover) { #app.line #go2:hover { background: rgba(8, 12, 20, .5); } }
+#go2:active { transform: scale(.98); } #go2:focus-visible { outline: 2px solid var(--sun); outline-offset: 4px; } #go2.on { background: rgba(255, 208, 138, .14); }
+#app.en.mb #go, #app.en.mb #go2 { letter-spacing: .2em; text-indent: .2em; }
+#app.mb:not(.desk) #go, #app.mb:not(.desk) #go2 { height: 46px; } #app.mb:not(.desk) .cta .more button { height: 44px; }
+#app.mb:not(.desk) .cta .act { gap: 8px; } #app.mb:not(.desk) .cta .more { gap: 8px; }
+/* (the fine print ran into the line on how to steer on a phone on its side: there it stays out, as on the old short title) */
+#app.mb.wide:not(.desk) .cta .fine { display: none; }
+#app.mb #menu nav button.mbsub { display: none; }
+#app.mb .cta .more button[data-sec="view"], #app.mb #menu nav button[data-sec="view"] { display: none; }          /* (视角 is inside 设置: 19_ui.js layoutB) */
+#app.mb #menu nav .mrow { display: flex; flex-wrap: wrap; gap: 8px; margin-top: calc(var(--mg) * .6); }
+#app.mb #menu nav .mrow button { align-self: auto; display: inline-flex; align-items: center; justify-content: center; height: 40px; padding: 0 16px; border-radius: 10px; box-shadow: inset 0 0 0 1px var(--hair); font-family: var(--f-ui); font-size: 13px; font-weight: 400; letter-spacing: .2em; }
+#app.mb #menu nav .mrow button::before { display: none; }
+#app.mb #menu nav .mrow button.on { color: var(--sun); box-shadow: inset 0 0 0 1px var(--sun); }
+#app.mb #menu nav .mrow button[hidden] { display: none; }
+#app.mb:not(.desk) #menu nav .mrow button { padding: 0 14px; }
+/* (a phone on its side in 小红书: the host's buttons take the top, so the column has ~280 px. The main lines go two to a row there, the
+   tiles under them, and the whole column fits without scrolling: measured by tools/menu-b-shots.js) */
+#app.mb.short:not(.desk) #menu nav { width: clamp(260px, calc(var(--cw) * .34), 320px); display: grid; grid-template-columns: 1fr 1fr; align-content: safe center; column-gap: 12px; row-gap: 2px; }
+#app.mb.short:not(.desk) #menu nav > * { grid-column: 1 / -1; margin-top: 0; margin-bottom: 0; }
+#app.mb.short:not(.desk) #menu nav > button:not(.back) { grid-column: auto; }
+#app.mb.short:not(.desk) #menu nav > button.mbsub { display: none; }
+#app.mb.short:not(.desk) #menu nav #m-k { display: none; }
+#app.mb.short:not(.desk) #menu nav button.sm { font-size: var(--mf); }
+#app.mb.short:not(.desk) #menu nav .msep { display: none; }
+/* (keys are for a keyboard: on a touch screen every key hint is only in the way, Backspace in the 挑战 panel, ⏎ R C Esc on the result card,
+   the letters beside the menu's headings) */
+#app.mb:not(.desk) #rpick .restart-key, #app.mb:not(.desk) kbd { display: none; }
+/* (a low screen with the board: the hint under 难度 has no room; its sense is in the board column's note) */
+#app.short #rpick.brd .t { display: none; }
+/* (the menu open over a challenge line: the line's clock and ring count step out, they ran into the menu's page) */
+#app.menuopen #rline { visibility: hidden; }
+/* (labels never break inside a word: 排行榜 on the title's small row, 第一人称 on a view tile) */
+#app.mb .cta .more button { white-space: nowrap; overflow: hidden; } #app.mb .cta .more button span { overflow: hidden; text-overflow: ellipsis; }
+#app.mb:not(.desk) .cta .more button { letter-spacing: .04em; gap: 4px; padding: 0 4px; font-size: 13px; }
+#app.mb #menu .tiles button span { white-space: nowrap; }
+#app.mb.short:not(.desk) #menu .tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+/* (the title's small row on a phone on its side: the old held-in-hand column (vbtn.short) set it 250 px wide, and 排行榜 lost its last
+   word to an ellipsis. The row is as wide as 自由滑 + 挑战, its two buttons each half of it) */
+#app.mb.vbtn.short:not(.desk) .cta .act { width: clamp(300px, 44vmin, 340px); }
+#app.mb.vbtn.short:not(.desk) .cta .more button { flex: 1 1 0; padding: 0 6px; gap: 4px; letter-spacing: .04em; }
+/* (Safari: a panel's blur does not always come through (headless WebKit drew none), and then the page under it read through it, the
+   title's buttons under the 挑战 panel, the speed and the clock under the menu. Whatever a panel covers steps out while it is up, so the
+   panel reads the same with or without the blur. A clip, not visibility or opacity: the title's buttons fade in with their own delays, and a
+   change to either of those played that entrance again, the title stood empty for 1-3 s after the panel closed) */
+#app.mb.menuopen #hud, #app.mb.menuopen #title, #app.mb.menuopen #say, #app.mb.pkopen.pkbrd #title > * { -webkit-clip-path: inset(0 0 100% 0); clip-path: inset(0 0 100% 0); }
+/* (the 挑战 panel with its board on a low screen: the lines lose their second line, the hint tightens, so 难度 and 开始挑战 stay whole) */
+#app.short #rpick.brd .l button i { display: none; }
+#app.short #rpick.brd h4 { margin-bottom: 6px; }
+#app.short #rpick.brd .bk { margin-bottom: 0; }
+#app.short #rpick.brd .r { margin-top: 6px; }
+#menu .mbback { appearance: none; -webkit-appearance: none; display: inline-flex; align-items: center; gap: 4px; align-self: flex-start; min-height: 36px; margin: -6px 0 6px -8px; padding: 0 10px 0 4px; background: none; border: 0; color: var(--dim); font-family: var(--f-ui); font-size: 13px; letter-spacing: .2em; cursor: pointer; }
+#menu .mbback svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+@media (hover: hover) { #menu .mbback:hover { color: var(--snow); } }
+#app.en #seg b { letter-spacing: .04em; font-weight: 500; font-size: clamp(30px, 8.6vmin, 42px); }
+#app.en.wide #seg b { font-size: clamp(28px, 7vmin, 52px); }
+#app.en #day .t { letter-spacing: .12em; font-weight: 500; }
+#app.en #menu nav button { letter-spacing: .04em; font-weight: 500; font-size: calc(var(--mf) * 1.08); }
+#app.en #menu nav button.sm { font-size: calc(var(--mf) * .86); }
+#app.en #menu nav button.xs { font-family: var(--f-ui); font-size: 11px; letter-spacing: .2em; font-weight: 400; }
+#app.en #menu .note, #app.en #menu .keys, #app.en #menu .chips button, #app.en #menu .cards button, #app.en #menu .tiles button { letter-spacing: .03em; }
+#app.en #menu .vrow > span { width: 9em; letter-spacing: .02em; } #app.en #menu .vrow button, #app.en #menu .vgrp > i { letter-spacing: .04em; } #app.en #menu .vrow button { white-space: nowrap; }
+#app.en #pause b { letter-spacing: .1em; margin-right: -.1em; }
+#app.en #tuck { font-size: 10px; letter-spacing: .04em; text-indent: .04em; } #app.en #jump { font-size: 12px; letter-spacing: .02em; }
+@media (prefers-reduced-motion: reduce) { #go::after, #hint i::before, #hint i::after { animation: none; } }
+#fatal { position: absolute; left: 0; right: 0; bottom: 0; padding: 10px max(16px, env(safe-area-inset-right, 0px)) 10px max(16px, env(safe-area-inset-left, 0px)); font: 12px/1.4 ui-monospace, Menlo, monospace; color: #ffb4a8; background: rgba(40, 8, 4, .9); white-space: pre-wrap; z-index: 99; max-height: 40%; overflow: auto; }
+
+/* ---- 拍照: the moment held still, every word of the game gone, the lens in the player's hands (19d_photo.js) */
+#app.photo #hud, #app.photo #bar, #app.photo #menu, #app.photo #say, #app.photo #shade, #app.photo #title, #app.photo #pause, #app.photo #steer { visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; transition: none !important; }
+#photo { position: absolute; inset: 0; display: none; z-index: 30; }
+#app.photo #photo { display: block; }
+#ph-surf { position: absolute; inset: 0; touch-action: none; cursor: grab; }
+#ph-surf:active { cursor: grabbing; }
+#photo button { appearance: none; -webkit-appearance: none; margin: 0; border: 0; color: var(--snow); font-family: var(--f-ui); cursor: pointer; -webkit-tap-highlight-color: transparent; }
+#photo svg { width: 18px; height: 18px; display: block; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+#photo .ph-top { position: absolute; left: var(--gl); right: var(--gr); top: calc(var(--gt) - 6px); display: flex; align-items: center; gap: 14px; pointer-events: none; }
+#photo .ph-top button, #photo .ph-r button { pointer-events: auto; display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px; border-radius: 999px; background: rgba(5, 8, 13, .36); box-shadow: inset 0 0 0 1px rgba(244, 247, 251, .16); font-size: 13px; letter-spacing: .12em; }
+#photo #ph-back { padding-left: 9px; }
+#photo .ph-k { font-size: 11px; letter-spacing: .4em; color: var(--dim); text-shadow: 0 1px 8px rgba(5, 8, 13, .6); }
+#photo .ph-r { margin-left: auto; display: flex; gap: 8px; }
+#photo .ph-side { position: absolute; right: var(--gr); top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; align-items: center; gap: 14px; }
+#ph-shut { width: 68px; height: 68px; padding: 0; border-radius: 50%; background: rgba(5, 8, 13, .22) !important; box-shadow: inset 0 0 0 3px rgba(244, 247, 251, .92); display: grid; place-items: center; }
+#ph-shut i { width: 52px; height: 52px; border-radius: 50%; background: rgba(244, 247, 251, .92); transition: transform .12s ease, background .12s ease; }
+#ph-shut:active i { transform: scale(.88); background: var(--sun); }
+#ph-up, #ph-dn { width: 44px; height: 44px; padding: 0; border-radius: 50%; background: rgba(5, 8, 13, .46); box-shadow: inset 0 0 0 1px rgba(244, 247, 251, .42); display: grid; place-items: center; }
+#ph-up.down, #ph-dn.down { background: rgba(255, 208, 138, .92); color: #1b1408; }
+#app.desk #ph-up, #app.desk #ph-dn { display: none; }
+#photo .ph-foot { position: absolute; left: var(--gl); right: var(--gr); bottom: var(--gb); display: flex; align-items: baseline; justify-content: center; gap: 18px; pointer-events: none; font-size: 12px; letter-spacing: .14em; color: rgba(244, 247, 251, .9); text-shadow: 0 0 3px rgba(5, 8, 13, .7), 0 1px 10px rgba(5, 8, 13, .8); text-align: center; }
+#photo .ph-foot b { font-weight: 400; color: var(--faint); white-space: nowrap; }
+#ph-stick { position: absolute; left: -60px; top: -60px; width: 120px; height: 120px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(244, 247, 251, .40); background: rgba(5, 8, 13, .14); opacity: 0; pointer-events: none; transition: opacity .15s ease; }
+#ph-stick.on { opacity: 1; }
+#ph-stick i { position: absolute; left: 38px; top: 38px; width: 44px; height: 44px; border-radius: 50%; background: rgba(244, 247, 251, .55); }
+#photo.bare .ph-top, #photo.bare .ph-side, #photo.bare .ph-foot { opacity: 0; pointer-events: none; }
+#photo.bare .ph-top *, #photo.bare .ph-side * { pointer-events: none !important; }
+#app.desk #photo.bare #ph-surf { cursor: none; }
+#ph-flash { position: absolute; inset: 0; background: #fff; opacity: 0; pointer-events: none; }
+#ph-flash.on { animation: phflash .45s ease-out; }
+@keyframes phflash { 0% { opacity: .85; } 100% { opacity: 0; } }
+#ph-toast { position: absolute; left: 50%; top: calc(var(--gt) + 46px); transform: translate(-50%, -6px); display: flex; align-items: center; gap: 12px; height: 34px; padding: 0 18px; border-radius: 999px; background: rgba(5, 8, 13, .52); white-space: nowrap; pointer-events: none; opacity: 0; transition: opacity .3s ease, transform .3s ease; }
+#ph-toast.on { opacity: 1; transform: translate(-50%, 0); }
+#ph-toast small { font-size: 13px; letter-spacing: .2em; } #ph-toast b { font-weight: 400; font-size: 11px; letter-spacing: .06em; color: var(--dim); } #ph-toast b:empty { display: none; }
+#ph-card { position: absolute; inset: 0; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: rgba(5, 8, 13, .78); padding: var(--gt) var(--gr) var(--gb) var(--gl); }
+#ph-card.on { display: flex; }
+#ph-card img { max-width: 78%; max-height: calc(100% - 96px); border-radius: 4px; box-shadow: 0 6px 30px rgba(0, 0, 0, .5); -webkit-touch-callout: default; user-select: auto; -webkit-user-select: auto; pointer-events: auto; }
+#ph-card .ph-act { display: flex; gap: 12px; }
+#ph-card button { height: 40px; padding: 0 22px; border-radius: 999px; font-size: 14px; letter-spacing: .14em; background: rgba(244, 247, 251, .12); box-shadow: inset 0 0 0 1px rgba(244, 247, 251, .3); }
+#ph-card #ph-save { background: var(--sun); color: #1b1408; box-shadow: none; }
+#ph-card p { margin: 0; font-size: 11px; letter-spacing: .14em; color: var(--faint); }
+#menu nav #m-photo { color: var(--snow); }
+
+/* GameHub iframe HUD clearance */
+html.gh-embed #bar { right: calc(max(calc(var(--gr) - 6px), var(--sr), var(--xr)) + 56px); }
+html.gh-embed #clock { top: calc(max(var(--gt) - 8px, var(--st), var(--xt)) + 58px); }
