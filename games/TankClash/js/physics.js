@@ -1222,7 +1222,9 @@ function triggerHeavyDetonation(pos, ignorePlayer = false, customBlastRadius = 8
         });
     }
 
-    const waterLevel = (typeof window !== 'undefined' && typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5;
+    const waterLevel = (typeof window !== 'undefined' && typeof window.getWaterLevel === 'function')
+        ? window.getWaterLevel(pos.x, pos.z)
+        : ((typeof window !== 'undefined' && typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5);
     const groundHAtBlast = (typeof getTerrainHeight === 'function') ? getTerrainHeight(pos.x, pos.z) : pos.y;
     if (groundHAtBlast < waterLevel - 0.05 && pos.y <= waterLevel + 0.8) {
         const ripplePos = new THREE.Vector3(pos.x, waterLevel + 0.03, pos.z);

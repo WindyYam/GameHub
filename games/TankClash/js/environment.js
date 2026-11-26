@@ -458,8 +458,9 @@ function fbm3(px, py) {
     return total / maxVal;
 }
 
-// Shared GLSL snippet injected into both Terrain and Grass LOD shaders
-const SHARED_TERRAIN_GLSL = `
+// Shared GLSL snippet split into common (noise/zone/road/river/sea constants) and height (terrain elevation)
+// so terrain/tree/village fragment shaders do not compile unused 12-zone terrain height evaluators.
+const SHARED_TERRAIN_COMMON_GLSL = `
     uniform vec2 uSeedOffset;
     uniform float uRoadBaseX;
     uniform int uZoneType;
@@ -635,31 +636,49 @@ const SHARED_TERRAIN_GLSL = `
         return t * t * (3.0 - 2.0 * t);
     }
 
+    float getRiverCenter1Z_gpu(float x) {
+        float u = x + uSeedOffset.x;
+        return -112.0 + sin(u * 0.021) * 34.0 + cos(u * 0.041 + 0.5) * 11.0 + sin(u * 0.0082) * 18.0;
+    }
+
+    float getRiverCenter2X_gpu(float z) {
+        float u = z + uSeedOffset.y;
+        return 210.0 + sin(u * 0.0195 + 0.6) * 38.0 + cos(u * 0.038 + 0.4) * 11.5 + sin(u * 0.0075) * 20.0;
+    }
+
+    float getRiverCenter3X_gpu(float z) {
+        float u = z + uSeedOffset.y;
+        return -210.0 + sin(u * 0.0205 + 1.8) * 36.0 + cos(u * 0.039 + 1.1) * 10.5 + sin(u * 0.0080 + 2.2) * 18.0;
+    }
+
     float getRiverDistance_gpu(float x, float z) {
-        // River 1: East-West Meandering Valley River (passing through z = -64 at x = 0)
-        float riv1BaseZ = sin(uSeedOffset.x * 0.0075) * 26.0 + cos(uSeedOffset.x * 0.017) * 11.0 + sin(uSeedOffset.x * 0.0032) * 18.0;
-        float riv1Z = -64.0 + (sin((x + uSeedOffset.x) * 0.0075) * 26.0 + cos((x + uSeedOffset.x) * 0.017) * 11.0 + sin((x + uSeedOffset.x) * 0.0032) * 18.0) - riv1BaseZ;
-        float dRiv1 = abs(z - riv1Z) * 0.90;
+        // River 1: East-West Sweeping Meandering Valley River (around z = -112)
+        float u1 = x + uSeedOffset.x;
+        float riv1Z = getRiverCenter1Z_gpu(x);
+        float s1 = cos(u1 * 0.021) * 0.714 - sin(u1 * 0.041 + 0.5) * 0.451 + cos(u1 * 0.0082) * 0.1476;
+        float dRiv1 = abs(z - riv1Z) * inversesqrt(1.0 + s1 * s1);
 
-        // River 2: Eastern North-South Meandering River (passing through x = 128 at z = 0, emptying to +Z ocean)
-        float riv2BaseX = sin(uSeedOffset.y * 0.0070) * 28.0 + cos(uSeedOffset.y * 0.016) * 12.0 + sin(uSeedOffset.y * 0.0028) * 18.0;
-        float riv2X = 128.0 + (sin((z + uSeedOffset.y) * 0.0070) * 28.0 + cos((z + uSeedOffset.y) * 0.016) * 12.0 + sin((z + uSeedOffset.y) * 0.0028) * 18.0) - riv2BaseX;
-        float dRiv2 = abs(x - riv2X) * 0.90;
+        // River 2: Eastern North-South Meandering River (around x = 210, emptying to +Z ocean)
+        float u2 = z + uSeedOffset.y;
+        float riv2X = getRiverCenter2X_gpu(z);
+        float s2 = cos(u2 * 0.0195 + 0.6) * 0.741 - sin(u2 * 0.038 + 0.4) * 0.437 + cos(u2 * 0.0075) * 0.15;
+        float dRiv2 = abs(x - riv2X) * inversesqrt(1.0 + s2 * s2);
 
-        // River 3: Western North-South Tributary River (passing through x = -128 at z = 0, emptying to +Z ocean)
-        float riv3BaseX = sin(uSeedOffset.y * 0.0080 + 1.4) * 26.0 + cos(uSeedOffset.y * 0.018 + 0.8) * 11.0;
-        float riv3X = -128.0 + (sin((z + uSeedOffset.y) * 0.0080 + 1.4) * 26.0 + cos((z + uSeedOffset.y) * 0.018 + 0.8) * 11.0) - riv3BaseX;
-        float dRiv3 = abs(x - riv3X) * 0.90;
+        // River 3: Western North-South Tributary River (around x = -210, emptying to +Z ocean)
+        float u3 = z + uSeedOffset.y;
+        float riv3X = getRiverCenter3X_gpu(z);
+        float s3 = cos(u3 * 0.0205 + 1.8) * 0.738 - sin(u3 * 0.039 + 1.1) * 0.4095 + cos(u3 * 0.0080 + 2.2) * 0.144;
+        float dRiv3 = abs(x - riv3X) * inversesqrt(1.0 + s3 * s3);
 
         // Smooth confluence blending between the main river and tributaries
         float d23 = min(dRiv2, dRiv3);
-        float h = max(7.0 - abs(dRiv1 - d23), 0.0) / 7.0;
-        return min(dRiv1, d23) - h * h * 7.0 * 0.25;
+        float h = max(14.0 - abs(dRiv1 - d23), 0.0) / 14.0;
+        return min(dRiv1, d23) - h * h * 14.0 * 0.25;
     }
 
     float getRiverFactor_gpu(float x, float z) {
         float dist = getRiverDistance_gpu(x, z);
-        float halfWidth = 22.0;
+        float halfWidth = 34.0;
         if (dist > halfWidth) return 0.0;
         float t = 1.0 - (dist / halfWidth);
         return t * t * (3.0 - 2.0 * t);
@@ -667,43 +686,86 @@ const SHARED_TERRAIN_GLSL = `
 
     float getRiversideFactor_gpu(float x, float z) {
         float dist = getRiverDistance_gpu(x, z);
-        return smoothstep(4.5, 8.2, dist) * (1.0 - smoothstep(13.5, 23.5, dist));
+        return smoothstep(13.0, 19.5, dist) * (1.0 - smoothstep(23.5, 30.5, dist));
     }
 
-    const float SEA_LEVEL = -2.5;
+    const float SEA_LEVEL = 5.2;
+    const float RIVER_LEVEL = 5.2;
 
+    float getRiverCoastalT_gpu(float x, float z) {
+        float coastalExtent = (1.0 - smoothstep(550.0, 850.0, abs(x))) * (1.0 - smoothstep(750.0, 1150.0, z));
+        return smoothstep(170.0, 265.0, z) * coastalExtent;
+    }
+
+    float getRiverWaterLevel_gpu(float x, float z) {
+        return RIVER_LEVEL;
+    }
+
+    float getWaterLevel_gpu(float x, float z) {
+        return SEA_LEVEL;
+    }
+`;
+
+const SHARED_TERRAIN_HEIGHT_GLSL = `
     float applyRiverTerrainHeight_gpu(float x, float z, float h, float dSpawn, float roadF) {
         float rivDist = getRiverDistance_gpu(x, z);
-        if (rivDist >= 25.5) return h;
+        if (rivDist >= 74.0) return h;
         vec2 s = vec2(x, z) + uSeedOffset;
-        float bankWobble = sin(s.x * 0.043 + cos(s.y * 0.039) * 1.6) * 1.35;
+        float bankWobble = sin(s.x * 0.032 + cos(s.y * 0.029) * 1.8) * 2.2;
         float effDist = max(0.0, rivDist + bankWobble);
-        if (effDist >= 24.5) return h;
+        if (effDist >= 72.0) return h;
 
         float spawnProtect = smoothstep(26.0, 44.0, dSpawn);
         if (spawnProtect <= 0.001) return h;
 
-        // Stage 1: Outer valley bank grades down to the riverside beach/cobblestone terrace (-1.15m)
-        float shelfBlend = (1.0 - smoothstep(12.5, 24.5, effDist)) * spawnProtect;
-        float carvedH = mix(h, min(h, -1.15), shelfBlend);
+        float coastalT = getRiverCoastalT_gpu(x, z);
+        float wY = RIVER_LEVEL;
+        float terraceH = wY + 0.45;
+        float leveeWeight = 1.0 - smoothstep(0.50, 0.92, coastalT);
 
-        // Stage 2: Gentle riverside terrace (7.8m..14.0m) sloping into the water channel (0..8.2m, bed at ~ -4.10m)
-        float shoreSlope = 1.0 - smoothstep(7.8, 14.0, effDist);
-        float bedRipple = sin(s.x * 0.08 + s.y * 0.07) * 0.15;
-        float channelDepth = (1.0 - smoothstep(0.0, 8.2, effDist)) * (1.65 + bedRipple);
-        float targetRiverH = -1.15 - shoreSlope * 1.30 - channelDepth;
-        float innerBlend = (1.0 - smoothstep(7.5, 14.0, effDist)) * spawnProtect;
-        carvedH = mix(carvedH, min(carvedH, targetRiverH), innerBlend);
+        // Stage 1: Outer valley floodplain grades smoothly down to the brim-flush riverside terrace (wY + 0.45m)
+        float shelfBlend = (1.0 - smoothstep(32.0, 70.0, effDist)) * spawnProtect;
+        float shelfTarget = mix(min(h, terraceH), terraceH, leveeWeight);
+        float carvedH = mix(h, shelfTarget, shelfBlend);
 
-        // Road-river crossing: shallow cobblestone ford / causeway so road vehicles & soldiers cross smoothly
-        if (roadF > 0.01) {
-            float fordH = -2.28 - roadF * 0.14;
-            carvedH = mix(carvedH, max(carvedH, fordH), smoothstep(0.04, 0.55, roadF) * innerBlend);
+        // Stage 2: Gentle brim-flush bank (19.5..27.5m) sloping into a broad, deep U-shaped channel (0..20.0m, 4.2m deep)
+        float shoreSlope = 1.0 - smoothstep(19.5, 27.5, effDist);
+        float bedRipple = sin(s.x * 0.065 + s.y * 0.058) * 0.18;
+        float channelU = 1.0 - smoothstep(6.5, 20.0, effDist);
+        float channelDepth = channelU * (4.20 + bedRipple);
+        float targetRiverH = terraceH - shoreSlope * 0.45 - channelDepth;
+        float innerBlend = (1.0 - smoothstep(19.0, 27.5, effDist)) * spawnProtect;
+        float innerTarget = mix(min(carvedH, targetRiverH), targetRiverH, leveeWeight);
+        carvedH = mix(carvedH, innerTarget, innerBlend);
+
+        // Road-river crossing: gently sloped cobblestone ford shoal so vehicles & soldiers cross smoothly
+        float fordDist = getRoadDistance_gpu(x, z);
+        if (fordDist < 12.0) {
+            float fordBlend = (1.0 - smoothstep(2.5, 12.0, fordDist)) * innerBlend;
+            float fordH = wY - 0.52 - smoothstep(2.5, 11.5, fordDist) * 1.10;
+            carvedH = mix(carvedH, max(carvedH, fordH), fordBlend);
         }
         return carvedH;
     }
 
-    float getZone2Height_gpu(float x, float z, float dSpawn, float roadDist, float roadF, vec2 zoneCenter, float coastalDescent, float bayOpen) {
+    float softDryLandFloor_gpu(float h, float floorY, float k) {
+        float diff = h - floorY;
+        return floorY + 0.5 * (diff + sqrt(diff * diff + k * k));
+    }
+
+    float applyZoneLakeBasin_gpu(float h, float dLake, float innerR, float outerR, float depth, float spawnProtect) {
+        float shoreOuterR = outerR + 16.0;
+        float terraceH = SEA_LEVEL + 0.45;
+        float apronBlend = (1.0 - smoothstep(outerR * 0.80, shoreOuterR, dLake)) * spawnProtect;
+        float carvedH = mix(h, min(h, terraceH), apronBlend);
+        float shoreSlope = 1.0 - smoothstep(innerR * 1.10, outerR * 0.86, dLake);
+        float basinU = 1.0 - smoothstep(innerR * 0.42, outerR * 0.72, dLake);
+        float targetLakeH = terraceH - shoreSlope * 0.45 - basinU * depth;
+        float basinBlend = (1.0 - smoothstep(innerR * 1.00, outerR * 0.88, dLake)) * spawnProtect;
+        return mix(carvedH, min(carvedH, targetLakeH), basinBlend);
+    }
+
+    float getZone2Height_gpu(float x, float z, float dSpawn, float roadDist, float roadFactorActive, vec2 zoneCenter, float coastalDescent, float bayOpen) {
         vec2 s = vec2(x, z) + uSeedOffset;
         float valleyHills = fbm4_gpu(s * 0.0036) * 5.8;
         float foothillBumps = fbm3_gpu(s * 0.011) * 1.8;
@@ -734,28 +796,19 @@ const SHARED_TERRAIN_GLSL = `
         h += (mountainHeight + screeLedge) * passCorridor * spawnCorridor * bayOpen;
         h += highRange * rangeCorridor * bayOpen;
 
-        float dTarn = length(vec2(x, z) - zoneCenter - vec2(-54.0, 92.0));
-        float tarnDip = (1.0 - smoothstep(14.0, 46.0, dTarn)) * 11.5;
-        h -= tarnDip;
-
-        h += coastalDescent;
-
-        float spawnClear = smoothstep(4.0, 18.0, dSpawn);
-        h = mix(7.2, h, spawnClear);
-
-        if (roadF > 0.01) {
-            float passGrade = 6.5 + valleyHills * 0.55 - tarnDip + coastalDescent;
-            h = mix(h, passGrade, roadF * 0.60);
-            float dryRoad = smoothstep(SEA_LEVEL - 0.5, SEA_LEVEL + 1.2, h);
-            float rut = exp(-pow(roadDist - 1.35, 2.0) / 0.35) * 0.30;
-            h -= (roadF * 0.28 + rut * roadF) * dryRoad;
-        }
+        float passGrade = 6.5 + valleyHills * 0.55;
+        h = mix(h, passGrade, roadFactorActive * 0.60);
         return h;
     }
 
-    float getZoneTerrainHeight_gpu(float x, float z, int zoneType, float dSpawn, float roadDist, float roadF, vec2 zoneCenter, float coastalDescent, float bayOpen) {
+    float getZoneTerrainHeight_gpu(float x, float z, int zoneType, float dSpawn, float roadDist, float roadF, float roadFactorActive, float rutExp, float lakeSpawnProtect, vec2 zoneCenter, float coastalDescent, float bayOpen) {
         vec2 s = vec2(x, z) + uSeedOffset;
-        float finalH = 0.0;
+        float h = 0.0;
+        float spawnY = 7.2;
+        vec2 spawnR = vec2(4.0, 18.0);
+        vec2 lakeOff = vec2(0.0);
+        vec3 lakeParams = vec3(0.0);
+        vec2 rutParams = vec2(0.35, 0.38);
 
         // ZONE 1: SAHARA DESERT DUNES, SANDSTONE MESAS & OASIS
         if (zoneType == 1) {
@@ -766,7 +819,7 @@ const SHARED_TERRAIN_GLSL = `
             float macroErg = fbm4_gpu(s * 0.0036) * 6.5;
             float medDunes = fbm3_gpu(s * 0.014) * 1.8;
             float microRipples = valueNoise2D_gpu(s * 0.09) * 0.18;
-            float h = 5.8 + macroErg + duneWave + medDunes + microRipples;
+            h = 5.8 + macroErg + duneWave + medDunes + microRipples;
 
             // Flat-topped Sandstone Mesas / Buttes & Dry Wadi Channels in the outer desert
             float mesaNoise = fbm3_gpu(s * 0.0042 + vec2(37.0, 61.0));
@@ -776,28 +829,21 @@ const SHARED_TERRAIN_GLSL = `
             float wadiCut = smoothstep(-2.8, -4.6, macroErg + medDunes) * outerDesertMask * 3.0;
             h += mesaMask * 13.5 + terraceStep - wadiCut;
 
-            float dOasis = length(vec2(x, z) - zoneCenter - vec2(58.0, 78.0));
-            float oasisDip = (1.0 - smoothstep(14.0, 48.0, dOasis)) * 9.8;
-            h -= oasisDip;
-
-            h += coastalDescent;
-
-            float spawnClear = smoothstep(4.0, 18.0, dSpawn);
-            h = mix(6.2, h, spawnClear);
-
-            if (roadF > 0.01) {
-                float wadiTarget = 5.4 + macroErg * 0.45 - oasisDip + coastalDescent;
-                h = mix(h, wadiTarget, roadF * 0.65);
-                float dryRoad = smoothstep(SEA_LEVEL - 0.5, SEA_LEVEL + 1.2, h);
-                float rut = exp(-pow(roadDist - 1.35, 2.0) / 0.35) * 0.25;
-                h -= (roadF * 0.22 + rut * roadF) * dryRoad;
-            }
-            finalH = h;
+            float wadiTarget = 5.4 + macroErg * 0.45;
+            h = mix(h, wadiTarget, roadFactorActive * 0.65);
+            spawnY = 6.2;
+            lakeOff = vec2(58.0, 78.0);
+            lakeParams = vec3(14.0, 48.0, 3.6);
+            rutParams = vec2(0.22, 0.25);
         }
 
         // ZONE 2: ALPINE MOUNTAIN PASS, CRAGGY RIDGES & GLACIAL TARN
         else if (zoneType == 2) {
-            finalH = getZone2Height_gpu(x, z, dSpawn, roadDist, roadF, zoneCenter, coastalDescent, bayOpen);
+            h = getZone2Height_gpu(x, z, dSpawn, roadDist, roadFactorActive, zoneCenter, coastalDescent, bayOpen);
+            spawnY = 7.2;
+            lakeOff = vec2(-54.0, 92.0);
+            lakeParams = vec3(14.0, 46.0, 4.0);
+            rutParams = vec2(0.28, 0.30);
         }
 
         // ZONE 3: HIGHLAND ROLLING HILLS, DRUMLINS & SUNKEN LANES
@@ -807,7 +853,7 @@ const SHARED_TERRAIN_GLSL = `
             float drumlins = sin(s.x * 0.021 + warp) * cos(s.y * 0.019 - warp) * 5.2;
             float medSlopes = fbm3_gpu(s * 0.020) * 2.4;
             float microTurf = valueNoise2D_gpu(s * 0.08) * 0.28;
-            float h = 7.4 + bigHills + drumlins + medSlopes + microTurf;
+            h = 7.4 + bigHills + drumlins + medSlopes + microTurf;
 
             // Terraced hillside lynchets & chalky escarpment swells away from spawn
             float hillOuter = smoothstep(45.0, 95.0, dSpawn) * smoothstep(8.0, 24.0, roadDist) * bayOpen;
@@ -817,23 +863,12 @@ const SHARED_TERRAIN_GLSL = `
             float knoll = (1.0 - smoothstep(15.0, 75.0, dSpawn)) * 3.2;
             h += knoll;
 
-            float dPond = length(vec2(x, z) - zoneCenter - vec2(62.0, -82.0));
-            float pondDip = (1.0 - smoothstep(12.0, 42.0, dPond)) * 11.2;
-            h -= pondDip;
-
-            h += coastalDescent;
-
-            float spawnClear = smoothstep(4.0, 18.0, dSpawn);
-            h = mix(8.5, h, spawnClear);
-
-            if (roadF > 0.01) {
-                float laneGrade = 7.2 + bigHills * 0.55 + drumlins * 0.35 - pondDip + coastalDescent;
-                h = mix(h, laneGrade, roadF * 0.55);
-                float dryRoad = smoothstep(SEA_LEVEL - 0.5, SEA_LEVEL + 1.2, h);
-                float rut = exp(-pow(roadDist - 1.35, 2.0) / 0.35) * 0.38;
-                h -= (roadF * 0.42 + rut * roadF) * dryRoad;
-            }
-            finalH = h;
+            float laneGrade = 7.2 + bigHills * 0.55 + drumlins * 0.35;
+            h = mix(h, laneGrade, roadFactorActive * 0.55);
+            spawnY = 8.5;
+            lakeOff = vec2(62.0, -82.0);
+            lakeParams = vec3(12.0, 42.0, 3.8);
+            rutParams = vec2(0.42, 0.38);
         }
 
         // ZONE 4: ARDENNES WINTER & FROZEN STEPPE
@@ -842,29 +877,18 @@ const SHARED_TERRAIN_GLSL = `
             float driftWarp = fbm3_gpu(s * 0.008) * 2.5;
             float snowDrifts = (sin((s.x + s.y) * 0.018 + driftWarp) + 0.35 * cos(s.x * 0.032 - driftWarp)) * 4.8;
             float microCrust = valueNoise2D_gpu(s * 0.08) * 0.22;
-            float h = 7.0 + snowRoll + snowDrifts + microCrust;
+            h = 7.0 + snowRoll + snowDrifts + microCrust;
 
             float snowOuter = smoothstep(45.0, 95.0, dSpawn) * smoothstep(8.0, 24.0, roadDist) * bayOpen;
             float driftBerm = smoothstep(1.5, 5.0, snowRoll + snowDrifts) * 3.0 * snowOuter;
             h += driftBerm;
 
-            float dIce = length(vec2(x, z) - zoneCenter - vec2(-48.0, -72.0));
-            float iceDip = (1.0 - smoothstep(14.0, 44.0, dIce)) * 10.5;
-            h -= iceDip;
-
-            h += coastalDescent;
-
-            float spawnClear = smoothstep(4.0, 18.0, dSpawn);
-            h = mix(7.5, h, spawnClear);
-
-            if (roadF > 0.01) {
-                float roadGrade = 6.8 + snowRoll * 0.55 - iceDip + coastalDescent;
-                h = mix(h, roadGrade, roadF * 0.60);
-                float dryRoad = smoothstep(SEA_LEVEL - 0.5, SEA_LEVEL + 1.2, h);
-                float rut = exp(-pow(roadDist - 1.35, 2.0) / 0.35) * 0.34;
-                h -= (roadF * 0.32 + rut * roadF) * dryRoad;
-            }
-            finalH = h;
+            float roadGrade = 6.8 + snowRoll * 0.55;
+            h = mix(h, roadGrade, roadFactorActive * 0.60);
+            spawnY = 7.5;
+            lakeOff = vec2(-48.0, -72.0);
+            lakeParams = vec3(14.0, 44.0, 3.8);
+            rutParams = vec2(0.32, 0.34);
         }
 
         // ZONE 5: NORMANDY BOCAGE & SUNKEN LANES
@@ -872,7 +896,7 @@ const SHARED_TERRAIN_GLSL = `
             float bocageFields = fbm4_gpu(s * 0.0048) * 5.8;
             float pastureUndul = fbm3_gpu(s * 0.015) * 2.2;
             float microTurf = valueNoise2D_gpu(s * 0.085) * 0.25;
-            float h = 7.2 + bocageFields + pastureUndul + microTurf;
+            h = 7.2 + bocageFields + pastureUndul + microTurf;
 
             float fieldGridX = sin(s.x * 0.024);
             float fieldGridZ = sin(s.y * 0.024);
@@ -880,30 +904,19 @@ const SHARED_TERRAIN_GLSL = `
             float bocageOuter = smoothstep(35.0, 85.0, dSpawn) * smoothstep(7.0, 22.0, roadDist) * bayOpen;
             h += dikePattern * 2.2 * bocageOuter;
 
-            float dFarmPond = length(vec2(x, z) - zoneCenter - vec2(72.0, 48.0));
-            float pondDip = (1.0 - smoothstep(12.0, 40.0, dFarmPond)) * 10.2;
-            h -= pondDip;
-
-            h += coastalDescent;
-
-            float spawnClear = smoothstep(4.0, 18.0, dSpawn);
-            h = mix(7.2, h, spawnClear);
-
-            if (roadF > 0.01) {
-                float sunkenGrade = 6.2 + bocageFields * 0.65 - pondDip + coastalDescent;
-                h = mix(h, sunkenGrade, roadF * 0.65);
-                float dryRoad = smoothstep(SEA_LEVEL - 0.5, SEA_LEVEL + 1.2, h);
-                float rut = exp(-pow(roadDist - 1.35, 2.0) / 0.35) * 0.40;
-                h -= (roadF * 0.52 + rut * roadF) * dryRoad;
-            }
-            finalH = h;
+            float sunkenGrade = 6.2 + bocageFields * 0.65;
+            h = mix(h, sunkenGrade, roadFactorActive * 0.65);
+            spawnY = 7.2;
+            lakeOff = vec2(72.0, 48.0);
+            lakeParams = vec3(12.0, 40.0, 3.4);
+            rutParams = vec2(0.52, 0.40);
         }
 
         // ZONE 6: MONUMENT VALLEY & RED BUTTES FORTRESS
         else if (zoneType == 6) {
             float desertPlain = fbm4_gpu(s * 0.0035) * 3.8;
             float redRipples = valueNoise2D_gpu(s * 0.085) * 0.24;
-            float h = 6.4 + desertPlain + redRipples;
+            h = 6.4 + desertPlain + redRipples;
 
             // Gigantic fortress-like red sandstone buttes & flat-topped mesas
             float butteNoise = fbm3_gpu(s * 0.0042 + vec2(43.0, 79.0));
@@ -913,23 +926,12 @@ const SHARED_TERRAIN_GLSL = `
             float needleSpire = pow(max(0.0, 1.0 - abs(valueNoise2D_gpu(s * 0.010 + vec2(17.0, 89.0)))), 3.5) * 18.0;
             h += (talusApron + fortressCliff + needleSpire * smoothstep(0.32, 0.45, butteNoise)) * outerButteMask;
 
-            float dWash = length(vec2(x, z) - zoneCenter - vec2(68.0, -52.0));
-            float washDip = (1.0 - smoothstep(14.0, 48.0, dWash)) * 8.5;
-            h -= washDip;
-
-            h += coastalDescent;
-
-            float spawnClear = smoothstep(4.0, 18.0, dSpawn);
-            h = mix(6.5, h, spawnClear);
-
-            if (roadF > 0.01) {
-                float passGrade = 6.2 + desertPlain * 0.45 - washDip + coastalDescent;
-                h = mix(h, passGrade, roadF * 0.65);
-                float dryRoad = smoothstep(SEA_LEVEL - 0.5, SEA_LEVEL + 1.2, h);
-                float rut = exp(-pow(roadDist - 1.35, 2.0) / 0.35) * 0.28;
-                h -= (roadF * 0.25 + rut * roadF) * dryRoad;
-            }
-            finalH = h;
+            float passGrade = 6.2 + desertPlain * 0.45;
+            h = mix(h, passGrade, roadFactorActive * 0.65);
+            spawnY = 6.5;
+            lakeOff = vec2(68.0, -52.0);
+            lakeParams = vec3(14.0, 48.0, 3.2);
+            rutParams = vec2(0.25, 0.28);
         }
 
         // ZONE 7: GRAND CANYON GORGE & TERRACED CHASMS
@@ -946,25 +948,17 @@ const SHARED_TERRAIN_GLSL = `
             // Stepped geological terraces every ~3.8m
             float stepFrac = fract(rawH / 3.8);
             float steppedH = floor(rawH / 3.8) * 3.8 + smoothstep(0.25, 0.75, stepFrac) * 3.8;
-            float h = mix(rawH, steppedH, 0.65);
-
-            float dGorgeWash = length(vec2(x, z) - zoneCenter - vec2(-62.0, -68.0));
-            float gorgeDip = (1.0 - smoothstep(14.0, 46.0, dGorgeWash)) * 7.5;
-            h -= gorgeDip;
-
-            h += coastalDescent;
-
-            float spawnClear = smoothstep(4.0, 22.0, dSpawn);
-            h = mix(7.2, h, spawnClear);
+            h = mix(rawH, steppedH, 0.65);
 
             if (roadF > 0.01) {
-                float canyonRoadTarget = 7.0 + fbm3_gpu(s * 0.006) * 2.5 - gorgeDip + coastalDescent;
+                float canyonRoadTarget = 7.0 + fbm3_gpu(s * 0.006) * 2.5;
                 h = mix(h, canyonRoadTarget, roadF * 0.75);
-                float dryRoad = smoothstep(SEA_LEVEL - 0.5, SEA_LEVEL + 1.2, h);
-                float rut = exp(-pow(roadDist - 1.35, 2.0) / 0.35) * 0.32;
-                h -= (roadF * 0.30 + rut * roadF) * dryRoad;
             }
-            finalH = h;
+            spawnY = 7.2;
+            spawnR = vec2(4.0, 22.0);
+            lakeOff = vec2(-62.0, -68.0);
+            lakeParams = vec3(14.0, 46.0, 3.4);
+            rutParams = vec2(0.30, 0.32);
         }
 
         // ZONE 8: ANCIENT EGYPT & THE GREAT PYRAMIDS
@@ -973,26 +967,14 @@ const SHARED_TERRAIN_GLSL = `
             float barchanWave = (sin(barchanPhase) + 0.35 * sin(barchanPhase * 2.0 - 0.7)) * 4.6;
             float ergRoll = fbm4_gpu(s * 0.0035) * 6.5;
             float rippleMicro = valueNoise2D_gpu(s * 0.09) * 0.18;
-            float h = 6.2 + ergRoll + barchanWave + rippleMicro;
+            h = 6.2 + ergRoll + barchanWave + rippleMicro;
 
-            // Flat Giza limestone plateau overlooking the Nile
-            float dNile = length(vec2(x, z) - zoneCenter - vec2(-65.0, 72.0));
-            float nileValley = (1.0 - smoothstep(16.0, 52.0, dNile)) * 10.2;
-            h -= nileValley;
-
-            h += coastalDescent;
-
-            float spawnClear = smoothstep(4.0, 18.0, dSpawn);
-            h = mix(6.8, h, spawnClear);
-
-            if (roadF > 0.01) {
-                float caravanGrade = 6.0 + ergRoll * 0.45 - nileValley + coastalDescent;
-                h = mix(h, caravanGrade, roadF * 0.65);
-                float dryRoad = smoothstep(SEA_LEVEL - 0.5, SEA_LEVEL + 1.2, h);
-                float rut = exp(-pow(roadDist - 1.35, 2.0) / 0.35) * 0.25;
-                h -= (roadF * 0.22 + rut * roadF) * dryRoad;
-            }
-            finalH = h;
+            float caravanGrade = 6.0 + ergRoll * 0.45;
+            h = mix(h, caravanGrade, roadFactorActive * 0.65);
+            spawnY = 6.8;
+            lakeOff = vec2(-84.0, 72.0);
+            lakeParams = vec3(14.0, 46.0, 3.8);
+            rutParams = vec2(0.22, 0.25);
         }
 
         // ZONE 9: PACIFIC TROPICAL JUNGLE & RAINFOREST
@@ -1001,28 +983,17 @@ const SHARED_TERRAIN_GLSL = `
             float mogoteNoise = fbm3_gpu(s * 0.008 + vec2(23.0, 67.0)) * 0.5 + 0.5;
             float conicalMogote = pow(max(0.0, mogoteNoise), 2.2) * 15.0;
             float microFernHummock = valueNoise2D_gpu(s * 0.08) * 0.32;
-            float h = 6.8 + karstBasin + microFernHummock;
+            h = 6.8 + karstBasin + microFernHummock;
 
             float jungleOuter = smoothstep(40.0, 90.0, dSpawn) * smoothstep(9.0, 26.0, roadDist) * bayOpen;
             h += conicalMogote * jungleOuter;
 
-            float dJungleRiver = length(vec2(x, z) - zoneCenter - vec2(52.0, -78.0));
-            float riverDip = (1.0 - smoothstep(14.0, 46.0, dJungleRiver)) * 10.8;
-            h -= riverDip;
-
-            h += coastalDescent;
-
-            float spawnClear = smoothstep(4.0, 18.0, dSpawn);
-            h = mix(7.0, h, spawnClear);
-
-            if (roadF > 0.01) {
-                float jungleRoadGrade = 6.2 + karstBasin * 0.55 - riverDip + coastalDescent;
-                h = mix(h, jungleRoadGrade, roadF * 0.65);
-                float dryRoad = smoothstep(SEA_LEVEL - 0.5, SEA_LEVEL + 1.2, h);
-                float rut = exp(-pow(roadDist - 1.35, 2.0) / 0.35) * 0.45;
-                h -= (roadF * 0.48 + rut * roadF) * dryRoad;
-            }
-            finalH = h;
+            float jungleRoadGrade = 6.2 + karstBasin * 0.55;
+            h = mix(h, jungleRoadGrade, roadFactorActive * 0.65);
+            spawnY = 7.0;
+            lakeOff = vec2(52.0, -78.0);
+            lakeParams = vec3(14.0, 46.0, 3.8);
+            rutParams = vec2(0.48, 0.45);
         }
 
         // ZONE 10: ANCIENT GREECE, ACROPOLIS PLATEAU & AEGEAN HILLS
@@ -1030,30 +1001,19 @@ const SHARED_TERRAIN_GLSL = `
             float aegeanHills = fbm4_gpu(s * 0.0046) * 5.8;
             float oliveSlopes = fbm3_gpu(s * 0.015) * 2.1;
             float microKarst = valueNoise2D_gpu(s * 0.085) * 0.25;
-            float h = 7.0 + aegeanHills + oliveSlopes + microKarst;
+            h = 7.0 + aegeanHills + oliveSlopes + microKarst;
 
             // Terraced limestone Acropolis plateaus & Aegean coastal ridges
             float acropolisOuter = smoothstep(42.0, 92.0, dSpawn) * smoothstep(10.0, 28.0, roadDist) * bayOpen;
             float terraceStep = smoothstep(1.2, 4.2, aegeanHills) * 3.8 * acropolisOuter;
             h += terraceStep;
 
-            float dAegeanCove = length(vec2(x, z) - zoneCenter - vec2(58.0, 76.0));
-            float coveDip = (1.0 - smoothstep(14.0, 48.0, dAegeanCove)) * 10.2;
-            h -= coveDip;
-
-            h += coastalDescent;
-
-            float spawnClear = smoothstep(4.0, 18.0, dSpawn);
-            h = mix(7.2, h, spawnClear);
-
-            if (roadF > 0.01) {
-                float sacredWayGrade = 6.8 + aegeanHills * 0.50 - coveDip + coastalDescent;
-                h = mix(h, sacredWayGrade, roadF * 0.65);
-                float dryRoad = smoothstep(SEA_LEVEL - 0.5, SEA_LEVEL + 1.2, h);
-                float rut = exp(-pow(roadDist - 1.35, 2.0) / 0.35) * 0.26;
-                h -= (roadF * 0.24 + rut * roadF) * dryRoad;
-            }
-            finalH = h;
+            float sacredWayGrade = 6.8 + aegeanHills * 0.50;
+            h = mix(h, sacredWayGrade, roadFactorActive * 0.65);
+            spawnY = 7.2;
+            lakeOff = vec2(96.0, 76.0);
+            lakeParams = vec3(14.0, 46.0, 3.8);
+            rutParams = vec2(0.24, 0.26);
         }
 
         // ZONE 11: IMPERIAL ROME, SEVEN HILLS & TIBER VALLEY
@@ -1061,29 +1021,18 @@ const SHARED_TERRAIN_GLSL = `
             float sevenHills = fbm4_gpu(s * 0.0044) * 5.2;
             float campagnaRoll = fbm3_gpu(s * 0.014) * 1.9;
             float microTufa = valueNoise2D_gpu(s * 0.08) * 0.22;
-            float h = 6.8 + sevenHills + campagnaRoll + microTufa;
+            h = 6.8 + sevenHills + campagnaRoll + microTufa;
 
             float romanOuter = smoothstep(44.0, 94.0, dSpawn) * smoothstep(10.0, 28.0, roadDist) * bayOpen;
             float palatineBluff = smoothstep(1.0, 3.8, sevenHills) * 3.2 * romanOuter;
             h += palatineBluff;
 
-            float dTiberBend = length(vec2(x, z) - zoneCenter - vec2(-58.0, 74.0));
-            float tiberDip = (1.0 - smoothstep(14.0, 48.0, dTiberBend)) * 9.8;
-            h -= tiberDip;
-
-            h += coastalDescent;
-
-            float spawnClear = smoothstep(4.0, 18.0, dSpawn);
-            h = mix(7.0, h, spawnClear);
-
-            if (roadF > 0.01) {
-                float viaAppiaGrade = 6.6 + sevenHills * 0.48 - tiberDip + coastalDescent;
-                h = mix(h, viaAppiaGrade, roadF * 0.68);
-                float dryRoad = smoothstep(SEA_LEVEL - 0.5, SEA_LEVEL + 1.2, h);
-                float rut = exp(-pow(roadDist - 1.35, 2.0) / 0.35) * 0.24;
-                h -= (roadF * 0.22 + rut * roadF) * dryRoad;
-            }
-            finalH = h;
+            float viaAppiaGrade = 6.6 + sevenHills * 0.48;
+            h = mix(h, viaAppiaGrade, roadFactorActive * 0.68);
+            spawnY = 7.0;
+            lakeOff = vec2(-96.0, 74.0);
+            lakeParams = vec3(14.0, 46.0, 3.6);
+            rutParams = vec2(0.22, 0.24);
         }
 
         // ZONE 0 (DEFAULT): COASTAL MEADOW COUNTRYSIDE
@@ -1091,7 +1040,7 @@ const SHARED_TERRAIN_GLSL = `
             float rollingHills = fbm4_gpu(s * 0.0042) * 4.5;
             float mediumUndulation = fbm3_gpu(s * 0.016) * 1.8;
             float microBumps = valueNoise2D_gpu(s * 0.08) * 0.25;
-            float h = 6.8 + rollingHills + mediumUndulation + microBumps;
+            h = 6.8 + rollingHills + mediumUndulation + microBumps;
 
             // Gentle meadow creek hollows & karst knolls away from spawn
             float meadowOuter = smoothstep(48.0, 100.0, dSpawn) * smoothstep(9.0, 26.0, roadDist) * bayOpen;
@@ -1103,21 +1052,21 @@ const SHARED_TERRAIN_GLSL = `
             float ridgeElev = (1.0 - smoothstep(12.0, 95.0, dSpawn)) * 2.8;
             h += ridgeElev;
 
-            h += coastalDescent;
-
-            // Spawn pad clearing
-            float spawnClear = smoothstep(3.5, 16.0, dSpawn);
-            h = mix(7.2, h, spawnClear);
-
-            if (roadF > 0.01) {
-                float dryRoad = smoothstep(SEA_LEVEL - 0.5, SEA_LEVEL + 1.2, h);
-                float rut = exp(-pow(roadDist - 1.35, 2.0) / 0.35) * 0.38;
-                h -= (roadF * 0.35 + rut * roadF) * dryRoad;
-            }
-            finalH = h;
+            spawnY = 7.2;
+            spawnR = vec2(3.5, 16.0);
+            rutParams = vec2(0.35, 0.38);
         }
 
-        return finalH;
+        h = softDryLandFloor_gpu(h, SEA_LEVEL + 0.50, 1.5);
+        h = mix(spawnY, h, smoothstep(spawnR.x, spawnR.y, dSpawn));
+        if (lakeParams.z > 0.0) {
+            float dLake = length(vec2(x, z) - zoneCenter - lakeOff);
+            h = applyZoneLakeBasin_gpu(h, dLake, lakeParams.x, lakeParams.y, lakeParams.z, lakeSpawnProtect);
+        }
+        h += coastalDescent;
+        float dryRoad = smoothstep(SEA_LEVEL - 0.3, SEA_LEVEL + 1.0, h);
+        h -= roadFactorActive * (rutParams.x + rutExp * rutParams.y) * dryRoad;
+        return h;
     }
 
     float getTerrainHeight_gpu(float x, float z) {
@@ -1125,20 +1074,24 @@ const SHARED_TERRAIN_GLSL = `
         float dSpawn = length(vec2(x, z));
         float roadDist = getRoadDistance_gpu(x, z);
         float roadF = (roadDist > 4.6) ? 0.0 : (1.0 - roadDist / 4.6) * (1.0 - roadDist / 4.6) * (3.0 - 2.0 * (1.0 - roadDist / 4.6));
+        float roadFactorActive = (roadF > 0.01) ? roadF : 0.0;
+        float rd = roadDist - 1.35;
+        float rutExp = (roadF > 0.01) ? exp(-(rd * rd) / 0.35) : 0.0;
+        float lakeSpawnProtect = smoothstep(24.0, 42.0, dSpawn);
         vec2 zoneCenter = floor(getZoneGrid_gpu(vec2(x, z)) + 0.5) * 1600.0;
 
-        float coastalDist = z + (fbm3_gpu(s * 0.009) * 28.0);
-        float coastalSlope = smoothstep(110.0, 360.0, coastalDist) * 12.8;
-        float headland = smoothstep(60.0, 200.0, abs(x)) * smoothstep(60.0, 420.0, coastalDist) * 6.5;
+        float coastalDist = z + (fbm3_gpu(s * 0.009) * 22.0);
+        float coastalSlope = smoothstep(175.0, 365.0, coastalDist) * 10.5;
+        float headland = smoothstep(85.0, 220.0, abs(x)) * smoothstep(130.0, 420.0, coastalDist) * 5.2;
         float coastalExtent = (1.0 - smoothstep(600.0, 900.0, abs(x))) * (1.0 - smoothstep(750.0, 1200.0, z));
         float coastalDescent = (-coastalSlope + headland) * coastalExtent;
-        float bayOpen = (1.0 - smoothstep(90.0, 260.0, coastalDist) * (1.0 - smoothstep(220.0, 450.0, abs(x))));
+        float bayOpen = (1.0 - smoothstep(155.0, 290.0, coastalDist) * (1.0 - smoothstep(220.0, 450.0, abs(x))));
 
         float w[12];
         getZoneWeights12_gpu(vec2(x, z), w);
         float h = 0.0;
         for (int i = 0; i < 12; i++) {
-            if (w[i] > 0.0) h += w[i] * getZoneTerrainHeight_gpu(x, z, i, dSpawn, roadDist, roadF, zoneCenter, coastalDescent, bayOpen);
+            if (w[i] > 0.0) h += w[i] * getZoneTerrainHeight_gpu(x, z, i, dSpawn, roadDist, roadF, roadFactorActive, rutExp, lakeSpawnProtect, zoneCenter, coastalDescent, bayOpen);
         }
         return applyRiverTerrainHeight_gpu(x, z, h, dSpawn, roadF);
     }
@@ -1155,30 +1108,49 @@ const SHARED_TERRAIN_GLSL = `
     float getGrassTerrainSurfaceHeight_gpu(
         float x, float z,
         float roadDist, float roadF, float rivDist,
-        float w[12], int dominantZone,
+        float w[12],
         float lowGfx, float distCam,
-        out vec3 surfaceNormal
+        out vec3 surfaceNormal,
+        out float rawZone2H,
+        out float outBayOpen
     ) {
         vec2 s = vec2(x, z) + uSeedOffset;
         float dSpawn = length(vec2(x, z));
+        float roadFactorActive = (roadF > 0.01) ? roadF : 0.0;
+        float rd = roadDist - 1.35;
+        float rutExp = (roadF > 0.01) ? exp(-(rd * rd) / 0.35) : 0.0;
+        float lakeSpawnProtect = smoothstep(24.0, 42.0, dSpawn);
         vec2 zoneCenter = floor(getZoneGrid_gpu(vec2(x, z)) + 0.5) * 1600.0;
 
-        float coastalDist = z + (fbm3_gpu(s * 0.009) * 28.0);
-        float coastalSlope = smoothstep(110.0, 360.0, coastalDist) * 12.8;
-        float headland = smoothstep(60.0, 200.0, abs(x)) * smoothstep(60.0, 420.0, coastalDist) * 6.5;
+        float coastalDist = z + (fbm3_gpu(s * 0.009) * 22.0);
+        float coastalSlope = smoothstep(175.0, 365.0, coastalDist) * 10.5;
+        float headland = smoothstep(85.0, 220.0, abs(x)) * smoothstep(130.0, 420.0, coastalDist) * 5.2;
         float coastalExtent = (1.0 - smoothstep(600.0, 900.0, abs(x))) * (1.0 - smoothstep(750.0, 1200.0, z));
         float coastalDescent = (-coastalSlope + headland) * coastalExtent;
-        float bayOpen = (1.0 - smoothstep(90.0, 260.0, coastalDist) * (1.0 - smoothstep(220.0, 450.0, abs(x))));
+        float bayOpen = (1.0 - smoothstep(155.0, 290.0, coastalDist) * (1.0 - smoothstep(220.0, 450.0, abs(x))));
 
         float h = 0.0;
-        if (w[dominantZone] >= 0.999) {
-            h = getZoneTerrainHeight_gpu(x, z, dominantZone, dSpawn, roadDist, roadF, zoneCenter, coastalDescent, bayOpen);
-        } else {
-            for (int i = 0; i < 12; i++) {
-                if (w[i] > 0.0) h += w[i] * getZoneTerrainHeight_gpu(x, z, i, dSpawn, roadDist, roadF, zoneCenter, coastalDescent, bayOpen);
+        rawZone2H = 0.0;
+        outBayOpen = bayOpen;
+        for (int i = 0; i < 12; i++) {
+            if (w[i] > 0.0) {
+                if (i == 2) {
+                    float z2h = getZone2Height_gpu(x, z, dSpawn, roadDist, roadFactorActive, zoneCenter, coastalDescent, bayOpen);
+                    rawZone2H = z2h;
+                    z2h = softDryLandFloor_gpu(z2h, SEA_LEVEL + 0.50, 1.5);
+                    z2h = mix(7.2, z2h, smoothstep(4.0, 18.0, dSpawn));
+                    float dLake2 = length(vec2(x, z) - zoneCenter - vec2(-54.0, 92.0));
+                    z2h = applyZoneLakeBasin_gpu(z2h, dLake2, 14.0, 46.0, 4.0, lakeSpawnProtect);
+                    z2h += coastalDescent;
+                    float dryRoad2 = smoothstep(SEA_LEVEL - 0.3, SEA_LEVEL + 1.0, z2h);
+                    z2h -= roadFactorActive * (0.28 + rutExp * 0.30) * dryRoad2;
+                    h += w[2] * z2h;
+                } else {
+                    h += w[i] * getZoneTerrainHeight_gpu(x, z, i, dSpawn, roadDist, roadF, roadFactorActive, rutExp, lakeSpawnProtect, zoneCenter, coastalDescent, bayOpen);
+                }
             }
         }
-        if (rivDist < 25.5) {
+        if (rivDist < 74.0) {
             h = applyRiverTerrainHeight_gpu(x, z, h, dSpawn, roadF);
         }
         if (lowGfx > 0.5 || distCam > 42.0) {
@@ -1189,6 +1161,64 @@ const SHARED_TERRAIN_GLSL = `
             surfaceNormal = normalize(vec3(-gx * 1.8, 4.0, -gz * 1.8));
         }
         return h;
+    }
+`;
+
+const SHARED_TERRAIN_GLSL = SHARED_TERRAIN_COMMON_GLSL + SHARED_TERRAIN_HEIGHT_GLSL;
+
+const TERRAIN_HEIGHTMAP_SAMPLER_GLSL = `
+    uniform sampler2D uNearHeightMap;
+    uniform vec4 uNearHMParams; // (originX, originZ, invStep, invSize)
+    uniform sampler2D uFarHeightMap;
+    uniform vec4 uFarHMParams;  // (originX, originZ, invStep, invSize)
+
+    float decodeHMHeight_gpu(vec4 c) {
+        float q = floor(c.r * 255.0 + 0.5) * 256.0 + floor(c.g * 255.0 + 0.5);
+        return -24.0 + q * (280.0 / 65535.0);
+    }
+
+    float sampleHMHeight_gpu(sampler2D hmTex, vec4 params, vec2 worldXZ) {
+        float maxIdx = (1.0 / params.w) - 1.001;
+        vec2 g = clamp((worldXZ - params.xy) * params.z, vec2(0.0), vec2(maxIdx));
+        vec2 i0 = floor(g);
+        vec2 f = g - i0;
+        float invSize = params.w;
+        float h00 = decodeHMHeight_gpu(texture2D(hmTex, (i0 + vec2(0.5, 0.5)) * invSize));
+        float h10 = decodeHMHeight_gpu(texture2D(hmTex, (i0 + vec2(1.5, 0.5)) * invSize));
+        float h01 = decodeHMHeight_gpu(texture2D(hmTex, (i0 + vec2(0.5, 1.5)) * invSize));
+        float h11 = decodeHMHeight_gpu(texture2D(hmTex, (i0 + vec2(1.5, 1.5)) * invSize));
+        return mix(mix(h00, h10, f.x), mix(h01, h11, f.x), f.y);
+    }
+
+    float sampleHMWithNormal_gpu(sampler2D hmTex, vec4 params, float stepSize, vec2 worldXZ, out vec3 outNorm) {
+        float maxIdx = (1.0 / params.w) - 1.001;
+        vec2 g = clamp((worldXZ - params.xy) * params.z, vec2(0.0), vec2(maxIdx));
+        vec2 i0 = floor(g);
+        vec2 f = g - i0;
+        float invSize = params.w;
+        float h00 = decodeHMHeight_gpu(texture2D(hmTex, (i0 + vec2(0.5, 0.5)) * invSize));
+        float h10 = decodeHMHeight_gpu(texture2D(hmTex, (i0 + vec2(1.5, 0.5)) * invSize));
+        float h01 = decodeHMHeight_gpu(texture2D(hmTex, (i0 + vec2(0.5, 1.5)) * invSize));
+        float h11 = decodeHMHeight_gpu(texture2D(hmTex, (i0 + vec2(1.5, 1.5)) * invSize));
+        float dhdx = mix(h10 - h00, h11 - h01, f.y) / stepSize;
+        float dhdz = mix(h01 - h00, h11 - h10, f.x) / stepSize;
+        outNorm = normalize(vec3(-dhdx, 1.0, -dhdz));
+        return mix(mix(h00, h10, f.x), mix(h01, h11, f.x), f.y);
+    }
+
+    float sampleWaterTerrainHeight_gpu(vec2 worldXZ) {
+        vec2 nearLocal = (worldXZ - uNearHMParams.xy) * uNearHMParams.z;
+        float nearMax = (1.0 / uNearHMParams.w) - 1.0;
+        float nearMargin = min(min(nearLocal.x, nearMax - nearLocal.x), min(nearLocal.y, nearMax - nearLocal.y));
+        if (nearMargin > 12.0) {
+            return sampleHMHeight_gpu(uNearHeightMap, uNearHMParams, worldXZ);
+        }
+        if (nearMargin > 1.0) {
+            float hNear = sampleHMHeight_gpu(uNearHeightMap, uNearHMParams, worldXZ);
+            float hFar = sampleHMHeight_gpu(uFarHeightMap, uFarHMParams, worldXZ);
+            return mix(hFar, hNear, smoothstep(1.0, 12.0, nearMargin));
+        }
+        return sampleHMHeight_gpu(uFarHeightMap, uFarHMParams, worldXZ);
     }
 `;
 
@@ -1224,31 +1254,49 @@ function getRoadFactor(x, z) {
     return t * t * (3.0 - 2.0 * t);
 }
 
+function getRiverCenter1Z(x) {
+    const u = x + seedOffset.x;
+    return -112.0 + Math.sin(u * 0.021) * 34.0 + Math.cos(u * 0.041 + 0.5) * 11.0 + Math.sin(u * 0.0082) * 18.0;
+}
+
+function getRiverCenter2X(z) {
+    const u = z + seedOffset.z;
+    return 210.0 + Math.sin(u * 0.0195 + 0.6) * 38.0 + Math.cos(u * 0.038 + 0.4) * 11.5 + Math.sin(u * 0.0075) * 20.0;
+}
+
+function getRiverCenter3X(z) {
+    const u = z + seedOffset.z;
+    return -210.0 + Math.sin(u * 0.0205 + 1.8) * 36.0 + Math.cos(u * 0.039 + 1.1) * 10.5 + Math.sin(u * 0.0080 + 2.2) * 18.0;
+}
+
 function getRiverDistance(x, z) {
-    // River 1: East-West Meandering Valley River (passing through z = -64 at x = 0)
-    const riv1BaseZ = Math.sin(seedOffset.x * 0.0075) * 26.0 + Math.cos(seedOffset.x * 0.017) * 11.0 + Math.sin(seedOffset.x * 0.0032) * 18.0;
-    const riv1Z = -64.0 + (Math.sin((x + seedOffset.x) * 0.0075) * 26.0 + Math.cos((x + seedOffset.x) * 0.017) * 11.0 + Math.sin((x + seedOffset.x) * 0.0032) * 18.0) - riv1BaseZ;
-    const dRiv1 = Math.abs(z - riv1Z) * 0.90;
+    // River 1: East-West Sweeping Meandering Valley River (around z = -112)
+    const u1 = x + seedOffset.x;
+    const riv1Z = getRiverCenter1Z(x);
+    const s1 = Math.cos(u1 * 0.021) * 0.714 - Math.sin(u1 * 0.041 + 0.5) * 0.451 + Math.cos(u1 * 0.0082) * 0.1476;
+    const dRiv1 = Math.abs(z - riv1Z) / Math.sqrt(1.0 + s1 * s1);
 
-    // River 2: Eastern North-South Meandering River (passing through x = 128 at z = 0, emptying to +Z ocean)
-    const riv2BaseX = Math.sin(seedOffset.z * 0.0070) * 28.0 + Math.cos(seedOffset.z * 0.016) * 12.0 + Math.sin(seedOffset.z * 0.0028) * 18.0;
-    const riv2X = 128.0 + (Math.sin((z + seedOffset.z) * 0.0070) * 28.0 + Math.cos((z + seedOffset.z) * 0.016) * 12.0 + Math.sin((z + seedOffset.z) * 0.0028) * 18.0) - riv2BaseX;
-    const dRiv2 = Math.abs(x - riv2X) * 0.90;
+    // River 2: Eastern North-South Meandering River (around x = 210, emptying to +Z ocean)
+    const u2 = z + seedOffset.z;
+    const riv2X = getRiverCenter2X(z);
+    const s2 = Math.cos(u2 * 0.0195 + 0.6) * 0.741 - Math.sin(u2 * 0.038 + 0.4) * 0.437 + Math.cos(u2 * 0.0075) * 0.15;
+    const dRiv2 = Math.abs(x - riv2X) / Math.sqrt(1.0 + s2 * s2);
 
-    // River 3: Western North-South Tributary River (passing through x = -128 at z = 0, emptying to +Z ocean)
-    const riv3BaseX = Math.sin(seedOffset.z * 0.0080 + 1.4) * 26.0 + Math.cos(seedOffset.z * 0.018 + 0.8) * 11.0;
-    const riv3X = -128.0 + (Math.sin((z + seedOffset.z) * 0.0080 + 1.4) * 26.0 + Math.cos((z + seedOffset.z) * 0.018 + 0.8) * 11.0) - riv3BaseX;
-    const dRiv3 = Math.abs(x - riv3X) * 0.90;
+    // River 3: Western North-South Tributary River (around x = -210, emptying to +Z ocean)
+    const u3 = z + seedOffset.z;
+    const riv3X = getRiverCenter3X(z);
+    const s3 = Math.cos(u3 * 0.0205 + 1.8) * 0.738 - Math.sin(u3 * 0.039 + 1.1) * 0.4095 + Math.cos(u3 * 0.0080 + 2.2) * 0.144;
+    const dRiv3 = Math.abs(x - riv3X) / Math.sqrt(1.0 + s3 * s3);
 
     // Smooth confluence blending between the main river and tributaries
     const d23 = Math.min(dRiv2, dRiv3);
-    const h = Math.max(7.0 - Math.abs(dRiv1 - d23), 0.0) / 7.0;
-    return Math.min(dRiv1, d23) - h * h * 7.0 * 0.25;
+    const h = Math.max(14.0 - Math.abs(dRiv1 - d23), 0.0) / 14.0;
+    return Math.min(dRiv1, d23) - h * h * 14.0 * 0.25;
 }
 
 function getRiverFactor(x, z) {
     const dist = getRiverDistance(x, z);
-    const halfWidth = 22.0;
+    const halfWidth = 34.0;
     if (dist > halfWidth) return 0.0;
     const t = 1.0 - (dist / halfWidth);
     return t * t * (3.0 - 2.0 * t);
@@ -1256,38 +1304,83 @@ function getRiverFactor(x, z) {
 
 function getRiversideFactor(x, z) {
     const dist = getRiverDistance(x, z);
-    return smoothstep(4.5, 8.2, dist) * (1.0 - smoothstep(13.5, 23.5, dist));
+    return smoothstep(13.0, 19.5, dist) * (1.0 - smoothstep(23.5, 30.5, dist));
 }
 
-const SEA_LEVEL = -2.5;
+const SEA_LEVEL = 5.2;
+const RIVER_LEVEL = 5.2;
+
+function getRiverCoastalT(x, z) {
+    const coastalExtent = (1.0 - smoothstep(550.0, 850.0, Math.abs(x))) * (1.0 - smoothstep(750.0, 1150.0, z));
+    return smoothstep(170.0, 265.0, z) * coastalExtent;
+}
+
+function getRiverWaterLevel(x, z) {
+    return RIVER_LEVEL;
+}
+
+function getWaterLevel(x, z) {
+    return SEA_LEVEL;
+}
 
 function applyRiverTerrainHeight(x, z, h, dSpawn, roadF) {
     const rivDist = getRiverDistance(x, z);
-    if (rivDist >= 25.5) return h;
+    if (rivDist >= 74.0) return h;
     const sx = x + seedOffset.x;
     const sz = z + seedOffset.z;
-    const bankWobble = Math.sin(sx * 0.043 + Math.cos(sz * 0.039) * 1.6) * 1.35;
+    const bankWobble = Math.sin(sx * 0.032 + Math.cos(sz * 0.029) * 1.8) * 2.2;
     const effDist = Math.max(0.0, rivDist + bankWobble);
-    if (effDist >= 24.5) return h;
+    if (effDist >= 72.0) return h;
 
     const spawnProtect = smoothstep(26.0, 44.0, dSpawn);
     if (spawnProtect <= 0.001) return h;
 
-    const shelfBlend = (1.0 - smoothstep(12.5, 24.5, effDist)) * spawnProtect;
-    let carvedH = mix(h, Math.min(h, -1.15), shelfBlend);
+    const coastalT = getRiverCoastalT(x, z);
+    const wY = RIVER_LEVEL;
+    const terraceH = wY + 0.45;
+    const leveeWeight = 1.0 - smoothstep(0.50, 0.92, coastalT);
 
-    const shoreSlope = 1.0 - smoothstep(7.8, 14.0, effDist);
-    const bedRipple = Math.sin(sx * 0.08 + sz * 0.07) * 0.15;
-    const channelDepth = (1.0 - smoothstep(0.0, 8.2, effDist)) * (1.65 + bedRipple);
-    const targetRiverH = -1.15 - shoreSlope * 1.30 - channelDepth;
-    const innerBlend = (1.0 - smoothstep(7.5, 14.0, effDist)) * spawnProtect;
-    carvedH = mix(carvedH, Math.min(carvedH, targetRiverH), innerBlend);
+    const shelfBlend = (1.0 - smoothstep(32.0, 70.0, effDist)) * spawnProtect;
+    const shelfTarget = mix(Math.min(h, terraceH), terraceH, leveeWeight);
+    let carvedH = mix(h, shelfTarget, shelfBlend);
 
-    if (roadF > 0.01) {
-        const fordH = -2.28 - roadF * 0.14;
-        carvedH = mix(carvedH, Math.max(carvedH, fordH), smoothstep(0.04, 0.55, roadF) * innerBlend);
+    const shoreSlope = 1.0 - smoothstep(19.5, 27.5, effDist);
+    const bedRipple = Math.sin(sx * 0.065 + sz * 0.058) * 0.18;
+    const channelU = 1.0 - smoothstep(6.5, 20.0, effDist);
+    const channelDepth = channelU * (4.20 + bedRipple);
+    const targetRiverH = terraceH - shoreSlope * 0.45 - channelDepth;
+    const innerBlend = (1.0 - smoothstep(19.0, 27.5, effDist)) * spawnProtect;
+    const innerTarget = mix(Math.min(carvedH, targetRiverH), targetRiverH, leveeWeight);
+    carvedH = mix(carvedH, innerTarget, innerBlend);
+
+    // Road-river crossing: gently sloped cobblestone ford shoal so vehicles & soldiers cross smoothly
+    const fordDist = getRoadDistance(x, z);
+    if (fordDist < 12.0) {
+        const fordBlend = (1.0 - smoothstep(2.5, 12.0, fordDist)) * innerBlend;
+        const fordH = wY - 0.52 - smoothstep(2.5, 11.5, fordDist) * 1.10;
+        carvedH = mix(carvedH, Math.max(carvedH, fordH), fordBlend);
     }
     return carvedH;
+}
+
+function softDryLandFloor(h, floorY, k) {
+    const diff = h - floorY;
+    return floorY + 0.5 * (diff + Math.sqrt(diff * diff + k * k));
+}
+
+function applyZoneLakeBasin(h, dLake, innerR, outerR, depth, dSpawn) {
+    const shoreOuterR = outerR + 16.0;
+    if (dLake >= shoreOuterR) return h;
+    const spawnProtect = smoothstep(24.0, 42.0, dSpawn);
+    if (spawnProtect <= 0.001) return h;
+    const terraceH = SEA_LEVEL + 0.45;
+    const apronBlend = (1.0 - smoothstep(outerR * 0.80, shoreOuterR, dLake)) * spawnProtect;
+    const carvedH = mix(h, Math.min(h, terraceH), apronBlend);
+    const shoreSlope = 1.0 - smoothstep(innerR * 1.10, outerR * 0.86, dLake);
+    const basinU = 1.0 - smoothstep(innerR * 0.42, outerR * 0.72, dLake);
+    const targetLakeH = terraceH - shoreSlope * 0.45 - basinU * depth;
+    const basinBlend = (1.0 - smoothstep(innerR * 1.00, outerR * 0.88, dLake)) * spawnProtect;
+    return mix(carvedH, Math.min(carvedH, targetLakeH), basinBlend);
 }
 
 function getTerrainHeight(x, z) {
@@ -1312,12 +1405,12 @@ function getZoneTerrainHeight(x, z, currentZoneIndex) {
     const [zoneX, zoneZ] = getZoneCenter(x, z);
 
     // Shared coastal slope and bay framing toward +Z ocean
-    const coastalDist = z + (fbm3(sx * 0.009, sz * 0.009) * 28.0);
-    const coastalSlope = smoothstep(110.0, 360.0, coastalDist) * 12.8;
-    const headland = smoothstep(60.0, 200.0, Math.abs(x)) * smoothstep(60.0, 420.0, coastalDist) * 6.5;
+    const coastalDist = z + (fbm3(sx * 0.009, sz * 0.009) * 22.0);
+    const coastalSlope = smoothstep(175.0, 365.0, coastalDist) * 10.5;
+    const headland = smoothstep(85.0, 220.0, Math.abs(x)) * smoothstep(130.0, 420.0, coastalDist) * 5.2;
     const coastalExtent = (1.0 - smoothstep(600.0, 900.0, Math.abs(x))) * (1.0 - smoothstep(750.0, 1200.0, z));
     const coastalDescent = (-coastalSlope + headland) * coastalExtent;
-    const bayOpen = (1.0 - smoothstep(90.0, 260.0, coastalDist) * (1.0 - smoothstep(220.0, 450.0, Math.abs(x))));
+    const bayOpen = (1.0 - smoothstep(155.0, 290.0, coastalDist) * (1.0 - smoothstep(220.0, 450.0, Math.abs(x))));
 
     // ZONE 1: SAHARA DESERT DUNES, SANDSTONE MESAS & OASIS
     if (currentZoneIndex === 1) {
@@ -1337,19 +1430,20 @@ function getZoneTerrainHeight(x, z, currentZoneIndex) {
         const wadiCut = smoothstep(-2.8, -4.6, macroErg + medDunes) * outerDesertMask * 3.0;
         h += mesaMask * 13.5 + terraceStep - wadiCut;
 
-        const dOasis = Math.hypot(x - zoneX - 58.0, z - zoneZ - 78.0);
-        const oasisDip = (1.0 - smoothstep(14.0, 48.0, dOasis)) * 9.8;
-        h -= oasisDip;
-
-        h += coastalDescent;
-
+        if (roadF > 0.01) {
+            const wadiTarget = 5.4 + macroErg * 0.45;
+            h = mix(h, wadiTarget, roadF * 0.65);
+        }
+        h = softDryLandFloor(h, SEA_LEVEL + 0.50, 1.5);
         const spawnClear = smoothstep(4.0, 18.0, dSpawn);
         h = mix(6.2, h, spawnClear);
 
+        const dOasis = Math.hypot(x - zoneX - 58.0, z - zoneZ - 78.0);
+        h = applyZoneLakeBasin(h, dOasis, 14.0, 48.0, 3.6, dSpawn);
+        h += coastalDescent;
+
         if (roadF > 0.01) {
-            const wadiTarget = 5.4 + macroErg * 0.45 - oasisDip + coastalDescent;
-            h = mix(h, wadiTarget, roadF * 0.65);
-            const dryRoad = smoothstep(SEA_LEVEL - 0.5, SEA_LEVEL + 1.2, h);
+            const dryRoad = smoothstep(SEA_LEVEL - 0.3, SEA_LEVEL + 1.0, h);
             const rut = Math.exp(-Math.pow(roadDist - 1.35, 2.0) / 0.35) * 0.25;
             h -= (roadF * 0.22 + rut * roadF) * dryRoad;
         }
@@ -1385,19 +1479,20 @@ function getZoneTerrainHeight(x, z, currentZoneIndex) {
         h += (mountainHeight + screeLedge) * passCorridor * spawnCorridor * bayOpen;
         h += highRange * rangeCorridor * bayOpen;
 
-        const dTarn = Math.hypot(x - zoneX + 54.0, z - zoneZ - 92.0);
-        const tarnDip = (1.0 - smoothstep(14.0, 46.0, dTarn)) * 11.5;
-        h -= tarnDip;
-
-        h += coastalDescent;
-
+        if (roadF > 0.01) {
+            const passGrade = 6.5 + valleyHills * 0.55;
+            h = mix(h, passGrade, roadF * 0.60);
+        }
+        h = softDryLandFloor(h, SEA_LEVEL + 0.50, 1.5);
         const spawnClear = smoothstep(4.0, 18.0, dSpawn);
         h = mix(7.2, h, spawnClear);
 
+        const dTarn = Math.hypot(x - zoneX + 54.0, z - zoneZ - 92.0);
+        h = applyZoneLakeBasin(h, dTarn, 14.0, 46.0, 4.0, dSpawn);
+        h += coastalDescent;
+
         if (roadF > 0.01) {
-            const passGrade = 6.5 + valleyHills * 0.55 - tarnDip + coastalDescent;
-            h = mix(h, passGrade, roadF * 0.60);
-            const dryRoad = smoothstep(SEA_LEVEL - 0.5, SEA_LEVEL + 1.2, h);
+            const dryRoad = smoothstep(SEA_LEVEL - 0.3, SEA_LEVEL + 1.0, h);
             const rut = Math.exp(-Math.pow(roadDist - 1.35, 2.0) / 0.35) * 0.30;
             h -= (roadF * 0.28 + rut * roadF) * dryRoad;
         }
@@ -1420,19 +1515,20 @@ function getZoneTerrainHeight(x, z, currentZoneIndex) {
         const knoll = (1.0 - smoothstep(15.0, 75.0, dSpawn)) * 3.2;
         h += knoll;
 
-        const dPond = Math.hypot(x - zoneX - 62.0, z - zoneZ + 82.0);
-        const pondDip = (1.0 - smoothstep(12.0, 42.0, dPond)) * 11.2;
-        h -= pondDip;
-
-        h += coastalDescent;
-
+        if (roadF > 0.01) {
+            const laneGrade = 7.2 + bigHills * 0.55 + drumlins * 0.35;
+            h = mix(h, laneGrade, roadF * 0.55);
+        }
+        h = softDryLandFloor(h, SEA_LEVEL + 0.50, 1.5);
         const spawnClear = smoothstep(4.0, 18.0, dSpawn);
         h = mix(8.5, h, spawnClear);
 
+        const dPond = Math.hypot(x - zoneX - 62.0, z - zoneZ + 82.0);
+        h = applyZoneLakeBasin(h, dPond, 12.0, 42.0, 3.8, dSpawn);
+        h += coastalDescent;
+
         if (roadF > 0.01) {
-            const laneGrade = 7.2 + bigHills * 0.55 + drumlins * 0.35 - pondDip + coastalDescent;
-            h = mix(h, laneGrade, roadF * 0.55);
-            const dryRoad = smoothstep(SEA_LEVEL - 0.5, SEA_LEVEL + 1.2, h);
+            const dryRoad = smoothstep(SEA_LEVEL - 0.3, SEA_LEVEL + 1.0, h);
             const rut = Math.exp(-Math.pow(roadDist - 1.35, 2.0) / 0.35) * 0.38;
             h -= (roadF * 0.42 + rut * roadF) * dryRoad;
         }
@@ -1451,19 +1547,20 @@ function getZoneTerrainHeight(x, z, currentZoneIndex) {
         const driftBerm = smoothstep(1.5, 5.0, snowRoll + snowDrifts) * 3.0 * snowOuter;
         h += driftBerm;
 
-        const dIce = Math.hypot(x - zoneX + 48.0, z - zoneZ + 72.0);
-        const iceDip = (1.0 - smoothstep(14.0, 44.0, dIce)) * 10.5;
-        h -= iceDip;
-
-        h += coastalDescent;
-
+        if (roadF > 0.01) {
+            const roadGrade = 6.8 + snowRoll * 0.55;
+            h = mix(h, roadGrade, roadF * 0.60);
+        }
+        h = softDryLandFloor(h, SEA_LEVEL + 0.50, 1.5);
         const spawnClear = smoothstep(4.0, 18.0, dSpawn);
         h = mix(7.5, h, spawnClear);
 
+        const dIce = Math.hypot(x - zoneX + 48.0, z - zoneZ + 72.0);
+        h = applyZoneLakeBasin(h, dIce, 14.0, 44.0, 3.8, dSpawn);
+        h += coastalDescent;
+
         if (roadF > 0.01) {
-            const roadGrade = 6.8 + snowRoll * 0.55 - iceDip + coastalDescent;
-            h = mix(h, roadGrade, roadF * 0.60);
-            const dryRoad = smoothstep(SEA_LEVEL - 0.5, SEA_LEVEL + 1.2, h);
+            const dryRoad = smoothstep(SEA_LEVEL - 0.3, SEA_LEVEL + 1.0, h);
             const rut = Math.exp(-Math.pow(roadDist - 1.35, 2.0) / 0.35) * 0.34;
             h -= (roadF * 0.32 + rut * roadF) * dryRoad;
         }
@@ -1483,19 +1580,20 @@ function getZoneTerrainHeight(x, z, currentZoneIndex) {
         const bocageOuter = smoothstep(35.0, 85.0, dSpawn) * smoothstep(7.0, 22.0, roadDist) * bayOpen;
         h += dikePattern * 2.2 * bocageOuter;
 
-        const dFarmPond = Math.hypot(x - zoneX - 72.0, z - zoneZ - 48.0);
-        const pondDip = (1.0 - smoothstep(12.0, 40.0, dFarmPond)) * 10.2;
-        h -= pondDip;
-
-        h += coastalDescent;
-
+        if (roadF > 0.01) {
+            const sunkenGrade = 6.2 + bocageFields * 0.65;
+            h = mix(h, sunkenGrade, roadF * 0.65);
+        }
+        h = softDryLandFloor(h, SEA_LEVEL + 0.50, 1.5);
         const spawnClear = smoothstep(4.0, 18.0, dSpawn);
         h = mix(7.2, h, spawnClear);
 
+        const dFarmPond = Math.hypot(x - zoneX - 72.0, z - zoneZ - 48.0);
+        h = applyZoneLakeBasin(h, dFarmPond, 12.0, 40.0, 3.4, dSpawn);
+        h += coastalDescent;
+
         if (roadF > 0.01) {
-            const sunkenGrade = 6.2 + bocageFields * 0.65 - pondDip + coastalDescent;
-            h = mix(h, sunkenGrade, roadF * 0.65);
-            const dryRoad = smoothstep(SEA_LEVEL - 0.5, SEA_LEVEL + 1.2, h);
+            const dryRoad = smoothstep(SEA_LEVEL - 0.3, SEA_LEVEL + 1.0, h);
             const rut = Math.exp(-Math.pow(roadDist - 1.35, 2.0) / 0.35) * 0.40;
             h -= (roadF * 0.52 + rut * roadF) * dryRoad;
         }
@@ -1515,19 +1613,20 @@ function getZoneTerrainHeight(x, z, currentZoneIndex) {
         const needleSpire = Math.pow(Math.max(0.0, 1.0 - Math.abs(valueNoise2D(sx * 0.010 + 17.0, sz * 0.010 + 89.0))), 3.5) * 18.0;
         h += (talusApron + fortressCliff + needleSpire * smoothstep(0.32, 0.45, butteNoise)) * outerButteMask;
 
-        const dWash = Math.hypot(x - zoneX - 68.0, z - zoneZ + 52.0);
-        const washDip = (1.0 - smoothstep(14.0, 48.0, dWash)) * 8.5;
-        h -= washDip;
-
-        h += coastalDescent;
-
+        if (roadF > 0.01) {
+            const passGrade = 6.2 + desertPlain * 0.45;
+            h = mix(h, passGrade, roadF * 0.65);
+        }
+        h = softDryLandFloor(h, SEA_LEVEL + 0.50, 1.5);
         const spawnClear = smoothstep(4.0, 18.0, dSpawn);
         h = mix(6.5, h, spawnClear);
 
+        const dWash = Math.hypot(x - zoneX - 68.0, z - zoneZ + 52.0);
+        h = applyZoneLakeBasin(h, dWash, 14.0, 48.0, 3.2, dSpawn);
+        h += coastalDescent;
+
         if (roadF > 0.01) {
-            const passGrade = 6.2 + desertPlain * 0.45 - washDip + coastalDescent;
-            h = mix(h, passGrade, roadF * 0.65);
-            const dryRoad = smoothstep(SEA_LEVEL - 0.5, SEA_LEVEL + 1.2, h);
+            const dryRoad = smoothstep(SEA_LEVEL - 0.3, SEA_LEVEL + 1.0, h);
             const rut = Math.exp(-Math.pow(roadDist - 1.35, 2.0) / 0.35) * 0.28;
             h -= (roadF * 0.25 + rut * roadF) * dryRoad;
         }
@@ -1548,19 +1647,20 @@ function getZoneTerrainHeight(x, z, currentZoneIndex) {
         const steppedH = Math.floor(rawH / 3.8) * 3.8 + smoothstep(0.25, 0.75, stepFrac) * 3.8;
         let h = mix(rawH, steppedH, 0.65);
 
-        const dGorgeWash = Math.hypot(x - zoneX + 62.0, z - zoneZ + 68.0);
-        const gorgeDip = (1.0 - smoothstep(14.0, 46.0, dGorgeWash)) * 7.5;
-        h -= gorgeDip;
-
-        h += coastalDescent;
-
+        if (roadF > 0.01) {
+            const canyonRoadTarget = 7.0 + fbm3(sx * 0.006, sz * 0.006) * 2.5;
+            h = mix(h, canyonRoadTarget, roadF * 0.75);
+        }
+        h = softDryLandFloor(h, SEA_LEVEL + 0.50, 1.5);
         const spawnClear = smoothstep(4.0, 22.0, dSpawn);
         h = mix(7.2, h, spawnClear);
 
+        const dGorgeWash = Math.hypot(x - zoneX + 62.0, z - zoneZ + 68.0);
+        h = applyZoneLakeBasin(h, dGorgeWash, 14.0, 46.0, 3.4, dSpawn);
+        h += coastalDescent;
+
         if (roadF > 0.01) {
-            const canyonRoadTarget = 7.0 + fbm3(sx * 0.006, sz * 0.006) * 2.5 - gorgeDip + coastalDescent;
-            h = mix(h, canyonRoadTarget, roadF * 0.75);
-            const dryRoad = smoothstep(SEA_LEVEL - 0.5, SEA_LEVEL + 1.2, h);
+            const dryRoad = smoothstep(SEA_LEVEL - 0.3, SEA_LEVEL + 1.0, h);
             const rut = Math.exp(-Math.pow(roadDist - 1.35, 2.0) / 0.35) * 0.32;
             h -= (roadF * 0.30 + rut * roadF) * dryRoad;
         }
@@ -1575,19 +1675,20 @@ function getZoneTerrainHeight(x, z, currentZoneIndex) {
         const rippleMicro = valueNoise2D(sx * 0.09, sz * 0.09) * 0.18;
         let h = 6.2 + ergRoll + barchanWave + rippleMicro;
 
-        const dNile = Math.hypot(x - zoneX + 65.0, z - zoneZ - 72.0);
-        const nileValley = (1.0 - smoothstep(16.0, 52.0, dNile)) * 10.2;
-        h -= nileValley;
-
-        h += coastalDescent;
-
+        if (roadF > 0.01) {
+            const caravanGrade = 6.0 + ergRoll * 0.45;
+            h = mix(h, caravanGrade, roadF * 0.65);
+        }
+        h = softDryLandFloor(h, SEA_LEVEL + 0.50, 1.5);
         const spawnClear = smoothstep(4.0, 18.0, dSpawn);
         h = mix(6.8, h, spawnClear);
 
+        const dNile = Math.hypot(x - zoneX + 84.0, z - zoneZ - 72.0);
+        h = applyZoneLakeBasin(h, dNile, 14.0, 46.0, 3.8, dSpawn);
+        h += coastalDescent;
+
         if (roadF > 0.01) {
-            const caravanGrade = 6.0 + ergRoll * 0.45 - nileValley + coastalDescent;
-            h = mix(h, caravanGrade, roadF * 0.65);
-            const dryRoad = smoothstep(SEA_LEVEL - 0.5, SEA_LEVEL + 1.2, h);
+            const dryRoad = smoothstep(SEA_LEVEL - 0.3, SEA_LEVEL + 1.0, h);
             const rut = Math.exp(-Math.pow(roadDist - 1.35, 2.0) / 0.35) * 0.25;
             h -= (roadF * 0.22 + rut * roadF) * dryRoad;
         }
@@ -1605,19 +1706,20 @@ function getZoneTerrainHeight(x, z, currentZoneIndex) {
         const jungleOuter = smoothstep(40.0, 90.0, dSpawn) * smoothstep(9.0, 26.0, roadDist) * bayOpen;
         h += conicalMogote * jungleOuter;
 
-        const dJungleRiver = Math.hypot(x - zoneX - 52.0, z - zoneZ + 78.0);
-        const riverDip = (1.0 - smoothstep(14.0, 46.0, dJungleRiver)) * 10.8;
-        h -= riverDip;
-
-        h += coastalDescent;
-
+        if (roadF > 0.01) {
+            const jungleRoadGrade = 6.2 + karstBasin * 0.55;
+            h = mix(h, jungleRoadGrade, roadF * 0.65);
+        }
+        h = softDryLandFloor(h, SEA_LEVEL + 0.50, 1.5);
         const spawnClear = smoothstep(4.0, 18.0, dSpawn);
         h = mix(7.0, h, spawnClear);
 
+        const dJungleRiver = Math.hypot(x - zoneX - 52.0, z - zoneZ + 78.0);
+        h = applyZoneLakeBasin(h, dJungleRiver, 14.0, 46.0, 3.8, dSpawn);
+        h += coastalDescent;
+
         if (roadF > 0.01) {
-            const jungleRoadGrade = 6.2 + karstBasin * 0.55 - riverDip + coastalDescent;
-            h = mix(h, jungleRoadGrade, roadF * 0.65);
-            const dryRoad = smoothstep(SEA_LEVEL - 0.5, SEA_LEVEL + 1.2, h);
+            const dryRoad = smoothstep(SEA_LEVEL - 0.3, SEA_LEVEL + 1.0, h);
             const rut = Math.exp(-Math.pow(roadDist - 1.35, 2.0) / 0.35) * 0.45;
             h -= (roadF * 0.48 + rut * roadF) * dryRoad;
         }
@@ -1635,19 +1737,20 @@ function getZoneTerrainHeight(x, z, currentZoneIndex) {
         const terraceStep = smoothstep(1.2, 4.2, aegeanHills) * 3.8 * acropolisOuter;
         h += terraceStep;
 
-        const dAegeanCove = Math.hypot(x - zoneX - 58.0, z - zoneZ - 76.0);
-        const coveDip = (1.0 - smoothstep(14.0, 48.0, dAegeanCove)) * 10.2;
-        h -= coveDip;
-
-        h += coastalDescent;
-
+        if (roadF > 0.01) {
+            const sacredWayGrade = 6.8 + aegeanHills * 0.50;
+            h = mix(h, sacredWayGrade, roadF * 0.65);
+        }
+        h = softDryLandFloor(h, SEA_LEVEL + 0.50, 1.5);
         const spawnClear = smoothstep(4.0, 18.0, dSpawn);
         h = mix(7.2, h, spawnClear);
 
+        const dAegeanCove = Math.hypot(x - zoneX - 96.0, z - zoneZ - 76.0);
+        h = applyZoneLakeBasin(h, dAegeanCove, 14.0, 46.0, 3.8, dSpawn);
+        h += coastalDescent;
+
         if (roadF > 0.01) {
-            const sacredWayGrade = 6.8 + aegeanHills * 0.50 - coveDip + coastalDescent;
-            h = mix(h, sacredWayGrade, roadF * 0.65);
-            const dryRoad = smoothstep(SEA_LEVEL - 0.5, SEA_LEVEL + 1.2, h);
+            const dryRoad = smoothstep(SEA_LEVEL - 0.3, SEA_LEVEL + 1.0, h);
             const rut = Math.exp(-Math.pow(roadDist - 1.35, 2.0) / 0.35) * 0.26;
             h -= (roadF * 0.24 + rut * roadF) * dryRoad;
         }
@@ -1665,19 +1768,20 @@ function getZoneTerrainHeight(x, z, currentZoneIndex) {
         const palatineBluff = smoothstep(1.0, 3.8, sevenHills) * 3.2 * romanOuter;
         h += palatineBluff;
 
-        const dTiberBend = Math.hypot(x - zoneX + 58.0, z - zoneZ - 74.0);
-        const tiberDip = (1.0 - smoothstep(14.0, 48.0, dTiberBend)) * 9.8;
-        h -= tiberDip;
-
-        h += coastalDescent;
-
+        if (roadF > 0.01) {
+            const viaAppiaGrade = 6.6 + sevenHills * 0.48;
+            h = mix(h, viaAppiaGrade, roadF * 0.68);
+        }
+        h = softDryLandFloor(h, SEA_LEVEL + 0.50, 1.5);
         const spawnClear = smoothstep(4.0, 18.0, dSpawn);
         h = mix(7.0, h, spawnClear);
 
+        const dTiberBend = Math.hypot(x - zoneX + 96.0, z - zoneZ - 74.0);
+        h = applyZoneLakeBasin(h, dTiberBend, 14.0, 46.0, 3.6, dSpawn);
+        h += coastalDescent;
+
         if (roadF > 0.01) {
-            const viaAppiaGrade = 6.6 + sevenHills * 0.48 - tiberDip + coastalDescent;
-            h = mix(h, viaAppiaGrade, roadF * 0.68);
-            const dryRoad = smoothstep(SEA_LEVEL - 0.5, SEA_LEVEL + 1.2, h);
+            const dryRoad = smoothstep(SEA_LEVEL - 0.3, SEA_LEVEL + 1.0, h);
             const rut = Math.exp(-Math.pow(roadDist - 1.35, 2.0) / 0.35) * 0.24;
             h -= (roadF * 0.22 + rut * roadF) * dryRoad;
         }
@@ -1699,13 +1803,15 @@ function getZoneTerrainHeight(x, z, currentZoneIndex) {
     const ridgeElev = (1.0 - smoothstep(12.0, 95.0, dSpawn)) * 2.8;
     h += ridgeElev;
 
-    h += coastalDescent;
+    h = softDryLandFloor(h, SEA_LEVEL + 0.50, 1.5);
 
     const spawnClear = smoothstep(3.5, 16.0, dSpawn);
     h = mix(7.2, h, spawnClear);
 
+    h += coastalDescent;
+
     if (roadF > 0.01) {
-        const dryRoad = smoothstep(SEA_LEVEL - 0.5, SEA_LEVEL + 1.2, h);
+        const dryRoad = smoothstep(SEA_LEVEL - 0.3, SEA_LEVEL + 1.0, h);
         const rut = Math.exp(-Math.pow(roadDist - 1.35, 2.0) / 0.35) * 0.38;
         h -= (roadF * 0.35 + rut * roadF) * dryRoad;
     }
@@ -1746,8 +1852,8 @@ vec3 applyBabylonAerialHaze(vec3 col, vec3 worldPos, vec3 camPos, vec3 sunDir, v
     float dist = length(toPt);
     if (dist < 1.0) return col;
     vec3 V = toPt / dist;
-    float y0 = max(camPos.y, -2.5);
-    float y1 = max(worldPos.y, -2.5);
+    float y0 = max(camPos.y, 5.2);
+    float y1 = max(worldPos.y, 5.2);
     float avgY = 0.5 * (y0 + y1);
     float lowDensity = exp(-max(avgY + 4.0, 0.0) / 135.0) * 0.85;
     float highDensity = exp(-max(avgY + 4.0, 0.0) / 1800.0) * 0.15;
@@ -1881,6 +1987,148 @@ const terrainUniforms = {
     uTerrainNormalAtlas: { value: null }
 };
 
+const sharedWaterUniforms = {
+    uTime: { value: 0 },
+    tReflection: { value: null },
+    uReflectVP: { value: new THREE.Matrix4() },
+    uHasReflection: { value: 0.0 },
+    uReflPlaneY: { value: SEA_LEVEL },
+    uActiveChunkBounds: { value: new THREE.Vector4(-1e6, -1e6, -1e6, -1e6) }
+};
+
+const NEAR_HM_SIZE = 256;
+const NEAR_HM_STEP = 2.0;
+const NEAR_HM_SNAP = 16.0;
+const NEAR_HM_HALF = (NEAR_HM_SIZE - 1) * 0.5 * NEAR_HM_STEP;
+
+const FAR_HM_SIZE = 256;
+const FAR_HM_STEP = 20.0;
+const FAR_HM_SNAP = 512.0;
+const FAR_HM_HALF = (FAR_HM_SIZE - 1) * 0.5 * FAR_HM_STEP;
+
+const HM_MIN_Y = -24.0;
+const HM_SPAN_Y = 280.0;
+
+function makeHeightMapTexture(size) {
+    const data = new Uint8Array(size * size * 4);
+    const tex = new THREE.DataTexture(data, size, size, THREE.RGBAFormat, THREE.UnsignedByteType);
+    tex.magFilter = THREE.NearestFilter;
+    tex.minFilter = THREE.NearestFilter;
+    tex.wrapS = THREE.ClampToEdgeWrapping;
+    tex.wrapT = THREE.ClampToEdgeWrapping;
+    tex.generateMipmaps = false;
+    tex.flipY = false;
+    tex.needsUpdate = true;
+    return { tex, data };
+}
+
+function packHeightIntoRGBA(data, byteOffset, h) {
+    const norm = Math.max(0.0, Math.min(1.0, (h - HM_MIN_Y) / HM_SPAN_Y));
+    const q = Math.round(norm * 65535.0);
+    data[byteOffset] = (q >> 8) & 255;
+    data[byteOffset + 1] = q & 255;
+    data[byteOffset + 2] = 0;
+    data[byteOffset + 3] = 255;
+}
+
+function fillHeightMapGrid(data, size, originX, originZ, step) {
+    for (let iz = 0; iz < size; iz++) {
+        const wz = originZ + iz * step;
+        const rowOffset = iz * size * 4;
+        for (let ix = 0; ix < size; ix++) {
+            const wx = originX + ix * step;
+            packHeightIntoRGBA(data, rowOffset + ix * 4, getTerrainHeight(wx, wz));
+        }
+    }
+}
+
+const nearHeightMapObj = makeHeightMapTexture(NEAR_HM_SIZE);
+const nearHeightTex = nearHeightMapObj.tex;
+const nearHeightData = nearHeightMapObj.data;
+const nearHeightScratch = new Uint8Array(NEAR_HM_SIZE * NEAR_HM_SIZE * 4);
+
+const farHeightMapObj = makeHeightMapTexture(FAR_HM_SIZE);
+const farHeightTex = farHeightMapObj.tex;
+const farHeightData = farHeightMapObj.data;
+
+let nearHMLastSnapX = null;
+let nearHMLastSnapZ = null;
+let farHMLastSnapX = null;
+let farHMLastSnapZ = null;
+
+const terrainHeightMapUniforms = {
+    uNearHeightMap: { value: nearHeightTex },
+    uNearHMParams: { value: new THREE.Vector4(-NEAR_HM_HALF, -NEAR_HM_HALF, 1.0 / NEAR_HM_STEP, 1.0 / NEAR_HM_SIZE) },
+    uFarHeightMap: { value: farHeightTex },
+    uFarHMParams: { value: new THREE.Vector4(-FAR_HM_HALF, -FAR_HM_HALF, 1.0 / FAR_HM_STEP, 1.0 / FAR_HM_SIZE) }
+};
+
+function updateTerrainHeightMaps(camX, camZ, forceRebuild = false) {
+    const cx = Number.isFinite(camX) ? camX : 0;
+    const cz = Number.isFinite(camZ) ? camZ : 0;
+
+    const nearSnapX = Math.round(cx / NEAR_HM_SNAP) * NEAR_HM_SNAP;
+    const nearSnapZ = Math.round(cz / NEAR_HM_SNAP) * NEAR_HM_SNAP;
+    if (forceRebuild || nearHMLastSnapX === null || nearSnapX !== nearHMLastSnapX || nearSnapZ !== nearHMLastSnapZ) {
+        const originX = nearSnapX - NEAR_HM_HALF;
+        const originZ = nearSnapZ - NEAR_HM_HALF;
+        const shiftX = nearHMLastSnapX !== null ? Math.round((nearSnapX - nearHMLastSnapX) / NEAR_HM_STEP) : NEAR_HM_SIZE;
+        const shiftZ = nearHMLastSnapZ !== null ? Math.round((nearSnapZ - nearHMLastSnapZ) / NEAR_HM_STEP) : NEAR_HM_SIZE;
+        if (!forceRebuild && nearHMLastSnapX !== null && Math.abs(shiftX) < NEAR_HM_SIZE && Math.abs(shiftZ) < NEAR_HM_SIZE) {
+            for (let iz = 0; iz < NEAR_HM_SIZE; iz++) {
+                const oldZ = iz + shiftZ;
+                const wz = originZ + iz * NEAR_HM_STEP;
+                const dstRow = iz * NEAR_HM_SIZE * 4;
+                const srcRowValid = oldZ >= 0 && oldZ < NEAR_HM_SIZE;
+                const srcRow = oldZ * NEAR_HM_SIZE * 4;
+                for (let ix = 0; ix < NEAR_HM_SIZE; ix++) {
+                    const oldX = ix + shiftX;
+                    const dst = dstRow + ix * 4;
+                    if (srcRowValid && oldX >= 0 && oldX < NEAR_HM_SIZE) {
+                        const src = srcRow + oldX * 4;
+                        nearHeightScratch[dst] = nearHeightData[src];
+                        nearHeightScratch[dst + 1] = nearHeightData[src + 1];
+                        nearHeightScratch[dst + 2] = nearHeightData[src + 2];
+                        nearHeightScratch[dst + 3] = nearHeightData[src + 3];
+                    } else {
+                        packHeightIntoRGBA(nearHeightScratch, dst, getTerrainHeight(originX + ix * NEAR_HM_STEP, wz));
+                    }
+                }
+            }
+            nearHeightData.set(nearHeightScratch);
+        } else {
+            fillHeightMapGrid(nearHeightData, NEAR_HM_SIZE, originX, originZ, NEAR_HM_STEP);
+        }
+        nearHMLastSnapX = nearSnapX;
+        nearHMLastSnapZ = nearSnapZ;
+        terrainHeightMapUniforms.uNearHMParams.value.set(originX, originZ, 1.0 / NEAR_HM_STEP, 1.0 / NEAR_HM_SIZE);
+        nearHeightTex.needsUpdate = true;
+    }
+
+    const farSnapX = Math.round(cx / FAR_HM_SNAP) * FAR_HM_SNAP;
+    const farSnapZ = Math.round(cz / FAR_HM_SNAP) * FAR_HM_SNAP;
+    if (forceRebuild || farHMLastSnapX === null || farSnapX !== farHMLastSnapX || farSnapZ !== farHMLastSnapZ) {
+        const farOriginX = farSnapX - FAR_HM_HALF;
+        const farOriginZ = farSnapZ - FAR_HM_HALF;
+        fillHeightMapGrid(farHeightData, FAR_HM_SIZE, farOriginX, farOriginZ, FAR_HM_STEP);
+        farHMLastSnapX = farSnapX;
+        farHMLastSnapZ = farSnapZ;
+        terrainHeightMapUniforms.uFarHMParams.value.set(farOriginX, farOriginZ, 1.0 / FAR_HM_STEP, 1.0 / FAR_HM_SIZE);
+        farHeightTex.needsUpdate = true;
+    }
+}
+let riverWaterMat = null;
+let farRiverWaterMat = null;
+let farRiverWaterMesh = null;
+function getRiverWaterMaterial() {
+    if (!riverWaterMat) riverWaterMat = createZoneWaterMaterial(true, false);
+    return riverWaterMat;
+}
+function getFarRiverWaterMaterial() {
+    if (!farRiverWaterMat) farRiverWaterMat = createZoneWaterMaterial(true, true);
+    return farRiverWaterMat;
+}
+
 let terrainNormalAtlas = null;
 function getTerrainNormalAtlas() {
     if (!terrainNormalAtlas && typeof createTerrainNormalAtlas === 'function') {
@@ -1954,7 +2202,7 @@ terrainMat.onBeforeCompile = (shader) => {
         varying vec3 vTerrainWorldPos;
         varying vec3 vTerrainWorldNormal;
         varying float vTerrainSlope;
-        ${SHARED_TERRAIN_GLSL}
+        ${SHARED_TERRAIN_COMMON_GLSL}
         ${BABYLON_HAZE_GLSL}
 
         vec4 evalRiverCobble_gpu(vec2 p, out vec2 cobbleGrad) {
@@ -1994,7 +2242,7 @@ terrainMat.onBeforeCompile = (shader) => {
             float roadFactorNorm = getRoadFactor_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
             float riverDistNorm = getRiverDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
             float riversideFactorNorm = getRiversideFactor_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
-            float beachFactorNorm = 1.0 - smoothstep(-2.55, -1.35, vTerrainWorldPos.y);
+            float beachFactorNorm = 1.0 - smoothstep(SEA_LEVEL - 0.05, SEA_LEVEL + 0.65, vTerrainWorldPos.y);
 
             float wZoneNorm[12];
             getZoneWeights12_gpu(vTerrainWorldPos.xz, wZoneNorm);
@@ -2037,7 +2285,7 @@ terrainMat.onBeforeCompile = (shader) => {
                 closeN = mix(closeN, nRockSample.xy * 0.32, rockFactorNorm);
                 closeN = mix(closeN, nRoadSample.xy * 0.16, smoothstep(0.04, 0.38, roadFactorNorm));
 
-                if (riversideFactorNorm > 0.01 && riverDistNorm < 24.5) {
+                if (riversideFactorNorm > 0.01 && riverDistNorm < 38.0) {
                     float riverCobbleMask = riversideFactorNorm * (0.45 + 0.55 * smoothstep(-0.15, 0.35, valueNoise2D_gpu(posGroundWarped * 0.032)));
                     vec2 cobbleNormalXY = _cachedCobbleGrad1 * 0.30 + _cachedCobbleGrad2 * 0.14 + nRoadSample.xy * 0.16;
                     closeN = mix(closeN, cobbleNormalXY, clamp(riverCobbleMask * 0.90 + smoothstep(0.05, 0.45, roadFactorNorm) * 0.5, 0.0, 0.95));
@@ -2217,9 +2465,9 @@ terrainMat.onBeforeCompile = (shader) => {
                 }
 
                 // Lush Oasis Fringe & Wet Sand along oasis water edge
-                float oasisMask = 1.0 - smoothstep(-2.55, -0.35, vTerrainWorldPos.y);
+                float oasisMask = 1.0 - smoothstep(SEA_LEVEL - 0.05, SEA_LEVEL + 0.55, vTerrainWorldPos.y);
                 if (oasisMask > 0.001) {
-                    float wetZone = 1.0 - smoothstep(-2.65, -1.95, vTerrainWorldPos.y);
+                    float wetZone = 1.0 - smoothstep(SEA_LEVEL - 0.15, SEA_LEVEL + 0.45, vTerrainWorldPos.y);
                     vec3 oasisMoss = mix(vec3(0.045, 0.11, 0.022), vec3(0.12, 0.14, 0.045), clumpNoise * 0.6 + detailNoise * 0.4);
                     vec3 wetOasisSand = vec3(0.075, 0.055, 0.032);
                     diffuseColor.rgb = mix(diffuseColor.rgb, mix(oasisMoss, wetOasisSand, wetZone), oasisMask * (1.0 - roadMask * 0.7));
@@ -2294,7 +2542,7 @@ terrainMat.onBeforeCompile = (shader) => {
                 }
 
                 // Glacial Tarn Shoreline (dark slate pebbles & wet boulders)
-                float tarnShore = 1.0 - smoothstep(-2.55, -1.35, vTerrainWorldPos.y);
+                float tarnShore = 1.0 - smoothstep(SEA_LEVEL - 0.05, SEA_LEVEL + 0.65, vTerrainWorldPos.y);
                 if (tarnShore > 0.001) {
                     vec3 pebbleShore = mix(vec3(0.065, 0.070, 0.078), vec3(0.028, 0.032, 0.038), gravelNoise * 0.6 + clumpNoise * 0.4);
                     diffuseColor.rgb = mix(diffuseColor.rgb, pebbleShore, tarnShore);
@@ -2363,7 +2611,7 @@ terrainMat.onBeforeCompile = (shader) => {
                     diffuseColor.rgb = mix(diffuseColor.rgb, mix(packedSnowRoad, icySlush, rutMask * 0.88), smoothstep(0.02, 0.48, roadMask));
                 }
 
-                float iceHole = 1.0 - smoothstep(-2.55, -1.35, vTerrainWorldPos.y);
+                float iceHole = 1.0 - smoothstep(SEA_LEVEL - 0.05, SEA_LEVEL + 0.65, vTerrainWorldPos.y);
                 if (iceHole > 0.001) {
                     vec3 lakeIce = mix(vec3(0.16, 0.24, 0.32), vec3(0.32, 0.40, 0.48), clumpNoise * 0.6 + microNoise * 0.4);
                     diffuseColor.rgb = mix(diffuseColor.rgb, lakeIce, iceHole);
@@ -2494,7 +2742,7 @@ terrainMat.onBeforeCompile = (shader) => {
                 }
 
                 // Nile Valley fertile black-silt & papyrus fringe
-                float nileFringe = 1.0 - smoothstep(-2.55, -0.35, vTerrainWorldPos.y);
+                float nileFringe = 1.0 - smoothstep(SEA_LEVEL - 0.05, SEA_LEVEL + 0.55, vTerrainWorldPos.y);
                 if (nileFringe > 0.001) {
                     vec3 nileReeds = mix(vec3(0.035, 0.095, 0.018), vec3(0.048, 0.036, 0.022), clumpNoise * 0.55 + detailNoise * 0.45);
                     diffuseColor.rgb = mix(diffuseColor.rgb, nileReeds, nileFringe * (1.0 - roadMask * 0.7));
@@ -2631,10 +2879,10 @@ terrainMat.onBeforeCompile = (shader) => {
         }
         diffuseColor.rgb = blendedZoneColor;
 
-        // Coastal Shoreline: Golden beach sand right along the water edge (-2.6m to -1.35m) across all coastal biomes
-        float beachMask = 1.0 - smoothstep(-2.55, -1.35, vTerrainWorldPos.y);
+        // Coastal & Lakeside Shoreline: Golden beach sand right along the water edge across all biomes
+        float beachMask = 1.0 - smoothstep(SEA_LEVEL - 0.05, SEA_LEVEL + 0.55, vTerrainWorldPos.y);
         if (beachMask > 0.001) {
-            float wetZone = 1.0 - smoothstep(-2.65, -2.05, vTerrainWorldPos.y);
+            float wetZone = 1.0 - smoothstep(SEA_LEVEL - 0.15, SEA_LEVEL + 0.35, vTerrainWorldPos.y);
             vec3 drySand = mix(vec3(0.24, 0.19, 0.12), vec3(0.18, 0.14, 0.09), clumpNoise * 0.5 + detailNoise * 0.5);
             vec3 wetSand = vec3(0.065, 0.072, 0.065);
             vec3 sandCol = mix(drySand, wetSand, wetZone * 0.90);
@@ -2645,13 +2893,13 @@ terrainMat.onBeforeCompile = (shader) => {
         float riverDist = getRiverDistance_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
         vec2 _cachedCobbleGrad1 = vec2(0.0);
         vec2 _cachedCobbleGrad2 = vec2(0.0);
-        if (riverDist < 24.5) {
+        if (riverDist < 38.0) {
             float dSpawnRiv = length(vTerrainWorldPos.xz);
             float spawnRivFade = smoothstep(26.0, 44.0, dSpawnRiv);
-            float bankNoise = (mesoPatch - 0.5) * 2.8 + (clumpNoise - 0.5) * 1.4;
+            float bankNoise = (mesoPatch - 0.5) * 3.8 + (clumpNoise - 0.5) * 1.8;
             float rDist = max(0.0, riverDist + bankNoise);
             float estuaryFade = 1.0 - smoothstep(200.0, 340.0, vTerrainWorldPos.z);
-            float riversideZone = (1.0 - smoothstep(14.0, 23.5, rDist)) * spawnRivFade * estuaryFade;
+            float riversideZone = (1.0 - smoothstep(23.0, 30.0, rDist)) * spawnRivFade * estuaryFade;
             if (riversideZone > 0.001) {
                 float cobbleDetailFade = 1.0 - smoothstep(65.0, 210.0, distToCam);
                 vec2 cobbleWarp = vec2(detailNoise - 0.5, microNoise - 0.5) * 0.55;
@@ -2699,24 +2947,26 @@ terrainMat.onBeforeCompile = (shader) => {
                 // Upper bank riparian moss & damp alluvial loam (suppressed in arid/winter zones)
                 float aridRiverFactor = clamp(zoneWeights12[1] + zoneWeights12[6] + zoneWeights12[7] + zoneWeights12[8], 0.0, 1.0);
                 float winterRiverFactor = clamp(zoneWeights12[4], 0.0, 1.0);
-                float bankMossMask = smoothstep(10.5, 16.5, rDist) * (1.0 - smoothstep(17.5, 23.5, rDist))
+                float bankMossMask = smoothstep(20.0, 24.5, rDist) * (1.0 - smoothstep(25.5, 30.5, rDist))
                     * smoothstep(0.35, 0.75, clumpNoise) * (1.0 - aridRiverFactor * 0.85) * (1.0 - winterRiverFactor * 0.75);
                 vec3 riparianMoss = mix(vec3(0.028, 0.064, 0.014), vec3(0.050, 0.038, 0.020), detailNoise * 0.55 + slopeBreak * 0.45);
                 riversideCol = mix(riversideCol, riparianMoss, bankMossMask * 0.72);
 
-                // Waterline wet darkening & submerged riverbed silt
-                float wetBank = 1.0 - smoothstep(-2.60, -1.65, vTerrainWorldPos.y);
-                float submergedBed = 1.0 - smoothstep(-2.90, -2.35, vTerrainWorldPos.y);
+                // Waterline wet darkening & submerged riverbed silt relative to river surface
+                float rivWaterY = getRiverWaterLevel_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
+                float relY = vTerrainWorldPos.y - rivWaterY;
+                float wetBank = 1.0 - smoothstep(-0.08, 0.36, relY);
+                float submergedBed = 1.0 - smoothstep(-0.65, 0.15, relY);
                 riversideCol *= mix(1.0, 0.45, wetBank * 0.85);
                 riversideCol = mix(riversideCol, vec3(0.030, 0.032, 0.026), submergedBed * 0.55);
 
                 // Subtle winter frost dusting on dry upper cobbles & sandbars in winter zone
                 if (winterRiverFactor > 0.01) {
-                    float snowRim = smoothstep(-2.1, -1.2, vTerrainWorldPos.y) * smoothstep(0.35, 0.85, clumpNoise);
+                    float snowRim = smoothstep(0.18, 0.50, relY) * smoothstep(0.35, 0.85, clumpNoise);
                     riversideCol = mix(riversideCol, vec3(0.30, 0.34, 0.40), winterRiverFactor * snowRim * 0.55);
                 }
 
-                float dryRoadOverride = smoothstep(0.15, 0.65, roadMask) * smoothstep(-1.95, -1.10, vTerrainWorldPos.y) * 0.55;
+                float dryRoadOverride = smoothstep(0.15, 0.65, roadMask) * smoothstep(0.22, 0.55, relY) * 0.55;
                 diffuseColor.rgb = mix(diffuseColor.rgb, riversideCol, riversideZone * (1.0 - dryRoadOverride));
             }
         }
@@ -2743,7 +2993,7 @@ terrainMat.onBeforeCompile = (shader) => {
         float wRoughZ[12];
         getZoneWeights12_gpu(vTerrainWorldPos.xz, wRoughZ);
         float aridRoughMask = clamp(wRoughZ[1] + wRoughZ[6] + wRoughZ[7] + wRoughZ[8], 0.0, 1.0);
-        float wetShoreRough = (1.0 - smoothstep(-2.4, -1.25, vTerrainWorldPos.y)) * (1.0 - aridRoughMask * 0.95);
+        float wetShoreRough = (1.0 - smoothstep(SEA_LEVEL - 0.05, SEA_LEVEL + 0.45, vTerrainWorldPos.y)) * (1.0 - aridRoughMask * 0.95);
         float rRoad = getRoadFactor_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
         roughnessFactor = mix(0.88, 0.76, smoothstep(0.1, 0.6, rRoad));
         if (rRoad > 0.05) {
@@ -2764,7 +3014,8 @@ terrainMat.onBeforeCompile = (shader) => {
         float rRiver = getRiverFactor_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
         float rRiverside = getRiversideFactor_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
         if (rRiver > 0.01 || rRiverside > 0.01) {
-            float wetRiver = (1.0 - smoothstep(-2.60, -1.65, vTerrainWorldPos.y)) * clamp(rRiver + rRiverside, 0.0, 1.0);
+            float rivWaterYR = getRiverWaterLevel_gpu(vTerrainWorldPos.x, vTerrainWorldPos.z);
+            float wetRiver = (1.0 - smoothstep(-0.08, 0.36, vTerrainWorldPos.y - rivWaterYR)) * clamp(rRiver + rRiverside, 0.0, 1.0);
             roughnessFactor = mix(roughnessFactor, 0.68, rRiverside * (1.0 - wetRiver) * 0.65);
             roughnessFactor = mix(roughnessFactor, 0.22, wetRiver * 0.92);
         }
@@ -2954,7 +3205,7 @@ treeMaterial.onBeforeCompile = (shader) => {
         varying float vCanopyOuter;
         varying float vTreeWindWave;
         varying vec2 vFoliageUv;
-        ${SHARED_TERRAIN_GLSL}
+        ${SHARED_TERRAIN_COMMON_GLSL}
         ${BABYLON_HAZE_GLSL}
     ` + shader.fragmentShader;
 
@@ -3106,7 +3357,7 @@ villageMat.onBeforeCompile = (shader) => {
         varying vec3 vBldgWorldNormal;
         varying vec3 vBldgModelPos;
         varying vec2 vBldgUv;
-        ${SHARED_TERRAIN_GLSL}
+        ${SHARED_TERRAIN_COMMON_GLSL}
         ${BABYLON_HAZE_GLSL}
     ` + shader.fragmentShader;
 
@@ -10482,6 +10733,10 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
         shader.uniforms.uGrassAtlas = { value: getGrassTuftAtlas() };
         shader.uniforms.uGrassEdgeAtlas = { value: getGrassTuftEdgeAtlas() };
         shader.uniforms.uLowGraphics = grassUniforms.uLowGraphics;
+        shader.uniforms.uNearHeightMap = terrainHeightMapUniforms.uNearHeightMap;
+        shader.uniforms.uNearHMParams = terrainHeightMapUniforms.uNearHMParams;
+        shader.uniforms.uFarHeightMap = terrainHeightMapUniforms.uFarHeightMap;
+        shader.uniforms.uFarHMParams = terrainHeightMapUniforms.uFarHMParams;
 
         shader.vertexShader = `
             attribute vec4 aInstanceData;
@@ -10503,7 +10758,8 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             varying vec4 vGrassZoneWeights;
             varying vec4 vGrassZoneWeightsExt;
             varying vec4 vGrassZoneWeightsExt2;
-            ${SHARED_TERRAIN_GLSL}
+            ${SHARED_TERRAIN_COMMON_GLSL}
+            ${TERRAIN_HEIGHTMAP_SAMPLER_GLSL}
         ` + shader.vertexShader;
 
         shader.vertexShader = shader.vertexShader.replace(
@@ -10567,17 +10823,18 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             }
 
             float riverDistGrass = getRiverDistance_gpu(worldXZ.x, worldXZ.y);
-            float riverCull = smoothstep(13.2, 18.5, riverDistGrass + (tuftRandom - 0.5) * 2.5);
+            float riverCull = smoothstep(21.0, 26.5, riverDistGrass + (tuftRandom - 0.5) * 2.6);
             if (riverCull <= 0.01) {
                 gl_Position = vec4(2.0, 2.0, 2.0, 0.0);
                 return;
             }
 
-            vec3 surfNorm;
-            float groundY = getGrassTerrainSurfaceHeight_gpu(worldXZ.x, worldXZ.y, roadDistGrass, roadMask, riverDistGrass, wGrass, localZone, uLowGraphics, distFromCam, surfNorm);
+            vec3 realNorm;
+            float groundY = sampleHMWithNormal_gpu(uNearHeightMap, uNearHMParams, 2.0, worldXZ, realNorm);
+            vec3 surfNorm = (uLowGraphics > 0.5 || distFromCam > 42.0) ? vec3(0.0, 1.0, 0.0) : realNorm;
             vTerrainNormalUp = normalize(normalMatrix * surfNorm);
 
-            float waterCull = smoothstep(-1.4, 0.5, groundY) * (1.0 - smoothstep(0.22, 0.38, 1.0 - surfNorm.y));
+            float waterCull = smoothstep(SEA_LEVEL + 0.14, SEA_LEVEL + 0.48, groundY) * (1.0 - smoothstep(0.22, 0.38, 1.0 - realNorm.y));
             float spawnCull = smoothstep(2.8, 5.5, length(worldXZ));
 
 
@@ -10585,21 +10842,13 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             float zoneCull = 1.0;
             if (localZone == 1) {
                 // Desert zone: dense around oasis shoreline, sparse desert scrub tufts on dry sand dunes
-                if (groundY > -0.4 && tuftRandom > 0.14) {
+                if (groundY > SEA_LEVEL + 0.65 && tuftRandom > 0.14) {
                     gl_Position = vec4(2.0, 2.0, 2.0, 0.0);
                     return;
                 }
-                zoneCull = (groundY > -0.4) ? 0.72 : 1.0;
+                zoneCull = (groundY > SEA_LEVEL + 0.65) ? 0.72 : 1.0;
             } else if (localZone == 2) {
-                // Mountain zone: match terrain mesh 2.5m vertex-normal slope & snowline so grass covers all green areas and stops right at rock/snow
-                float slopeEps = 2.5;
-                float z2dSpawn = length(worldXZ);
-                vec2 z2Center = floor(getZoneGrid_gpu(worldXZ) + 0.5) * 1600.0;
-                float hPx_z2 = getZone2Height_gpu(worldXZ.x + slopeEps, worldXZ.y, z2dSpawn, getRoadDistance_gpu(worldXZ.x + slopeEps, worldXZ.y), 0.0, z2Center, 0.0, 1.0);
-                float hMx_z2 = getZone2Height_gpu(worldXZ.x - slopeEps, worldXZ.y, z2dSpawn, getRoadDistance_gpu(worldXZ.x - slopeEps, worldXZ.y), 0.0, z2Center, 0.0, 1.0);
-                float hPz_z2 = getZone2Height_gpu(worldXZ.x, worldXZ.y + slopeEps, z2dSpawn, getRoadDistance_gpu(worldXZ.x, worldXZ.y + slopeEps), 0.0, z2Center, 0.0, 1.0);
-                float hMz_z2 = getZone2Height_gpu(worldXZ.x, worldXZ.y - slopeEps, z2dSpawn, getRoadDistance_gpu(worldXZ.x, worldXZ.y - slopeEps), 0.0, z2Center, 0.0, 1.0);
-                vec3 realNorm = normalize(vec3(hMx_z2 - hPx_z2, 2.0 * slopeEps, hMz_z2 - hPz_z2));
+                // Mountain zone: use real 2m heightmap slope & snowline so grass covers green valleys and stops cleanly at rock/snow
                 float realSlope = 1.0 - realNorm.y;
                 float snowElevZ2 = groundY - realSlope * 11.5;
                 float snowCull = 1.0 - smoothstep(62.0, 72.0, snowElevZ2);
@@ -10622,18 +10871,18 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
                     gl_Position = vec4(2.0, 2.0, 2.0, 0.0);
                     return;
                 }
-                if (groundY > 3.8 && groundY < 16.8) {
+                if (groundY > 7.8 && groundY < 16.8) {
                     gl_Position = vec4(2.0, 2.0, 2.0, 0.0);
                     return;
                 }
                 zoneCull = 0.70;
             } else if (localZone == 8) {
                 // Ancient Egypt: sparse on open dunes, lush near Nile / oasis
-                if (groundY > -0.4 && tuftRandom > 0.12) {
+                if (groundY > SEA_LEVEL + 0.65 && tuftRandom > 0.12) {
                     gl_Position = vec4(2.0, 2.0, 2.0, 0.0);
                     return;
                 }
-                zoneCull = (groundY > -0.4) ? 0.65 : 1.0;
+                zoneCull = (groundY > SEA_LEVEL + 0.65) ? 0.65 : 1.0;
             } else if (localZone == 9) {
                 // Tropical Jungle: tall, lush jungle ferns and elephant grass
                 zoneCull = 1.25;
@@ -10812,7 +11061,7 @@ function createTexturedToroidalGrass(baseGeo, count, patchSize, minRadius, maxRa
             bladeLinear = mix(bladeLinear, lighterBlade, greenBiomeWeight * 0.65);
 
             // Seamlessly blend bottom root of grass tuft into the zone's linear ground color
-            float oasisF = 1.0 - smoothstep(-2.0, -0.3, vGrassWorldPos.y);
+            float oasisF = 1.0 - smoothstep(5.15, 5.78, vGrassWorldPos.y);
             float heatherH = smoothstep(9.5, 17.5, vGrassWorldPos.y);
             vec3 groundRootCol = vec3(0.028, 0.070, 0.014) * vGrassZoneWeights.x
                 + mix(vec3(0.62, 0.52, 0.35), vec3(0.10, 0.22, 0.04), oasisF) * vGrassZoneWeights.y
@@ -11020,8 +11269,8 @@ function sampleTerrainVertexColor(wx, wz, wy, n, outArr, offset) {
         if (weights[currentZoneIndex] === 0) continue;
         if (currentZoneIndex === 1) {
             _tvTempCol.copy(_tvDesertSand).lerp(_tvDesertDune, smoothstep(0.20, 0.80, fieldNoise));
-            if (wy < -0.3) {
-                const oasisGreenery = 1.0 - smoothstep(-1.9, -0.3, wy);
+            if (wy < SEA_LEVEL + 0.55) {
+                const oasisGreenery = 1.0 - smoothstep(SEA_LEVEL - 0.05, SEA_LEVEL + 0.55, wy);
                 _tvTempCol.lerp(_tvDesertOasisGrass, oasisGreenery * 0.85);
             }
             if (roadF > 0.01) {
@@ -11168,14 +11417,15 @@ function sampleTerrainVertexColor(wx, wz, wy, n, outArr, offset) {
         blue += _tvTempCol.b * weights[currentZoneIndex];
     }
     const riverDist = getRiverDistance(wx, wz);
-    if (riverDist < 23.0 && Math.hypot(wx, wz) > 26.0) {
-        const rivZoneF = 1.0 - smoothstep(13.5, 23.0, riverDist);
+    if (riverDist < 31.0 && Math.hypot(wx, wz) > 26.0) {
+        const rivZoneF = 1.0 - smoothstep(21.5, 30.5, riverDist);
         const bankNoise = fbm3((wx + seedOffset.x) * 0.035, (wz + seedOffset.z) * 0.035) * 0.5 + 0.5;
         const sandCol = _tvScratchA.setHex(0xb89464);
         const cobbleCol = _tvScratchB.setHex(0x6e6a62);
         _tvTempCol.copy(sandCol).lerp(cobbleCol, smoothstep(0.32, 0.72, bankNoise));
-        if (wy < -1.8) {
-            const wetF = 1.0 - smoothstep(-2.8, -1.8, wy);
+        const rivWaterY = getRiverWaterLevel(wx, wz);
+        if (wy < rivWaterY + 0.36) {
+            const wetF = 1.0 - smoothstep(rivWaterY - 0.2, rivWaterY + 0.36, wy);
             _tvTempCol.lerp(_tvTempDirtCol.setHex(0x282620), wetF * 0.72);
         }
         red = mix(red, _tvTempCol.r, rivZoneF * 0.85);
@@ -11293,6 +11543,80 @@ function getVillageTemplates(isCrossroadsVillage, isWestVillage) {
     ];
 }
 
+function buildRiverWaterGridGeometry(centerX, centerZ, halfExtent, step, maxRiverDist) {
+    const cells = Math.round((halfExtent * 2) / step);
+    const cols = cells + 1;
+    const dists = new Float32Array(cols * cols);
+    const coastTs = new Float32Array(cols * cols);
+    let anyRiver = false;
+
+    for (let iz = 0; iz <= cells; iz++) {
+        const wz = centerZ - halfExtent + iz * step;
+        const rowOff = iz * cols;
+        for (let ix = 0; ix <= cells; ix++) {
+            const wx = centerX - halfExtent + ix * step;
+            const d = getRiverDistance(wx, wz);
+            const ct = getRiverCoastalT(wx, wz);
+            dists[rowOff + ix] = d;
+            coastTs[rowOff + ix] = ct;
+            if (d < maxRiverDist && ct < 0.999) {
+                anyRiver = true;
+            }
+        }
+    }
+    if (!anyRiver) return null;
+
+    const positions = [];
+    const normals = [];
+    const indices = [];
+    const vertIndexMap = new Int32Array(cols * cols).fill(-1);
+    let minWaterY = Infinity;
+    let maxWaterY = -Infinity;
+
+    const getVert = (ix, iz) => {
+        const key = iz * cols + ix;
+        if (vertIndexMap[key] !== -1) return vertIndexMap[key];
+        const lx = -halfExtent + ix * step;
+        const lz = -halfExtent + iz * step;
+        const wy = mix(RIVER_LEVEL, SEA_LEVEL, coastTs[key]);
+        if (wy < minWaterY) minWaterY = wy;
+        if (wy > maxWaterY) maxWaterY = wy;
+        const idx = positions.length / 3;
+        positions.push(lx, wy, lz);
+        normals.push(0, 1, 0);
+        vertIndexMap[key] = idx;
+        return idx;
+    };
+
+    for (let iz = 0; iz < cells; iz++) {
+        const row0 = iz * cols;
+        const row1 = (iz + 1) * cols;
+        for (let ix = 0; ix < cells; ix++) {
+            const k00 = row0 + ix;
+            const k10 = k00 + 1;
+            const k01 = row1 + ix;
+            const k11 = k01 + 1;
+            if (Math.min(dists[k00], dists[k10], dists[k01], dists[k11]) >= maxRiverDist) continue;
+            if (Math.min(coastTs[k00], coastTs[k10], coastTs[k01], coastTs[k11]) >= 0.999) continue;
+            const v00 = getVert(ix, iz);
+            const v10 = getVert(ix + 1, iz);
+            const v01 = getVert(ix, iz + 1);
+            const v11 = getVert(ix + 1, iz + 1);
+            indices.push(v00, v01, v10);
+            indices.push(v10, v01, v11);
+        }
+    }
+
+    if (indices.length === 0) return null;
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    geo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+    geo.setIndex(indices);
+    geo.userData.minWaterY = minWaterY;
+    geo.userData.maxWaterY = maxWaterY;
+    return geo;
+}
+
 class TerrainChunk {
     constructor(cx, cz) {
         this.cx = cx;
@@ -11308,6 +11632,7 @@ class TerrainChunk {
         this.fireSprites = [];
         this.bushMesh = null;
         this.extraPlantMeshes = [];
+        this.riverWaterMesh = null;
 
         this.buildTerrainMesh();
         this.populateChunkContent();
@@ -11334,8 +11659,8 @@ class TerrainChunk {
             const wy = getTerrainHeight(wx, wz);
             if (wy < minWy) minWy = wy;
             let meshY = wy;
-            if (wy < -2.90) {
-                const submergeDepth = smoothstep(-2.90, -3.80, wy);
+            if (wy < SEA_LEVEL - 0.90) {
+                const submergeDepth = smoothstep(SEA_LEVEL - 0.90, SEA_LEVEL - 1.80, wy);
                 meshY -= submergeDepth * 1.2;
             }
 
@@ -11348,13 +11673,15 @@ class TerrainChunk {
         geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
         geo.computeVertexNormals();
 
-        this.hasWater = (minWy < -1.8);
+        const chunkCenterX = xMin + CHUNK_SIZE * 0.5;
+        const chunkCenterZ = zMin + CHUNK_SIZE * 0.5;
+        this.hasWater = (minWy < SEA_LEVEL + 0.5);
         this.waterBounds = new THREE.Box3(
-            new THREE.Vector3(xMin, -12, zMin),
-            new THREE.Vector3(xMin + CHUNK_SIZE, -1.5, zMin + CHUNK_SIZE)
+            new THREE.Vector3(xMin, SEA_LEVEL - 10, zMin),
+            new THREE.Vector3(xMin + CHUNK_SIZE, SEA_LEVEL + 1.0, zMin + CHUNK_SIZE)
         );
         this.terrainMesh = new THREE.Mesh(geo, terrainMat);
-        this.terrainMesh.position.set(xMin + CHUNK_SIZE * 0.5, 0, zMin + CHUNK_SIZE * 0.5);
+        this.terrainMesh.position.set(chunkCenterX, 0, chunkCenterZ);
         this.terrainMesh.receiveShadow = true;
         this.terrainMesh.layers.enable(2);
         this.terrainMesh.updateMatrix();
@@ -11398,7 +11725,7 @@ class TerrainChunk {
                 const baseBy = getTerrainHeight(bx, bz);
                 const norm = getTerrainNormal(bx, bz);
                 const minNormY = (currentZoneIndex === 2) ? 0.80 : 0.85;
-                if (baseBy < -1.8 || getRiverDistance(bx, bz) < 20.0 || getRoadDistance(bx, bz) < 9.5 || norm.y < minNormY || (currentZoneIndex === 2 && baseBy > 16.5)) return;
+                if (baseBy < getWaterLevel(bx, bz) + 0.7 || getRiverDistance(bx, bz) < 33.0 || getRoadDistance(bx, bz) < 9.5 || norm.y < minNormY || (currentZoneIndex === 2 && baseBy > 16.5)) return;
                 const by = Math.max(
                     baseBy,
                     getTerrainHeight(bx - 2.6, bz - 2.6),
@@ -11658,7 +11985,7 @@ class TerrainChunk {
                 const baseHy = canPlaceRoadside ? getTerrainHeight(hx, hz) : -999;
                 const norm = canPlaceRoadside ? getTerrainNormal(hx, hz) : null;
 
-                if (canPlaceRoadside && baseHy > -1.8 && getRiverDistance(hx, hz) >= 20.0 && norm && norm.y > 0.84 && (currentZoneIndex !== 2 || baseHy < 15.5)) {
+                if (canPlaceRoadside && baseHy > getWaterLevel(hx, hz) + 0.7 && getRiverDistance(hx, hz) >= 33.0 && norm && norm.y > 0.84 && (currentZoneIndex !== 2 || baseHy < 15.5)) {
                     const hy = Math.max(
                         baseHy,
                         getTerrainHeight(hx - 2.6, hz - 2.6),
@@ -11805,9 +12132,9 @@ class TerrainChunk {
             if (Math.hypot(rx, rz) < 26) continue;
             if (Math.hypot(rx - (-19), rz - 22) < 18) continue;
             if (getRoadFactor(rx, rz) > 0.25) continue;
-            if (getRiverDistance(rx, rz) < 11.0) continue;
+            if (getRiverDistance(rx, rz) < 23.0) continue;
             const ry = getTerrainHeight(rx, rz);
-            if (ry < -2.0) continue;
+            if (ry < getWaterLevel(rx, rz) + 0.5) continue;
             if (currentZoneIndex === 2 && ry > 65.0) continue;
 
             const rs = (currentZoneIndex === 6 || currentZoneIndex === 7 ? 1.25 : currentZoneIndex === 2 ? 1.15 : 1.0) + rng() * (currentZoneIndex === 6 ? 0.85 : 0.50);
@@ -11850,7 +12177,7 @@ class TerrainChunk {
 
             if (Math.hypot(tx, tz) < 20) continue; // Keep spawn clear
             if (getRoadFactor(tx, tz) > 0.20) continue; // Keep roads clear
-            if (getRiverDistance(tx, tz) < 13.0) continue; // Keep river channel & cobble shore clear
+            if (getRiverDistance(tx, tz) < 25.5) continue; // Keep river channel & cobble shore clear
 
             let collidesBuilding = false;
             for (let b = 0; b < this.buildings.length; b++) {
@@ -11872,7 +12199,7 @@ class TerrainChunk {
             if (collidesBuilding) continue;
 
             const ty = getTerrainHeight(tx, tz);
-            if (ty < -2.4) continue;
+            if (ty < getWaterLevel(tx, tz) + 0.1) continue;
             // In Alpine Mountains, respect the high-altitude snow timberline (no trees on sheer high peaks > 17m)
             if (currentZoneIndex === 2 && ty > 17.0) continue;
 
@@ -11882,7 +12209,7 @@ class TerrainChunk {
             if (currentZoneIndex === 1) {
                 // Desert: Varied Date Palms near oasis/villages/low wadis, Saguaro Cacti, Joshua Trees, & Umbrella Acacias
                 const nearOasis = Math.hypot(tx - 58.0, tz - 78.0) < 88.0;
-                if (nearOasis || isVillage || (ty < 1.8 && treeRoll < 0.65)) {
+                if (nearOasis || isVillage || (ty < SEA_LEVEL + 1.4 && treeRoll < 0.65)) {
                     if (treeRoll < 0.78 || nearOasis) {
                         const pVar = Math.floor(rng() * (sharedPalmGeos.length || 1));
                         treeGeo = (sharedPalmGeos && sharedPalmGeos[pVar]) ? sharedPalmGeos[pVar] : sharedPalmGeo;
@@ -12079,7 +12406,7 @@ class TerrainChunk {
                 }
             } else {
                 // Coastal Meadow: Weeping Willow near water/hollows, Silver Birch, Cypress, Beech, Pine & Spruce
-                if (ty < 1.2 && treeRoll < 0.42 && sharedWillowGeo) {
+                if (ty < SEA_LEVEL + 1.4 && treeRoll < 0.42 && sharedWillowGeo) {
                     treeGeo = sharedWillowGeo;
                     treeType = 'willow';
                     trunkH = 9.4;
@@ -12201,9 +12528,9 @@ class TerrainChunk {
         for (let b = 0; b < bushCount; b++) {
             const bx = xMin + (0.05 + rng() * 0.90) * CHUNK_SIZE;
             const bz = zMin + (0.05 + rng() * 0.90) * CHUNK_SIZE;
-            if (getRoadFactor(bx, bz) > 0.28 || getRiverDistance(bx, bz) < 12.5) continue;
+            if (getRoadFactor(bx, bz) > 0.28 || getRiverDistance(bx, bz) < 24.5) continue;
             const by = getTerrainHeight(bx, bz);
-            if (by < -2.4 || (currentZoneIndex === 2 && by > 15.0)) continue;
+            if (by < getWaterLevel(bx, bz) + 0.1 || (currentZoneIndex === 2 && by > 15.0)) continue;
             const bs = (currentZoneIndex === 9) ? (1.05 + rng() * 0.95) : (0.75 + rng() * 0.65);
 
             dummyBush.position.set(bx, by, bz);
@@ -12350,6 +12677,10 @@ class TerrainChunk {
         if (this.terrainMesh) {
             this.terrainMesh.geometry.dispose();
         }
+        if (this.riverWaterMesh) {
+            this.riverWaterMesh.geometry.dispose();
+            this.riverWaterMesh = null;
+        }
         if (this.bushMesh) {
             this.bushMesh.dispose && this.bushMesh.dispose();
         }
@@ -12373,6 +12704,14 @@ function updateTerrainChunks(playerX, playerZ, forceSyncCenter = false) {
     if (centerChanged || forceSyncCenter) {
         activeChunkCenterX = playerCX;
         activeChunkCenterZ = playerCZ;
+        if (sharedWaterUniforms && sharedWaterUniforms.uActiveChunkBounds) {
+            sharedWaterUniforms.uActiveChunkBounds.value.set(
+                (playerCX - currentViewRadius) * CHUNK_SIZE,
+                (playerCZ - currentViewRadius) * CHUNK_SIZE,
+                (playerCX + currentViewRadius + 1) * CHUNK_SIZE,
+                (playerCZ + currentViewRadius + 1) * CHUNK_SIZE
+            );
+        }
 
         // On initial zone boot or restart, build the center chunk immediately
         // so the player's tank has immediate collision ground
@@ -12507,8 +12846,8 @@ function buildFarRingMesh(centerX, centerZ, halfExtent, step, skipInnerHalf, ySk
         const wz = centerZ - halfExtent + iz * step;
         const wy = getTerrainHeight(wx, wz);
         let meshY = wy;
-        if (wy < -2.90) {
-            meshY -= smoothstep(-2.90, -3.80, wy) * 1.2;
+        if (wy < SEA_LEVEL - 0.90) {
+            meshY -= smoothstep(SEA_LEVEL - 0.90, SEA_LEVEL - 1.80, wy) * 1.2;
         }
         const n = getTerrainNormal(wx, wz);
         sampleTerrainVertexColor(wx, wz, wy, n, rgb, 0);
@@ -13163,7 +13502,7 @@ function getFarChunkProps(cx, cz, isMobile) {
             const baseBy = getTerrainHeight(bx, bz);
             const norm = getTerrainNormal(bx, bz);
             const minNormY = (zoneIdx === 2) ? 0.80 : 0.85;
-            if (baseBy < -1.8 || getRiverDistance(bx, bz) < 20.0 || getRoadDistance(bx, bz) < 9.5 || norm.y < minNormY || (zoneIdx === 2 && baseBy > 16.5)) continue;
+            if (baseBy < getWaterLevel(bx, bz) + 0.7 || getRiverDistance(bx, bz) < 33.0 || getRoadDistance(bx, bz) < 9.5 || norm.y < minNormY || (zoneIdx === 2 && baseBy > 16.5)) continue;
             const by = Math.max(
                 baseBy,
                 getTerrainHeight(bx - 2.6, bz - 2.6),
@@ -13217,7 +13556,7 @@ function getFarChunkProps(cx, cz, isMobile) {
             const baseHy = canPlaceRoadside ? getTerrainHeight(hx, hz) : -999;
             const norm = canPlaceRoadside ? getTerrainNormal(hx, hz) : null;
 
-            if (canPlaceRoadside && baseHy > -1.8 && getRiverDistance(hx, hz) >= 20.0 && norm && norm.y > 0.84 && (zoneIdx !== 2 || baseHy < 15.5)) {
+            if (canPlaceRoadside && baseHy > getWaterLevel(hx, hz) + 0.7 && getRiverDistance(hx, hz) >= 33.0 && norm && norm.y > 0.84 && (zoneIdx !== 2 || baseHy < 15.5)) {
                 const hy = Math.max(
                     baseHy,
                     getTerrainHeight(hx - 2.6, hz - 2.6),
@@ -13301,9 +13640,9 @@ function getFarChunkProps(cx, cz, isMobile) {
         if (Math.hypot(rx, rz) < 26) continue;
         if (Math.hypot(rx + 19, rz - 22) < 18) continue;
         if (getRoadFactor(rx, rz) > 0.25) continue;
-        if (getRiverDistance(rx, rz) < 11.0) continue;
+        if (getRiverDistance(rx, rz) < 23.0) continue;
         const ry = getTerrainHeight(rx, rz);
-        if (ry < -2.0) continue;
+        if (ry < getWaterLevel(rx, rz) + 0.5) continue;
         if (zoneIdx === 2 && ry > 65.0) continue;
         const rs = (zoneIdx === 6 || zoneIdx === 7 ? 1.25 : zoneIdx === 2 ? 1.15 : 1.0) + rng() * (zoneIdx === 6 ? 0.85 : 0.50);
         const rot = rng() * Math.PI * 2;
@@ -13320,7 +13659,7 @@ function getFarChunkProps(cx, cz, isMobile) {
         if (tx === null) continue;
         if (Math.hypot(tx, tz) < 20) continue;
         if (getRoadFactor(tx, tz) > 0.20) continue;
-        if (getRiverDistance(tx, tz) < 13.0) continue;
+        if (getRiverDistance(tx, tz) < 25.5) continue;
 
         let collidesBuilding = false;
         for (let b = 0; b < houses.length; b++) {
@@ -13342,7 +13681,7 @@ function getFarChunkProps(cx, cz, isMobile) {
         if (collidesBuilding) continue;
 
         const ty = getTerrainHeight(tx, tz);
-        if (ty < -2.4) continue;
+        if (ty < getWaterLevel(tx, tz) + 0.1) continue;
         if (zoneIdx === 2 && ty > 17.0) continue;
 
         const treeRoll = rng();
@@ -13351,7 +13690,7 @@ function getFarChunkProps(cx, cz, isMobile) {
         let isAcacia = false;
         if (zoneIdx === 1) {
             const nearOasis = Math.hypot(tx - 58.0, tz - 78.0) < 88.0;
-            if (nearOasis || isVillage || (ty < 1.8 && treeRoll < 0.65)) {
+            if (nearOasis || isVillage || (ty < SEA_LEVEL + 1.4 && treeRoll < 0.65)) {
                 if (treeRoll < 0.78 || nearOasis) {
                     const pVar = Math.floor(rng() * (sharedPalmGeos.length || 1));
                     cat = 'palm';
@@ -13410,7 +13749,7 @@ function getFarChunkProps(cx, cz, isMobile) {
             else if (treeRoll < 0.76) cat = 'conifer';
             else cat = 'broadleaf';
         } else {
-            if (ty < 1.2 && treeRoll < 0.42) cat = 'broadleaf';
+            if (ty < SEA_LEVEL + 1.4 && treeRoll < 0.42) cat = 'broadleaf';
             else if (isVillage) cat = (treeRoll < 0.38) ? 'cypress' : 'broadleaf';
             else if (forestNoise > 0.52) cat = (treeRoll < 0.68) ? 'conifer' : 'broadleaf';
             else cat = (treeRoll < 0.62) ? 'conifer' : 'broadleaf';
@@ -13554,6 +13893,11 @@ function updateFarTerrainAndTrees(playerX, playerZ, force = false) {
         farTerrainGroup.remove(farOuterMesh);
         farOuterMesh.geometry.dispose();
         farOuterMesh = null;
+    }
+    if (farRiverWaterMesh) {
+        farTerrainGroup.remove(farRiverWaterMesh);
+        farRiverWaterMesh.geometry.dispose();
+        farRiverWaterMesh = null;
     }
 
     const currentViewRadius = isMobile ? 2 : VIEW_RADIUS;
@@ -13718,11 +14062,11 @@ function initEnvironment(scene) {
     if (!sharedFireTex) sharedFireTex = createFireCanvasTexture();
 }
 
-function createZoneWaterMaterial() {
+function createZoneWaterMaterial(isRiver = false, clipActiveChunks = false) {
     const rippleTex = (typeof window.createWaterRippleTexture === 'function') ? window.createWaterRippleTexture() : null;
     return new THREE.ShaderMaterial({
         uniforms: {
-            uTime: { value: 0 },
+            uTime: sharedWaterUniforms.uTime,
             uSeedOffset: terrainUniforms.uSeedOffset,
             uRoadBaseX: terrainUniforms.uRoadBaseX,
             uRoad2BaseZ: terrainUniforms.uRoad2BaseZ,
@@ -13736,9 +14080,17 @@ function createZoneWaterMaterial() {
             uSkyTopColor: terrainUniforms.uSkyTopColor,
             uHazeStrength: terrainUniforms.uHazeStrength,
             tRippleMap: { value: rippleTex },
-            tReflection: { value: null },
-            uReflectVP: { value: new THREE.Matrix4() },
-            uHasReflection: { value: 0.0 },
+            tReflection: sharedWaterUniforms.tReflection,
+            uReflectVP: sharedWaterUniforms.uReflectVP,
+            uHasReflection: sharedWaterUniforms.uHasReflection,
+            uReflPlaneY: sharedWaterUniforms.uReflPlaneY,
+            uActiveChunkBounds: sharedWaterUniforms.uActiveChunkBounds,
+            uNearHeightMap: terrainHeightMapUniforms.uNearHeightMap,
+            uNearHMParams: terrainHeightMapUniforms.uNearHMParams,
+            uFarHeightMap: terrainHeightMapUniforms.uFarHeightMap,
+            uFarHMParams: terrainHeightMapUniforms.uFarHMParams,
+            uIsRiverWater: { value: isRiver ? 1.0 : 0.0 },
+            uClipActiveChunks: { value: clipActiveChunks ? 1.0 : 0.0 },
             uCloudTex: (window.celestialLighting && window.celestialLighting.cloudTex) ? window.celestialLighting.cloudTex : { value: null },
             uCloudShadowParams: (window.celestialLighting && window.celestialLighting.cloudShadowParams) ? window.celestialLighting.cloudShadowParams : { value: new THREE.Vector4(0, 0.48, 0.0018, 0.74) },
             uCloudTime: (window.celestialLighting && window.celestialLighting.time) ? window.celestialLighting.time : { value: 0 },
@@ -13750,19 +14102,24 @@ function createZoneWaterMaterial() {
         vertexShader: `
             uniform float uTime;
             uniform mat4 uReflectVP;
+            uniform float uIsRiverWater;
+            uniform float uReflPlaneY;
             varying vec3 vWorldPos;
             varying float vWaveHeight;
+            varying float vWaterLevel;
             varying vec4 vReflClip;
             void main() {
                 vec4 wp = modelMatrix * vec4(position, 1.0);
-                float waveScale = mix(0.10, 1.0, smoothstep(120.0, 240.0, wp.z));
+                vWaterLevel = wp.y;
+                float coastalExtentV = (1.0 - smoothstep(550.0, 850.0, abs(wp.x))) * (1.0 - smoothstep(750.0, 1150.0, wp.z));
+                float waveScale = smoothstep(290.0, 390.0, wp.z) * coastalExtentV;
                 float w1 = sin(wp.x * 0.032 + uTime * 1.45) * cos(wp.z * 0.026 + uTime * 1.15) * 0.22 * waveScale;
                 float w2 = sin(wp.x * 0.085 - wp.z * 0.065 + uTime * 2.15) * 0.09 * waveScale;
                 float w3 = cos(wp.z * 0.16 + uTime * 2.85) * 0.04 * waveScale;
                 wp.y += w1 + w2 + w3;
                 vWaveHeight = w1 + w2 + w3;
                 vWorldPos = wp.xyz;
-                vReflClip = uReflectVP * vec4(wp.x, -2.5, wp.z, 1.0);
+                vReflClip = uReflectVP * vec4(wp.x, uReflPlaneY, wp.z, 1.0);
                 gl_Position = projectionMatrix * viewMatrix * wp;
             }
         `,
@@ -13777,18 +14134,32 @@ function createZoneWaterMaterial() {
             uniform sampler2D tRippleMap;
             uniform sampler2D tReflection;
             uniform float uHasReflection;
+            uniform float uIsRiverWater;
+            uniform float uClipActiveChunks;
+            uniform float uReflPlaneY;
+            uniform vec4 uActiveChunkBounds;
             ${CLOUD_SHADOW_GLSL}
             varying vec3 vWorldPos;
             varying float vWaveHeight;
+            varying float vWaterLevel;
             varying vec4 vReflClip;
-            ${SHARED_TERRAIN_GLSL}
+            ${SHARED_TERRAIN_COMMON_GLSL}
+            ${TERRAIN_HEIGHTMAP_SAMPLER_GLSL}
             ${BABYLON_HAZE_GLSL}
 
             void main() {
-                float terrainY = getTerrainHeight_gpu(vWorldPos.x, vWorldPos.z);
-                float waterDepth = (-2.5) - terrainY;
-                if (waterDepth < -0.25) discard;
+                if (uClipActiveChunks > 0.5 &&
+                    vWorldPos.x >= uActiveChunkBounds.x && vWorldPos.x <= uActiveChunkBounds.z &&
+                    vWorldPos.z >= uActiveChunkBounds.y && vWorldPos.z <= uActiveChunkBounds.w) {
+                    discard;
+                }
 
+                float terrainY = sampleWaterTerrainHeight_gpu(vWorldPos.xz);
+                float waterSurfaceY = SEA_LEVEL;
+                float waterDepth = waterSurfaceY - terrainY;
+                if (waterDepth < -0.18) discard;
+
+                float riverWaterMask = getRiverFactor_gpu(vWorldPos.x, vWorldPos.z);
                 vec2 p = vWorldPos.xz;
                 float distToCam = length(p - cameraPosition.xz);
 
@@ -13797,6 +14168,13 @@ function createZoneWaterMaterial() {
                 vec4 r1 = texture2D(tRippleMap, p / 11.7  + vec2(-uTime * 0.024,  uTime * 0.018));
                 vec4 r2 = texture2D(tRippleMap, p / 3.1   + vec2( uTime * 0.045, -uTime * 0.032));
                 vec4 r3 = texture2D(tRippleMap, p / 0.83  + vec2(-uTime * 0.070, -uTime * 0.055));
+                float riverFlowBlend = smoothstep(0.05, 0.35, riverWaterMask);
+                if (riverFlowBlend > 0.01) {
+                    vec4 r2Riv = texture2D(tRippleMap, p / 3.1  + vec2( uTime * 0.018, uTime * 0.038));
+                    vec4 r3Riv = texture2D(tRippleMap, p / 0.83 + vec2(-uTime * 0.022, uTime * 0.055));
+                    r2 = mix(r2, r2Riv, riverFlowBlend);
+                    r3 = mix(r3, r3Riv, riverFlowBlend);
+                }
 
                 float detailFade = 1.0 - smoothstep(120.0, 900.0, distToCam);
                 vec2 slope = (r0.rg - 0.5) * 0.16
@@ -13857,7 +14235,12 @@ function createZoneWaterMaterial() {
                 midCol = mix(midCol, vec3(0.05, 0.28, 0.44), wWater[11]);
                 shallowCol = mix(shallowCol, vec3(0.12, 0.46, 0.56), wWater[11]);
 
-                float depthFactor = clamp(waterDepth / 9.0, 0.0, 1.0);
+                float coastalExtentF = (1.0 - smoothstep(550.0, 850.0, abs(vWorldPos.x))) * (1.0 - smoothstep(750.0, 1150.0, vWorldPos.z));
+                float openOceanSurf = smoothstep(195.0, 265.0, vWorldPos.z) * coastalExtentF * (1.0 - riverWaterMask * 0.92);
+                float inlandWaterMask = clamp(max(riverWaterMask, 1.0 - openOceanSurf), 0.0, 1.0);
+
+                float depthScale = mix(8.5, 4.0, inlandWaterMask);
+                float depthFactor = clamp(waterDepth / depthScale, 0.0, 1.0);
                 vec3 waterCol = mix(shallowCol, midCol, smoothstep(0.0, 0.45, depthFactor));
                 waterCol = mix(waterCol, deepCol, smoothstep(0.35, 1.0, depthFactor));
                 // Lit turbid scattering
@@ -13872,7 +14255,8 @@ function createZoneWaterMaterial() {
 
                 // Babylon-style planar reflection with 4-tap anisotropic wave-jittered lookup
                 vec3 envRefl = skyRefl;
-                if (uHasReflection > 0.5 && vReflClip.w > 0.05) {
+                float reflPlaneMatch = 1.0 - smoothstep(0.15, 0.75, abs(uReflPlaneY - waterSurfaceY));
+                if (uHasReflection > 0.5 && vReflClip.w > 0.05 && reflPlaneMatch > 0.01) {
                     vec2 baseUV = (vReflClip.xy / vReflClip.w) * 0.5 + 0.5;
                     vec2 distort = N.xz * mix(0.055, 0.018, clamp(distToCam / 400.0, 0.0, 1.0));
                     vec2 uvR = baseUV + distort;
@@ -13887,7 +14271,7 @@ function createZoneWaterMaterial() {
                             texture2D(tReflection, clamp(uvR + j2, 0.002, 0.998)).rgb +
                             texture2D(tReflection, clamp(uvR - j2, 0.002, 0.998)).rgb
                         ) * 0.25;
-                        envRefl = mix(skyRefl, reflTex, edgeFade * 0.92);
+                        envRefl = mix(skyRefl, reflTex, edgeFade * 0.92 * reflPlaneMatch);
                     }
                 }
 
@@ -13907,7 +14291,7 @@ function createZoneWaterMaterial() {
                 float crestA = pow(max(surfWaveA, 0.0), 5.0);
                 float crestB = pow(max(surfWaveB, 0.0), 6.0);
 
-                // Thin, delicate shoreline contact foam and narrow shallow-water ripples
+                // Thin, delicate shoreline contact foam and open-coast shallow-water surf ripples
                 float shoreEdge = (1.0 - smoothstep(0.0, 0.38, max(waterDepth, 0.0)))
                                 * smoothstep(-0.14, 0.04, waterDepth)
                                 * (0.35 + 0.65 * crestA)
@@ -13915,22 +14299,23 @@ function createZoneWaterMaterial() {
                 float primaryRipple = smoothstep(0.02, 0.22, waterDepth)
                                     * (1.0 - smoothstep(0.35, 1.35, waterDepth))
                                     * crestA
-                                    * smoothstep(0.24, 0.72, lacyDetail);
+                                    * smoothstep(0.24, 0.72, lacyDetail)
+                                    * openOceanSurf;
                 float secondaryRipple = smoothstep(0.18, 0.55, waterDepth)
                                       * (1.0 - smoothstep(0.75, 1.85, waterDepth))
                                       * crestB
                                       * smoothstep(0.30, 0.78, lacyDetail)
-                                      * (0.35 + 0.65 * detailFade);
+                                      * (0.35 + 0.65 * detailFade)
+                                      * openOceanSurf;
                 float whitecap = smoothstep(0.24, 0.38, vWaveHeight + (r2.a - 0.5) * 0.14 + (r3.a - 0.5) * 0.10)
                                * smoothstep(1.5, 5.0, waterDepth)
-                               * smoothstep(0.36, 0.76, lacyDetail) * 0.32;
+                               * smoothstep(0.36, 0.76, lacyDetail) * 0.32 * openOceanSurf;
                 float totalFoam = clamp(shoreEdge * 0.52 + primaryRipple * 0.42 + secondaryRipple * 0.26 + whitecap, 0.0, 0.76);
 
                 vec3 foamColor = mix(vec3(0.88, 0.93, 0.96), uSunColor, 0.22) * dayLit;
                 waterCol = mix(waterCol, foamColor, totalFoam);
 
-                float riverWaterMask = getRiverFactor_gpu(vWorldPos.x, vWorldPos.z);
-                float alphaDepthMax = mix(0.45, 1.05, riverWaterMask);
+                float alphaDepthMax = mix(0.45, 0.32, inlandWaterMask);
                 float shoreAlpha = smoothstep(-0.18, alphaDepthMax, waterDepth);
                 waterCol = applyBabylonAerialHaze(waterCol, vWorldPos, cameraPosition, uSunDir, uSunColor, uSkyColor, uSkyTopColor, uHazeStrength);
 
@@ -13945,7 +14330,7 @@ function createCoastalOceanMesh() {
     oceanGeo.rotateX(-Math.PI / 2);
     const oceanMat = createZoneWaterMaterial();
     const oceanMesh = new THREE.Mesh(oceanGeo, oceanMat);
-    oceanMesh.position.set(0, -2.5, 0);
+    oceanMesh.position.set(0, SEA_LEVEL, 0);
     oceanMesh.receiveShadow = true;
     oceanMesh.renderOrder = -10; // Environmental water surface: always render before transparent particle effects
     return oceanMesh;
@@ -14583,49 +14968,7 @@ function buildEnvironment(scene) {
     if (!waterMeshRef) {
         waterMeshRef = createCoastalOceanMesh();
         envGroup.add(waterMeshRef);
-        const _waterVisFrustum = new THREE.Frustum();
-const _waterVisProjMat = new THREE.Matrix4();
-const _waterVisFwd = new THREE.Vector3();
-
-/**
- * Returns true if any water surface is potentially visible to `cam`,
- * allowing inland scenes to skip the planar reflection pass.
- */
-function hasVisibleWaterForCamera(cam) {
-    if (!waterMeshRef || !waterMeshRef.visible || !cam) return false;
-    _waterVisProjMat.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
-    _waterVisFrustum.setFromProjectionMatrix(_waterVisProjMat);
-
-    for (const chunk of activeChunks.values()) {
-        if (chunk.hasWater && chunk.waterBounds && _waterVisFrustum.intersectsBox(chunk.waterBounds)) {
-            return true;
-        }
-    }
-
-    cam.getWorldDirection(_waterVisFwd);
-    const fl = Math.hypot(_waterVisFwd.x, _waterVisFwd.z);
-    const fx = fl > 1e-4 ? _waterVisFwd.x / fl : 0;
-    const fz = fl > 1e-4 ? _waterVisFwd.z / fl : 1;
-    const rx = -fz;
-    const rz = fx;
-    const cx = cam.position.x;
-    const cz = cam.position.z;
-
-    const farDists = [180, 320, 500, 750];
-    for (let i = 0; i < farDists.length; i++) {
-        const d = farDists[i];
-        const wx = cx + fx * d;
-        const wz = cz + fz * d;
-        if (getTerrainHeight(wx, wz) < -2.1) return true;
-        const spread = d * 0.45;
-        if (getTerrainHeight(wx + rx * spread, wz + rz * spread) < -2.1) return true;
-        if (getTerrainHeight(wx - rx * spread, wz - rz * spread) < -2.1) return true;
-    }
-    return false;
-}
-
-window.waterMeshRef = waterMeshRef;
-window.hasVisibleWaterForCamera = hasVisibleWaterForCamera;
+        window.waterMeshRef = waterMeshRef;
     }
 
     setWorldSeed(currentSeed, currentZone);
@@ -14638,6 +14981,7 @@ window.hasVisibleWaterForCamera = hasVisibleWaterForCamera;
     farChunkPropCache.clear();
     updateTerrainChunks(0, 0, true);
     updateFarTerrainAndTrees(0, 0, true);
+    updateTerrainHeightMaps(0, 0, true);
     if (typeof window.spawnZoneEnemies === 'function') {
         window.spawnZoneEnemies();
     } else if (typeof window.spawnInitialFieldEnemies === 'function') {
@@ -14693,7 +15037,7 @@ function updateEnvironment(dt, tankState) {
 
     if (waterMeshRef && waterMeshRef.material && waterMeshRef.material.uniforms && waterMeshRef.material.uniforms.uTime) {
         waterMeshRef.material.uniforms.uTime.value = timeSec;
-        waterMeshRef.position.set(px, -2.5, pz);
+        waterMeshRef.position.set(px, SEA_LEVEL, pz);
         waterMeshRef.renderOrder = -10;
     }
 
@@ -14721,6 +15065,7 @@ function updateEnvironment(dt, tankState) {
 
     updateTerrainChunks(px, pz);
     updateFarTerrainAndTrees(px, pz);
+    updateTerrainHeightMaps(cx, cz, false);
     processChunkStreamingQueue(3.5);
     updateBuildingInteriors(px, pz);
 
@@ -14754,10 +15099,15 @@ function updateEnvironment(dt, tankState) {
 // ============================================================================
 function getPlayerRespawnPosition() {
     const death = window.lastPlayerDeathPosition;
-    const WATER_LEVEL = (typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5;
+    const resolveWaterLevel = (wx, wz) => {
+        if (typeof getWaterLevel === 'function') return getWaterLevel(wx, wz);
+        if (typeof window !== 'undefined' && typeof window.getWaterLevel === 'function') return window.getWaterLevel(wx, wz);
+        return (typeof window !== 'undefined' && typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5;
+    };
     if (!death || typeof death.x !== 'number' || typeof death.z !== 'number') {
         const defaultY = (typeof getTerrainHeight === 'function') ? getTerrainHeight(0, 0) : 0;
-        return { x: 0, y: Math.max(defaultY, WATER_LEVEL - 1.25), z: 0, heading: 0 };
+        const defaultWaterY = resolveWaterLevel(0, 0);
+        return { x: 0, y: Math.max(defaultY, defaultWaterY - 1.25), z: 0, heading: 0 };
     }
 
     const dx = death.x;
@@ -14818,18 +15168,19 @@ function getPlayerRespawnPosition() {
             const cy = (typeof getTerrainHeight === 'function')
                 ? getTerrainHeight(cx, cz)
                 : ((typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(cx, cz) : 0);
+            const candWaterY = resolveWaterLevel(cx, cz);
 
             // Face toward the location where player was killed so they are oriented toward the battle
             const lookHeading = Math.atan2(dx - cx, dz - cz);
 
-            // Prioritize dry land above sea level
-            if (cy >= WATER_LEVEL + 0.3) {
+            // Prioritize dry land above water level
+            if (cy >= candWaterY + 0.3) {
                 return { x: cx, y: cy, z: cz, heading: lookHeading };
             }
 
             // Save water candidate in case dry land isn't found
             if (!bestWaterCandidate) {
-                bestWaterCandidate = { x: cx, y: Math.max(cy, WATER_LEVEL - 1.25), z: cz, heading: lookHeading };
+                bestWaterCandidate = { x: cx, y: Math.max(cy, candWaterY - 1.25), z: cz, heading: lookHeading };
             }
         }
     }
@@ -14844,8 +15195,9 @@ function getPlayerRespawnPosition() {
     let fallbackY = (typeof getTerrainHeight === 'function')
         ? getTerrainHeight(fallbackX, fallbackZ)
         : ((typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(fallbackX, fallbackZ) : 0);
-    if (fallbackY < WATER_LEVEL - 1.25) {
-        fallbackY = WATER_LEVEL - 1.25;
+    const fallbackWaterY = resolveWaterLevel(fallbackX, fallbackZ);
+    if (fallbackY < fallbackWaterY - 1.25) {
+        fallbackY = fallbackWaterY - 1.25;
     }
     const fallbackHeading = Math.atan2(dx - fallbackX, dz - fallbackZ);
     return { x: fallbackX, y: fallbackY, z: fallbackZ, heading: fallbackHeading };
@@ -14869,7 +15221,9 @@ function restartGame(customSeed, customZone) {
 
     const respawnPos = getPlayerRespawnPosition();
     const groundY = (typeof getTerrainHeight === 'function') ? getTerrainHeight(respawnPos.x, respawnPos.z) : 0;
-    const waterLvl = (typeof window !== 'undefined' && typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5;
+    const waterLvl = (typeof getWaterLevel === 'function')
+        ? getWaterLevel(respawnPos.x, respawnPos.z)
+        : ((typeof window !== 'undefined' && typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5);
     const spawnY = (groundY < waterLvl - 1.25) ? (waterLvl - 1.25) : groundY;
     const spawnHeading = (typeof respawnPos.heading === 'number') ? respawnPos.heading : 0;
 
@@ -14923,7 +15277,14 @@ function restartGame(customSeed, customZone) {
         chunkLoadQueue.length = 0;
         chunkLoadSet.clear();
         chunkUnloadQueue.length = 0;
+        farLastSnapX = null;
+        farLastSnapZ = null;
+        farPropLastCX = null;
+        farPropLastCZ = null;
+        farChunkPropCache.clear();
         updateTerrainChunks(respawnPos.x, respawnPos.z, true);
+        updateFarTerrainAndTrees(respawnPos.x, respawnPos.z, true);
+        updateTerrainHeightMaps(respawnPos.x, respawnPos.z, true);
     } else {
         // Keep the scene intact when respawning in the same battlefield:
         // Do not unload or reload chunks, do not reset props or trees.
@@ -15132,16 +15493,17 @@ function hasVisibleWaterForCamera(cam) {
         const d = farDists[i];
         const wx = cx + fx * d;
         const wz = cz + fz * d;
-        if (getTerrainHeight(wx, wz) < -2.1) return true;
+        if (getTerrainHeight(wx, wz) < getWaterLevel(wx, wz) + 0.4) return true;
         const spread = d * 0.45;
-        if (getTerrainHeight(wx + rx * spread, wz + rz * spread) < -2.1) return true;
-        if (getTerrainHeight(wx - rx * spread, wz - rz * spread) < -2.1) return true;
+        if (getTerrainHeight(wx + rx * spread, wz + rz * spread) < getWaterLevel(wx + rx * spread, wz + rz * spread) + 0.4) return true;
+        if (getTerrainHeight(wx - rx * spread, wz - rz * spread) < getWaterLevel(wx - rx * spread, wz - rz * spread) + 0.4) return true;
     }
     return false;
 }
 
 window.waterMeshRef = waterMeshRef;
 window.hasVisibleWaterForCamera = hasVisibleWaterForCamera;
+window.updateTerrainHeightMaps = updateTerrainHeightMaps;
 window.grassLOD0Mesh = grassLOD0Mesh;
 window.grassLOD0MidMesh = grassLOD0MidMesh;
 window.grassLOD0FarMesh = grassLOD0FarMesh;
@@ -15161,6 +15523,13 @@ window.getRoadFactor = getRoadFactor;
 window.getRiverDistance = getRiverDistance;
 window.getRiverFactor = getRiverFactor;
 window.getRiversideFactor = getRiversideFactor;
+window.SEA_LEVEL = SEA_LEVEL;
+window.RIVER_LEVEL = RIVER_LEVEL;
+window.getRiverWaterLevel = getRiverWaterLevel;
+window.getWaterLevel = getWaterLevel;
+window.getRiverCenter1Z = getRiverCenter1Z;
+window.getRiverCenter2X = getRiverCenter2X;
+window.getRiverCenter3X = getRiverCenter3X;
 window.initEnvironment = initEnvironment;
 window.buildEnvironment = buildEnvironment;
 window.updateEnvironment = updateEnvironment;

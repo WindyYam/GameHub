@@ -1272,7 +1272,9 @@
         if (isSwimmer) {
             s.vy = 3.6; // Water stroke / surface treading boost
             if (typeof window.spawnWaterRipple === 'function') {
-                const waterLvl = (typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5;
+                const waterLvl = (typeof window.getWaterLevel === 'function')
+                    ? window.getWaterLevel(s.x, s.z)
+                    : ((typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5);
                 window.spawnWaterRipple(new THREE.Vector3(s.x, waterLvl + 0.02, s.z), 2.2, 1.0);
             }
         } else {
@@ -1329,7 +1331,9 @@
         const spawnX = window.tankState.x - Math.cos(tH) * 2.4;
         const spawnZ = window.tankState.z + Math.sin(tH) * 2.4;
         const groundY = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(spawnX, spawnZ) : 0;
-        const waterLvl = (typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5;
+        const waterLvl = (typeof window.getWaterLevel === 'function')
+            ? window.getWaterLevel(spawnX, spawnZ)
+            : ((typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5);
         const spawnY = (groundY < waterLvl - 1.25) ? (waterLvl - 1.25) : groundY;
 
         rig.root.position.set(spawnX, spawnY, spawnZ);
@@ -2059,7 +2063,9 @@
         }
 
         // Detect water environment and swimming status
-        const WATER_LEVEL = (typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5;
+        const WATER_LEVEL = (typeof window.getWaterLevel === 'function')
+            ? window.getWaterLevel(s.x, s.z)
+            : ((typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5);
         const currentGH = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(s.x, s.z) : 0;
         let currentFloorH = (typeof window.getBuildingFloorHeight === 'function') ? window.getBuildingFloorHeight(s.x, s.z, currentGH, s.y) : currentGH;
         const currentWaterDepth = WATER_LEVEL - currentFloorH;
@@ -2432,7 +2438,8 @@
 
             // Terrain & water safety clearance
             const terrainUnderCam = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(camPos.x, camPos.z) + 0.30 : 0.8;
-            const minAllowedCamY = Math.max(terrainUnderCam, WATER_LEVEL + 0.25);
+            const camWaterLvl = (typeof window.getWaterLevel === 'function') ? window.getWaterLevel(camPos.x, camPos.z) : WATER_LEVEL;
+            const minAllowedCamY = Math.max(terrainUnderCam, camWaterLvl + 0.25);
             if (camPos.y < minAllowedCamY) camPos.y = minAllowedCamY;
 
             const lookTarget = anchor.clone().add(rightOffset.clone().multiplyScalar(0.4)).addScaledVector(lookDir, 50.0);

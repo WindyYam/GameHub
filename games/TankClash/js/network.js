@@ -441,7 +441,9 @@
                     const absSpeed = Math.abs(this.speed || 0);
                     const isMoving = absSpeed > 0.15;
                     const isSprinting = absSpeed > 5.2;
-                    const seaLvl = (typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5;
+                    const seaLvl = (typeof window.getWaterLevel === 'function')
+                        ? window.getWaterLevel(this.x, this.z)
+                        : ((typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5);
                     const groundY = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(this.x, this.z) : this.y;
                     const isSwimming = groundY < seaLvl - 0.5 && this.y <= seaLvl + 0.35;
                     const isAirborne = !isSwimming && typeof window.getTerrainHeight === 'function' && (this.y - groundY) > 0.25;

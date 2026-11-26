@@ -829,7 +829,9 @@
     function emitEnemyTankTrackWake(e, dt) {
         const absSpeed = Math.abs(e.speed);
         if (absSpeed <= 0.3) return;
-        const waterLvl = (typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5;
+        const waterLvl = (typeof window.getWaterLevel === 'function')
+            ? window.getWaterLevel(e.x, e.z)
+            : ((typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5);
         const groundY = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(e.x, e.z) : e.y;
         const enemyTrackWidth = (e.tankType === 'kingtiger') ? 1.48 : ((e.tankType === 'tiger') ? 1.38 : 1.20);
 
@@ -1289,7 +1291,10 @@
                     let canMove = true;
                     if (typeof window.getTerrainHeight === 'function') {
                         const nextY = window.getTerrainHeight(nextX, nextZ);
-                        if (nextY < -1.8) {
+                        const nextWaterLvl = (typeof window.getWaterLevel === 'function')
+                            ? window.getWaterLevel(nextX, nextZ)
+                            : ((typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5);
+                        if (nextY < nextWaterLvl + 0.7) {
                             canMove = false;
                             e.patrolState = 'SCAN';
                             e.patrolTimer = 2.0;
@@ -1487,7 +1492,10 @@
                 let canMove = true;
                 if (typeof window.getTerrainHeight === 'function') {
                     const nextY = window.getTerrainHeight(nextX, nextZ);
-                    if (nextY < -1.8) {
+                    const nextWaterLvl = (typeof window.getWaterLevel === 'function')
+                        ? window.getWaterLevel(nextX, nextZ)
+                        : ((typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5);
+                    if (nextY < nextWaterLvl + 0.7) {
                         canMove = false;
                         e.combatTactic = 'STAND_AND_FIRE';
                         e.tacticTimer = 2.0;
@@ -1963,6 +1971,10 @@
         let bestX = 0, bestY = 0, bestZ = 0;
         let found = false;
 
+        const getWaterLvlAt = (wx, wz) => (typeof window.getWaterLevel === 'function')
+            ? window.getWaterLevel(wx, wz)
+            : ((typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5);
+
         for (let attempt = 0; attempt < 14; attempt++) {
             const angle = lastSpawnAngle + (attempt * 0.45);
             const dist = MIN_SPAWN_DIST + Math.random() * (MAX_SPAWN_DIST - MIN_SPAWN_DIST);
@@ -1972,8 +1984,8 @@
             const y = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(testX, testZ) : 0;
             const norm = (typeof window.getTerrainNormal === 'function') ? window.getTerrainNormal(testX, testZ) : { y: 1 };
 
-            // Reject if submerged in water (sea level < -1.5)
-            if (y < -1.5) continue;
+            // Reject if submerged in water or river channel
+            if (y < getWaterLvlAt(testX, testZ) + 1.0) continue;
             // Reject if steep cliff
             if (norm.y < 0.82) continue;
             // Strict distance check: MUST NEVER be near player (140.0 * 1.2 = 168.0m)
@@ -2005,7 +2017,7 @@
                 const tx = playerX + Math.cos(lastSpawnAngle) * r;
                 const tz = playerZ + Math.sin(lastSpawnAngle) * r;
                 const ty = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(tx, tz) : 0;
-                if (ty > -1.5 && !isPositionBlockedByObstacle(tx, tz, 4.5)) {
+                if (ty > getWaterLvlAt(tx, tz) + 1.0 && !isPositionBlockedByObstacle(tx, tz, 4.5)) {
                     bestX = tx;
                     bestY = ty;
                     bestZ = tz;
@@ -2043,7 +2055,7 @@
             let sNorm = (typeof window.getTerrainNormal === 'function') ? window.getTerrainNormal(sx, sz) : { y: 1 };
 
             // If offset falls in water or on steep cliff or in obstacle, search locally
-            if (sy < -1.5 || sNorm.y < 0.80 || isPositionBlockedByObstacle(sx, sz, 4.5)) {
+            if (sy < getWaterLvlAt(sx, sz) + 1.0 || sNorm.y < 0.80 || isPositionBlockedByObstacle(sx, sz, 4.5)) {
                 let resolved = false;
                 for (let rTry = 0; rTry < 8; rTry++) {
                     const testAng = (rTry / 8) * Math.PI * 2;
@@ -2052,7 +2064,7 @@
                     const jz = sz + Math.sin(testAng) * testRad;
                     const jy = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(jx, jz) : sy;
                     const jNorm = (typeof window.getTerrainNormal === 'function') ? window.getTerrainNormal(jx, jz) : { y: 1 };
-                    if (jy >= -1.5 && jNorm.y >= 0.80 && !isPositionBlockedByObstacle(jx, jz, 4.5)) {
+                    if (jy >= getWaterLvlAt(jx, jz) + 1.0 && jNorm.y >= 0.80 && !isPositionBlockedByObstacle(jx, jz, 4.5)) {
                         sx = jx;
                         sz = jz;
                         sy = jy;

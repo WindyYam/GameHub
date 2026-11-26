@@ -611,7 +611,9 @@ function updateSimulation(dt) {
 
         if (isMoving) {
             const moveIntensity = Math.min(1.0, absSpeed / 8.0 + absTurn * 0.9);
-            const waterLvl = (typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5;
+            const waterLvl = (typeof window.getWaterLevel === 'function')
+                ? window.getWaterLevel(tankState.x, tankState.z)
+                : ((typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5);
             const groundY = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(tankState.x, tankState.z) : tankState.y;
             const inWater = groundY < waterLvl - 0.05;
             const trackOffset = (tankState.currentTankSpec && tankState.currentTankSpec.id === 'kingtiger') ? 1.48 : ((tankState.currentTankSpec && tankState.currentTankSpec.id === 'tiger') ? 1.38 : ((tankState.currentTankSpec && (tankState.currentTankSpec.id === 'pershing' || tankState.currentTankSpec.id === 'kv2')) ? 1.36 : 1.20));
@@ -1914,7 +1916,8 @@ function renderWaterReflection(renderCamera) {
         }
         return;
     }
-    if ((typeof window.getGraphicsMode === 'function' && window.getGraphicsMode() !== 'high') || renderCamera.position.y < -2.35) {
+    const reflPlaneY = (typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : 5.2;
+    if ((typeof window.getGraphicsMode === 'function' && window.getGraphicsMode() !== 'high') || renderCamera.position.y < reflPlaneY + 0.15) {
         water.material.uniforms.uHasReflection.value = 0.0;
         return;
     }
@@ -1935,12 +1938,13 @@ function renderWaterReflection(renderCamera) {
     waterReflectCamera.far = renderCamera.far;
     waterReflectCamera.updateProjectionMatrix();
 
+    WATER_CLIP_PLANE.constant = -reflPlaneY + 0.02;
     renderCamera.getWorldDirection(_reflFwd);
-    waterReflectCamera.position.set(renderCamera.position.x, -5.0 - renderCamera.position.y, renderCamera.position.z);
+    waterReflectCamera.position.set(renderCamera.position.x, 2.0 * reflPlaneY - renderCamera.position.y, renderCamera.position.z);
     waterReflectCamera.up.set(0, 1, 0);
     waterReflectCamera.lookAt(
         renderCamera.position.x + _reflFwd.x * 100.0,
-        -5.0 - (renderCamera.position.y + _reflFwd.y * 100.0),
+        2.0 * reflPlaneY - (renderCamera.position.y + _reflFwd.y * 100.0),
         renderCamera.position.z + _reflFwd.z * 100.0
     );
     waterReflectCamera.updateMatrixWorld(true);
@@ -1949,6 +1953,9 @@ function renderWaterReflection(renderCamera) {
     water.material.uniforms.uReflectVP.value.multiplyMatrices(waterReflectCamera.projectionMatrix, waterReflectCamera.matrixWorldInverse);
     water.material.uniforms.tReflection.value = rt.texture;
     water.material.uniforms.uHasReflection.value = 1.0;
+    if (water.material.uniforms.uReflPlaneY) {
+        water.material.uniforms.uReflPlaneY.value = reflPlaneY;
+    }
 
     if (window.tankModel && window.tankModel.tankRoot) ensureReflectionLayer(window.tankModel.tankRoot, 0.45);
     if (window.playerSoldier && window.playerSoldier.rig && window.playerSoldier.rig.root) {
@@ -2718,7 +2725,9 @@ function deployPurchasedTank(tankId) {
         ? window.getPlayerRespawnPosition()
         : (window.lastPlayerDeathPosition ? { x: window.lastPlayerDeathPosition.x, z: window.lastPlayerDeathPosition.z, heading: window.lastPlayerDeathPosition.heading || 0 } : { x: 0, z: 0, heading: 0 });
     const groundY = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(respawnPos.x, respawnPos.z) : 0;
-    const waterLvl = (typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5;
+    const waterLvl = (typeof window.getWaterLevel === 'function')
+        ? window.getWaterLevel(respawnPos.x, respawnPos.z)
+        : ((typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5);
     const spawnY = (groundY < waterLvl - 1.25) ? (waterLvl - 1.25) : groundY;
     const spawnHeading = (typeof respawnPos.heading === 'number') ? respawnPos.heading : 0;
 
@@ -2846,7 +2855,9 @@ function deployAsSoldier(suppressBanner = false, soldierCostAlreadyPaid = false)
         ? window.getPlayerRespawnPosition()
         : (window.lastPlayerDeathPosition ? { x: window.lastPlayerDeathPosition.x, z: window.lastPlayerDeathPosition.z, heading: window.lastPlayerDeathPosition.heading || 0 } : { x: 0, z: 0, heading: 0 });
     const groundY = (typeof window.getTerrainHeight === 'function') ? window.getTerrainHeight(respawnPos.x, respawnPos.z) : 0;
-    const waterLvl = (typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5;
+    const waterLvl = (typeof window.getWaterLevel === 'function')
+        ? window.getWaterLevel(respawnPos.x, respawnPos.z)
+        : ((typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5);
     const spawnY = (groundY < waterLvl - 1.25) ? (waterLvl - 1.25) : groundY;
     const spawnHeading = (typeof respawnPos.heading === 'number') ? respawnPos.heading : 0;
 

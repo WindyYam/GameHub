@@ -2662,8 +2662,11 @@
 
             if (typeof window.getTerrainHeight === 'function') {
                 const gh = window.getTerrainHeight(this.x, this.z);
-                // Avoid walking underwater into deep sea
-                if (gh < -2.2 && Math.abs(this.speed) > 0.05) {
+                const waterLvl = (typeof window.getWaterLevel === 'function')
+                    ? window.getWaterLevel(this.x, this.z)
+                    : ((typeof window.SEA_LEVEL === 'number') ? window.SEA_LEVEL : -2.5);
+                // Avoid walking underwater into deep sea or rivers
+                if (gh < waterLvl + 0.3 && Math.abs(this.speed) > 0.05) {
                     this.heading += Math.PI * 0.75;
                     this.wanderTarget.x = this.homeX;
                     this.wanderTarget.z = this.homeZ;
