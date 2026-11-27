@@ -19,8 +19,19 @@ class ThreadedHTTPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     allow_reuse_address = True
 
 class CustomHandler(http.server.SimpleHTTPRequestHandler):
+    extensions_map = {
+        **http.server.SimpleHTTPRequestHandler.extensions_map,
+        '.js': 'application/javascript',
+        '.mjs': 'application/javascript',
+        '.ts': 'application/javascript',
+        '.tsx': 'application/javascript',
+        '.css': 'text/css',
+        '.wasm': 'application/wasm',
+    }
+
     def do_GET(self):
-        if self.path == '/api/games':
+        clean_path = self.path.split('?', 1)[0]
+        if clean_path == '/api/games':
             self.handle_games_api()
         else:
             super().do_GET()
