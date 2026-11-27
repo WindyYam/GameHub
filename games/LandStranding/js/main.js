@@ -529,18 +529,31 @@ let landscapeAttempted = false;
 
 function lockOrientationLandscape() {
   if (screen.orientation && screen.orientation.lock) {
-    screen.orientation.lock('landscape').catch(() => {});
+    return screen.orientation.lock('landscape').catch(() => false);
   }
+  return Promise.resolve(false);
 }
 
 function tryLockLandscape(withFullscreen = true) {
-  if (!isMobileTouchPrimary()) return;
+  if (!isMobileTouchPrimary()) return Promise.resolve(false);
   const docEl = document.documentElement;
-  if (withFullscreen && !document.fullscreenElement && docEl.requestFullscreen) {
-    docEl.requestFullscreen({ navigationUI: 'hide' }).then(lockOrientationLandscape).catch(lockOrientationLandscape);
-  } else {
-    lockOrientationLandscape();
+  const reqFs = docEl.requestFullscreen || docEl.webkitRequestFullscreen;
+  if (withFullscreen && !document.fullscreenElement && !document.webkitFullscreenElement && reqFs) {
+    try {
+      const res = reqFs.call(docEl, { navigationUI: 'hide' });
+      if (res && typeof res.then === 'function') {
+        return res.then(lockOrientationLandscape).catch(lockOrientationLandscape);
+      }
+    } catch (_) {
+      try {
+        const res2 = reqFs.call(docEl);
+        if (res2 && typeof res2.then === 'function') {
+          return res2.then(lockOrientationLandscape).catch(lockOrientationLandscape);
+        }
+      } catch (_2) {}
+    }
   }
+  return lockOrientationLandscape();
 }
 
 function ensureAudioStarted() {
@@ -781,8 +794,16 @@ const btnLockLandscape = document.getElementById('btn-lock-landscape');
 const btnDismissLandscape = document.getElementById('btn-dismiss-landscape');
 if (btnLockLandscape && landscapePrompt) {
   btnLockLandscape.addEventListener('click', () => {
-    tryLockLandscape(true);
-    landscapePrompt.classList.add('dismissed');
+    tryLockLandscape(true).then((locked) => {
+      if (locked !== false || window.innerWidth > window.innerHeight) {
+        landscapePrompt.classList.add('dismissed');
+      } else {
+        const subEl = landscapePrompt.querySelector('.landscape-sub');
+        if (subEl) {
+          subEl.textContent = 'This browser blocks automatic rotation — please rotate your phone horizontally (or tap Continue).';
+        }
+      }
+    });
   });
 }
 if (btnDismissLandscape && landscapePrompt) {
