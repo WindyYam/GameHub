@@ -5,6 +5,7 @@
  */
 import * as THREE from 'three';
 import { clamp, mix, smoothstep } from './noise.js';
+import { getTerrainHeight } from './world.js';
 
 export const WEATHER_PRESETS = {
   overcast: {
@@ -69,6 +70,24 @@ export const WEATHER_PRESETS = {
   }
 };
 
+const SHADOW_MAP_RES = 80;
+const SHADOW_MAP_HALF = 2400.0;
+const _terrainShadowPixels = new Uint8Array(SHADOW_MAP_RES * SHADOW_MAP_RES * 4);
+const _terrainShadowTex = new THREE.DataTexture(
+  _terrainShadowPixels,
+  SHADOW_MAP_RES,
+  SHADOW_MAP_RES,
+  THREE.RGBAFormat,
+  THREE.UnsignedByteType
+);
+_terrainShadowTex.minFilter = THREE.LinearFilter;
+_terrainShadowTex.magFilter = THREE.LinearFilter;
+_terrainShadowTex.wrapS = THREE.ClampToEdgeWrapping;
+_terrainShadowTex.wrapT = THREE.ClampToEdgeWrapping;
+_terrainShadowTex.flipY = false;
+_terrainShadowTex.generateMipmaps = false;
+_terrainShadowTex.needsUpdate = true;
+
 export const ATMO_UNIFORMS = {
   uTime: { value: 0 },
   uSunDir: { value: new THREE.Vector3(0.62, 0.46, -0.64).normalize() },
@@ -94,7 +113,9 @@ export const ATMO_UNIFORMS = {
   uScanOrigin: { value: new THREE.Vector3(0, 0, 0) },
   uScanRadius: { value: -10.0 },
   uScanStrength: { value: 0.0 },
-  uPlayerPos: { value: new THREE.Vector3(-7.5, 22, 12.8) }
+  uPlayerPos: { value: new THREE.Vector3(-7.5, 22, 12.8) },
+  uTerrainShadowTex: { value: _terrainShadowTex },
+  uTerrainShadowRect: { value: new THREE.Vector4(0, 0, 1.0 / SHADOW_MAP_HALF, 0.0) }
 };
 
 export const ATMO_GLSL_PARS = /* glsl */`
@@ -121,6 +142,8 @@ uniform float uWindStrength;
 uniform vec3 uScanOrigin;
 uniform float uScanRadius;
 uniform float uScanStrength;
+uniform sampler2D uTerrainShadowTex;
+uniform vec4 uTerrainShadowRect;
 
 // Precision-safe polynomial hash (eliminates GPU sin() float32 cell-edge discontinuities on ANGLE/D3D11!)
 float atmoHash(vec2 p) {
@@ -157,6 +180,17 @@ float sampleCloudShadow(vec2 worldXZ) {
   float n = atmoFbm(worldXZ * 0.0018 + drift * 0.002);
   float cov = smoothstep(1.0 - uCloudCoverage, 1.06 - uCloudCoverage * 0.45, n);
   return mix(1.0, 0.46, cov * (0.45 + 0.55 * uCloudDarkness));
+}
+
+float sampleTerrainShadow(vec3 worldPos) {
+  if (uTerrainShadowRect.w < 0.5) return 1.0;
+  vec2 suv = (worldPos.xz - uTerrainShadowRect.xy) * uTerrainShadowRect.z * 0.5 + 0.5;
+  if (suv.x <= 0.01 || suv.x >= 0.99 || suv.y <= 0.01 || suv.y >= 0.99) return 1.0;
+  float edgeFade = smoothstep(0.01, 0.08, suv.x) * smoothstep(0.01, 0.08, 1.0 - suv.x)
+                 * smoothstep(0.01, 0.08, suv.y) * smoothstep(0.01, 0.08, 1.0 - suv.y);
+  float ceilY = texture2D(uTerrainShadowTex, suv).r * 400.0 - 20.0;
+  float sh = smoothstep(ceilY - 8.0, ceilY + 10.0, worldPos.y);
+  return mix(1.0, sh, edgeFade);
 }
 
 vec2 atmoHash22(vec2 p) {
@@ -356,6 +390,17 @@ export function enhanceMaterialWithAtmo(mat, { cacheKey, windSway = 0.0, wetness
         /* glsl */`
         #include <roughnessmap_fragment>
         roughnessFactor = mix(roughnessFactor, max(0.18, roughnessFactor * 0.45), uRainWetness * ${wetnessBoost.toFixed(3)});
+        `
+      )
+      .replace(
+        '#include <lights_fragment_end>',
+        /* glsl */`
+        #include <lights_fragment_end>
+        {
+          float tShadow = sampleTerrainShadow(vLsWorldPos);
+          reflectedLight.directDiffuse *= tShadow;
+          reflectedLight.directSpecular *= tShadow;
+        }
         `
       )
       .replace(
@@ -762,6 +807,68 @@ export function createEnvironmentController(scene, renderer, skyDome) {
   let lastEnvUpdate = -99;
   let lastEnvStateKey = '';
 
+  let lastShadowX = 1e9;
+  let lastShadowZ = 1e9;
+  const lastShadowDir = new THREE.Vector3(0, 1, 0);
+  let shadowJob = null;
+  const SHADOW_STEPS = [120, 240, 360, 480, 620, 780, 960, 1180, 1440, 1750];
+
+  function updateTerrainShadowMap(playerPos, keyDir) {
+    const res = SHADOW_MAP_RES;
+    const half = SHADOW_MAP_HALF;
+    const snap = 240.0;
+    const sx = Math.round(playerPos.x / snap) * snap;
+    const sz = Math.round(playerPos.z / snap) * snap;
+    const isInit = lastShadowX > 1e8;
+    const dirDot = keyDir.x * lastShadowDir.x + keyDir.y * lastShadowDir.y + keyDir.z * lastShadowDir.z;
+
+    if (!shadowJob && (isInit || Math.hypot(playerPos.x - lastShadowX, playerPos.z - lastShadowZ) > 320.0 || dirDot < 0.996)) {
+      lastShadowX = sx;
+      lastShadowZ = sz;
+      lastShadowDir.copy(keyDir);
+      const horizLen = Math.hypot(keyDir.x, keyDir.z);
+      const dx = horizLen > 1e-4 ? keyDir.x / horizLen : 0.0;
+      const dz = horizLen > 1e-4 ? keyDir.z / horizLen : 0.0;
+      const tanElev = Math.max(keyDir.y, 0.045) / Math.max(horizLen, 0.045);
+      shadowJob = { sx, sz, dx, dz, tanElev, iz: 0 };
+    }
+    if (!shadowJob) return;
+
+    const rowsBudget = isInit ? res : 10;
+    const endIz = Math.min(res - 1, shadowJob.iz + rowsBudget - 1);
+    const stepSize = (half * 2.0) / res;
+    const minX = shadowJob.sx - half;
+    const minZ = shadowJob.sz - half;
+
+    for (let iz = shadowJob.iz; iz <= endIz; iz++) {
+      const wz = minZ + (iz + 0.5) * stepSize;
+      const row = iz * res;
+      for (let ix = 0; ix < res; ix++) {
+        const wx = minX + (ix + 0.5) * stepSize;
+        let maxCeilY = -20.0;
+        for (let s = 0; s < SHADOW_STEPS.length; s++) {
+          const d = SHADOW_STEPS[s];
+          const mh = getTerrainHeight(wx + shadowJob.dx * d, wz + shadowJob.dz * d);
+          const ceilY = mh - d * shadowJob.tanElev;
+          if (ceilY > maxCeilY) maxCeilY = ceilY;
+        }
+        const enc = Math.round(clamp((maxCeilY + 20.0) / 400.0, 0.0, 1.0) * 255.0);
+        const pIdx = (row + ix) * 4;
+        _terrainShadowPixels[pIdx] = enc;
+        _terrainShadowPixels[pIdx + 1] = enc;
+        _terrainShadowPixels[pIdx + 2] = enc;
+        _terrainShadowPixels[pIdx + 3] = 255;
+      }
+    }
+
+    shadowJob.iz = endIz + 1;
+    if (shadowJob.iz >= res) {
+      _terrainShadowTex.needsUpdate = true;
+      ATMO_UNIFORMS.uTerrainShadowRect.value.set(shadowJob.sx, shadowJob.sz, 1.0 / half, 1.0);
+      shadowJob = null;
+    }
+  }
+
   const state = {
     timeOfDay: 13.4,
     timeSpeed: 60.0, // Default: 1 real second = 1 game minute (60 game seconds / real second!)
@@ -1021,6 +1128,8 @@ export function createEnvironmentController(scene, renderer, skyDome) {
     auroraBounceLight.intensity = auroraIntensity * 0.42;
 
     skyDome.mesh.position.copy(playerPos);
+
+    updateTerrainShadowMap(playerPos, keyDir);
 
     // Throttled PMREM environment bake for PBR wet basalt & metal (only rebake when sky/weather state actually changes!)
     const envKey = `${Math.round(state.timeOfDay * 6)}_${state.weather}_${Math.round(auroraIntensity * 4)}`;

@@ -81,7 +81,7 @@ function buildTrunkRiverSegment(bandIdx, zIdx) {
       depthAttr[vi] = mix(openDepth, caveDepth, inTunnel);
       flowAttr[vi] = 0.5;
       tunnelDarkAttr[vi] = smoothstep(15.5, 31.0, tmpS.caveOverburden);
-      lakeFadeAttr[vi] = 1.0 - smoothstep(-16.0, 6.0, tmpS.lakeShoreDist || -9999);
+      lakeFadeAttr[vi] = 1.0 - smoothstep(-18.0, -1.0, tmpS.lakeShoreDist || -9999);
     }
   }
 
@@ -91,6 +91,14 @@ function buildTrunkRiverSegment(bandIdx, zIdx) {
       const b = a + 1;
       const c = a + (crossSegs + 1);
       const d = c + 1;
+      if (
+        lakeFadeAttr[a] <= 0.005 &&
+        lakeFadeAttr[b] <= 0.005 &&
+        lakeFadeAttr[c] <= 0.005 &&
+        lakeFadeAttr[d] <= 0.005
+      ) {
+        continue;
+      }
       idx.push(a, b, c, b, d, c);
     }
   }
@@ -124,17 +132,17 @@ function buildRiverCaveTunnels(bandIdx, zIdx) {
   for (let i = 0; i <= steps; i++) {
     const z = zMin + (i / steps) * (zMax - zMin);
     const rx = getTrunkRiverX(z, bandIdx);
-    const waterY = getTrunkWaterY(rx, z);
+    const waterY = getTrunkWaterYAt(rx, z);
     const over = getTrunkCenterOverburden(z, bandIdx);
     samples.push({ z, rx, waterY, over });
   }
 
-  // Group contiguous subterranean mountain spans right where the rising cliff face closes overhead (over > 16.6m)
+  // Group contiguous subterranean mountain spans right where the rising cliff face closes overhead (over > 15.2m)
   const spans = [];
   let inSpan = false;
   let sStart = 0;
   for (let i = 0; i < samples.length; i++) {
-    const under = samples[i].over > 16.6;
+    const under = samples[i].over > 15.2;
     if (under && !inSpan) {
       inSpan = true;
       sStart = i;
@@ -345,7 +353,7 @@ function buildRiverGeometry(pts) {
       uvs[vi * 2 + 1] = sp.t * 16.0;
       depthAttr[vi] = depth;
       flowAttr[vi] = sp.t;
-      lakeFadeAttr[vi] = 1.0 - smoothstep(-16.0, 6.0, tmpS.lakeShoreDist || -9999);
+      lakeFadeAttr[vi] = 1.0 - smoothstep(-18.0, -1.0, tmpS.lakeShoreDist || -9999);
     }
   }
 
@@ -701,11 +709,12 @@ export function createWaterSystem(texLib, scene) {
         float ripMod = 0.68 + 0.48 * clamp((nA.x + nB.y) * 1.65 + 0.5, 0.0, 1.0);
         reflSky *= ripMod;
 
-        // Sun specular by day + crisp cool lunar glint by night!
+        // Sun specular by day + crisp cool lunar glint by night (masked by mountain terrain shadow)!
+        float rTerrainShadow = sampleTerrainShadow(vWorldPos);
         vec3 halfSun = normalize(viewDir + normalize(vec3(uSunDir.x, max(uSunDir.y, 0.38), uSunDir.z)));
-        float sunSpec = pow(max(dot(n, halfSun), 0.0), 64.0) * 0.22 * dayFactor;
+        float sunSpec = pow(max(dot(n, halfSun), 0.0), 64.0) * 0.22 * dayFactor * rTerrainShadow;
         vec3 halfMoon = normalize(viewDir + normalize(vec3(uMoonDir.x, max(uMoonDir.y, 0.25), uMoonDir.z)));
-        float moonSpec = pow(max(dot(n, halfMoon), 0.0), 96.0) * 0.14 * uNightFactor * (1.0 - uCloudCoverage * 0.65);
+        float moonSpec = pow(max(dot(n, halfMoon), 0.0), 96.0) * 0.14 * uNightFactor * (1.0 - uCloudCoverage * 0.65) * mix(0.35, 1.0, rTerrainShadow);
 
         vec3 col = mix(waterCol, reflSky, clamp(fresnel * 0.85, 0.10, 0.76)) + uSunColor * sunSpec + vec3(0.55, 0.70, 0.92) * moonSpec;
 
@@ -1648,7 +1657,8 @@ export function createWaterSystem(texLib, scene) {
         // 3. Iconic Glacial Rock-Flour Blue Optical Volume + Sun Caustics + Wave-Crest SSS!
         float dayFactor = 1.0 - uNightFactor;
         float cloudShadow = sampleCloudShadow(vWorldPos.xz);
-        float sunAbove = smoothstep(-0.04, 0.14, uSunDir.y) * dayFactor;
+        float terrainShadow = sampleTerrainShadow(vWorldPos);
+        float sunAbove = smoothstep(-0.04, 0.14, uSunDir.y) * dayFactor * terrainShadow;
         float clearSkyFactor = 1.0 - smoothstep(0.18, 0.94, uCloudCoverage);
 
         float siltPlume = atmoGNoise(vWorldPos.xz * 0.0022 + vec2(3.1, -4.7)) * 0.62 + atmoGNoise(vWorldPos.xz * 0.0068) * 0.38;
@@ -1661,15 +1671,15 @@ export function createWaterSystem(texLib, scene) {
         glacialBase *= mix(0.86, 1.16, clamp(0.5 + msNoise.z * 0.46 + (nWaveA.y + nWaveB.y) * 0.24, 0.0, 1.0));
 
         float sunElevBoost = 0.62 + 0.66 * smoothstep(0.0, 0.52, max(uSunDir.y, 0.0));
-        vec3 dayIrradiance = mix(vec3(0.62, 0.74, 0.84), uSunColor * 1.24, 0.50 + 0.36 * clearSkyFactor) * sunElevBoost * mix(0.68, 1.15, cloudShadow);
+        vec3 dayIrradiance = mix(vec3(0.62, 0.74, 0.84), uSunColor * 1.24, 0.50 + 0.36 * clearSkyFactor) * sunElevBoost * mix(0.68, 1.15, cloudShadow) * mix(0.65, 1.0, terrainShadow);
         vec3 nightIrradiance = vec3(0.026, 0.052, 0.105) + vec3(0.018, 0.145, 0.115) * uAuroraStrength;
         vec3 glacialLit = glacialBase * mix(dayIrradiance, nightIrradiance, uNightFactor);
 
         // Animated underwater sun caustics shimmering in clear glacial shallows
-        if (waterDepth < 4.8 && dayFactor > 0.05 && camDist < 160.0) {
+        if (waterDepth < 4.8 && dayFactor > 0.05 && camDist < 160.0 && terrainShadow > 0.02) {
           vec2 caustPos = vWorldPos.xz - uSunDir.xz * (waterDepth * 0.65);
           float caust = lakeCaustic(caustPos, uTime);
-          float caustFade = smoothstep(0.08, 0.55, waterDepth) * (1.0 - smoothstep(1.4, 4.6, waterDepth)) * (1.0 - smoothstep(55.0, 155.0, camDist));
+          float caustFade = smoothstep(0.08, 0.55, waterDepth) * (1.0 - smoothstep(1.4, 4.6, waterDepth)) * (1.0 - smoothstep(55.0, 155.0, camDist)) * terrainShadow;
           glacialLit += vec3(0.18, 0.64, 0.76) * uSunColor * caust * caustFade * (0.35 + 0.85 * clearSkyFactor) * cloudShadow * dayFactor * 0.52;
         }
 

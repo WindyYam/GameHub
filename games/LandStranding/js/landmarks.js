@@ -943,11 +943,16 @@ export function createLandmarkSystem(texLib, scene) {
   /** 5. Weathered Timber Footbridge spanning a procedural river crossing */
   function buildTimberFootbridge(spec) {
     const grp = new THREE.Group();
+    const span = spec.span || 28.0;
+    const dirX = Math.sin(spec.yaw);
+    const dirZ = Math.cos(spec.yaw);
     const gy = getTerrainHeight(spec.x, spec.z);
-    grp.position.set(spec.x, gy + 1.95, spec.z);
+    const bankA = getTerrainHeight(spec.x + dirX * span * 0.46, spec.z + dirZ * span * 0.46);
+    const bankB = getTerrainHeight(spec.x - dirX * span * 0.46, spec.z - dirZ * span * 0.46);
+    const deckY = Math.max(gy + 1.95, Math.max(bankA, bankB) + 0.35);
+    grp.position.set(spec.x, deckY, spec.z);
     grp.rotation.y = spec.yaw;
 
-    const span = spec.span || 20.0;
     const width = 2.6;
 
     for (const sx of [-width * 0.42, width * 0.42]) {

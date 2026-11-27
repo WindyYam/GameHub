@@ -16,7 +16,7 @@
 import * as THREE from 'three';
 import { clamp, mix, smoothstep } from './noise.js';
 import { getTerrainHeight, getTerrainNormal, sampleWorld, getRiverCaveState } from './world.js';
-import { enhanceMaterialWithAtmo, ATMO_UNIFORMS } from './atmosphere.js';
+import { enhanceMaterialWithAtmo, ATMO_UNIFORMS, ATMO_GLSL_PARS } from './atmosphere.js';
 
 function createStealthBodyTextures() {
   const size = 256;
@@ -807,25 +807,108 @@ export function createMotorcycleSystem(scene, audioSys) {
   fxGroup.add(sparkPoints);
   let sparkCursor = 0;
 
-  // Rear Tire Off-Road Dust / Water Spray Particle Pool
-  const DUST_COUNT = 26;
-  const dustPool = [];
-  const dustGeo = new THREE.SphereGeometry(0.18, 7, 6);
-  const dustMat = new THREE.MeshBasicMaterial({
-    color: 0x9aa4aa,
+  // Rear Tire Off-Road Billowing Dust & Water Spray Particle System (1 draw call InstancedMesh billboards)
+  const DUST_COUNT = 64;
+  const dustDataArr = new Float32Array(DUST_COUNT * 4); // x=opacity, y=rot, z=waterMix, w=ageU
+  const dustColorArr = new Float32Array(DUST_COUNT * 3);
+  const dustGeo = new THREE.PlaneGeometry(1, 1);
+  const dustAttr = new THREE.InstancedBufferAttribute(dustDataArr, 4);
+  const dustColAttr = new THREE.InstancedBufferAttribute(dustColorArr, 3);
+  dustGeo.setAttribute('aDustData', dustAttr);
+  dustGeo.setAttribute('aDustColor', dustColAttr);
+
+  const dustMat = new THREE.ShaderMaterial({
     transparent: true,
-    opacity: 0.0,
-    depthWrite: false
+    depthWrite: false,
+    uniforms: {
+      ...ATMO_UNIFORMS
+    },
+    vertexShader: /* glsl */`
+      attribute vec4 aDustData;
+      attribute vec3 aDustColor;
+      varying vec2 vUv;
+      varying vec4 vDustData;
+      varying vec3 vDustColor;
+      varying vec3 vWorldPos;
+      void main() {
+        vUv = uv;
+        vDustData = aDustData;
+        vDustColor = aDustColor;
+        vec4 worldCenter = modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+        float sx = length((modelMatrix * instanceMatrix * vec4(1.0, 0.0, 0.0, 0.0)).xyz);
+        float sy = length((modelMatrix * instanceMatrix * vec4(0.0, 1.0, 0.0, 0.0)).xyz);
+        float c = cos(aDustData.y);
+        float s = sin(aDustData.y);
+        vec2 rotPos = vec2(position.x * c - position.y * s, position.x * s + position.y * c);
+        vec3 camRight = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
+        vec3 camUp    = vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]);
+        vec3 wp = worldCenter.xyz + camRight * (rotPos.x * sx) + camUp * (rotPos.y * sy);
+        vWorldPos = wp;
+        gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
+      }
+    `,
+    fragmentShader: /* glsl */`
+      varying vec2 vUv;
+      varying vec4 vDustData;
+      varying vec3 vDustColor;
+      varying vec3 vWorldPos;
+      ${ATMO_GLSL_PARS}
+      void main() {
+        float opacity = vDustData.x;
+        if (opacity <= 0.004) discard;
+        vec2 p = vUv * 2.0 - 1.0;
+        float r2 = dot(p, p);
+        if (r2 >= 1.0) discard;
+
+        // Organic billowing wispy cloud shape using multi-octave gradient noise (zero hard sphere edges!)
+        float wisp = atmoGNoise(vUv * 3.6 + vec2(vDustData.y * 1.7, vDustData.w * 0.9)) * 0.62
+                   + atmoGNoise(vUv * 7.4 - vec2(vDustData.w * 1.3, vDustData.y * 2.1)) * 0.38;
+        float radial = pow(1.0 - r2, 1.65);
+        float puff = smoothstep(0.14, 0.84, radial * (0.68 + wisp * 0.68));
+        float alpha = puff * opacity;
+        if (alpha <= 0.004) discard;
+
+        // Top-lit atmospheric shading (sunlit rim + soft ground shadow)
+        float topLight = mix(0.68, 1.18, clamp(vUv.y * 0.85 + wisp * 0.25, 0.0, 1.0));
+        vec3 dayTint = mix(vec3(0.62, 0.68, 0.74), uSunColor, 0.48) * topLight;
+        vec3 nightTint = vec3(0.04, 0.06, 0.09);
+        vec3 col = vDustColor * mix(dayTint, nightTint, uNightFactor);
+        col = applyIcelandAtmo(col, vWorldPos);
+        gl_FragColor = vec4(col, alpha);
+      }
+    `
   });
-  const dustGroup = new THREE.Group();
-  scene.add(dustGroup);
+
+  const dustInst = new THREE.InstancedMesh(dustGeo, dustMat, DUST_COUNT);
+  dustInst.frustumCulled = false;
+  dustInst.renderOrder = 6;
+  scene.add(dustInst);
+
+  const dustPool = [];
+  const _dustDummy = new THREE.Object3D();
   for (let i = 0; i < DUST_COUNT; i++) {
-    const mat = dustMat.clone();
-    const m = new THREE.Mesh(dustGeo, mat);
-    m.visible = false;
-    dustGroup.add(m);
-    dustPool.push({ mesh: m, mat, vel: new THREE.Vector3(), age: 99, maxAge: 0.65 });
+    _dustDummy.position.set(0, -9999, 0);
+    _dustDummy.scale.setScalar(0.0001);
+    _dustDummy.updateMatrix();
+    dustInst.setMatrixAt(i, _dustDummy.matrix);
+    dustPool.push({
+      active: false,
+      pos: new THREE.Vector3(),
+      vel: new THREE.Vector3(),
+      age: 99,
+      maxAge: 0.85,
+      baseScale: 0.45,
+      growScale: 1.6,
+      rot: 0,
+      rotSpd: 0,
+      maxOpacity: 0.3,
+      waterMix: 0,
+      r: 0.45,
+      g: 0.45,
+      b: 0.42
+    });
   }
+  dustInst.instanceMatrix.needsUpdate = true;
   let dustCursor = 0;
   let dustEmitAccum = 0;
 
@@ -907,14 +990,19 @@ export function createMotorcycleSystem(scene, audioSys) {
     root.visible = true;
     fxGroup.visible = true;
     holoGroup.visible = true;
-    dustPool[0].mesh.visible = true;
+    dustInst.visible = true;
 
     root.position.copy(warmPos);
     root.scale.setScalar(0.0005);
     fxGroup.position.copy(warmPos);
     fxGroup.scale.setScalar(0.0005);
-    dustPool[0].mesh.position.copy(warmPos);
-    dustPool[0].mesh.scale.setScalar(0.0005);
+    _dustDummy.position.copy(warmPos);
+    _dustDummy.scale.setScalar(0.0005);
+    _dustDummy.updateMatrix();
+    dustInst.setMatrixAt(0, _dustDummy.matrix);
+    dustInst.instanceMatrix.needsUpdate = true;
+    dustDataArr[0] = 0.05;
+    dustAttr.needsUpdate = true;
 
     for (let i = 0; i < printMeshes.length; i++) {
       printMeshes[i].mesh.castShadow = true;
@@ -926,7 +1014,13 @@ export function createMotorcycleSystem(scene, audioSys) {
     root.scale.setScalar(1.0);
     fxGroup.scale.setScalar(1.0);
     fxGroup.position.set(0, 0, 0);
-    dustPool[0].mesh.visible = false;
+    _dustDummy.position.set(0, -9999, 0);
+    _dustDummy.scale.setScalar(0.0001);
+    _dustDummy.updateMatrix();
+    dustInst.setMatrixAt(0, _dustDummy.matrix);
+    dustInst.instanceMatrix.needsUpdate = true;
+    dustDataArr[0] = 0.0;
+    dustAttr.needsUpdate = true;
     root.visible = false;
     fxGroup.visible = false;
     holoGroup.visible = false;
@@ -1172,45 +1266,107 @@ export function createMotorcycleSystem(scene, audioSys) {
 
   function emitRearDust(dt) {
     const absSpd = Math.abs(state.speed);
-    if (!state.grounded || absSpd < 3.5) return;
-    dustEmitAccum += dt * clamp(absSpd * 1.4, 4, 28);
+    if (!state.grounded || absSpd < 2.4) return;
+    const slipBoost = 1.0 + Math.min(Math.abs(state.steerAngle) * 2.2, 1.1) + (state.boosting ? 0.65 : 0.0);
+    dustEmitAccum += dt * clamp(absSpd * 1.9 * slipBoost, 6, 48);
     while (dustEmitAccum >= 1.0) {
       dustEmitAccum -= 1.0;
       const p = dustPool[dustCursor];
       dustCursor = (dustCursor + 1) % DUST_COUNT;
-      _rearTireWorld.set(0, 0.08, -1.08).applyQuaternion(root.quaternion).add(state.pos);
-      p.mesh.position.copy(_rearTireWorld);
-      p.mesh.position.x += (Math.random() - 0.5) * 0.24;
-      p.mesh.position.z += (Math.random() - 0.5) * 0.24;
-      p.mesh.scale.setScalar(0.55 + Math.random() * 0.45);
+      _rearTireWorld.set(0, 0.14, -1.06).applyQuaternion(root.quaternion).add(state.pos);
+      p.pos.copy(_rearTireWorld);
+      p.pos.x += (Math.random() - 0.5) * 0.28;
+      p.pos.z += (Math.random() - 0.5) * 0.28;
+
+      const backX = -Math.sin(state.yaw);
+      const backZ = -Math.cos(state.yaw);
+      const kick = absSpd * 0.22;
+      const isWater = state.surfaceType === 'water';
       p.vel.set(
-        -Math.sin(state.yaw) * absSpd * 0.18 + (Math.random() - 0.5) * 1.2,
-        1.1 + Math.random() * 1.3 + (state.surfaceType === 'water' ? 1.2 : 0),
-        -Math.cos(state.yaw) * absSpd * 0.18 + (Math.random() - 0.5) * 1.2
+        backX * kick + (Math.random() - 0.5) * 1.6,
+        (isWater ? 2.1 : 1.05) + Math.random() * 1.45 + clamp(absSpd * 0.05, 0, 1.2),
+        backZ * kick + (Math.random() - 0.5) * 1.6
       );
-      if (state.surfaceType === 'water') p.mat.color.setHex(0xd6ebf5);
-      else if (state.surfaceType === 'gravel') p.mat.color.setHex(0x6e6a64);
-      else p.mat.color.setHex(0x555d52);
+
+      if (isWater) {
+        p.r = 0.84; p.g = 0.93; p.b = 0.97;
+        p.waterMix = 1.0;
+        p.maxOpacity = 0.44;
+        p.baseScale = 0.42 + Math.random() * 0.24;
+        p.growScale = 1.95;
+        p.maxAge = 0.55 + Math.random() * 0.30;
+      } else if (state.surfaceType === 'gravel') {
+        const s = 0.36 + Math.random() * 0.12;
+        p.r = s * 1.05; p.g = s; p.b = s * 0.94;
+        p.waterMix = 0.0;
+        p.maxOpacity = 0.34;
+        p.baseScale = 0.46 + Math.random() * 0.28;
+        p.growScale = 2.25;
+        p.maxAge = 0.70 + Math.random() * 0.42;
+      } else {
+        const s = 0.30 + Math.random() * 0.10;
+        p.r = s * 0.95; p.g = s * 1.04; p.b = s * 0.86;
+        p.waterMix = 0.0;
+        p.maxOpacity = 0.26;
+        p.baseScale = 0.40 + Math.random() * 0.25;
+        p.growScale = 1.95;
+        p.maxAge = 0.62 + Math.random() * 0.36;
+      }
+      p.rot = Math.random() * Math.PI * 2;
+      p.rotSpd = (Math.random() - 0.5) * 2.2;
       p.age = 0;
-      p.maxAge = 0.45 + Math.random() * 0.30;
-      p.mesh.visible = true;
+      p.active = true;
     }
   }
 
   function updateDust(dt) {
+    let anyActive = false;
     for (let i = 0; i < DUST_COUNT; i++) {
       const p = dustPool[i];
-      if (!p.mesh.visible) continue;
-      p.age += dt;
-      if (p.age >= p.maxAge) {
-        p.mesh.visible = false;
+      if (!p.active) {
+        dustDataArr[i * 4] = 0.0;
         continue;
       }
+      p.age += dt;
+      if (p.age >= p.maxAge) {
+        p.active = false;
+        dustDataArr[i * 4] = 0.0;
+        _dustDummy.position.set(0, -9999, 0);
+        _dustDummy.scale.setScalar(0.0001);
+        _dustDummy.updateMatrix();
+        dustInst.setMatrixAt(i, _dustDummy.matrix);
+        continue;
+      }
+      anyActive = true;
       const u = p.age / p.maxAge;
-      p.vel.y -= 2.4 * dt;
-      p.mesh.position.addScaledVector(p.vel, dt);
-      p.mesh.scale.setScalar(0.65 + u * 2.1);
-      p.mat.opacity = (1.0 - u) * (1.0 - u) * (state.surfaceType === 'water' ? 0.38 : 0.22);
+      const drag = Math.exp(-2.4 * dt);
+      p.vel.x *= drag;
+      p.vel.z *= drag;
+      p.vel.y += (p.waterMix > 0.5 ? -3.4 : 0.35) * dt;
+      p.pos.addScaledVector(p.vel, dt);
+      p.rot += p.rotSpd * dt;
+
+      const sc = p.baseScale + Math.pow(u, 0.72) * p.growScale;
+      _dustDummy.position.copy(p.pos);
+      _dustDummy.scale.setScalar(sc);
+      _dustDummy.updateMatrix();
+      dustInst.setMatrixAt(i, _dustDummy.matrix);
+
+      const fadeIn = smoothstep(0.0, 0.14, u);
+      const fadeOut = Math.pow(1.0 - u, 1.45);
+      dustDataArr[i * 4] = fadeIn * fadeOut * p.maxOpacity;
+      dustDataArr[i * 4 + 1] = p.rot;
+      dustDataArr[i * 4 + 2] = p.waterMix;
+      dustDataArr[i * 4 + 3] = u;
+
+      dustColorArr[i * 3] = p.r;
+      dustColorArr[i * 3 + 1] = p.g;
+      dustColorArr[i * 3 + 2] = p.b;
+    }
+    if (anyActive) {
+      dustInst.instanceMatrix.needsUpdate = true;
+      dustAttr.needsUpdate = true;
+      dustColAttr.needsUpdate = true;
     }
   }
 

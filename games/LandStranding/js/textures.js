@@ -12,7 +12,7 @@
  * - Weathered rusted iron & ribbed Bridges outpost cladding
  */
 import * as THREE from 'three';
-import { clamp, mix } from './noise.js';
+import { clamp, mix, hash2i } from './noise.js';
 
 function tileHash(ix, iy, period, seed) {
   let px = ix % period;
@@ -630,6 +630,259 @@ function createLandmarkTextures(size = 256) {
   };
 }
 
+/**
+ * Procedural RGBA botanical alpha-cutout textures (lupin raceme + palmate leaf, meadow grass tuft,
+ * dwarf-willow bush twig/leaves, and Arctic cotton-grass plume).
+ */
+function createFloraTextures() {
+  const makeCanvasTex = (w, h, drawFn) => {
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, w, h);
+    drawFn(ctx, w, h);
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.wrapS = THREE.ClampToEdgeWrapping;
+    tex.wrapT = THREE.ClampToEdgeWrapping;
+    tex.anisotropy = 4;
+    tex.needsUpdate = true;
+    return tex;
+  };
+
+  // 1. Lupin Atlas (256x256): Left half = dense multi-floret lupin raceme spike; Right half = 7-leaflet palmate leaf
+  const lupinMap = makeCanvasTex(256, 256, (ctx, w, h) => {
+    // Left half (x: 0..128): Floral spike painted in bright neutral lavender-white so instanceColor tints cleanly
+    const cx = 64;
+    // Central stem
+    const stemGrad = ctx.createLinearGradient(cx, h - 8, cx, 18);
+    stemGrad.addColorStop(0, 'rgba(130, 165, 115, 1)');
+    stemGrad.addColorStop(0.5, 'rgba(165, 185, 145, 1)');
+    stemGrad.addColorStop(1, 'rgba(210, 215, 200, 1)');
+    ctx.strokeStyle = stemGrad;
+    ctx.lineWidth = 6;
+    ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(cx, h - 4);
+    ctx.lineTo(cx, 20);
+    ctx.stroke();
+
+    // 14 whorled tiers of overlapping rounded pea-like lupin florets tapering to bud tip
+    const tiers = 14;
+    for (let t = 0; t < tiers; t++) {
+      const f = t / (tiers - 1);
+      const ty = h - 22 - f * (h - 46);
+      const maxSpread = mix(36, 9, Math.pow(f, 0.85));
+      const fSize = mix(13.5, 5.8, Math.pow(f, 0.78));
+      const count = f > 0.82 ? 3 : 5;
+      for (let k = 0; k < count; k++) {
+        const u = count === 1 ? 0 : (k / (count - 1)) * 2 - 1;
+        const jx = (hash2i(t * 7 + k, 11, 31) - 0.5) * 5;
+        const jy = (hash2i(t * 7 + k, 19, 31) - 0.5) * 5;
+        const fx = cx + u * maxSpread + jx;
+        const fy = ty + Math.abs(u) * 5 + jy;
+
+        // Calyx / shadow base (neutral grey so instanceColor tints without blue crushing)
+        ctx.fillStyle = `rgba(175, 172, 178, 0.98)`;
+        ctx.beginPath();
+        ctx.ellipse(fx * 0.35 + cx * 0.65, fy + 2.5, fSize * 0.55, fSize * 0.42, u * 0.35, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Main rounded banner + wing petals (neutral white-to-silver so LUPIN_PALETTE tints accurately)
+        const bright = Math.round(mix(214, 254, f * 0.6 + (1 - Math.abs(u)) * 0.4));
+        const g = ctx.createRadialGradient(fx - u * 2, fy - fSize * 0.3, fSize * 0.15, fx, fy, fSize);
+        g.addColorStop(0, `rgba(255, 255, 255, 1)`);
+        g.addColorStop(0.55, `rgba(${bright}, ${bright}, ${bright}, 1)`);
+        g.addColorStop(1, `rgba(${Math.round(bright * 0.78)}, ${Math.round(bright * 0.76)}, ${Math.round(bright * 0.80)}, 0.96)`);
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.ellipse(fx, fy, fSize * 0.92, fSize * 0.72, u * 0.45 - 0.15, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // Right half (x: 128..256): 7-leaflet palmate lupin basal leaf
+    const lx = 192;
+    const ly = 146;
+    // Petiole stem
+    ctx.strokeStyle = 'rgba(135, 175, 115, 1)';
+    ctx.lineWidth = 5;
+    ctx.beginPath();
+    ctx.moveTo(lx, h - 4);
+    ctx.lineTo(lx, ly);
+    ctx.stroke();
+
+    const leaflets = 7;
+    for (let i = 0; i < leaflets; i++) {
+      const ang = -Math.PI * 0.5 + (i - (leaflets - 1) * 0.5) * 0.40;
+      const len = 74 - Math.abs(i - 3) * 8;
+      const lw = 11.5 - Math.abs(i - 3) * 1.1;
+      ctx.save();
+      ctx.translate(lx, ly);
+      ctx.rotate(ang + Math.PI * 0.5);
+      const lg = ctx.createLinearGradient(0, 0, 0, -len);
+      lg.addColorStop(0, 'rgba(110, 155, 98, 1)');
+      lg.addColorStop(0.6, 'rgba(155, 200, 138, 1)');
+      lg.addColorStop(1, 'rgba(195, 225, 178, 0.98)');
+      ctx.fillStyle = lg;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.quadraticCurveTo(-lw, -len * 0.52, 0, -len);
+      ctx.quadraticCurveTo(lw, -len * 0.52, 0, 0);
+      ctx.fill();
+      // Midrib vein
+      ctx.strokeStyle = 'rgba(215, 235, 195, 0.72)';
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(0, -4);
+      ctx.lineTo(0, -len * 0.88);
+      ctx.stroke();
+      ctx.restore();
+    }
+  });
+
+  // 2. Meadow Grass Tuft Card (256x256): 14 arching sedge blades + 3 delicate seed heads
+  const grassMap = makeCanvasTex(256, 256, (ctx, w, h) => {
+    const blades = 14;
+    for (let i = 0; i < blades; i++) {
+      const bx = 46 + (i / (blades - 1)) * 164 + (hash2i(i, 3, 91) - 0.5) * 12;
+      const tipX = bx + (i - blades * 0.5) * 9.5 + (hash2i(i, 5, 91) - 0.5) * 28;
+      const tipY = 16 + hash2i(i, 7, 91) * 76;
+      const midX = (bx + tipX) * 0.5 + (tipX - bx) * 0.15;
+      const midY = (h + tipY) * 0.46;
+      const bw = 6.5 + hash2i(i, 9, 91) * 4.5;
+
+      const grad = ctx.createLinearGradient(bx, h, tipX, tipY);
+      const tint = hash2i(i, 11, 91);
+      if (tint > 0.72) {
+        grad.addColorStop(0, 'rgba(140, 165, 110, 1)');
+        grad.addColorStop(0.55, 'rgba(205, 218, 155, 1)');
+        grad.addColorStop(1, 'rgba(248, 240, 185, 0.98)');
+      } else {
+        grad.addColorStop(0, 'rgba(125, 165, 105, 1)');
+        grad.addColorStop(0.55, 'rgba(185, 222, 150, 1)');
+        grad.addColorStop(1, 'rgba(225, 244, 182, 0.98)');
+      }
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.moveTo(bx - bw, h);
+      ctx.quadraticCurveTo(midX - bw * 0.45, midY, tipX, tipY);
+      ctx.quadraticCurveTo(midX + bw * 0.45, midY, bx + bw, h);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // 3 delicate Nordic sedge seed panicles
+    for (let s = 0; s < 3; s++) {
+      const sx = 84 + s * 44;
+      const sy = 26 + (s % 2) * 18;
+      ctx.strokeStyle = 'rgba(195, 210, 145, 0.95)';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(sx + (s - 1) * 10, h);
+      ctx.quadraticCurveTo(sx, h * 0.5, sx, sy);
+      ctx.stroke();
+
+      ctx.fillStyle = 'rgba(245, 232, 182, 0.98)';
+      for (let g = 0; g < 6; g++) {
+        const gy = sy + g * 8;
+        const gx = sx + (g % 2 === 0 ? -4 : 4);
+        ctx.beginPath();
+        ctx.ellipse(gx, gy, 3.2, 5.5, g % 2 === 0 ? -0.4 : 0.4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  });
+
+  // 3. Icelandic Dwarf-Willow / Crowberry Twig & Leaf Cluster (256x256)
+  const bushMap = makeCanvasTex(256, 256, (ctx, w, h) => {
+    // Woody branching twigs
+    ctx.strokeStyle = 'rgba(92, 78, 64, 1)';
+    ctx.lineCap = 'round';
+    const stems = [
+      [128, 252, 128, 34, 6],
+      [128, 195, 58, 72, 4.2],
+      [128, 180, 198, 66, 4.2],
+      [128, 130, 74, 48, 3.2],
+      [128, 122, 182, 46, 3.2]
+    ];
+    for (const [x0, y0, x1, y1, lw] of stems) {
+      ctx.lineWidth = lw;
+      ctx.beginPath();
+      ctx.moveTo(x0, y0);
+      ctx.quadraticCurveTo((x0 + x1) * 0.5, (y0 + y1) * 0.55 + 14, x1, y1);
+      ctx.stroke();
+    }
+
+    // 32 overlapping silvery-sage & deep crowberry oval leaves
+    for (let i = 0; i < 32; i++) {
+      const lx = 44 + hash2i(i, 3, 141) * 168;
+      const ly = 32 + hash2i(i, 7, 141) * 176;
+      const ang = (hash2i(i, 11, 141) - 0.5) * 2.6;
+      const len = 16 + hash2i(i, 13, 141) * 14;
+      const wid = 8 + hash2i(i, 17, 141) * 6;
+      const sage = hash2i(i, 19, 141);
+      ctx.save();
+      ctx.translate(lx, ly);
+      ctx.rotate(ang);
+      const lg = ctx.createRadialGradient(-wid * 0.2, -len * 0.2, 2, 0, 0, len);
+      if (sage > 0.42) {
+        lg.addColorStop(0, 'rgba(225, 240, 224, 1)');
+        lg.addColorStop(1, 'rgba(155, 182, 156, 0.98)');
+      } else {
+        lg.addColorStop(0, 'rgba(175, 208, 155, 1)');
+        lg.addColorStop(1, 'rgba(112, 150, 102, 0.98)');
+      }
+      ctx.fillStyle = lg;
+      ctx.beginPath();
+      ctx.ellipse(0, 0, wid, len, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(235, 245, 230, 0.45)';
+      ctx.lineWidth = 1.1;
+      ctx.beginPath();
+      ctx.moveTo(0, len * 0.7);
+      ctx.lineTo(0, -len * 0.7);
+      ctx.stroke();
+      ctx.restore();
+    }
+  });
+
+  // 4. Arctic Cotton Grass Plume (128x128)
+  const cottonMap = makeCanvasTex(128, 128, (ctx, w, h) => {
+    const cx = 64;
+    const cy = 62;
+    for (let i = 0; i < 42; i++) {
+      const a = (i / 42) * Math.PI * 2 + (hash2i(i, 3, 211) - 0.5) * 0.25;
+      const len = 26 + hash2i(i, 5, 211) * 26;
+      const ex = cx + Math.cos(a) * len;
+      const ey = cy + Math.sin(a) * len * 0.85 - 6;
+      ctx.strokeStyle = `rgba(255, 255, 252, ${0.65 + hash2i(i, 7, 211) * 0.35})`;
+      ctx.lineWidth = 2.6;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(cx, cy + 8);
+      ctx.quadraticCurveTo(cx + Math.cos(a) * len * 0.5, cy + Math.sin(a) * len * 0.35 - 10, ex, ey);
+      ctx.stroke();
+    }
+    const coreG = ctx.createRadialGradient(cx, cy, 4, cx, cy, 28);
+    coreG.addColorStop(0, 'rgba(255, 255, 255, 1)');
+    coreG.addColorStop(0.7, 'rgba(242, 246, 240, 0.92)');
+    coreG.addColorStop(1, 'rgba(225, 232, 224, 0)');
+    ctx.fillStyle = coreG;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 28, 0, Math.PI * 2);
+    ctx.fill();
+    // Dark bract cup at base
+    ctx.fillStyle = 'rgba(72, 60, 44, 1)';
+    ctx.beginPath();
+    ctx.ellipse(cx, cy + 20, 10, 7, 0, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  return { lupinMap, grassMap, bushMap, cottonMap };
+}
+
 export function createTextureLibrary() {
   const moss = createMossTextures(512);
   const basaltCliff = createBasaltCliffTextures(512);
@@ -640,6 +893,7 @@ export function createTextureLibrary() {
   const mistPuff = createMistPuffTexture(512);
   const waterfallFoam = createWaterfallFoamTexture(512);
   const landmarks = createLandmarkTextures(256);
+  const flora = createFloraTextures();
 
   return {
     moss,
@@ -650,6 +904,10 @@ export function createTextureLibrary() {
     waterNormalB,
     mistPuff,
     waterfallFoam,
+    lupinMap: flora.lupinMap,
+    grassMap: flora.grassMap,
+    bushMap: flora.bushMap,
+    cottonMap: flora.cottonMap,
     rustedIron: landmarks.rustedIron,
     outpostMetal: landmarks.outpostMetal,
     corrugatedIron: landmarks.corrugatedIron,

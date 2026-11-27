@@ -609,12 +609,23 @@ function sampleTrunkOverSlice(bandIdx, zi) {
   if (v !== undefined) return v;
   const z = zi * 4.0;
   const rx = getTrunkRiverX(z, bandIdx);
+  // Suppress subterranean cave overburden near/inside glacial lakes so hills at lake shores never open cave cutouts
+  const lk = sampleLake(rx, z, _trunkLakeTmp);
+  if (lk.lake && lk.shoreMeters > -lk.shoreGrade * 0.6) {
+    v = 0.0;
+    if (_trunkOverCache.size > 32768) _trunkOverCache.clear();
+    _trunkOverCache.set(key, v);
+    return v;
+  }
   // 3-point smoothed macro overburden directly along the river centerline -> zero lateral canyon wall artifacts!
   const h0 = sampleMacroHeight(rx, z);
   const hPrev = sampleMacroHeight(getTrunkRiverX(z - 8.0, bandIdx), z - 8.0);
   const hNext = sampleMacroHeight(getTrunkRiverX(z + 8.0, bandIdx), z + 8.0);
   const smoothH = h0 * 0.50 + (hPrev + hNext) * 0.25;
-  v = smoothH - getTrunkWaterY(rx, z);
+  v = smoothH - getTrunkWaterYAt(rx, z, lk);
+  if (lk.lake && lk.shoreMeters > -lk.shoreGrade * 1.4) {
+    v *= 1.0 - smoothstep(-lk.shoreGrade * 1.4, -lk.shoreGrade * 0.6, lk.shoreMeters);
+  }
   if (_trunkOverCache.size > 32768) _trunkOverCache.clear();
   _trunkOverCache.set(key, v);
   return v;
@@ -770,10 +781,14 @@ export function getCellFeatures(cx, cz) {
         const meander = Math.sin(t * Math.PI * 2.0 + h1 * 4.0) * 18.0 * Math.sin(t * Math.PI);
         const perpX = -(endZ - plungeZ) / Math.max(distToConf, 1.0);
         const perpZ = (endX - plungeX) / Math.max(distToConf, 1.0);
-        riverPts.push({
-          x: px + perpX * meander,
-          z: pz + perpZ * meander
-        });
+        const rx = px + perpX * meander;
+        const rz = pz + perpZ * meander;
+        riverPts.push({ x: rx, z: rz });
+        // Terminate tributary cleanly at the lake shore so it never crosses a glacial lake
+        sampleLake(rx, rz, _wfLakeTmp);
+        if (_wfLakeTmp.lake && _wfLakeTmp.shoreMeters > 4.0) {
+          break;
+        }
       }
     }
   }
@@ -1031,9 +1046,10 @@ export function getCellFeatures(cx, cz) {
       const mz = (ra.z + rb.z) * 0.5;
       const rtx = rb.x - ra.x;
       const rtz = rb.z - ra.z;
-      const rYaw = Math.atan2(rtx, rtz);
+      // Span perpendicular (across) the river channel rather than along its flow tangent
+      const crossYaw = Math.atan2(-rtz, rtx);
       if (!isWetInLake(mx, mz, 14.0)) {
-        bridges.push({ x: mx, z: mz, yaw: rYaw, span: 20.0 });
+        bridges.push({ x: mx, z: mz, yaw: crossYaw, span: 28.0 });
       }
     }
 

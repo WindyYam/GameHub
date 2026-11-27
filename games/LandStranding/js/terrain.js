@@ -494,51 +494,234 @@ function createMossCushionGeo() {
 }
 
 /**
- * Build lush natural Icelandic meadow sedge grass carpet patch (36 fine soft blades across 1.8m).
- * Deep emerald-olive to muted sage tips (never harsh spiky neon spears!).
+ * Build lush natural Icelandic meadow sedge grass carpet patch using crossed curved alpha-tested cards
+ * mapped to `grassMap` (each card renders 14 overlapping blades & seed panicles -> 224+ blades per patch!).
  */
 function createTussockGrassGeo() {
-  const blades = 36;
+  const cards = 16;
   const pos = [];
   const norm = [];
+  const uvs = [];
   const colors = [];
   const idx = [];
   let vBase = 0;
 
-  for (let i = 0; i < blades; i++) {
-    const ang = (i / blades) * Math.PI * 2 + hash2i(i, 11, 801) * 0.72;
-    const rad = Math.sqrt(hash2i(i, 13, 801)) * 0.92;
-    const h = 0.13 + hash2i(i, 17, 801) * 0.19;
-    const arch = 0.09 + hash2i(i, 19, 801) * 0.16;
-    const w = 0.0085 + hash2i(i, 23, 801) * 0.006;
-    const dx = Math.cos(ang);
-    const dz = Math.sin(ang);
+  for (let i = 0; i < cards; i++) {
+    const ang = (i / cards) * Math.PI * 2 + hash2i(i, 11, 801) * 0.65;
+    const rad = i < 4 ? (0.08 + i * 0.08) : (0.22 + Math.sqrt(hash2i(i, 13, 801)) * 0.72);
+    const yaw = ang + (hash2i(i, 15, 801) - 0.5) * 1.4;
+    const h = 0.24 + hash2i(i, 17, 801) * 0.16;
+    const w = 0.24 + hash2i(i, 23, 801) * 0.14;
+    const lean = 0.05 + hash2i(i, 19, 801) * 0.09;
+
+    const cx = Math.cos(ang) * rad;
+    const cz = Math.sin(ang) * rad;
+    const tx = Math.cos(yaw);
+    const tz = Math.sin(yaw);
+    const lx = -tz;
+    const lz = tx;
+
+    const kind = hash2i(i, 29, 801);
+    const baseCol = [0.28, 0.34, 0.22];
+    const midCol = kind > 0.74 ? [0.64, 0.62, 0.34] : kind > 0.30 ? [0.46, 0.58, 0.26] : [0.38, 0.52, 0.25];
+    const tipCol = kind > 0.74 ? [0.88, 0.84, 0.48] : kind > 0.30 ? [0.68, 0.78, 0.38] : [0.56, 0.70, 0.35];
+
+    const p0x = cx, p0z = cz;
+    const p1x = cx + lx * lean * 0.45, p1z = cz + lz * lean * 0.45;
+    const p2x = cx + lx * lean * 1.10, p2z = cz + lz * lean * 1.10;
+
+    // 2-segment curved card (6 verts, 4 tris)
+    pos.push(
+      p0x - tx * w, 0.0,      p0z - tz * w,
+      p0x + tx * w, 0.0,      p0z + tz * w,
+      p1x - tx * w, h * 0.52, p1z - tz * w,
+      p1x + tx * w, h * 0.52, p1z + tz * w,
+      p2x - tx * w, h,        p2z - tz * w,
+      p2x + tx * w, h,        p2z + tz * w
+    );
+    uvs.push(
+      0.02, 0.0,  0.98, 0.0,
+      0.02, 0.52, 0.98, 0.52,
+      0.02, 1.0,  0.98, 1.0
+    );
+    const rowCols = [baseCol, baseCol, midCol, midCol, tipCol, tipCol];
+    for (let k = 0; k < 6; k++) {
+      norm.push(lx * 0.18, 0.98, lz * 0.18);
+      colors.push(rowCols[k][0], rowCols[k][1], rowCols[k][2]);
+    }
+    idx.push(
+      vBase, vBase + 1, vBase + 2, vBase + 1, vBase + 3, vBase + 2,
+      vBase + 2, vBase + 3, vBase + 4, vBase + 3, vBase + 5, vBase + 4
+    );
+    vBase += 6;
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(norm, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geo.setIndex(idx);
+  return geo;
+}
+
+/**
+ * Build lush full multi-spire Icelandic Nootka Lupin cluster using crossed UV-mapped botanical cards
+ * with `aPetalMask` vertex attribute:
+ * - aPetalMask = 0.0 on palmate 7-leaflet basal foliage cards (right half of lupinMap)
+ * - aPetalMask = 1.0 on crossed floral raceme spike cards (left half of lupinMap)
+ */
+function createLupinClusterGeo() {
+  const pos = [];
+  const norm = [];
+  const uvs = [];
+  const colors = [];
+  const petalMask = [];
+  const idx = [];
+  let vBase = 0;
+
+  const pushQuad = (ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz, u0, v0, u1, v1, colBot, colTop, nx, ny, nz, isPetal) => {
+    pos.push(ax, ay, az, bx, by, bz, cx, cy, cz, dx, dy, dz);
+    uvs.push(u0, v0, u1, v0, u0, v1, u1, v1);
+    for (let k = 0; k < 2; k++) {
+      norm.push(nx, ny, nz);
+      colors.push(colBot[0], colBot[1], colBot[2]);
+      petalMask.push(isPetal);
+    }
+    for (let k = 0; k < 2; k++) {
+      norm.push(nx, ny, nz);
+      colors.push(colTop[0], colTop[1], colTop[2]);
+      petalMask.push(isPetal);
+    }
+    idx.push(vBase, vBase + 1, vBase + 2, vBase + 1, vBase + 3, vBase + 2);
+    vBase += 4;
+  };
+
+  // 10 lush radiating palmate 7-leaflet lupin basal leaf cards (right half of lupinMap: u 0.52..0.98)
+  const leaves = 10;
+  for (let i = 0; i < leaves; i++) {
+    const a = (i / leaves) * Math.PI * 2 + hash2i(i, 3, 851) * 0.48;
+    const r0 = 0.03 + hash2i(i, 5, 851) * 0.14;
+    const len = 0.28 + hash2i(i, 7, 851) * 0.16;
+    const h0 = 0.12 + hash2i(i, 9, 851) * 0.14;
+    const dx = Math.cos(a);
+    const dz = Math.sin(a);
+    const px = -dz * 0.16;
+    const pz = dx * 0.16;
+    const bx = dx * r0;
+    const bz = dz * r0;
+    const tx = bx + dx * len;
+    const tz = bz + dz * len;
+    const shade = 0.72 + hash2i(i, 11, 851) * 0.34;
+    pushQuad(
+      bx - px, 0.02, bz - pz,
+      bx + px, 0.02, bz + pz,
+      tx - px, h0,   tz - pz,
+      tx + px, h0,   tz + pz,
+      0.52, 0.02, 0.98, 0.98,
+      [0.24 * shade, 0.36 * shade, 0.22 * shade],
+      [0.34 * shade, 0.48 * shade, 0.30 * shade],
+      dx * 0.22, 0.95, dz * 0.22,
+      0.0
+    );
+  }
+
+  // 4 lush crossed floral raceme spikes per cluster (left half of lupinMap: u 0.02..0.48)
+  const stems = [
+    { ox: 0.0,   oz: 0.0,   h: 1.00, leanX: 0.04,  leanZ: 0.02 },
+    { ox: 0.19,  oz: -0.12, h: 0.86, leanX: 0.09,  leanZ: -0.05 },
+    { ox: -0.18, oz: 0.11,  h: 0.78, leanX: -0.08, leanZ: 0.07 },
+    { ox: 0.08,  oz: 0.18,  h: 0.70, leanX: 0.05,  leanZ: 0.08 }
+  ];
+
+  for (let s = 0; s < stems.length; s++) {
+    const st = stems[s];
+    const baseY = st.h * 0.12;
+    const topY = st.h;
+    const w = 0.16 + (s === 0 ? 0.025 : 0.0);
+    const tx = st.ox + st.leanX;
+    const tz = st.oz + st.leanZ;
+    const yaw = hash2i(s, 17, 863) * Math.PI;
+    for (let p = 0; p < 2; p++) {
+      const ang = yaw + p * (Math.PI * 0.5);
+      const px = Math.cos(ang) * w;
+      const pz = Math.sin(ang) * w;
+      const nx = -Math.sin(ang);
+      const nz = Math.cos(ang);
+      pushQuad(
+        st.ox - px, baseY, st.oz - pz,
+        st.ox + px, baseY, st.oz + pz,
+        tx - px,    topY,  tz - pz,
+        tx + px,    topY,  tz + pz,
+        0.02, 0.02, 0.48, 0.98,
+        [0.72, 0.72, 0.78],
+        [1.15, 1.15, 1.18],
+        nx * 0.65, 0.76, nz * 0.65,
+        1.0
+      );
+    }
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(norm, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+  geo.setAttribute('aPetalMask', new THREE.Float32BufferAttribute(petalMask, 1));
+  geo.setIndex(idx);
+  return geo;
+}
+
+/**
+ * Build authentic Icelandic Silvery-Sage Woolly Willow (Salix lanata) & Deep Crowberry Shrub
+ * using crossed leafy twig cards mapped to `bushMap` (500+ individual leaves per shrub!).
+ */
+function createIcelandicBushGeo() {
+  const pos = [];
+  const norm = [];
+  const uvs = [];
+  const colors = [];
+  const idx = [];
+  let vBase = 0;
+
+  const cards = 14;
+  for (let b = 0; b < cards; b++) {
+    const a = (b / cards) * Math.PI * 2 + hash2i(b, 1, 901) * 0.48;
+    const rad = b < 4 ? 0.04 : (0.12 + hash2i(b, 2, 901) * 0.24);
+    const w = 0.22 + hash2i(b, 3, 901) * 0.14;
+    const h = 0.26 + hash2i(b, 4, 901) * 0.18;
+    const lean = 0.10 + hash2i(b, 5, 901) * 0.16;
+
+    const dx = Math.cos(a);
+    const dz = Math.sin(a);
     const px = -dz * w;
     const pz = dx * w;
     const bx = dx * rad;
     const bz = dz * rad;
+    const tx = bx + dx * lean;
+    const tz = bz + dz * lean;
 
-    const kind = hash2i(i, 29, 801);
-    const baseCol = [0.055, 0.088, 0.030];
-    // Natural damp Icelandic sedge & olive-sage meadow grass (harmonizes with woolly moss!)
-    const midCol = kind > 0.76 ? [0.22, 0.25, 0.11] : kind > 0.30 ? [0.13, 0.21, 0.068] : [0.10, 0.18, 0.062];
-    const tipCol = kind > 0.76 ? [0.36, 0.36, 0.18] : kind > 0.30 ? [0.22, 0.30, 0.105] : [0.17, 0.25, 0.098];
-
-    const p1x = bx + dx * arch * 0.45;
-    const p1z = bz + dz * arch * 0.45;
-    const p2x = bx + dx * arch * 1.05;
-    const p2z = bz + dz * arch * 1.05;
+    const tint = hash2i(b * 19, 5, 919);
+    const botCol = [0.22, 0.26, 0.20];
+    let topCol;
+    if (tint < 0.46) topCol = [0.46, 0.56, 0.44];
+    else if (tint < 0.85) topCol = [0.28, 0.44, 0.26];
+    else topCol = [0.48, 0.34, 0.20];
 
     pos.push(
       bx - px, 0.0, bz - pz,
       bx + px, 0.0, bz + pz,
-      p1x - px * 0.52, h * 0.55, p1z - pz * 0.52,
-      p2x, h, p2z
+      tx - px, h,   tz - pz,
+      tx + px, h,   tz + pz
     );
-    const nCols = [baseCol, baseCol, midCol, tipCol];
-    for (let k = 0; k < 4; k++) {
-      norm.push(dx * 0.20, 0.96, dz * 0.20);
-      colors.push(nCols[k][0], nCols[k][1], nCols[k][2]);
+    uvs.push(0.02, 0.02, 0.98, 0.02, 0.02, 0.98, 0.98, 0.98);
+    for (let k = 0; k < 2; k++) {
+      norm.push(dx * 0.35, 0.92, dz * 0.35);
+      colors.push(botCol[0], botCol[1], botCol[2]);
+    }
+    for (let k = 0; k < 2; k++) {
+      norm.push(dx * 0.35, 0.92, dz * 0.35);
+      colors.push(topCol[0], topCol[1], topCol[2]);
     }
     idx.push(vBase, vBase + 1, vBase + 2, vBase + 1, vBase + 3, vBase + 2);
     vBase += 4;
@@ -547,217 +730,20 @@ function createTussockGrassGeo() {
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setAttribute('normal', new THREE.Float32BufferAttribute(norm, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
   geo.setIndex(idx);
   return geo;
 }
 
-/**
- * Build lush full multi-spire Icelandic Nootka Lupin cluster with `aPetalMask` vertex attribute:
- * - aPetalMask = 0.0 on stems & dense silvery-green palmate basal foliage collar
- * - aPetalMask = 1.0 on plump conical floral spires (5 full spikes per clump, 8 dense floret tiers each!)
- */
-function createLupinClusterGeo() {
-  const pos = [];
-  const norm = [];
-  const colors = [];
-  const petalMask = [];
-  const idx = [];
-  let vBase = 0;
-
-  const pushTri = (ax, ay, az, bx, by, bz, cx, cy, cz, col, nx, ny, nz, isPetal) => {
-    pos.push(ax, ay, az, bx, by, bz, cx, cy, cz);
-    for (let k = 0; k < 3; k++) {
-      norm.push(nx, ny, nz);
-      colors.push(col[0], col[1], col[2]);
-      petalMask.push(isPetal);
-    }
-    idx.push(vBase, vBase + 1, vBase + 2);
-    vBase += 3;
-  };
-
-  // 16 lush dusty blue-green palmate basal leaves forming a full leafy lupin mound (aPetalMask = 0)
-  const leaves = 16;
-  for (let i = 0; i < leaves; i++) {
-    const a = (i / leaves) * Math.PI * 2 + hash2i(i, 3, 851) * 0.42;
-    const r0 = 0.04 + hash2i(i, 5, 851) * 0.20;
-    const len = 0.24 + hash2i(i, 7, 851) * 0.16;
-    const h0 = 0.07 + hash2i(i, 9, 851) * 0.14;
-    const dx = Math.cos(a);
-    const dz = Math.sin(a);
-    const px = -dz * 0.078;
-    const pz = dx * 0.078;
-    const bx = dx * r0;
-    const bz = dz * r0;
-    const shade = 0.76 + hash2i(i, 11, 851) * 0.36;
-    pushTri(
-      bx - px, h0 * 0.55, bz - pz,
-      bx + px, h0 * 0.55, bz + pz,
-      bx + dx * len, h0 + 0.07, bz + dz * len,
-      [0.12 * shade, 0.24 * shade, 0.14 * shade],
-      dx * 0.25, 0.94, dz * 0.25,
-      0.0
-    );
-  }
-
-  // 4 lush plump Icelandic lupin floral spires per cluster (rich visual silhouette, ~40% lighter tri budget!)
-  const stems = [
-    { ox: 0.0,   oz: 0.0,   h: 0.98, leanX: 0.04,  leanZ: 0.02 },
-    { ox: 0.19,  oz: -0.12, h: 0.84, leanX: 0.09,  leanZ: -0.05 },
-    { ox: -0.18, oz: 0.11,  h: 0.76, leanX: -0.08, leanZ: 0.07 },
-    { ox: 0.08,  oz: 0.18,  h: 0.68, leanX: 0.05,  leanZ: 0.08 }
-  ];
-
-  for (let s = 0; s < stems.length; s++) {
-    const st = stems[s];
-    const stemBaseH = st.h * 0.28;
-    const bloomH = st.h * 0.72;
-
-    const sw = 0.020;
-    const mx = st.ox + st.leanX * 0.5;
-    const mz = st.oz + st.leanZ * 0.5;
-    pushTri(st.ox - sw, 0, st.oz, st.ox + sw, 0, st.oz, mx, st.h * 0.72, mz, [0.13, 0.22, 0.12], 0, 0.5, 0.85, 0.0);
-
-    // 7 plump whorled tiers x 3 delicate overlapping florets (crisp solid conical flower spike at 60 FPS!)
-    const tiers = 7;
-    for (let t = 0; t < tiers; t++) {
-      const f = t / (tiers - 1);
-      const y = stemBaseH + f * bloomH;
-      const cx = st.ox + st.leanX * (0.35 + f * 0.65);
-      const cz = st.oz + st.leanZ * (0.35 + f * 0.65);
-      const radius = mix(0.116, 0.028, Math.pow(f, 0.82));
-      const florets = 3;
-
-      // Rich deep royal-violet lower florets -> pale lavender/silvery bud tip
-      const lum = mix(0.68, 1.18, f);
-      for (let k = 0; k < florets; k++) {
-        const a = (k / florets) * Math.PI * 2 + t * 0.82 + s * 1.3;
-        const dx = Math.cos(a);
-        const dz = Math.sin(a);
-        const px = -dz * radius * 0.78;
-        const pz = dx * radius * 0.78;
-        const tipX = cx + dx * radius;
-        const tipZ = cz + dz * radius;
-        const tipY = y + mix(0.032, 0.072, f);
-        const vShade = lum * (0.86 + hash2i(t * 7 + k, s, 863) * 0.28);
-        pushTri(
-          cx - px, y - 0.026, cz - pz,
-          cx + px, y - 0.026, cz + pz,
-          tipX, tipY, tipZ,
-          [vShade, vShade, vShade],
-          dx * 0.62, 0.76, dz * 0.62,
-          1.0
-        );
-      }
-    }
-  }
-
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setAttribute('normal', new THREE.Float32BufferAttribute(norm, 3));
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  geo.setAttribute('aPetalMask', new THREE.Float32BufferAttribute(petalMask, 1));
-  geo.setIndex(idx);
-  return geo;
-}
-
-/**
- * Build authentic Icelandic Silvery-Sage Woolly Willow (Salix lanata) & Deep Crowberry Shrub.
- * Matches the soft silvery-grey-green leafy shrubs nestled among purple lupins in the reference foreground!
- */
-function createIcelandicBushGeo() {
-  const pos = [];
-  const norm = [];
-  const colors = [];
-  const idx = [];
-  let vBase = 0;
-
-  const pushTri = (ax, ay, az, bx, by, bz, cx, cy, cz, col, nx, ny, nz) => {
-    pos.push(ax, ay, az, bx, by, bz, cx, cy, cz);
-    for (let k = 0; k < 3; k++) {
-      norm.push(nx, ny, nz);
-      colors.push(col[0], col[1], col[2]);
-    }
-    idx.push(vBase, vBase + 1, vBase + 2);
-    vBase += 3;
-  };
-
-  const branches = 12;
-  for (let b = 0; b < branches; b++) {
-    const a = (b / branches) * Math.PI * 2 + hash2i(b, 1, 901) * 0.42;
-    const reach = 0.28 + hash2i(b, 2, 901) * 0.30;
-    const bh = 0.22 + hash2i(b, 3, 901) * 0.22;
-    const dx = Math.cos(a);
-    const dz = Math.sin(a);
-    const px = -dz * 0.012;
-    const pz = dx * 0.012;
-    pushTri(-px, 0, -pz, px, 0, pz, dx * reach * 0.9, bh * 0.85, dz * reach * 0.9, [0.045, 0.042, 0.032], 0, 0.85, 0.5);
-
-    for (let l = 0; l < 8; l++) {
-      const f = 0.16 + (l / 8) * 0.90;
-      const domeY = Math.sin(clamp(f * 0.92, 0.08, 0.96) * Math.PI) * bh * 1.18 + 0.03;
-      const spread = 0.08 + hash2i(b * 13 + l, 4, 901) * 0.16;
-      const la = a + (hash2i(b, l * 7, 901) - 0.5) * 3.0;
-      const lx = dx * reach * f + Math.cos(la) * spread * 0.55;
-      const lz = dz * reach * f + Math.sin(la) * spread * 0.55;
-      const ly = Math.max(0.025, domeY + (hash2i(l, b, 907) - 0.45) * 0.10);
-
-      const ldx = Math.cos(la);
-      const ldz = Math.sin(la);
-      const halfW = 0.028 + hash2i(l, b * 3, 911) * 0.020;
-      const lpx = -ldz * halfW;
-      const lpz = ldx * halfW;
-      const lLen = 0.082 + hash2i(b, l, 911) * 0.052;
-      const tipUp = 0.042 + hash2i(b + l, 7, 919) * 0.050;
-
-      const tint = hash2i(b * 19 + l, 5, 919);
-      const radialAO = mix(0.40, 1.16, clamp(Math.hypot(lx, lz) / 0.48 * 0.45 + ly / 0.38 * 0.72, 0, 1));
-      let cr, cg, cb;
-      if (tint < 0.45) {
-        // Silvery-sage Icelandic woolly dwarf willow leaf (iconic pale sea-green bush beside lupins!)
-        cr = 0.20 * radialAO; cg = 0.27 * radialAO; cb = 0.21 * radialAO;
-      } else if (tint < 0.84) {
-        // Deep rich mossy crowberry / Arctic bilberry green
-        cr = 0.075 * radialAO; cg = 0.155 * radialAO; cb = 0.068 * radialAO;
-      } else {
-        // Subtle warm bronze-heather leaf accent
-        cr = 0.24 * radialAO; cg = 0.13 * radialAO; cb = 0.055 * radialAO;
-      }
-      pushTri(
-        lx - lpx, ly, lz - lpz,
-        lx + lpx, ly, lz + lpz,
-        lx + ldx * lLen, ly + tipUp, lz + ldz * lLen,
-        [cr, cg, cb],
-        ldx * 0.35, 0.90, ldz * 0.35
-      );
-    }
-  }
-
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setAttribute('normal', new THREE.Float32BufferAttribute(norm, 3));
-  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
-  geo.setIndex(idx);
-  return geo;
-}
-
-/** Build crisp fluffy Arctic Cotton Grass (Eriophorum) tuft with bright snow-white plumes! */
+/** Build crisp fluffy Arctic Cotton Grass (Eriophorum) tuft with crossed `cottonMap` fibrous white plumes! */
 function createCottonGrassGeo() {
   const pos = [];
   const norm = [];
+  const uvs = [];
   const colors = [];
   const idx = [];
   let vBase = 0;
-
-  const pushTri = (ax, ay, az, bx, by, bz, cx, cy, cz, col, nx, ny, nz) => {
-    pos.push(ax, ay, az, bx, by, bz, cx, cy, cz);
-    for (let k = 0; k < 3; k++) {
-      norm.push(nx, ny, nz);
-      colors.push(col[0], col[1], col[2]);
-    }
-    idx.push(vBase, vBase + 1, vBase + 2);
-    vBase += 3;
-  };
 
   for (let i = 0; i < 8; i++) {
     const a = (i / 8) * Math.PI * 2 + hash2i(i, 1, 951) * 0.55;
@@ -773,26 +759,43 @@ function createCottonGrassGeo() {
     const tx = bx + dx * lean;
     const tz = bz + dz * lean;
 
-    pushTri(bx - px, 0, bz - pz, bx + px, 0, bz + pz, tx, h, tz, [0.11, 0.18, 0.065], dx * 0.2, 0.96, dz * 0.2);
+    // Slender stem (sampled from solid white center of cottonMap so it stays opaque)
+    pos.push(bx - px, 0, bz - pz, bx + px, 0, bz + pz, tx, h, tz);
+    uvs.push(0.5, 0.5, 0.5, 0.5, 0.5, 0.5);
+    for (let k = 0; k < 3; k++) {
+      norm.push(dx * 0.2, 0.96, dz * 0.2);
+      colors.push(0.14, 0.22, 0.08);
+    }
+    idx.push(vBase, vBase + 1, vBase + 2);
+    vBase += 3;
 
     if (i < 6) {
-      // Soft rounded fluffy Arctic cotton-grass tuft (2 crossed vertical diamonds -> delicate oval puff up close, zero pointy cones!)
-      const pr = 0.032 + hash2i(i, 6, 951) * 0.014;
-      const py = pr * 0.95;
-      const cottonTop = [0.96, 0.98, 0.96];
-      const cottonBot = [0.80, 0.83, 0.79];
-      // Plane X
-      pushTri(tx - pr, h, tz, tx + pr, h, tz, tx, h + py, tz, cottonTop, 0, 1, 0);
-      pushTri(tx - pr, h, tz, tx, h - py * 0.65, tz, tx + pr, h, tz, cottonBot, 0, 0.7, 0.7);
-      // Plane Z
-      pushTri(tx, h, tz - pr, tx, h, tz + pr, tx, h + py, tz, cottonTop, 0, 1, 0);
-      pushTri(tx, h, tz - pr, tx, h - py * 0.65, tz, tx, h, tz + pr, cottonBot, 0.7, 0.7, 0);
+      const pr = 0.048 + hash2i(i, 6, 951) * 0.018;
+      for (let p = 0; p < 2; p++) {
+        const ang = a + p * (Math.PI * 0.5);
+        const cx = Math.cos(ang) * pr;
+        const cz = Math.sin(ang) * pr;
+        pos.push(
+          tx - cx, h - pr * 0.85, tz - cz,
+          tx + cx, h - pr * 0.85, tz + cz,
+          tx - cx, h + pr * 0.95, tz - cz,
+          tx + cx, h + pr * 0.95, tz + cz
+        );
+        uvs.push(0.02, 0.02, 0.98, 0.02, 0.02, 0.98, 0.98, 0.98);
+        for (let k = 0; k < 4; k++) {
+          norm.push(0, 0.92, 0.38);
+          colors.push(0.98, 0.99, 0.97);
+        }
+        idx.push(vBase, vBase + 1, vBase + 2, vBase + 1, vBase + 3, vBase + 2);
+        vBase += 4;
+      }
     }
   }
 
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setAttribute('normal', new THREE.Float32BufferAttribute(norm, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
   geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
   geo.setIndex(idx);
   return geo;
@@ -861,7 +864,7 @@ export function createTerrainSystem(texLib, scene) {
     metalness: 0.02
   });
   terrainMat.fog = false;
-  terrainMat.customProgramCacheKey = () => 'ls_iceland_terrain_v11';
+  terrainMat.customProgramCacheKey = () => 'ls_iceland_terrain_v12';
 
   terrainMat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, ATMO_UNIFORMS);
@@ -992,10 +995,10 @@ export function createTerrainSystem(texLib, scene) {
         #include <color_fragment>
         // Pixel-accurate volcanic cave portal arch cutout where the continuous river enters/exits beneath a mountain!
         // Uses smooth centerline overburden (vCave.z) so mountain cliff, moss, snow & glacier stay 100% solid overhead with ZERO sidewall spikes!
-        if (vCave.z > 16.8 && abs(vCave.x) < 12.6) {
-          float archU = abs(vCave.x) / 12.6;
-          // Organic slightly irregular natural Icelandic sea-cave / lava-tube arch silhouette
-          float archCeil = vCave.y + 10.4 * pow(max(0.0, 1.0 - archU * archU), 0.56);
+        if (vCave.z > 17.5 && abs(vCave.x) < 11.8) {
+          float archU = abs(vCave.x) / 11.8;
+          // Organic slightly irregular natural Icelandic sea-cave / lava-tube arch silhouette strictly inside cave mesh
+          float archCeil = vCave.y + 9.4 * pow(max(0.0, 1.0 - archU * archU), 0.56);
           float archRough = (atmoNoise(vWPos.xz * 0.24 + vec2(vWPos.y * 0.22)) - 0.5) * 1.4;
           if (vWPos.y < archCeil + archRough) discard;
         }
@@ -1253,6 +1256,17 @@ export function createTerrainSystem(texLib, scene) {
         `
       )
       .replace(
+        '#include <lights_fragment_end>',
+        /* glsl */`
+        #include <lights_fragment_end>
+        {
+          float tShadow = sampleTerrainShadow(vWPos);
+          reflectedLight.directDiffuse *= tShadow;
+          reflectedLight.directSpecular *= tShadow;
+        }
+        `
+      )
+      .replace(
         '#include <dithering_fragment>',
         /* glsl */`
         gl_FragColor.rgb += sampleOdradekScan(vWPos, lsWorldNorm);
@@ -1465,6 +1479,17 @@ export function createTerrainSystem(texLib, scene) {
         /* glsl */`
         #include <roughnessmap_fragment>
         roughnessFactor = rRough;
+        `
+      )
+      .replace(
+        '#include <lights_fragment_end>',
+        /* glsl */`
+        #include <lights_fragment_end>
+        {
+          float tShadow = sampleTerrainShadow(vRWorldPos);
+          reflectedLight.directDiffuse *= tShadow;
+          reflectedLight.directSpecular *= tShadow;
+        }
         `
       )
       .replace(
@@ -1690,6 +1715,17 @@ export function createTerrainSystem(texLib, scene) {
         `
       )
       .replace(
+        '#include <lights_fragment_end>',
+        /* glsl */`
+        #include <lights_fragment_end>
+        {
+          float tShadow = sampleTerrainShadow(vCWorldPos);
+          reflectedLight.directDiffuse *= tShadow;
+          reflectedLight.directSpecular *= tShadow;
+        }
+        `
+      )
+      .replace(
         '#include <dithering_fragment>',
         /* glsl */`
         gl_FragColor.rgb += sampleOdradekScan(vCWorldPos, cWorldN);
@@ -1701,23 +1737,27 @@ export function createTerrainSystem(texLib, scene) {
 
   const grassMat = new THREE.MeshStandardMaterial({
     color: 0xffffff,
+    map: texLib.grassMap,
+    alphaTest: 0.36,
     vertexColors: true,
-    roughness: 0.86,
+    roughness: 0.84,
     metalness: 0.0,
     side: THREE.DoubleSide
   });
-  enhanceMaterialWithAtmo(grassMat, { cacheKey: 'ls_tussock_grass', windSway: 0.36, wetnessBoost: 0.16 });
+  enhanceMaterialWithAtmo(grassMat, { cacheKey: 'ls_tussock_grass_v2', windSway: 0.36, wetnessBoost: 0.16 });
 
   // Multi-Colored Lupin Material: uses `aPetalMask` so `instanceColor` tints ONLY flower petals while leaves stay green!
   const lupinMat = new THREE.MeshStandardMaterial({
     color: 0xffffff,
+    map: texLib.lupinMap,
+    alphaTest: 0.36,
     vertexColors: true,
-    roughness: 0.82,
+    roughness: 0.78,
     metalness: 0.0,
     side: THREE.DoubleSide
   });
   lupinMat.fog = false;
-  lupinMat.customProgramCacheKey = () => 'ls_iceland_lupin_multi_v2';
+  lupinMat.customProgramCacheKey = () => 'ls_iceland_lupin_multi_v4';
   lupinMat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, ATMO_UNIFORMS);
     shader.vertexShader = shader.vertexShader
@@ -1787,6 +1827,17 @@ export function createTerrainSystem(texLib, scene) {
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>\nvarying vec3 vLsWorldPos;\nvarying vec3 vLsWorldNorm;\n${ATMO_GLSL_PARS}`)
       .replace(
+        '#include <lights_fragment_end>',
+        /* glsl */`
+        #include <lights_fragment_end>
+        {
+          float tShadow = sampleTerrainShadow(vLsWorldPos);
+          reflectedLight.directDiffuse *= tShadow;
+          reflectedLight.directSpecular *= tShadow;
+        }
+        `
+      )
+      .replace(
         '#include <dithering_fragment>',
         /* glsl */`
         gl_FragColor.rgb += sampleOdradekScan(vLsWorldPos, normalize(vLsWorldNorm));
@@ -1798,21 +1849,25 @@ export function createTerrainSystem(texLib, scene) {
 
   const bushMat = new THREE.MeshStandardMaterial({
     color: 0xffffff,
+    map: texLib.bushMap,
+    alphaTest: 0.36,
+    vertexColors: true,
+    roughness: 0.86,
+    metalness: 0.0,
+    side: THREE.DoubleSide
+  });
+  enhanceMaterialWithAtmo(bushMat, { cacheKey: 'ls_iceland_bush_v2', windSway: 0.14, wetnessBoost: 0.18 });
+
+  const cottonMat = new THREE.MeshStandardMaterial({
+    color: 0xffffff,
+    map: texLib.cottonMap,
+    alphaTest: 0.32,
     vertexColors: true,
     roughness: 0.90,
     metalness: 0.0,
     side: THREE.DoubleSide
   });
-  enhanceMaterialWithAtmo(bushMat, { cacheKey: 'ls_iceland_bush', windSway: 0.14, wetnessBoost: 0.18 });
-
-  const cottonMat = new THREE.MeshStandardMaterial({
-    color: 0xffffff,
-    vertexColors: true,
-    roughness: 0.92,
-    metalness: 0.0,
-    side: THREE.DoubleSide
-  });
-  enhanceMaterialWithAtmo(cottonMat, { cacheKey: 'ls_cotton_grass', windSway: 0.42, wetnessBoost: 0.10 });
+  enhanceMaterialWithAtmo(cottonMat, { cacheKey: 'ls_cotton_grass_v2', windSway: 0.42, wetnessBoost: 0.10 });
 
   // Reusable lightweight sculpted basalt crags, spires & Icelandic botanical geometries (100% smooth welded normals!)
   const boulderGeoA = createNaturalBasaltRockGeo(11, 2, 0.74);
@@ -1826,14 +1881,14 @@ export function createTerrainSystem(texLib, scene) {
   const bushGeo = createIcelandicBushGeo();
   const cottonGeo = createCottonGrassGeo();
 
-  // Authentic Icelandic Nootka Lupin Palette (rich royal violet-purple, indigo-blue, lavender-lilac & rare cream-white!)
+  // Authentic Icelandic Nootka Lupin Palette (soft highland violet, lavender-lilac, periwinkle, plum & cream-white!)
   const LUPIN_PALETTE = [
-    new THREE.Color().setHex(0x5234b8), // Deep Royal Icelandic Violet-Purple (dominant!)
-    new THREE.Color().setHex(0x4658c8), // Periwinkle / Lupin Indigo-Blue
-    new THREE.Color().setHex(0x6e4ed4), // Vivid Highland Lavender-Violet
-    new THREE.Color().setHex(0x7c48b6), // Amethyst-Plum Violet
-    new THREE.Color().setHex(0x8c70e2), // Pale Soft Lilac-Blue
-    new THREE.Color().setHex(0xe8e4dc)  // Natural Creamy White morph
+    new THREE.Color().setHex(0x8e6ee0), // Soft Royal Icelandic Violet-Lavender (dominant!)
+    new THREE.Color().setHex(0x7c86e8), // Highland Periwinkle-Blue
+    new THREE.Color().setHex(0xa27ee8), // Vivid Soft Lavender-Violet
+    new THREE.Color().setHex(0xb076d4), // Amethyst-Orchid Violet
+    new THREE.Color().setHex(0xbaa8f0), // Pale Soft Lilac
+    new THREE.Color().setHex(0xf0ece4)  // Natural Creamy White morph
   ];
 
   // Natural Weathered Grey-Slate & Warm Taupe Icelandic Stone/Cobble Palette (harmonious, never stark black dots!)
@@ -2194,8 +2249,8 @@ export function createTerrainSystem(texLib, scene) {
 
       // Surround every Eldhraun lava outcrop with smooth, slope-hugging mossy pillow mounds!
       if (!inRiver && lod <= 1) {
-        const maxCushions = lod === 0 ? 190 : 48;
-        const cushCount = lod === 0 ? (3 + Math.floor(hash2i(i, cx * 31 + cz, 541) * 4)) : 2;
+        const maxCushions = lod === 0 ? (IS_MOBILE_DEVICE ? 210 : 280) : 48;
+        const cushCount = lod === 0 ? (4 + Math.floor(hash2i(i, cx * 31 + cz, 541) * 5)) : 2;
         for (let k = 0; k < cushCount && cushionMats.length < maxCushions; k++) {
           const cAng = hash2i(i * 19 + k, cz * 13 + cx, 543) * Math.PI * 2;
           const cDist = 1.0 + Math.pow(hash2i(k * 11, i * 5, 547), 0.74) * 10.6;
@@ -2327,8 +2382,8 @@ export function createTerrainSystem(texLib, scene) {
     const halfChunk = CHUNK_SIZE * 0.49;
 
     // 4a) Lush Sweeping Icelandic Nootka Lupin Flower Colonies (dense drifts of 6..12 rich violet-blue spires!)
-    const lupinCenters = lod === 0 ? 78 : lod === 1 ? 20 : 0;
-    const maxLupins = lod === 0 ? 320 : 60;
+    const lupinCenters = lod === 0 ? (IS_MOBILE_DEVICE ? 82 : 108) : lod === 1 ? 20 : 0;
+    const maxLupins = lod === 0 ? (IS_MOBILE_DEVICE ? 330 : 450) : 60;
     for (let i = 0; i < lupinCenters && lupinMats.length < maxLupins; i++) {
       const cx0 = (hash2i(cx * 131 + i, cz * 79, 613) - 0.5) * CHUNK_SIZE;
       const cz0 = (hash2i(cx * 61, cz * 113 + i, 619) - 0.5) * CHUNK_SIZE;
@@ -2405,8 +2460,8 @@ export function createTerrainSystem(texLib, scene) {
     }
 
     // 4b) Clustered Silvery-Sage Icelandic Dwarf Willow & Crowberry Thickets (natural companion shrubs beside lupins & rocks!)
-    const bushCenters = lod === 0 ? 72 : lod === 1 ? 18 : 0;
-    const maxBushes = lod === 0 ? 210 : 42;
+    const bushCenters = lod === 0 ? (IS_MOBILE_DEVICE ? 76 : 96) : lod === 1 ? 18 : 0;
+    const maxBushes = lod === 0 ? (IS_MOBILE_DEVICE ? 220 : 290) : 42;
     for (let i = 0; i < bushCenters && bushMats.length < maxBushes; i++) {
       const cx0 = (hash2i(cx * 149 + i, cz * 83, 653) - 0.5) * CHUNK_SIZE;
       const cz0 = (hash2i(cx * 71, cz * 127 + i, 659) - 0.5) * CHUNK_SIZE;
@@ -2454,10 +2509,12 @@ export function createTerrainSystem(texLib, scene) {
           const glx = lxC + Math.cos(gAng) * 0.95;
           const glz = lzC + Math.sin(gAng) * 0.95;
           if (Math.abs(glx) <= halfChunk && Math.abs(glz) <= halfChunk) {
-            const gh = getTerrainHeight(ox + glx, oz + glz);
+            const gwx = ox + glx;
+            const gwz = oz + glz;
+            const gh = getTerrainHeight(gwx, gwz);
             const gs = 0.92 + hash2i(i, 47, 677) * 0.48;
-            dummy.position.set(glx, gh - 0.02, glz);
-            dummy.rotation.set(0, hash2i(i, 48, 677) * 6.28, 0);
+            dummy.position.set(glx, gh - 0.06, glz);
+            alignToSlope(gwx, gwz, hash2i(i, 48, 677) * 6.28, 0.92);
             dummy.scale.set(gs * 1.18, gs, gs * 1.18);
             dummy.updateMatrix();
             grassMats.push(dummy.matrix.clone());
@@ -2468,8 +2525,8 @@ export function createTerrainSystem(texLib, scene) {
 
     if (lod === 0) {
       // 4c) Dense Sparkling White Arctic Cotton Grass Carpets (Eriophorum grouped in damp marsh hollows & meadow swales!)
-      const cottonCenters = 54;
-      const maxCotton = 220;
+      const cottonCenters = IS_MOBILE_DEVICE ? 56 : 78;
+      const maxCotton = IS_MOBILE_DEVICE ? 220 : 310;
       for (let i = 0; i < cottonCenters && cottonMats.length < maxCotton; i++) {
         const cx0 = (hash2i(cx * 167 + i, cz * 97, 701) - 0.5) * CHUNK_SIZE;
         const cz0 = (hash2i(cx * 89, cz * 151 + i, 703) - 0.5) * CHUNK_SIZE;
@@ -2500,9 +2557,9 @@ export function createTerrainSystem(texLib, scene) {
         }
       }
 
-      // 4d) Clustered Sunlit Wild Meadow Grass Swards & Swales (organic overlapping grass drifts + clean mossy pillow clearings!)
-      const grassClusters = 185;
-      const maxGrass = 620;
+      // 4d) Clustered Sunlit Wild Meadow Grass Swards & Swales (dense close-range grass carpet + mossy pillow clearings!)
+      const grassClusters = IS_MOBILE_DEVICE ? 230 : 340;
+      const maxGrass = IS_MOBILE_DEVICE ? 840 : 1280;
       for (let i = 0; i < grassClusters && grassMats.length < maxGrass; i++) {
         const cx0 = (hash2i(cx * 173 + i, cz * 103, 671) - 0.5) * CHUNK_SIZE;
         const cz0 = (hash2i(cx * 97, cz * 157 + i, 673) - 0.5) * CHUNK_SIZE;
@@ -2549,8 +2606,8 @@ export function createTerrainSystem(texLib, scene) {
           // Fuller, taller grass in drift core -> softer shorter tufts at cluster edge
           const coreBoost = mix(1.14, 0.76, rFrac);
           const s = (0.86 + hash2i(i + c * 9, 45, 677) * 0.58) * coreBoost;
-          dummy.position.set(lxC, tmpSample.height - 0.02, lzC);
-          dummy.rotation.set(0, hash2i(i + c, 46, 677) * 6.28, 0);
+          dummy.position.set(lxC, tmpSample.height - 0.06, lzC);
+          alignToSlope(wxC, wzC, hash2i(i + c, 46, 677) * 6.28, 0.92);
           dummy.scale.set(s * 1.24, s, s * 1.24);
           dummy.updateMatrix();
           grassMats.push(dummy.matrix.clone());
