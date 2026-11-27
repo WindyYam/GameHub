@@ -465,7 +465,7 @@ function startGame() {
 
   if (isMobileTouchPrimary()) {
     document.body.classList.add('touch-active');
-    tryLockLandscape(false);
+    tryLockLandscape(true);
   } else {
     document.body.classList.remove('touch-active');
     if (renderer.domElement.requestPointerLock) {
@@ -527,13 +527,19 @@ let lastCamY = 0;
 let lastPinchDist = 0;
 let landscapeAttempted = false;
 
-function tryLockLandscape(withFullscreen = false) {
-  if (!isMobileTouchPrimary()) return;
-  if (withFullscreen && !document.fullscreenElement && document.documentElement.requestFullscreen) {
-    document.documentElement.requestFullscreen().catch(() => {});
-  }
+function lockOrientationLandscape() {
   if (screen.orientation && screen.orientation.lock) {
     screen.orientation.lock('landscape').catch(() => {});
+  }
+}
+
+function tryLockLandscape(withFullscreen = true) {
+  if (!isMobileTouchPrimary()) return;
+  const docEl = document.documentElement;
+  if (withFullscreen && !document.fullscreenElement && docEl.requestFullscreen) {
+    docEl.requestFullscreen({ navigationUI: 'hide' }).then(lockOrientationLandscape).catch(lockOrientationLandscape);
+  } else {
+    lockOrientationLandscape();
   }
 }
 
@@ -599,7 +605,7 @@ container.addEventListener('pointerdown', (e) => {
     document.body.classList.add('touch-active');
     if (!landscapeAttempted) {
       landscapeAttempted = true;
-      tryLockLandscape(false);
+      tryLockLandscape(true);
     }
   } else {
     document.body.classList.remove('touch-active');
@@ -785,6 +791,19 @@ if (btnDismissLandscape && landscapePrompt) {
   });
 }
 tryLockLandscape(false);
+document.addEventListener('fullscreenchange', () => {
+  if (document.fullscreenElement && isMobileTouchPrimary()) {
+    lockOrientationLandscape();
+  }
+});
+window.addEventListener('orientationchange', () => {
+  if (isMobileTouchPrimary()) {
+    lockOrientationLandscape();
+    if (landscapePrompt && window.innerHeight > window.innerWidth) {
+      landscapePrompt.classList.remove('dismissed');
+    }
+  }
+});
 
 container.addEventListener(
   'wheel',
