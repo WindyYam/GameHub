@@ -1079,6 +1079,7 @@ export function createPorter(scene, onFootstep) {
   // 3. Physics, Secondary Spring Dynamics & Animation State
   const state = {
     pos: new THREE.Vector3(-7.6, 20, 13.0),
+    smoothBodyY: 20,
     vel: new THREE.Vector3(),
     yaw: 0.24,
     prevYaw: 0.24,
@@ -1108,6 +1109,10 @@ export function createPorter(scene, onFootstep) {
 
   const _moveDir = new THREE.Vector3();
   const _groundNorm = new THREE.Vector3();
+  const _pelvisQuat = new THREE.Quaternion();
+  const _invPelvisQuat = new THREE.Quaternion();
+  const _hipWorld = new THREE.Vector3();
+  const _footTarget = new THREE.Vector3();
   const _tmpSample = {
     height: 0, moss: 0, cliff: 0, path: 0, scree: 0,
     riverDepth: 0, riverMask: 0, flowX: 0, flowZ: 1, snow: 0, wetness: 0, hummockAO: 0.5
@@ -1115,6 +1120,7 @@ export function createPorter(scene, onFootstep) {
 
   function placeAt(x, z, yaw = state.yaw) {
     state.pos.set(x, getTerrainHeight(x, z), z);
+    state.smoothBodyY = state.pos.y;
     state.vel.set(0, 0, 0);
     state.yaw = yaw;
     state.prevYaw = yaw;
@@ -1139,16 +1145,18 @@ export function createPorter(scene, onFootstep) {
     const safeDt = Math.min(dt, 0.05);
 
     // Camera-relative movement direction (+Z forward in local model)
-    let moveX = 0;
-    let moveZ = 0;
+    let moveX = input.analogX || 0;
+    let moveZ = input.analogY || 0;
     if (input.forward) moveZ -= 1;
     if (input.backward) moveZ += 1;
     if (input.left) moveX -= 1;
     if (input.right) moveX += 1;
 
-    const hasInput = moveX !== 0 || moveZ !== 0;
-    state.isSprinting = hasInput && input.sprint;
-    const maxSpeed = state.isSprinting ? 7.4 : 3.45;
+    const rawMag = Math.hypot(moveX, moveZ);
+    const hasInput = rawMag > 0.08;
+    state.isSprinting = hasInput && (input.sprint || rawMag > 0.85 && (input.analogX || input.analogY));
+    const speedScale = (input.analogX || input.analogY) ? clamp(rawMag, 0.25, 1.0) : 1.0;
+    const maxSpeed = (state.isSprinting ? 7.4 : 3.45) * speedScale;
 
     state.prevYaw = state.yaw;
     if (hasInput) {
@@ -1178,12 +1186,12 @@ export function createPorter(scene, onFootstep) {
       state.vel.z = mix(state.vel.z, 0, clamp(safeDt * decel, 0, 1));
     }
 
-    // Track angular turn velocity for realistic body banking into turns
+    // Track angular turn velocity for subtle, natural body banking into turns
     let yawDelta = state.yaw - state.prevYaw;
     while (yawDelta > Math.PI) yawDelta -= Math.PI * 2;
     while (yawDelta < -Math.PI) yawDelta += Math.PI * 2;
-    const rawTurnRate = safeDt > 0.0001 ? clamp(yawDelta / safeDt, -5.0, 5.0) : 0;
-    state.turnRate = mix(state.turnRate, rawTurnRate, clamp(safeDt * 8.0, 0, 1));
+    const rawTurnRate = safeDt > 0.0001 ? clamp(yawDelta / safeDt, -3.2, 3.2) : 0;
+    state.turnRate = mix(state.turnRate, rawTurnRate, clamp(safeDt * 6.5, 0, 1));
 
     if (input.jump && state.grounded) {
       state.vel.y = 6.2;
@@ -1235,7 +1243,12 @@ export function createPorter(scene, onFootstep) {
     const groundY = caveInfo.inCave ? caveInfo.floorY : _tmpSample.height;
 
     state.wasGrounded = state.grounded;
-    if (state.pos.y <= groundY + 0.03) {
+    // Allow slope/bump step-down snapping when previously grounded and not jumping upward
+    // so walking down slopes or over moss hummocks doesn't flicker into the airborne/drop state
+    const snapMargin = (state.wasGrounded && state.vel.y <= 0.0)
+      ? (0.22 + Math.min(0.16, state.speed * 0.025))
+      : 0.03;
+    if (state.pos.y <= groundY + snapMargin) {
       if (!state.wasGrounded && state.vel.y < -2.2) {
         // Trigger weighted landing crouch & heavy backpack settle impulse!
         const impact = clamp(-state.vel.y / 9.5, 0.15, 1.0);
@@ -1251,6 +1264,16 @@ export function createPorter(scene, onFootstep) {
       state.grounded = false;
       state.airTime += safeDt;
     }
+
+    // Smooth upper-body vertical reference (acts as chassis height while legs act as suspension)
+    const bodyDiff = state.pos.y - state.smoothBodyY;
+    const absBodyDiff = Math.abs(bodyDiff);
+    const bodyFollowRate = state.grounded
+      ? mix(4.0, 12.0, clamp((absBodyDiff - 0.10) / 0.30, 0, 1))
+      : 16.0;
+    state.smoothBodyY = mix(state.smoothBodyY, state.pos.y, 1.0 - Math.exp(-bodyFollowRate * safeDt));
+    const suspOffset = clamp(state.smoothBodyY - state.pos.y, -0.22, 0.09);
+    state.smoothBodyY = state.pos.y + suspOffset;
 
     // Classify ground surface & wading depth
     const isWading = caveInfo.inCave || _tmpSample.riverDepth > 0.18;
@@ -1314,9 +1337,16 @@ export function createPorter(scene, onFootstep) {
       }
     }
 
-    // 5. Full-Body Physically Grounded Procedural Animation
+    // 5. Full-Body Physically Grounded Procedural Animation (2-Bone Analytical Leg IK)
+    const sp = state.sprintBlend;
+    const wd = state.wadeBlend;
+    const halfStride = mix(0.54, 0.76, sp) * mix(1.0, 0.84, wd);
+    const stanceFrac = mix(0.54, 0.42, sp);
+
     if (state.gaitBlend > 0.02 && state.grounded) {
-      const freq = mix(5.8, 9.8, state.sprintBlend) * mix(1.0, 0.82, state.wadeBlend);
+      // Long, weighty porter stride matched to ground speed
+      const cycleRate = (state.speed * stanceFrac) / Math.max(0.2, 2.0 * halfStride * 1.25);
+      const freq = clamp(cycleRate * Math.PI * 2.0, 2.8, 12.5) * mix(1.0, 0.88, wd);
       state.gaitPhase += safeDt * freq;
 
       const stepHalf = Math.floor(state.gaitPhase / Math.PI);
@@ -1329,29 +1359,7 @@ export function createPorter(scene, onFootstep) {
     }
 
     const g = state.gaitBlend;
-    const sp = state.sprintBlend;
-    const wd = state.wadeBlend;
     const ph = state.gaitPhase;
-
-    // Asymmetric human stride helper: realistic heel-strike -> stance roll -> toe-off -> tucked knee swing!
-    function evalLegKinematics(phaseOffset) {
-      const a = ph + phaseOffset;
-      const s = Math.sin(a);
-      const c = Math.cos(a);
-      const swingAmp = mix(0.46, 0.78, sp) * mix(1.0, 0.88, wd);
-      // Forward leg swing is NEGATIVE rotation.x; back push-off is POSITIVE rotation.x
-      const hipX = -s * swingAmp - (wd * Math.max(0, s) * 0.26) - (sp * 0.10);
-      // Knee bends deeply during swing recovery (c > 0) and softens slightly on stance heel-strike!
-      const swingKnee = Math.pow(Math.max(0, c), 0.82) * mix(0.86, 1.32, sp) + wd * Math.max(0, c) * 0.34;
-      const stanceKnee = Math.max(0, -c) * mix(0.14, 0.24, sp);
-      const kneeX = swingKnee + stanceKnee;
-      // Ankle dorsiflexes on heel-strike (s > 0 -> negative X), plantarflexes on push-off (s < 0 -> positive X)!
-      const ankleX = -s * mix(0.24, 0.38, sp) - Math.max(0, c) * 0.14;
-      return { hipX, kneeX, ankleX };
-    }
-
-    const lWalk = evalLegKinematics(0);
-    const rWalk = evalLegKinematics(Math.PI);
 
     // Idle relaxed asymmetric stance (realistic breathing + slow natural weight shift & head vista scanning!)
     const breathe = Math.sin(t * 1.65);
@@ -1359,22 +1367,25 @@ export function createPorter(scene, onFootstep) {
     const idleLookYaw = Math.sin(t * 0.38) * 0.22 + Math.sin(t * 0.83) * 0.08;
     const idleLookPitch = Math.sin(t * 0.52 + 1.1) * 0.05 - 0.02;
 
-    const airBlend = state.grounded ? 0.0 : clamp(state.airTime * 7.5, 0, 1);
+    // Delay drop/fall pose slightly unless jumping upward so brief terrain micro-drops never flicker
+    const airAnimTime = state.vel.y > 0.5 ? state.airTime : Math.max(0, state.airTime - 0.14);
+    const airBlend = state.grounded ? 0.0 : clamp(airAnimTime * 6.5, 0, 1);
 
-    // Pelvis motion: figure-8 sway, bounce arc, hip drop, yaw stride drive & landing compression!
-    const strideBounce = Math.abs(Math.sin(ph)) * mix(0.036, 0.072, sp) - mix(0.018, 0.038, sp);
-    const walkHipSwayX = Math.cos(ph) * mix(0.024, 0.034, sp);
-    const walkHipDropZ = Math.sin(ph) * mix(0.045, 0.068, sp);
-    const walkHipYawY = Math.sin(ph) * mix(0.095, 0.145, sp);
+    // Pelvis motion: double-frequency vertical arc (lowest at double-support, highest at mid-stance), sway, yaw & banking
+    const strideBounce = -Math.cos(ph * 2.0) * mix(0.022, 0.048, sp) - mix(0.025, 0.045, sp);
+    const walkHipSwayX = Math.cos(ph) * mix(0.014, 0.022, sp);
+    const walkHipDropZ = Math.sin(ph) * mix(0.036, 0.054, sp);
+    const walkHipYawY = Math.cos(ph) * mix(0.085, 0.13, sp);
+    const turnBank = state.turnRate * g * mix(0.012, 0.024, sp);
 
-    const targetPelvisY = 0.94 + mix(breathe * 0.006, strideBounce, g) + state.landSquash * 0.65 - airBlend * 0.04;
+    const targetPelvisY = mix(0.92, 0.90, g) + suspOffset + mix(breathe * 0.006, strideBounce, g) + state.landSquash * 0.65 - airBlend * 0.04;
     const targetPelvisX = mix(weightShift, walkHipSwayX, g);
     const targetPelvisZ = 0;
 
     pelvisGroup.position.set(targetPelvisX, targetPelvisY, targetPelvisZ);
     pelvisGroup.rotation.y = mix(weightShift * 1.4, walkHipYawY, g);
-    pelvisGroup.rotation.z = mix(-weightShift * 1.2, walkHipDropZ, g) - state.turnRate * mix(0.02, 0.065, g);
-    pelvisGroup.rotation.x = mix(0.03, mix(0.08, 0.16, sp), g) + Math.max(0, state.slopeLean) * 0.22 - state.landSquash * 0.55;
+    pelvisGroup.rotation.z = mix(-weightShift * 1.2, walkHipDropZ, g) - turnBank;
+    pelvisGroup.rotation.x = mix(0.03, mix(0.07, 0.14, sp), g) + Math.max(0, state.slopeLean) * 0.20 - state.landSquash * 0.55;
 
     // Upper Torso: natural counter-rotation against pelvis + heavy-pack forward climb lean + subtle storm gale bracing
     const galeFactor = smoothstep(1.05, 1.75, ATMO_UNIFORMS.uWindStrength.value);
@@ -1389,32 +1400,121 @@ export function createPorter(scene, onFootstep) {
 
     upperTorsoGroup.rotation.y = mix(idleLookYaw * 0.22, torsoCounterYaw, g);
     upperTorsoGroup.rotation.x = torsoForwardLean;
-    upperTorsoGroup.rotation.z = mix(weightShift * 1.1, -walkHipDropZ * 0.72, g) - state.turnRate * mix(0.015, 0.045, g) + galeBuffet;
+    upperTorsoGroup.rotation.z = mix(weightShift * 1.1, -walkHipDropZ * 0.72, g) - turnBank * 0.55 + galeBuffet;
     upperTorsoGroup.position.y = 0.09 + breathe * 0.005 * (1.0 - g * 0.5);
 
     // Head stabilization: keeps eyes naturally level on the horizon & tracks turns/scans!
     const scanHeadYaw = state.scanActive ? Math.sin(state.scanAge * 2.6) * 0.28 : 0;
-    const targetHeadYaw = mix(idleLookYaw * 0.78, -torsoCounterYaw * 0.65 + clamp(state.turnRate * 0.16, -0.35, 0.35), g) + scanHeadYaw;
+    const targetHeadYaw = mix(idleLookYaw * 0.78, -torsoCounterYaw * 0.65 + clamp(state.turnRate * 0.12, -0.28, 0.28), g) + scanHeadYaw;
     const targetHeadPitch = mix(idleLookPitch, -torsoForwardLean * 0.62 - state.slopeLean * 0.15, g) - (state.scanActive ? 0.08 : 0);
     headGroup.rotation.y = mix(headGroup.rotation.y, targetHeadYaw, clamp(safeDt * 8.0, 0, 1));
     headGroup.rotation.x = mix(headGroup.rotation.x, targetHeadPitch, clamp(safeDt * 8.0, 0, 1));
     headGroup.rotation.z = -upperTorsoGroup.rotation.z * 0.65;
 
     // Secondary heavy backpack inertia bounce & lateral sway
-    const targetPackSway = -walkHipDropZ * 0.85 - state.turnRate * 0.035;
+    const targetPackSway = -walkHipDropZ * 0.85 - turnBank * 0.7;
     state.packSwayZ = mix(state.packSwayZ, targetPackSway, clamp(safeDt * 7.5, 0, 1));
     packGroup.position.y = 0.21 + state.packBounceY;
     packGroup.rotation.z = state.packSwayZ;
     packGroup.rotation.x = -state.packBounceY * 1.4;
 
-    // Legs: blend idle athletic stance -> walk/sprint cycle -> airborne tuck + landing crouch!
-    const crouchKnee = Math.max(0, -state.landSquash) * 2.4;
-    const lHipIdle = -0.07 + crouchKnee * -0.5;
-    const rHipIdle = 0.09 + crouchKnee * -0.5;
-    const lKneeIdle = 0.08 + crouchKnee;
-    const rKneeIdle = 0.14 + crouchKnee;
-    const lAnkleIdle = -0.04 - crouchKnee * 0.45;
-    const rAnkleIdle = -0.10 - crouchKnee * 0.45;
+    // Foot trajectory in root space + 2-bone analytical IK (zero ground slip & automatic leg suspension!)
+    const stepHeight = mix(0.14, 0.28, sp) + wd * 0.12;
+    function evalFootTarget(phaseRad, side) {
+      const u = (((phaseRad / (Math.PI * 2.0)) % 1.0) + 1.0) % 1.0;
+      let fz = 0;
+      let fy = 0;
+      let inStance = true;
+      let stanceT = 0;
+      let swingT = 0;
+
+      if (u < stanceFrac) {
+        stanceT = u / stanceFrac;
+        fz = mix(halfStride, -halfStride, stanceT);
+        fy = 0;
+        inStance = true;
+      } else {
+        swingT = (u - stanceFrac) / (1.0 - stanceFrac);
+        fz = mix(-halfStride, halfStride, 0.5 - 0.5 * Math.cos(Math.PI * swingT));
+        fy = Math.sin(Math.PI * swingT) * stepHeight;
+        inStance = false;
+      }
+
+      const idleZ = side * 0.04;
+      const targetZ = mix(idleZ, fz, g);
+      const targetLift = fy * g;
+
+      let groundRelY = 0;
+      if (state.grounded && !caveInfo.inCave) {
+        const rightX = Math.cos(state.yaw);
+        const rightZ = -Math.sin(state.yaw);
+        const sampleY = getTerrainHeight(
+          state.pos.x + rightX * (side * 0.105) + fwdX * targetZ,
+          state.pos.z + rightZ * (side * 0.105) + fwdZ * targetZ
+        );
+        groundRelY = clamp(sampleY - state.pos.y, -0.14, 0.18);
+      }
+
+      return {
+        x: side * 0.105,
+        y: groundRelY + targetLift + 0.10, // +0.10 = ankle height above boot sole bottom
+        z: targetZ,
+        inStance,
+        stanceT,
+        swingT
+      };
+    }
+
+    const lFoot = evalFootTarget(ph, 1);
+    const rFoot = evalFootTarget(ph + Math.PI, -1);
+
+    _pelvisQuat.setFromEuler(pelvisGroup.rotation);
+    _invPelvisQuat.copy(_pelvisQuat).invert();
+    const L1 = 0.42;
+    const L2 = 0.39;
+
+    function solveLegIK(side, foot) {
+      // Exact hip socket position in root space
+      _hipWorld.set(side * 0.104, -0.03, 0).applyQuaternion(_pelvisQuat).add(pelvisGroup.position);
+      // Vector from hip to ankle target, transformed into pelvis local space so pelvis roll/pitch/yaw never pull the foot!
+      _footTarget.set(foot.x, foot.y, foot.z).sub(_hipWorld).applyQuaternion(_invPelvisQuat);
+
+      const dx = _footTarget.x;
+      const dy = _footTarget.y;
+      const dz = _footTarget.z;
+
+      const r = Math.hypot(dx, Math.max(0.05, -dy));
+      const d = clamp(Math.hypot(r, dz), 0.18, L1 + L2 - 0.004);
+
+      const cosKnee = clamp((L1 * L1 + L2 * L2 - d * d) / (2.0 * L1 * L2), -1, 1);
+      const kneeX = Math.PI - Math.acos(cosKnee);
+
+      const cosAlpha = clamp((L1 * L1 + d * d - L2 * L2) / (2.0 * L1 * d), -1, 1);
+      const alpha = Math.acos(cosAlpha);
+      const targetPitch = Math.atan2(dz, r);
+      const hipX = -(targetPitch + alpha);
+      const hipZ = Math.atan2(dx, Math.max(0.1, -dy));
+
+      // Keep boot sole flat on terrain during stance, with natural heel-strike & toe-off roll
+      const flatAnkleX = -(hipX + kneeX + pelvisGroup.rotation.x * 0.85);
+      let anklePitchOffset = 0;
+      if (g > 0.05) {
+        if (foot.inStance) {
+          const heelStrike = Math.max(0, 1.0 - foot.stanceT * 4.0) * -0.16;
+          const toeOff = Math.max(0, (foot.stanceT - 0.72) / 0.28) * 0.28;
+          anklePitchOffset = (heelStrike + toeOff) * g;
+        } else {
+          anklePitchOffset = (0.18 * (1.0 - foot.swingT) - 0.20 * Math.sin(Math.PI * foot.swingT)) * g;
+        }
+      }
+      const ankleX = flatAnkleX + anklePitchOffset;
+      const ankleZ = -(hipZ + pelvisGroup.rotation.z);
+
+      return { hipX, hipZ, kneeX, ankleX, ankleZ };
+    }
+
+    const lIK = solveLegIK(1, lFoot);
+    const rIK = solveLegIK(-1, rFoot);
 
     const lHipAir = -0.52;
     const rHipAir = 0.26;
@@ -1423,29 +1523,25 @@ export function createPorter(scene, onFootstep) {
     const lAnkleAir = 0.28;
     const rAnkleAir = 0.35;
 
-    const lHipTarget = mix(mix(lHipIdle, lWalk.hipX, g), lHipAir, airBlend);
-    const rHipTarget = mix(mix(rHipIdle, rWalk.hipX, g), rHipAir, airBlend);
-    const lKneeTarget = mix(mix(lKneeIdle, lWalk.kneeX + crouchKnee, g), lKneeAir, airBlend);
-    const rKneeTarget = mix(mix(rKneeIdle, rWalk.kneeX + crouchKnee, g), rKneeAir, airBlend);
-    const lAnkleTarget = mix(mix(lAnkleIdle, lWalk.ankleX, g), lAnkleAir, airBlend);
-    const rAnkleTarget = mix(mix(rAnkleIdle, rWalk.ankleX, g), rAnkleAir, airBlend);
+    leftLeg.hip.rotation.x = mix(lIK.hipX, lHipAir, airBlend);
+    rightLeg.hip.rotation.x = mix(rIK.hipX, rHipAir, airBlend);
+    leftLeg.hip.rotation.z = mix(lIK.hipZ, 0.04, airBlend);
+    rightLeg.hip.rotation.z = mix(rIK.hipZ, -0.04, airBlend);
+    leftLeg.hip.rotation.y = -pelvisGroup.rotation.y * 0.9;
+    rightLeg.hip.rotation.y = -pelvisGroup.rotation.y * 0.9;
 
-    const legLerp = clamp(safeDt * 18.0, 0, 1);
-    leftLeg.hip.rotation.x = mix(leftLeg.hip.rotation.x, lHipTarget, legLerp);
-    rightLeg.hip.rotation.x = mix(rightLeg.hip.rotation.x, rHipTarget, legLerp);
-    leftLeg.knee.rotation.x = mix(leftLeg.knee.rotation.x, lKneeTarget, legLerp);
-    rightLeg.knee.rotation.x = mix(rightLeg.knee.rotation.x, rKneeTarget, legLerp);
-    leftLeg.ankle.rotation.x = mix(leftLeg.ankle.rotation.x, lAnkleTarget, legLerp);
-    rightLeg.ankle.rotation.x = mix(rightLeg.ankle.rotation.x, rAnkleTarget, legLerp);
+    leftLeg.knee.rotation.x = mix(lIK.kneeX, lKneeAir, airBlend);
+    rightLeg.knee.rotation.x = mix(rIK.kneeX, rKneeAir, airBlend);
 
-    // Subtle natural knee/hip splay so legs never look stiffly parallel
-    leftLeg.hip.rotation.z = mix(0.03, 0.02 + wd * 0.05, g);
-    rightLeg.hip.rotation.z = mix(-0.03, -0.02 - wd * 0.05, g);
+    leftLeg.ankle.rotation.x = mix(lIK.ankleX, lAnkleAir, airBlend);
+    rightLeg.ankle.rotation.x = mix(rIK.ankleX, rAnkleAir, airBlend);
+    leftLeg.ankle.rotation.z = mix(lIK.ankleZ, 0, airBlend);
+    rightLeg.ankle.rotation.z = mix(rIK.ankleZ, 0, airBlend);
 
     // Arms: opposite-phase weighted swing + elbow inertia + subtle strap-stabilizing posture on sprints/climbs!
     const armSwingAmp = mix(0.38, 0.74, sp);
     const climbStrapGrip = clamp(state.slopeLean * 0.8 + sp * 0.22, 0, 0.45);
-    const sArm = Math.sin(ph);
+    const sArm = Math.cos(ph);
 
     const lArmIdleX = 0.06 + breathe * 0.015;
     const rArmIdleX = -0.05 + breathe * 0.015;

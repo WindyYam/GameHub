@@ -107,7 +107,7 @@ def build():
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>LandStranding — Icelandic Horizon</title>
   <link rel="icon" href="data:," />
   <style>
@@ -190,7 +190,8 @@ def build():
       <div class="key-chip"><b>Shift</b> Sprint</div>
       <div class="key-chip"><b>Space</b> Jump</div>
       <div class="key-chip"><b>Q</b> Odradek Scan</div>
-      <div class="key-chip"><b>Drag / Scroll</b> Orbit &amp; Zoom</div>
+      <div class="key-chip"><b>Click / Mouse</b> Look</div>
+      <div class="key-chip"><b>Scroll</b> Zoom</div>
       <div class="key-chip"><b>V</b> Reset Vista</div>
     </div>
 
@@ -198,6 +199,30 @@ def build():
       <div class="compass" title="North Heading">
         <div class="compass-needle" id="compass-needle"></div>
         <span>N</span>
+      </div>
+    </div>
+
+    <div id="mobile-controls" aria-label="Touch Controls">
+      <div class="joy-base" id="joy-base">
+        <div class="joy-ring"></div>
+        <div class="joy-knob" id="joy-knob"></div>
+      </div>
+      <div class="mobile-actions">
+        <button id="btn-m-scan" class="mobile-btn" type="button">Scan</button>
+        <button id="btn-m-sprint" class="mobile-btn" type="button">Sprint</button>
+        <button id="btn-m-jump" class="mobile-btn mobile-btn-lg" type="button">Jump</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="landscape-prompt">
+    <div class="landscape-card">
+      <div class="landscape-icon">⟳</div>
+      <div class="landscape-title">Landscape Recommended</div>
+      <div class="landscape-sub">Rotate your device horizontally for the best Icelandic expedition view.</div>
+      <div class="btn-group" style="justify-content: center; margin-top: 8px;">
+        <button id="btn-lock-landscape" type="button" class="active">Enter Landscape</button>
+        <button id="btn-dismiss-landscape" type="button">Continue</button>
       </div>
     </div>
   </div>

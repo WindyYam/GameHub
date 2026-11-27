@@ -133,7 +133,13 @@ const resolvePass = new ShaderPass({
 composer.addPass(resolvePass);
 
 // 3. World Systems Initialization (100% Pure Procedural — Every Seed Uses Same Generator)
-setWorldSeed(DEFAULT_SEED_STR);
+function generateRandomSeed() {
+  const prefixes = ['FJORD', 'VIK', 'REYKJA', 'SKOGA', 'KATLA', 'HEKLA', 'SNÆFELL', 'EYJA'];
+  const pref = prefixes[Math.floor(Math.random() * prefixes.length)];
+  return `${pref}-${Math.floor(100 + Math.random() * 899)}`;
+}
+
+setWorldSeed(generateRandomSeed());
 const texLib = createTextureLibrary();
 const skyDome = createSkyDome();
 scene.add(skyDome.mesh);
@@ -215,11 +221,25 @@ landmarkSys.rebuildAll(porter.state.pos.x, porter.state.pos.z);
 porter.placeAt(porter.state.pos.x, porter.state.pos.z, porter.state.yaw);
 syncCameraImmediate();
 
-// 5. Input Handling
-const input = { forward: false, backward: false, left: false, right: false, sprint: false, jump: false };
-let isDragging = false;
-let lastMouseX = 0;
-let lastMouseY = 0;
+// 5. Input Handling (Keyboard, Mouse & Multi-Touch Mobile Controls)
+const input = { forward: false, backward: false, left: false, right: false, sprint: false, jump: false, analogX: 0, analogY: 0 };
+const activePointers = new Map();
+let camPointerId = null;
+let lastCamX = 0;
+let lastCamY = 0;
+let lastPinchDist = 0;
+let landscapeAttempted = false;
+
+function tryLockLandscape(withFullscreen = false) {
+  const isTouch = window.matchMedia('(hover: none) and (pointer: coarse)').matches || navigator.maxTouchPoints > 0;
+  if (!isTouch) return;
+  if (withFullscreen && !document.fullscreenElement && document.documentElement.requestFullscreen) {
+    document.documentElement.requestFullscreen().catch(() => {});
+  }
+  if (screen.orientation && screen.orientation.lock) {
+    screen.orientation.lock('landscape').catch(() => {});
+  }
+}
 
 function ensureAudioStarted() {
   audioSys.init();
@@ -262,25 +282,178 @@ window.addEventListener('keyup', (e) => {
 
 container.addEventListener('pointerdown', (e) => {
   ensureAudioStarted();
-  isDragging = true;
-  lastMouseX = e.clientX;
-  lastMouseY = e.clientY;
+  if (e.pointerType === 'touch') {
+    document.body.classList.add('touch-active');
+    if (!landscapeAttempted) {
+      landscapeAttempted = true;
+      tryLockLandscape(false);
+    }
+  } else if (e.button === 0 && document.pointerLockElement !== renderer.domElement && renderer.domElement.requestPointerLock) {
+    try {
+      const p = renderer.domElement.requestPointerLock();
+      if (p && p.catch) p.catch(() => {});
+    } catch (_) {}
+  }
+  activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (activePointers.size === 1) {
+    camPointerId = e.pointerId;
+    lastCamX = e.clientX;
+    lastCamY = e.clientY;
+  } else if (activePointers.size === 2) {
+    const pts = Array.from(activePointers.values());
+    lastPinchDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+    camPointerId = null;
+  }
   camState.customOverride = false;
 });
 
 window.addEventListener('pointermove', (e) => {
-  if (!isDragging) return;
-  const dx = e.clientX - lastMouseX;
-  const dy = e.clientY - lastMouseY;
-  lastMouseX = e.clientX;
-  lastMouseY = e.clientY;
-  camState.yaw -= dx * 0.0055;
-  camState.pitch = clamp(camState.pitch + dy * 0.0045, -0.35, 1.05);
+  if (document.pointerLockElement === renderer.domElement) {
+    camState.yaw -= (e.movementX || 0) * 0.0028;
+    camState.pitch = clamp(camState.pitch + (e.movementY || 0) * 0.0024, -0.35, 1.05);
+    camState.customOverride = false;
+    return;
+  }
+  if (!activePointers.has(e.pointerId)) return;
+  activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+  if (activePointers.size === 2) {
+    const pts = Array.from(activePointers.values());
+    const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+    if (lastPinchDist > 0) {
+      camState.distance = clamp(camState.distance - (dist - lastPinchDist) * 0.025, 2.4, 24.0);
+    }
+    lastPinchDist = dist;
+  } else if (e.pointerId === camPointerId) {
+    const dx = e.clientX - lastCamX;
+    const dy = e.clientY - lastCamY;
+    lastCamX = e.clientX;
+    lastCamY = e.clientY;
+    const sens = e.pointerType === 'touch' ? 0.0068 : 0.0055;
+    camState.yaw -= dx * sens;
+    camState.pitch = clamp(camState.pitch + dy * (sens * 0.82), -0.35, 1.05);
+  }
 });
 
-window.addEventListener('pointerup', () => {
-  isDragging = false;
-});
+function releaseCamPointer(e) {
+  if (!activePointers.has(e.pointerId)) return;
+  activePointers.delete(e.pointerId);
+  if (e.pointerId === camPointerId) camPointerId = null;
+  if (activePointers.size === 1) {
+    const [remId, pt] = activePointers.entries().next().value;
+    camPointerId = remId;
+    lastCamX = pt.x;
+    lastCamY = pt.y;
+    lastPinchDist = 0;
+  } else if (activePointers.size === 0) {
+    lastPinchDist = 0;
+  }
+}
+window.addEventListener('pointerup', releaseCamPointer);
+window.addEventListener('pointercancel', releaseCamPointer);
+
+// Mobile Virtual Joystick & Action Buttons
+const joyBase = document.getElementById('joy-base');
+const joyKnob = document.getElementById('joy-knob');
+if (joyBase && joyKnob) {
+  let joyPointerId = null;
+  const maxJoyR = 40;
+
+  const updateJoy = (clientX, clientY) => {
+    const rect = joyBase.getBoundingClientRect();
+    const cx = rect.left + rect.width * 0.5;
+    const cy = rect.top + rect.height * 0.5;
+    let dx = clientX - cx;
+    let dy = clientY - cy;
+    const dist = Math.hypot(dx, dy);
+    if (dist > maxJoyR) {
+      dx = (dx / dist) * maxJoyR;
+      dy = (dy / dist) * maxJoyR;
+    }
+    joyKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+    input.analogX = dx / maxJoyR;
+    input.analogY = dy / maxJoyR;
+  };
+
+  const resetJoy = () => {
+    joyPointerId = null;
+    joyKnob.style.transform = 'translate(0px, 0px)';
+    input.analogX = 0;
+    input.analogY = 0;
+  };
+
+  joyBase.addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    ensureAudioStarted();
+    document.body.classList.add('touch-active');
+    joyPointerId = e.pointerId;
+    joyBase.setPointerCapture(e.pointerId);
+    updateJoy(e.clientX, e.clientY);
+  });
+  joyBase.addEventListener('pointermove', (e) => {
+    if (e.pointerId !== joyPointerId) return;
+    e.stopPropagation();
+    updateJoy(e.clientX, e.clientY);
+  });
+  joyBase.addEventListener('pointerup', (e) => {
+    if (e.pointerId !== joyPointerId) return;
+    resetJoy();
+  });
+  joyBase.addEventListener('pointercancel', (e) => {
+    if (e.pointerId !== joyPointerId) return;
+    resetJoy();
+  });
+}
+
+const btnMJudge = document.getElementById('btn-m-jump');
+if (btnMJudge) {
+  btnMJudge.addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    ensureAudioStarted();
+    input.jump = true;
+  });
+  const releaseJump = () => { input.jump = false; };
+  btnMJudge.addEventListener('pointerup', releaseJump);
+  btnMJudge.addEventListener('pointercancel', releaseJump);
+}
+
+const btnMSprint = document.getElementById('btn-m-sprint');
+if (btnMSprint) {
+  let sprintLocked = false;
+  btnMSprint.addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    ensureAudioStarted();
+    sprintLocked = !sprintLocked;
+    input.sprint = sprintLocked;
+    btnMSprint.classList.toggle('active', sprintLocked);
+  });
+}
+
+const btnMScan = document.getElementById('btn-m-scan');
+if (btnMScan) {
+  btnMScan.addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    ensureAudioStarted();
+    porter.triggerScan();
+    audioSys.playOdradekChime();
+  });
+}
+
+const landscapePrompt = document.getElementById('landscape-prompt');
+const btnLockLandscape = document.getElementById('btn-lock-landscape');
+const btnDismissLandscape = document.getElementById('btn-dismiss-landscape');
+if (btnLockLandscape && landscapePrompt) {
+  btnLockLandscape.addEventListener('click', () => {
+    tryLockLandscape(true);
+    landscapePrompt.classList.add('dismissed');
+  });
+}
+if (btnDismissLandscape && landscapePrompt) {
+  btnDismissLandscape.addEventListener('click', () => {
+    landscapePrompt.classList.add('dismissed');
+  });
+}
+tryLockLandscape(false);
 
 container.addEventListener(
   'wheel',
@@ -411,10 +584,7 @@ function teleportToFeature(kind) {
 const btnSeedRand = document.getElementById('btn-seed-rand');
 if (btnSeedRand) {
   btnSeedRand.addEventListener('click', () => {
-    const prefixes = ['FJORD', 'VIK', 'REYKJA', 'SKOGA', 'KATLA', 'HEKLA', 'SNÆFELL', 'EYJA'];
-    const pref = prefixes[Math.floor(Math.random() * prefixes.length)];
-    const tag = `${pref}-${Math.floor(100 + Math.random() * 899)}`;
-    switchWorldSeed(tag);
+    switchWorldSeed(generateRandomSeed());
   });
 }
 const btnVisitVillage = document.getElementById('btn-visit-village');
@@ -473,7 +643,7 @@ function animate() {
     const rightX = Math.cos(camState.smoothYaw);
     const rightZ = -Math.sin(camState.smoothYaw);
     const targetLookX = px + rightX * 0.42;
-    const targetLookY = porter.state.pos.y + 1.56;
+    const targetLookY = (porter.state.smoothBodyY !== undefined ? porter.state.smoothBodyY : porter.state.pos.y) + 1.56;
     const targetLookZ = pz + rightZ * 0.42;
 
     // Responsive XZ follow + heavily damped gimbal vertical Y follow (filters out high-frequency moss pillow bumps!)

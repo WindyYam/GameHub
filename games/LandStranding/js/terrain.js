@@ -187,10 +187,53 @@ function buildChunkGeometry(cx, cz, segs) {
   return geo;
 }
 
-/** Build organically jagged volcanic basalt boulder geometry (detail=2 -> 320 tris). */
-function createNaturalBasaltRockGeo(seed = 101, detail = 2, verticalBias = 0.84) {
-  const geo = new THREE.IcosahedronGeometry(1.0, detail);
-  const pos = geo.attributes.position;
+/**
+ * Weld duplicate unshared vertices (Three.js IcosahedronGeometry is non-indexed -> flat per-triangle normals!)
+ * into a clean indexed BufferGeometry and compute genuine smooth area-weighted vertex normals.
+ */
+function weldAndSmoothGeo(rawGeo) {
+  const posAttr = rawGeo.attributes.position;
+  const uvAttr = rawGeo.attributes.uv;
+  const vertMap = new Map();
+  const outPos = [];
+  const outUv = uvAttr ? [] : null;
+  const outIdx = [];
+
+  const getIndex = (vi) => {
+    const x = posAttr.getX(vi);
+    const y = posAttr.getY(vi);
+    const z = posAttr.getZ(vi);
+    const key = `${Math.round(x * 2000)},${Math.round(y * 2000)},${Math.round(z * 2000)}`;
+    let idx = vertMap.get(key);
+    if (idx === undefined) {
+      idx = outPos.length / 3;
+      vertMap.set(key, idx);
+      outPos.push(x, y, z);
+      if (outUv) outUv.push(uvAttr.getX(vi), uvAttr.getY(vi));
+    }
+    return idx;
+  };
+
+  if (rawGeo.index) {
+    const srcIdx = rawGeo.index.array;
+    for (let i = 0; i < srcIdx.length; i++) outIdx.push(getIndex(srcIdx[i]));
+  } else {
+    for (let i = 0; i < posAttr.count; i++) outIdx.push(getIndex(i));
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(outPos, 3));
+  if (outUv) geo.setAttribute('uv', new THREE.Float32BufferAttribute(outUv, 2));
+  geo.setIndex(outIdx);
+  geo.computeVertexNormals();
+  rawGeo.dispose();
+  return geo;
+}
+
+/** Build organically sculpted smooth-normal Icelandic basalt boulder with a gently flared earth-hugging base skirt. */
+function createNaturalBasaltRockGeo(seed = 101, detail = 3, verticalBias = 0.78) {
+  const raw = new THREE.IcosahedronGeometry(1.0, detail);
+  const pos = raw.attributes.position;
   const v = new THREE.Vector3();
 
   for (let i = 0; i < pos.count; i++) {
@@ -199,28 +242,27 @@ function createNaturalBasaltRockGeo(seed = 101, detail = 2, verticalBias = 0.84)
     const ny = v.y;
     const nz = v.z;
 
-    const macro = fbm2(nx * 1.45 + seed * 0.23, nz * 1.45 - ny * 0.9, 3, seed + 17);
-    const ridgeA = ridged2(nx * 2.35 - ny * 0.8 + seed * 0.13, nz * 2.35 + ny * 0.7, 3, seed + 41);
-    // Sharper angular lava-rock fracturing (Death Stranding volcanic crag silhouette!)
-    const r = 0.60 + macro * 0.26 + Math.pow(ridgeA, 1.35) * 0.42;
-    const flatBottom = ny < -0.22 ? 0.56 : 1.0;
+    const macro = fbm2(nx * 1.35 + seed * 0.23, nz * 1.35 - ny * 0.85, 3, seed + 17);
+    const ridgeA = ridged2(nx * 2.05 - ny * 0.7 + seed * 0.13, nz * 2.05 + ny * 0.65, 3, seed + 41);
+    const r = 0.66 + macro * 0.26 + Math.pow(ridgeA, 1.35) * 0.28;
+    // Gently flare the lower skirt outward so the rock emerges organically out of the hillside instead of pinching!
+    const baseFlare = 1.0 + smoothstep(0.18, -0.55, ny) * 0.34;
+    const flatBottom = ny < -0.18 ? mix(1.0, 0.38, smoothstep(-0.18, -0.75, ny)) : 1.0;
 
-    v.set(nx * r, ny * r * verticalBias * flatBottom, nz * r);
+    v.set(nx * r * baseFlare, ny * r * verticalBias * flatBottom, nz * r * baseFlare);
     pos.setXYZ(i, v.x, v.y, v.z);
   }
-  geo.computeVertexNormals();
-  return geo;
+  return weldAndSmoothGeo(raw);
 }
 
 /**
- * Build dramatic multi-tiered jagged volcanic lava-rock crag formation (Death Stranding signature!).
- * Merges 2 indexed high-detail displaced basalt lobes with SMOOTH normals so world-space triplanar normal-mapping
- * produces photogrammetry-grade fractured lava rock with ZERO flat low-poly facets!
+ * Build multi-tiered organic Icelandic basalt crag formation.
+ * Welds vertices per lobe for 100% smooth interpolated vertex normals (ZERO low-poly triangle facets!).
  */
 function createJaggedLavaCragGeo(seed = 37) {
   const lobes = [
-    { ox: 0.0,   oy: 0.10, oz: 0.0,   sx: 1.28, sy: 1.04, sz: 1.06, ry: 0.3, s: seed },
-    { ox: 0.72,  oy: -0.08, oz: 0.34, sx: 0.88, sy: 0.68, sz: 0.84, ry: 1.9, s: seed + 23 }
+    { ox: 0.0,  oy: 0.08,  oz: 0.0,  sx: 1.24, sy: 0.92, sz: 1.06, ry: 0.3, s: seed },
+    { ox: 0.70, oy: -0.06, oz: 0.32, sx: 0.90, sy: 0.62, sz: 0.86, ry: 1.9, s: seed + 23 }
   ];
 
   const pos = [];
@@ -230,36 +272,34 @@ function createJaggedLavaCragGeo(seed = 37) {
   const v = new THREE.Vector3();
 
   for (const lb of lobes) {
-    const g = new THREE.IcosahedronGeometry(1.0, 2);
-    const p = g.attributes.position;
+    const raw = new THREE.IcosahedronGeometry(1.0, 2);
+    const p = raw.attributes.position;
     const cs = Math.cos(lb.ry);
     const sn = Math.sin(lb.ry);
     for (let i = 0; i < p.count; i++) {
       v.fromBufferAttribute(p, i);
-      const macro = fbm2(v.x * 1.4 + lb.s * 0.19, v.z * 1.4 - v.y * 0.9, 3, lb.s + 5);
-      const ridge = ridged2(v.x * 2.2 + lb.s * 0.17, v.z * 2.2 - v.y * 1.2, 3, lb.s + 11);
-      const strata = Math.sin(v.y * 6.0 + lb.s) * 0.07;
-      const r = 0.60 + macro * 0.22 + Math.pow(ridge, 1.25) * 0.42 + strata;
-      const peakTaper = v.y > 0.15 ? (1.0 - v.y * 0.20) : 1.0;
-      const flatBot = v.y < -0.24 ? 0.52 : 1.0;
-      const lx = v.x * r * lb.sx * peakTaper;
+      const macro = fbm2(v.x * 1.35 + lb.s * 0.19, v.z * 1.35 - v.y * 0.85, 3, lb.s + 5);
+      const ridge = ridged2(v.x * 1.95 + lb.s * 0.17, v.z * 1.95 - v.y * 1.05, 3, lb.s + 11);
+      const strata = Math.sin(v.y * 5.2 + lb.s) * 0.055;
+      const r = 0.66 + macro * 0.24 + Math.pow(ridge, 1.30) * 0.30 + strata;
+      const peakTaper = v.y > 0.18 ? (1.0 - v.y * 0.18) : 1.0;
+      const baseFlare = 1.0 + smoothstep(0.15, -0.55, v.y) * 0.32;
+      const flatBot = v.y < -0.20 ? mix(1.0, 0.36, smoothstep(-0.20, -0.78, v.y)) : 1.0;
+      const lx = v.x * r * lb.sx * peakTaper * baseFlare;
       const ly = v.y * r * lb.sy * flatBot + lb.oy;
-      const lz = v.z * r * lb.sz * peakTaper;
+      const lz = v.z * r * lb.sz * peakTaper * baseFlare;
       p.setXYZ(i, lb.ox + lx * cs - lz * sn, ly, lb.oz + lx * sn + lz * cs);
     }
-    g.computeVertexNormals();
-    const n = g.attributes.normal;
-    for (let i = 0; i < p.count; i++) {
-      pos.push(p.getX(i), p.getY(i), p.getZ(i));
-      norm.push(n.getX(i), n.getY(i), n.getZ(i));
+    const g = weldAndSmoothGeo(raw);
+    const gp = g.attributes.position;
+    const gn = g.attributes.normal;
+    for (let i = 0; i < gp.count; i++) {
+      pos.push(gp.getX(i), gp.getY(i), gp.getZ(i));
+      norm.push(gn.getX(i), gn.getY(i), gn.getZ(i));
     }
-    if (g.index) {
-      const gi = g.index.array;
-      for (let i = 0; i < gi.length; i++) idx.push(gi[i] + vBase);
-    } else {
-      for (let i = 0; i < p.count; i++) idx.push(vBase + i);
-    }
-    vBase += p.count;
+    const gi = g.index.array;
+    for (let i = 0; i < gi.length; i++) idx.push(gi[i] + vBase);
+    vBase += gp.count;
     g.dispose();
   }
 
@@ -271,13 +311,12 @@ function createJaggedLavaCragGeo(seed = 37) {
 }
 
 /**
- * Build iconic towering jagged basalt volcanic pinnacle / crag spire (Death Stranding skyline landmark!).
- * Smooth indexed normals + triplanar rock normal-mapping -> crisp weathered obsidian peak, zero flat shards.
+ * Build iconic towering basalt volcanic pinnacle / crag spire with 100% smooth welded normals.
  */
 function createVolcanicSpireGeo(seed = 83) {
   const parts = [
-    { ox: 0.0,   oy: 1.05, oz: 0.0,  sx: 0.94, sy: 1.85, sz: 0.86, leanX: 0.18, ry: 0.5, s: seed },
-    { ox: 0.60,  oy: 0.34, oz: 0.26, sx: 0.72, sy: 0.92, sz: 0.68, leanX: -0.06, ry: 2.1, s: seed + 23 }
+    { ox: 0.0,  oy: 1.05, oz: 0.0,  sx: 0.94, sy: 1.85, sz: 0.86, leanX: 0.18,  ry: 0.5, s: seed },
+    { ox: 0.60, oy: 0.34, oz: 0.26, sx: 0.72, sy: 0.92, sz: 0.68, leanX: -0.06, ry: 2.1, s: seed + 23 }
   ];
 
   const pos = [];
@@ -287,34 +326,31 @@ function createVolcanicSpireGeo(seed = 83) {
   const v = new THREE.Vector3();
 
   for (const pt of parts) {
-    const g = new THREE.IcosahedronGeometry(1.0, 2);
-    const p = g.attributes.position;
+    const raw = new THREE.IcosahedronGeometry(1.0, 2);
+    const p = raw.attributes.position;
     const cs = Math.cos(pt.ry);
     const sn = Math.sin(pt.ry);
     for (let i = 0; i < p.count; i++) {
       v.fromBufferAttribute(p, i);
-      const ridge = ridged2(v.x * 2.3 + pt.s * 0.13, v.z * 2.3 - v.y * 1.1, 3, pt.s + 7);
-      const r = 0.64 + ridge * 0.42;
+      const ridge = ridged2(v.x * 2.1 + pt.s * 0.13, v.z * 2.1 - v.y * 1.0, 3, pt.s + 7);
+      const r = 0.68 + ridge * 0.34;
       const hNorm = clamp((v.y + 1.0) * 0.5, 0.0, 1.0);
-      const taper = mix(1.28, 0.24, Math.pow(hNorm, 1.15));
+      const taper = mix(1.36, 0.26, Math.pow(hNorm, 1.15));
       const lx = v.x * r * pt.sx * taper + hNorm * pt.leanX;
       const ly = (v.y * 0.5 + 0.42) * r * pt.sy + pt.oy * 0.42;
       const lz = v.z * r * pt.sz * taper;
       p.setXYZ(i, pt.ox + lx * cs - lz * sn, ly, pt.oz + lx * sn + lz * cs);
     }
-    g.computeVertexNormals();
-    const n = g.attributes.normal;
-    for (let i = 0; i < p.count; i++) {
-      pos.push(p.getX(i), p.getY(i), p.getZ(i));
-      norm.push(n.getX(i), n.getY(i), n.getZ(i));
+    const g = weldAndSmoothGeo(raw);
+    const gp = g.attributes.position;
+    const gn = g.attributes.normal;
+    for (let i = 0; i < gp.count; i++) {
+      pos.push(gp.getX(i), gp.getY(i), gp.getZ(i));
+      norm.push(gn.getX(i), gn.getY(i), gn.getZ(i));
     }
-    if (g.index) {
-      const gi = g.index.array;
-      for (let i = 0; i < gi.length; i++) idx.push(gi[i] + vBase);
-    } else {
-      for (let i = 0; i < p.count; i++) idx.push(vBase + i);
-    }
-    vBase += p.count;
+    const gi = g.index.array;
+    for (let i = 0; i < gi.length; i++) idx.push(gi[i] + vBase);
+    vBase += gp.count;
     g.dispose();
   }
 
@@ -325,100 +361,130 @@ function createVolcanicSpireGeo(seed = 83) {
   return geo;
 }
 
-/** Build natural weathered volcanic basalt cobble geometry (smooth indexed detail=1 -> 80 tris, pairs with normalMap!). */
+/** Build smooth weathered volcanic basalt cobble geometry (welded detail=1 -> 80 smooth-shaded tris, zero flat facets!). */
 function createFacetedCobbleGeo(seed = 67) {
-  const geo = new THREE.IcosahedronGeometry(1.0, 1);
-  const pos = geo.attributes.position;
+  const raw = new THREE.IcosahedronGeometry(1.0, 1);
+  const pos = raw.attributes.position;
   const v = new THREE.Vector3();
   for (let i = 0; i < pos.count; i++) {
     v.fromBufferAttribute(pos, i);
-    const n = fbm2(v.x * 1.5 + seed * 0.19, v.z * 1.5 - v.y * 1.1, 2, seed + 13);
-    const r = 0.72 + n * 0.40;
-    const flatBot = v.y < -0.25 ? 0.55 : 1.0;
-    pos.setXYZ(i, v.x * r, v.y * r * 0.66 * flatBot, v.z * r);
+    const n = fbm2(v.x * 1.45 + seed * 0.19, v.z * 1.45 - v.y * 1.0, 2, seed + 13);
+    const r = 0.76 + n * 0.32;
+    const baseFlare = 1.0 + smoothstep(0.15, -0.55, v.y) * 0.24;
+    const flatBot = v.y < -0.20 ? mix(1.0, 0.42, smoothstep(-0.20, -0.75, v.y)) : 1.0;
+    pos.setXYZ(i, v.x * r * baseFlare, v.y * r * 0.58 * flatBot, v.z * r * baseFlare);
   }
-  geo.computeVertexNormals();
-  return geo;
+  return weldAndSmoothGeo(raw);
 }
 
 /**
- * Build a lightweight 6-stone weathered volcanic pebble cluster (smooth faceted icosahedra -> zero pyramid diamonds up close!).
+ * Build a smooth 4-stone weathered volcanic pebble cluster (welded detail=1 -> smooth river-worn stones, light tri budget!).
  */
 function createSmallStoneClusterGeo() {
   const stones = [
-    { ox: 0.0,   oz: 0.0,   sx: 0.16, sy: 0.09, sz: 0.13, ry: 0.4, seed: 11 },
-    { ox: 0.42,  oz: 0.26,  sx: 0.12, sy: 0.07, sz: 0.10, ry: 1.7, seed: 23 },
-    { ox: -0.38, oz: 0.32,  sx: 0.14, sy: 0.08, sz: 0.11, ry: 2.8, seed: 37 },
-    { ox: 0.30,  oz: -0.40, sx: 0.10, sy: 0.06, sz: 0.09, ry: 4.1, seed: 53 },
-    { ox: -0.26, oz: -0.31, sx: 0.09, sy: 0.055, sz: 0.08, ry: 5.3, seed: 71 },
-    { ox: 0.14,  oz: 0.48,  sx: 0.08, sy: 0.05, sz: 0.07, ry: 0.9, seed: 89 }
+    { ox: 0.0,   oz: 0.0,   sx: 0.17, sy: 0.085, sz: 0.14, ry: 0.4, seed: 11 },
+    { ox: 0.42,  oz: 0.26,  sx: 0.13, sy: 0.068, sz: 0.11, ry: 1.7, seed: 23 },
+    { ox: -0.38, oz: 0.32,  sx: 0.15, sy: 0.075, sz: 0.12, ry: 2.8, seed: 37 },
+    { ox: 0.26,  oz: -0.38, sx: 0.11, sy: 0.058, sz: 0.10, ry: 4.1, seed: 53 }
   ];
 
   const pos = [];
   const norm = [];
-  const uv = [];
   const idx = [];
   let vBase = 0;
   const v = new THREE.Vector3();
 
   for (const st of stones) {
-    const g = new THREE.IcosahedronGeometry(1.0, 0);
-    const p = g.attributes.position;
+    const raw = new THREE.IcosahedronGeometry(1.0, 1);
+    const p = raw.attributes.position;
     const cs = Math.cos(st.ry);
     const sn = Math.sin(st.ry);
     for (let i = 0; i < p.count; i++) {
       v.fromBufferAttribute(p, i);
-      const jitter = 0.80 + hash2i(Math.round(v.x * 10 + st.seed), Math.round(v.z * 10 - v.y * 7), st.seed) * 0.38;
+      const n = fbm2(v.x * 1.4 + st.seed * 0.17, v.z * 1.4 - v.y * 1.1, 2, st.seed);
+      const jitter = 0.78 + n * 0.38;
       const lx = v.x * st.sx * jitter;
-      const ly = (v.y * 0.5 + 0.32) * st.sy * jitter;
+      const ly = (v.y * 0.5 + 0.28) * st.sy * jitter;
       const lz = v.z * st.sz * jitter;
       p.setXYZ(i, st.ox + lx * cs - lz * sn, ly, st.oz + lx * sn + lz * cs);
     }
-    g.computeVertexNormals();
-    const n = g.attributes.normal;
-    const u = g.attributes.uv;
-    for (let i = 0; i < p.count; i++) {
-      pos.push(p.getX(i), p.getY(i), p.getZ(i));
-      norm.push(n.getX(i), n.getY(i), n.getZ(i));
-      uv.push(u ? u.getX(i) : 0, u ? u.getY(i) : 0);
+    const g = weldAndSmoothGeo(raw);
+    const gp = g.attributes.position;
+    const gn = g.attributes.normal;
+    for (let i = 0; i < gp.count; i++) {
+      pos.push(gp.getX(i), gp.getY(i), gp.getZ(i));
+      norm.push(gn.getX(i), gn.getY(i), gn.getZ(i));
     }
-    if (g.index) {
-      const gi = g.index.array;
-      for (let i = 0; i < gi.length; i++) idx.push(gi[i] + vBase);
-    } else {
-      for (let i = 0; i < p.count; i++) idx.push(vBase + i);
-    }
-    vBase += p.count;
+    const gi = g.index.array;
+    for (let i = 0; i < gi.length; i++) idx.push(gi[i] + vBase);
+    vBase += gp.count;
     g.dispose();
   }
 
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   geo.setAttribute('normal', new THREE.Float32BufferAttribute(norm, 3));
-  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
   geo.setIndex(idx);
   return geo;
 }
 
-/** Build organic Icelandic lava-moss cushion cluster (low-poly detail=1 -> 80 tris). */
+/**
+ * Build silky-smooth organic Eldhraun mossy pillow-mound cluster (3 merged soft-skirted lobes, welded smooth normals).
+ * Gently flares tangentially into the hillside at y=0 so moss cushions grow seamlessly out of the ground!
+ */
 function createMossCushionGeo() {
-  const geo = new THREE.IcosahedronGeometry(0.68, 1);
-  const pos = geo.attributes.position;
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i);
-    const y = pos.getY(i);
-    const z = pos.getZ(i);
-    const squeeze = y < 0 ? 0.14 : 0.36;
-    const lobe = 1.0 + 0.18 * Math.sin(x * 4.8 + z * 3.9);
-    pos.setXYZ(i, x * lobe, Math.max(-0.04, y * squeeze), z * lobe);
+  const lobes = [
+    { ox: 0.0,   oy: -0.02, oz: 0.0,  sx: 1.05, sy: 0.42, sz: 0.96, s: 17 },
+    { ox: 0.68,  oy: -0.05, oz: 0.36, sx: 0.76, sy: 0.32, sz: 0.72, s: 41 },
+    { ox: -0.62, oy: -0.06, oz: 0.30, sx: 0.72, sy: 0.28, sz: 0.68, s: 73 }
+  ];
+  const pos = [];
+  const norm = [];
+  const idx = [];
+  let vBase = 0;
+  const v = new THREE.Vector3();
+
+  for (const lb of lobes) {
+    const raw = new THREE.IcosahedronGeometry(1.0, 1);
+    const p = raw.attributes.position;
+    for (let i = 0; i < p.count; i++) {
+      v.fromBufferAttribute(p, i);
+      const lump = 0.80 + fbm2(v.x * 1.85 + lb.s * 0.21, v.z * 1.85 - v.y * 0.9, 2, lb.s) * 0.34;
+      const crag = ridged2(v.x * 2.1 - lb.s * 0.13, v.z * 2.1 + v.y * 0.8, 2, lb.s + 19);
+      const r = lump + (crag - 0.45) * 0.18;
+      // Wide gently-sloping skirt around lower hemisphere so it merges seamlessly into hillside terrain!
+      const skirtFlare = 1.0 + smoothstep(0.28, -0.35, v.y) * 0.42;
+      const hY = v.y >= 0 ? Math.pow(v.y, 0.82) * r * lb.sy : v.y * 0.24 * lb.sy;
+      p.setXYZ(
+        i,
+        lb.ox + v.x * r * lb.sx * skirtFlare,
+        lb.oy + Math.max(-0.18, hY),
+        lb.oz + v.z * r * lb.sz * skirtFlare
+      );
+    }
+    const g = weldAndSmoothGeo(raw);
+    const gp = g.attributes.position;
+    const gn = g.attributes.normal;
+    for (let i = 0; i < gp.count; i++) {
+      pos.push(gp.getX(i), gp.getY(i), gp.getZ(i));
+      norm.push(gn.getX(i), gn.getY(i), gn.getZ(i));
+    }
+    const gi = g.index.array;
+    for (let i = 0; i < gi.length; i++) idx.push(gi[i] + vBase);
+    vBase += gp.count;
+    g.dispose();
   }
-  geo.computeVertexNormals();
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(norm, 3));
+  geo.setIndex(idx);
   return geo;
 }
 
 /**
- * Build lush wide Death Stranding sunlit meadow grass carpet patch (36 fine blades across 2.0m = 72 tris).
- * Uses crisp 2-triangle tapered blades so foreground meadows have dense continuous golden-olive grass at 60 FPS!
+ * Build lush natural Icelandic meadow sedge grass carpet patch (36 fine soft blades across 1.8m).
+ * Deep emerald-olive to muted sage tips (never harsh spiky neon spears!).
  */
 function createTussockGrassGeo() {
   const blades = 36;
@@ -430,11 +496,10 @@ function createTussockGrassGeo() {
 
   for (let i = 0; i < blades; i++) {
     const ang = (i / blades) * Math.PI * 2 + hash2i(i, 11, 801) * 0.72;
-    // Spread across a natural 2.0m meadow patch so adjacent patches weave seamlessly into a continuous grassy carpet!
-    const rad = Math.sqrt(hash2i(i, 13, 801)) * 1.02;
-    const h = 0.16 + hash2i(i, 17, 801) * 0.24;
-    const arch = 0.08 + hash2i(i, 19, 801) * 0.16;
-    const w = 0.011 + hash2i(i, 23, 801) * 0.008;
+    const rad = Math.sqrt(hash2i(i, 13, 801)) * 0.92;
+    const h = 0.13 + hash2i(i, 17, 801) * 0.19;
+    const arch = 0.09 + hash2i(i, 19, 801) * 0.16;
+    const w = 0.0085 + hash2i(i, 23, 801) * 0.006;
     const dx = Math.cos(ang);
     const dz = Math.sin(ang);
     const px = -dz * w;
@@ -443,10 +508,10 @@ function createTussockGrassGeo() {
     const bz = dz * rad;
 
     const kind = hash2i(i, 29, 801);
-    const baseCol = [0.085, 0.125, 0.032];
-    // Vibrant sunlit olive-gold & chartreuse grass matching Death Stranding reference foreground!
-    const midCol = kind > 0.70 ? [0.34, 0.34, 0.11] : kind > 0.30 ? [0.22, 0.31, 0.072] : [0.18, 0.27, 0.082];
-    const tipCol = kind > 0.70 ? [0.54, 0.50, 0.16] : kind > 0.30 ? [0.38, 0.45, 0.12] : [0.29, 0.38, 0.12];
+    const baseCol = [0.055, 0.088, 0.030];
+    // Natural damp Icelandic sedge & olive-sage meadow grass (harmonizes with woolly moss!)
+    const midCol = kind > 0.76 ? [0.22, 0.25, 0.11] : kind > 0.30 ? [0.13, 0.21, 0.068] : [0.10, 0.18, 0.062];
+    const tipCol = kind > 0.76 ? [0.36, 0.36, 0.18] : kind > 0.30 ? [0.22, 0.30, 0.105] : [0.17, 0.25, 0.098];
 
     const p1x = bx + dx * arch * 0.45;
     const p1z = bz + dz * arch * 0.45;
@@ -477,9 +542,9 @@ function createTussockGrassGeo() {
 }
 
 /**
- * Build lightweight multi-colored Icelandic Lupin cluster (58 tris) with an `aPetalMask` vertex attribute:
- * - aPetalMask = 0.0 on stems & palmate basal leaves (always stays dusty blue-green!)
- * - aPetalMask = 1.0 on flower florets (tinted per-instance across violet, sky-blue, rose-pink, plum & white!)
+ * Build lush full multi-spire Icelandic Nootka Lupin cluster with `aPetalMask` vertex attribute:
+ * - aPetalMask = 0.0 on stems & dense silvery-green palmate basal foliage collar
+ * - aPetalMask = 1.0 on plump conical floral spires (5 full spikes per clump, 8 dense floret tiers each!)
  */
 function createLupinClusterGeo() {
   const pos = [];
@@ -500,75 +565,76 @@ function createLupinClusterGeo() {
     vBase += 3;
   };
 
-  // 10 dusty blue-green palmate basal leaves (aPetalMask = 0)
-  const leaves = 10;
+  // 16 lush dusty blue-green palmate basal leaves forming a full leafy lupin mound (aPetalMask = 0)
+  const leaves = 16;
   for (let i = 0; i < leaves; i++) {
-    const a = (i / leaves) * Math.PI * 2 + hash2i(i, 3, 851) * 0.4;
-    const r0 = 0.04 + hash2i(i, 5, 851) * 0.14;
-    const len = 0.17 + hash2i(i, 7, 851) * 0.12;
-    const h0 = 0.05 + hash2i(i, 9, 851) * 0.10;
+    const a = (i / leaves) * Math.PI * 2 + hash2i(i, 3, 851) * 0.42;
+    const r0 = 0.04 + hash2i(i, 5, 851) * 0.20;
+    const len = 0.24 + hash2i(i, 7, 851) * 0.16;
+    const h0 = 0.07 + hash2i(i, 9, 851) * 0.14;
     const dx = Math.cos(a);
     const dz = Math.sin(a);
-    const px = -dz * 0.055;
-    const pz = dx * 0.055;
+    const px = -dz * 0.078;
+    const pz = dx * 0.078;
     const bx = dx * r0;
     const bz = dz * r0;
-    const shade = 0.80 + hash2i(i, 11, 851) * 0.34;
+    const shade = 0.76 + hash2i(i, 11, 851) * 0.36;
     pushTri(
-      bx - px, h0 * 0.5, bz - pz,
-      bx + px, h0 * 0.5, bz + pz,
-      bx + dx * len, h0 + 0.05, bz + dz * len,
-      [0.15 * shade, 0.26 * shade, 0.15 * shade],
+      bx - px, h0 * 0.55, bz - pz,
+      bx + px, h0 * 0.55, bz + pz,
+      bx + dx * len, h0 + 0.07, bz + dz * len,
+      [0.12 * shade, 0.24 * shade, 0.14 * shade],
       dx * 0.25, 0.94, dz * 0.25,
       0.0
     );
   }
 
-  // 3 graceful lupin floral spires of varied height & lean (58 tris total!)
+  // 4 lush plump Icelandic lupin floral spires per cluster (rich visual silhouette, ~40% lighter tri budget!)
   const stems = [
-    { ox: 0.0,   oz: 0.0,   h: 0.74, leanX: 0.04,  leanZ: 0.02 },
-    { ox: 0.15,  oz: -0.10, h: 0.60, leanX: 0.08,  leanZ: -0.05 },
-    { ox: -0.14, oz: 0.09,  h: 0.54, leanX: -0.07, leanZ: 0.06 }
+    { ox: 0.0,   oz: 0.0,   h: 0.98, leanX: 0.04,  leanZ: 0.02 },
+    { ox: 0.19,  oz: -0.12, h: 0.84, leanX: 0.09,  leanZ: -0.05 },
+    { ox: -0.18, oz: 0.11,  h: 0.76, leanX: -0.08, leanZ: 0.07 },
+    { ox: 0.08,  oz: 0.18,  h: 0.68, leanX: 0.05,  leanZ: 0.08 }
   ];
 
   for (let s = 0; s < stems.length; s++) {
     const st = stems[s];
-    const stemBaseH = st.h * 0.34;
-    const bloomH = st.h * 0.66;
+    const stemBaseH = st.h * 0.28;
+    const bloomH = st.h * 0.72;
 
-    const sw = 0.016;
+    const sw = 0.020;
     const mx = st.ox + st.leanX * 0.5;
     const mz = st.oz + st.leanZ * 0.5;
-    pushTri(st.ox - sw, 0, st.oz, st.ox + sw, 0, st.oz, mx, st.h * 0.75, mz, [0.16, 0.25, 0.13], 0, 0.5, 0.85, 0.0);
+    pushTri(st.ox - sw, 0, st.oz, st.ox + sw, 0, st.oz, mx, st.h * 0.72, mz, [0.13, 0.22, 0.12], 0, 0.5, 0.85, 0.0);
 
-    // 6 compact whorled tiers x 3 delicate florets (reads botanically fine even 1m from camera!)
-    const tiers = 6;
+    // 7 plump whorled tiers x 3 delicate overlapping florets (crisp solid conical flower spike at 60 FPS!)
+    const tiers = 7;
     for (let t = 0; t < tiers; t++) {
       const f = t / (tiers - 1);
       const y = stemBaseH + f * bloomH;
       const cx = st.ox + st.leanX * (0.35 + f * 0.65);
       const cz = st.oz + st.leanZ * (0.35 + f * 0.65);
-      const radius = mix(0.080, 0.024, Math.pow(f, 0.80));
+      const radius = mix(0.116, 0.028, Math.pow(f, 0.82));
       const florets = 3;
 
-      // Subtle vertical value gradient from richer deeper lower florets to pale bud tip
-      const lum = mix(0.74, 1.06, f);
+      // Rich deep royal-violet lower florets -> pale lavender/silvery bud tip
+      const lum = mix(0.68, 1.18, f);
       for (let k = 0; k < florets; k++) {
-        const a = (k / florets) * Math.PI * 2 + t * 1.05 + s * 1.3;
+        const a = (k / florets) * Math.PI * 2 + t * 0.82 + s * 1.3;
         const dx = Math.cos(a);
         const dz = Math.sin(a);
-        const px = -dz * radius * 0.68;
-        const pz = dx * radius * 0.68;
+        const px = -dz * radius * 0.78;
+        const pz = dx * radius * 0.78;
         const tipX = cx + dx * radius;
         const tipZ = cz + dz * radius;
-        const tipY = y + mix(0.02, 0.055, f);
+        const tipY = y + mix(0.032, 0.072, f);
         const vShade = lum * (0.86 + hash2i(t * 7 + k, s, 863) * 0.28);
         pushTri(
-          cx - px, y - 0.02, cz - pz,
-          cx + px, y - 0.02, cz + pz,
+          cx - px, y - 0.026, cz - pz,
+          cx + px, y - 0.026, cz + pz,
           tipX, tipY, tipZ,
           [vShade, vShade, vShade],
-          dx * 0.65, 0.72, dz * 0.65,
+          dx * 0.62, 0.76, dz * 0.62,
           1.0
         );
       }
@@ -585,8 +651,8 @@ function createLupinClusterGeo() {
 }
 
 /**
- * Build fine-foliage Death Stranding Icelandic Crowberry / Dwarf-Willow Heather Bush (108 tiny dark leaf-sprigs!).
- * Uses fine delicate dark olive-sage sprigs instead of large flat shards so bushes look organic even 2m from camera!
+ * Build authentic Icelandic Silvery-Sage Woolly Willow (Salix lanata) & Deep Crowberry Shrub.
+ * Matches the soft silvery-grey-green leafy shrubs nestled among purple lupins in the reference foreground!
  */
 function createIcelandicBushGeo() {
   const pos = [];
@@ -605,48 +671,46 @@ function createIcelandicBushGeo() {
     vBase += 3;
   };
 
-  // 12 low spreading woody twigs + 96 tiny fine dark olive-sage heather sprigs forming a soft organic mound
   const branches = 12;
   for (let b = 0; b < branches; b++) {
     const a = (b / branches) * Math.PI * 2 + hash2i(b, 1, 901) * 0.42;
-    const reach = 0.24 + hash2i(b, 2, 901) * 0.26;
-    const bh = 0.18 + hash2i(b, 3, 901) * 0.20;
+    const reach = 0.28 + hash2i(b, 2, 901) * 0.30;
+    const bh = 0.22 + hash2i(b, 3, 901) * 0.22;
     const dx = Math.cos(a);
     const dz = Math.sin(a);
-    const px = -dz * 0.011;
-    const pz = dx * 0.011;
-    pushTri(-px, 0, -pz, px, 0, pz, dx * reach * 0.9, bh * 0.85, dz * reach * 0.9, [0.045, 0.040, 0.028], 0, 0.85, 0.5);
+    const px = -dz * 0.012;
+    const pz = dx * 0.012;
+    pushTri(-px, 0, -pz, px, 0, pz, dx * reach * 0.9, bh * 0.85, dz * reach * 0.9, [0.045, 0.042, 0.032], 0, 0.85, 0.5);
 
     for (let l = 0; l < 8; l++) {
       const f = 0.16 + (l / 8) * 0.90;
-      const domeY = Math.sin(clamp(f * 0.92, 0.08, 0.96) * Math.PI) * bh * 1.15 + 0.03;
-      const spread = 0.07 + hash2i(b * 13 + l, 4, 901) * 0.14;
+      const domeY = Math.sin(clamp(f * 0.92, 0.08, 0.96) * Math.PI) * bh * 1.18 + 0.03;
+      const spread = 0.08 + hash2i(b * 13 + l, 4, 901) * 0.16;
       const la = a + (hash2i(b, l * 7, 901) - 0.5) * 3.0;
       const lx = dx * reach * f + Math.cos(la) * spread * 0.55;
       const lz = dz * reach * f + Math.sin(la) * spread * 0.55;
       const ly = Math.max(0.025, domeY + (hash2i(l, b, 907) - 0.45) * 0.10);
 
-      // Tiny fine leaf sprig (3..4cm wide, 6..11cm long -> zero origami triangles!)
       const ldx = Math.cos(la);
       const ldz = Math.sin(la);
-      const halfW = 0.020 + hash2i(l, b * 3, 911) * 0.016;
+      const halfW = 0.028 + hash2i(l, b * 3, 911) * 0.020;
       const lpx = -ldz * halfW;
       const lpz = ldx * halfW;
-      const lLen = 0.068 + hash2i(b, l, 911) * 0.046;
-      const tipUp = 0.038 + hash2i(b + l, 7, 919) * 0.048;
+      const lLen = 0.082 + hash2i(b, l, 911) * 0.052;
+      const tipUp = 0.042 + hash2i(b + l, 7, 919) * 0.050;
 
       const tint = hash2i(b * 19 + l, 5, 919);
-      const radialAO = mix(0.42, 1.14, clamp(Math.hypot(lx, lz) / 0.44 * 0.45 + ly / 0.34 * 0.72, 0, 1));
+      const radialAO = mix(0.40, 1.16, clamp(Math.hypot(lx, lz) / 0.48 * 0.45 + ly / 0.38 * 0.72, 0, 1));
       let cr, cg, cb;
-      if (tint < 0.46) {
-        // Natural rich dark Icelandic bilberry / crowberry shrub green
-        cr = 0.068 * radialAO; cg = 0.135 * radialAO; cb = 0.048 * radialAO;
-      } else if (tint < 0.68) {
-        // Warm olive-sage leaf crown
-        cr = 0.125 * radialAO; cg = 0.175 * radialAO; cb = 0.052 * radialAO;
+      if (tint < 0.45) {
+        // Silvery-sage Icelandic woolly dwarf willow leaf (iconic pale sea-green bush beside lupins!)
+        cr = 0.20 * radialAO; cg = 0.27 * radialAO; cb = 0.21 * radialAO;
+      } else if (tint < 0.84) {
+        // Deep rich mossy crowberry / Arctic bilberry green
+        cr = 0.075 * radialAO; cg = 0.155 * radialAO; cb = 0.068 * radialAO;
       } else {
-        // Vibrant russet-red / copper-crimson Nordic autumn heather & berry leaves (matches reference foreground!)
-        cr = 0.34 * radialAO; cg = 0.092 * radialAO; cb = 0.036 * radialAO;
+        // Subtle warm bronze-heather leaf accent
+        cr = 0.24 * radialAO; cg = 0.13 * radialAO; cb = 0.055 * radialAO;
       }
       pushTri(
         lx - lpx, ly, lz - lpz,
@@ -666,7 +730,7 @@ function createIcelandicBushGeo() {
   return geo;
 }
 
-/** Build delicate lightweight Arctic Cotton Grass tuft (14 tris). */
+/** Build crisp fluffy Arctic Cotton Grass (Eriophorum) tuft with bright snow-white plumes! */
 function createCottonGrassGeo() {
   const pos = [];
   const norm = [];
@@ -684,11 +748,11 @@ function createCottonGrassGeo() {
     vBase += 3;
   };
 
-  for (let i = 0; i < 6; i++) {
-    const a = (i / 6) * Math.PI * 2 + hash2i(i, 1, 951) * 0.5;
-    const r = 0.03 + hash2i(i, 2, 951) * 0.14;
-    const h = 0.28 + hash2i(i, 3, 951) * 0.20;
-    const lean = 0.07 + hash2i(i, 4, 951) * 0.08;
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2 + hash2i(i, 1, 951) * 0.55;
+    const r = 0.04 + hash2i(i, 2, 951) * 0.24;
+    const h = 0.26 + hash2i(i, 3, 951) * 0.22;
+    const lean = 0.06 + hash2i(i, 4, 951) * 0.10;
     const dx = Math.cos(a);
     const dz = Math.sin(a);
     const px = -dz * 0.010;
@@ -698,13 +762,20 @@ function createCottonGrassGeo() {
     const tx = bx + dx * lean;
     const tz = bz + dz * lean;
 
-    pushTri(bx - px, 0, bz - pz, bx + px, 0, bz + pz, tx, h, tz, [0.16, 0.21, 0.08], dx * 0.2, 0.96, dz * 0.2);
+    pushTri(bx - px, 0, bz - pz, bx + px, 0, bz + pz, tx, h, tz, [0.11, 0.18, 0.065], dx * 0.2, 0.96, dz * 0.2);
 
-    if (i < 4) {
-      const pr = 0.038;
-      const cottonCol = [0.76, 0.78, 0.76];
-      pushTri(tx - pr, h - 0.01, tz, tx + pr, h - 0.01, tz, tx, h + pr * 1.5, tz, cottonCol, 0, 1, 0);
-      pushTri(tx, h - 0.01, tz - pr, tx, h - 0.01, tz + pr, tx, h + pr * 1.5, tz, cottonCol, 0, 1, 0);
+    if (i < 6) {
+      // Soft rounded fluffy Arctic cotton-grass tuft (2 crossed vertical diamonds -> delicate oval puff up close, zero pointy cones!)
+      const pr = 0.032 + hash2i(i, 6, 951) * 0.014;
+      const py = pr * 0.95;
+      const cottonTop = [0.96, 0.98, 0.96];
+      const cottonBot = [0.80, 0.83, 0.79];
+      // Plane X
+      pushTri(tx - pr, h, tz, tx + pr, h, tz, tx, h + py, tz, cottonTop, 0, 1, 0);
+      pushTri(tx - pr, h, tz, tx, h - py * 0.65, tz, tx + pr, h, tz, cottonBot, 0, 0.7, 0.7);
+      // Plane Z
+      pushTri(tx, h, tz - pr, tx, h, tz + pr, tx, h + py, tz, cottonTop, 0, 1, 0);
+      pushTri(tx, h, tz - pr, tx, h - py * 0.65, tz, tx, h, tz + pr, cottonBot, 0.7, 0.7, 0);
     }
   }
 
@@ -908,7 +979,7 @@ export function createTerrainSystem(texLib, scene) {
         #include <color_fragment>
         // Pixel-accurate volcanic cave portal arch cutout where the continuous river enters/exits beneath a mountain!
         // Uses smooth centerline overburden (vCave.z) so mountain cliff, moss, snow & glacier stay 100% solid overhead with ZERO sidewall spikes!
-        if (vCave.z > 15.4 && abs(vCave.x) < 12.6) {
+        if (vCave.z > 16.8 && abs(vCave.x) < 12.6) {
           float archU = abs(vCave.x) / 12.6;
           // Organic slightly irregular natural Icelandic sea-cave / lava-tube arch silhouette
           float archCeil = vCave.y + 10.4 * pow(max(0.0, 1.0 - archU * archU), 0.56);
@@ -1170,22 +1241,67 @@ export function createTerrainSystem(texLib, scene) {
       );
   };
 
-  // Fast World-Space Triplanar Fractured Basalt + Velvety Moss Cap Material for Boulders & Cobbles
+  // Shared GLSL snippet matching terrainMat's exact world-space moss albedo & normal so ground objects blend SEAMLESSLY into the terrain!
+  const TERRAIN_BLEND_GLSL = /* glsl */`
+    vec3 evalTerrainMossColor(sampler2D mossMap, vec3 wp, vec3 groundUp, out vec4 outMossS) {
+      float camDist = length(cameraPosition - wp);
+      float closeFade = 1.0 - smoothstep(22.0, 105.0, camDist);
+      float macroN = atmoNoise(wp.xz * 0.016) * 0.62 + atmoNoise(wp.xz * 0.044 + vec2(3.1, -5.2)) * 0.38;
+      float midN   = atmoNoise(wp.xz * 0.092 + vec2(4.1, -6.7));
+      float patchN = atmoNoise(wp.xz * 0.026 - vec2(7.4, 2.8)) * 0.62 + midN * 0.38;
+      float microDetail = closeFade > 0.01 ? (atmoNoise(wp.xz * 4.2) * 0.60 + atmoNoise(wp.xz * 10.5 + vec2(3.7, -1.9)) * 0.40) : 0.5;
+
+      vec4 mossMid  = texture2D(mossMap, wp.xz * 0.42);
+      vec2 rotFar   = mat2(0.80, -0.60, 0.60, 0.80) * wp.xz * 0.092 + vec2(0.31, 0.73);
+      vec4 mossFar  = texture2D(mossMap, rotFar);
+      vec4 mossFine = closeFade > 0.02 ? texture2D(mossMap, wp.xz * 1.55 + vec2(0.19, 0.53)) : mossMid;
+      vec4 mossSample = mix(mix(mossMid, mossFar, 0.28), mossFine, closeFade * 0.56);
+      outMossS = mossSample;
+
+      float cushionAO = smoothstep(0.06, 0.86, 0.28 + mossSample.a * 0.62);
+      vec3 mossEmerald = vec3(0.42, 0.56, 0.22);
+      vec3 mossSunGold = vec3(0.84, 0.88, 0.34);
+      vec3 warmMeadow  = vec3(0.78, 0.68, 0.30);
+      vec3 mossTint = mix(mossEmerald, mossSunGold, smoothstep(0.20, 0.78, macroN * 0.55 + midN * 0.45));
+      mossTint = mix(mossTint, warmMeadow, smoothstep(0.54, 0.86, patchN) * 0.42);
+      float bladeCrisp = mix(1.0, 0.56 + microDetail * 0.86, closeFade * 0.92);
+      vec3 mCol = mossSample.rgb * mossTint * mix(0.36, 1.24, cushionAO) * bladeCrisp;
+      vec3 viewDir = normalize(cameraPosition - wp);
+      float fres = pow(1.0 - max(dot(groundUp, viewDir), 0.0), 3.0);
+      mCol += vec3(0.068, 0.080, 0.024) * fres * (1.0 - uNightFactor * 0.88);
+      return mCol;
+    }
+  `;
+
+  // World-Space Triplanar Fractured Basalt + Terrain-Matched Skirt-Blended Moss Material for Boulders & Crags
   const boulderMat = new THREE.MeshStandardMaterial({
     color: 0xffffff,
-    roughness: 0.78,
-    metalness: 0.03
+    roughness: 0.82,
+    metalness: 0.02
   });
   boulderMat.fog = false;
-  boulderMat.customProgramCacheKey = () => 'ls_tri_boulder_v8';
+  boulderMat.customProgramCacheKey = () => 'ls_tri_boulder_v11';
   boulderMat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, ATMO_UNIFORMS);
     shader.uniforms.uRockTex = { value: texLib.basaltCliff.map };
     shader.uniforms.uRockNorm = { value: texLib.basaltCliff.normalMap };
     shader.uniforms.uMossTex = { value: texLib.moss.map };
+    shader.uniforms.uMossNorm = { value: texLib.moss.normalMap };
+    shader.uniforms.uScreeTex = { value: texLib.scree.map };
 
     shader.vertexShader = shader.vertexShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vRWorldPos;\nvarying vec3 vRWorldNorm;')
+      .replace('#include <common>', '#include <common>\nvarying vec3 vRWorldPos;\nvarying vec3 vRWorldNorm;\nvarying vec3 vRGroundUp;\nvarying float vRHeightAboveBase;\nvarying float vRMossAllow;')
+      .replace(
+        '#include <color_vertex>',
+        /* glsl */`
+        #include <color_vertex>
+        vRMossAllow = 1.0;
+        #ifdef USE_INSTANCING_COLOR
+          vRMossAllow = instanceColor.r;
+          vColor.rgb = vec3(1.0);
+        #endif
+        `
+      )
       .replace(
         '#include <project_vertex>',
         /* glsl */`
@@ -1193,13 +1309,21 @@ export function createTerrainSystem(texLib, scene) {
         {
           vec4 rwp = vec4(transformed, 1.0);
           vec3 rwn = objectNormal;
+          vec3 instOrigin = vec3(0.0);
+          vec3 instUp = vec3(0.0, 1.0, 0.0);
           #ifdef USE_INSTANCING
             rwp = instanceMatrix * rwp;
             rwn = mat3(instanceMatrix) * rwn;
+            instOrigin = (instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+            instUp = normalize(mat3(instanceMatrix) * vec3(0.0, 1.0, 0.0));
           #endif
+          vec3 instOriginW = (modelMatrix * vec4(instOrigin, 1.0)).xyz;
+          vec3 instUpW = normalize(mat3(modelMatrix) * instUp);
           rwp = modelMatrix * rwp;
           vRWorldPos = rwp.xyz;
           vRWorldNorm = normalize(mat3(modelMatrix) * rwn);
+          vRGroundUp = instUpW;
+          vRHeightAboveBase = dot(rwp.xyz - instOriginW, instUpW);
         }
         `
       );
@@ -1212,9 +1336,15 @@ export function createTerrainSystem(texLib, scene) {
         uniform sampler2D uRockTex;
         uniform sampler2D uRockNorm;
         uniform sampler2D uMossTex;
+        uniform sampler2D uMossNorm;
+        uniform sampler2D uScreeTex;
         varying vec3 vRWorldPos;
         varying vec3 vRWorldNorm;
+        varying vec3 vRGroundUp;
+        varying float vRHeightAboveBase;
+        varying float vRMossAllow;
         ${ATMO_GLSL_PARS}
+        ${TERRAIN_BLEND_GLSL}
 
         vec4 triRockRGBA(sampler2D t, vec3 wp, vec3 wn, float sc) {
           vec3 bw = pow(abs(wn), vec3(4.0));
@@ -1241,44 +1371,61 @@ export function createTerrainSystem(texLib, scene) {
         '#include <color_fragment>',
         /* glsl */`
         #include <color_fragment>
-        float rRough = 0.78;
+        float rRough = 0.82;
         vec3 rFinalNorm = normalize(vRWorldNorm);
         {
           vec3 wp = vRWorldPos;
           vec3 wn = normalize(vRWorldNorm);
-          vec4 rockNear = triRockRGBA(uRockTex, wp, wn, 0.52);
-          vec4 rockMacro = triRockRGBA(uRockTex, wp, wn, 0.16);
+          vec3 gUp = normalize(vRGroundUp);
+          vec4 rockNear = triRockRGBA(uRockTex, wp, wn, 0.48);
+          vec4 rockMacro = triRockRGBA(uRockTex, wp, wn, 0.15);
           vec4 rock = mix(rockNear, rockMacro, 0.35);
 
-          // Harmonious weathered grey-brown & cool-slate boulders (blends naturally into green valleys, NEVER black coal!)
-          float rockAO = mix(0.48, 1.26, rock.a);
+          // Harmonious weathered slate-grey Icelandic basalt matching terrain cliffs (NEVER harsh black blobs!)
+          float rockAO = mix(0.46, 1.24, rock.a);
           float ridgeLit = smoothstep(0.46, 0.84, rock.a) * (0.45 + 0.55 * clamp(wn.y, 0.0, 1.0));
-          float warmVar = atmoNoise(wp.xz * 0.065 + vec2(3.1, -2.4));
-          vec3 stoneTone = mix(vec3(0.84, 0.88, 0.92), vec3(0.96, 0.90, 0.80), smoothstep(0.35, 0.78, warmVar) * 0.55);
-          vec3 darkBasalt = rock.rgb * stoneTone * 1.42 * rockAO + vec3(0.08, 0.088, 0.092) * ridgeLit;
+          float warmVar = atmoNoise(wp.xz * 0.075 + vec2(3.1, -2.4));
+          vec3 stoneTone = mix(vec3(0.76, 0.80, 0.85), vec3(0.92, 0.87, 0.78), smoothstep(0.35, 0.78, warmVar) * 0.52);
+          vec3 darkBasalt = rock.rgb * stoneTone * 1.26 * rockAO + vec3(0.068, 0.075, 0.080) * ridgeLit;
 
-          // Fine high-frequency mineral/lichen crust grain
-          float lichenN = atmoNoise(wp.xz * 3.6 + vec2(wp.y * 2.4)) * 0.6 + atmoNoise(wp.xz * 9.2 - vec2(wp.y * 4.1)) * 0.4;
-          float lichen = smoothstep(0.62, 0.86, lichenN) * smoothstep(0.30, 0.78, rockNear.a) * smoothstep(0.18, 0.72, wn.y) * 0.36;
-          darkBasalt = mix(darkBasalt, vec3(0.24, 0.27, 0.22), lichen);
+          // Subtle natural Icelandic crustose lichen (pale grey + delicate warm rusty-orange mineral flecks)
+          float lichenN = atmoNoise(wp.xz * 3.8 + vec2(wp.y * 2.6)) * 0.6 + atmoNoise(wp.xz * 9.6 - vec2(wp.y * 4.2)) * 0.4;
+          float greyLichen = smoothstep(0.60, 0.84, lichenN) * smoothstep(0.28, 0.76, rockNear.a) * smoothstep(0.15, 0.72, wn.y) * 0.38;
+          darkBasalt = mix(darkBasalt, vec3(0.36, 0.38, 0.34), greyLichen);
+          float rustField = atmoNoise(wp.xz * 0.92 + vec2(wp.y * 0.85, -wp.z * 0.75));
+          float rustLichen = smoothstep(0.66, 0.84, rustField) * smoothstep(0.52, 0.80, lichenN) * smoothstep(0.22, 0.76, wn.y);
+          darkBasalt = mix(darkBasalt, vec3(0.56, 0.25, 0.07), rustLichen * 0.72);
 
-          // Natural olive-gold moss caps blending boulders seamlessly into surrounding mossy hillsides
-          vec4 mossS = texture2D(uMossTex, wp.xz * 0.46);
-          float patchGate = smoothstep(0.22, 0.68, atmoNoise(wp.xz * 0.14 + vec2(wp.y * 0.2)));
-          float mossTop = smoothstep(0.48, 0.80, wn.y + (mossS.a - 0.5) * 0.30) * patchGate;
-          vec3 mossCap = mossS.rgb * vec3(0.76, 0.84, 0.24) * mix(0.48, 1.16, mossS.a);
+          // EXACT world-space terrain moss OR scree color & normal so boulders melt seamlessly into BOTH green meadows AND grey scree riverbeds!
+          vec4 mossS;
+          vec3 terrainMoss = evalTerrainMossColor(uMossTex, wp, gUp, mossS);
+          vec4 screeS = texture2D(uScreeTex, wp.xz * 0.64);
+          vec3 terrainScree = screeS.rgb * mix(vec3(0.68, 0.72, 0.76), vec3(1.06, 1.09, 1.12), smoothstep(0.26, 0.78, screeS.a)) * mix(0.54, 1.22, screeS.a);
+          float mossAllow = clamp(vRMossAllow, 0.0, 1.0);
+          vec3 groundSurfCol = mix(terrainScree, terrainMoss, mossAllow);
+          vec3 mn = texture2D(uMossNorm, wp.xz * 0.46).xyz * 2.0 - 1.0;
 
-          vec3 col = mix(darkBasalt, mossCap, mossTop * 0.88);
-          col *= mix(0.80, 1.04, sampleCloudShadow(wp.xz));
+          // Smooth terrain-hugging base skirt blend (accounts for sunken origin -> kills hard seam on ALL boulder sizes!)
+          float baseBlend = 1.0 - smoothstep(0.06, 0.72, vRHeightAboveBase + (mossS.a - 0.5) * 0.28);
+          // Natural mossy cap draped over upper boulder shoulders (suppressed on wet river/plunge-pool boulders!)
+          float patchGate = smoothstep(0.14, 0.60, atmoNoise(wp.xz * 0.18 + vec2(wp.y * 0.22)));
+          float mossTop = smoothstep(0.34, 0.72, wn.y + (mossS.a - 0.45) * 0.32) * patchGate * mossAllow;
 
-          float rockWet = uRainWetness * 0.75 * (1.0 - mossTop * 0.75);
-          col *= mix(1.0, 0.76, rockWet * 0.55);
-          rRough = mix(0.80, 0.94, mossTop);
+          vec3 col = mix(darkBasalt, terrainMoss, mossTop * 0.90);
+          col = mix(col, groundSurfCol, baseBlend);
+          col *= mix(0.78, 1.04, sampleCloudShadow(wp.xz));
+
+          float totalMoss = clamp(max(baseBlend * mossAllow, mossTop * 0.90), 0.0, 1.0);
+          float rockWet = uRainWetness * 0.72 * (1.0 - totalMoss * 0.82);
+          col *= mix(1.0, 0.74, rockWet * 0.55);
+          rRough = mix(0.80, 0.95, totalMoss);
           rRough = mix(rRough, 0.44, rockWet * 0.55);
 
-          // World-space triplanar basalt fracture normal-mapping (kills all low-poly facet look!)
-          vec3 nDelta = triRockNorm(uRockNorm, wp, wn, 0.52) * 0.95 + triRockNorm(uRockNorm, wp, wn, 0.16) * 0.45;
-          rFinalNorm = normalize(wn + nDelta * mix(1.0, 0.35, mossTop));
+          // Blend base normal cleanly into terrain surface normal near ground (eliminates hard dark silhouette ring!)
+          vec3 rockNDelta = triRockNorm(uRockNorm, wp, wn, 0.52) * 0.92 + triRockNorm(uRockNorm, wp, wn, 0.16) * 0.42;
+          vec3 rockWorldN = normalize(wn + rockNDelta * mix(1.0, 0.32, mossTop));
+          vec3 terrainWorldN = normalize(gUp + vec3(mn.x, 0.0, mn.y) * 1.45);
+          rFinalNorm = normalize(mix(rockWorldN, terrainWorldN, smoothstep(0.04, 0.92, baseBlend)));
 
           diffuseColor.rgb = col;
         }
@@ -1308,35 +1455,227 @@ export function createTerrainSystem(texLib, scene) {
       );
   };
 
-  // Ultra-fast multi-toned basalt cobble & volcanic stone materials (smooth normal-mapped stones -> zero faceted pyramids!)
-  const smallStoneMat = new THREE.MeshStandardMaterial({
-    color: 0xffffff,
-    normalMap: texLib.basaltCliff.normalMap,
-    normalScale: new THREE.Vector2(1.2, 1.2),
-    roughness: 0.84,
-    metalness: 0.04,
-    flatShading: false
-  });
-  enhanceMaterialWithAtmo(smallStoneMat, { cacheKey: 'ls_small_stones_v3', wetnessBoost: 0.72 });
+  // Terrain-Blended Smooth Weathered Cobble & Small Stone Materials (world-space triplanar basalt + mossy earth base skirt!)
+  const makeBlendedStoneMat = (cacheKey, skirtHeight, roughness) => {
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness,
+      metalness: 0.03
+    });
+    mat.fog = false;
+    mat.customProgramCacheKey = () => cacheKey;
+    mat.onBeforeCompile = (shader) => {
+      Object.assign(shader.uniforms, ATMO_UNIFORMS);
+      shader.uniforms.uRockTex = { value: texLib.basaltCliff.map };
+      shader.uniforms.uRockNorm = { value: texLib.basaltCliff.normalMap };
+      shader.uniforms.uMossTex = { value: texLib.moss.map };
+      shader.uniforms.uMossNorm = { value: texLib.moss.normalMap };
 
-  const cobbleMat = new THREE.MeshStandardMaterial({
-    color: 0xffffff,
-    map: texLib.basaltCliff.map,
-    normalMap: texLib.basaltCliff.normalMap,
-    normalScale: new THREE.Vector2(1.4, 1.4),
-    roughness: 0.82,
-    metalness: 0.04,
-    flatShading: false
-  });
-  enhanceMaterialWithAtmo(cobbleMat, { cacheKey: 'ls_cobbles_v3', wetnessBoost: 0.75 });
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nvarying vec3 vSWorldPos;\nvarying vec3 vSWorldNorm;\nvarying vec3 vSGroundUp;\nvarying float vSHeightAboveBase;')
+        .replace(
+          '#include <project_vertex>',
+          /* glsl */`
+          #include <project_vertex>
+          {
+            vec4 swp = vec4(transformed, 1.0);
+            vec3 swn = objectNormal;
+            vec3 instOrigin = vec3(0.0);
+            vec3 instUp = vec3(0.0, 1.0, 0.0);
+            #ifdef USE_INSTANCING
+              swp = instanceMatrix * swp;
+              swn = mat3(instanceMatrix) * swn;
+              instOrigin = (instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+              instUp = normalize(mat3(instanceMatrix) * vec3(0.0, 1.0, 0.0));
+            #endif
+            vec3 instOriginW = (modelMatrix * vec4(instOrigin, 1.0)).xyz;
+            vec3 instUpW = normalize(mat3(modelMatrix) * instUp);
+            swp = modelMatrix * swp;
+            vSWorldPos = swp.xyz;
+            vSWorldNorm = normalize(mat3(modelMatrix) * swn);
+            vSGroundUp = instUpW;
+            vSHeightAboveBase = dot(swp.xyz - instOriginW, instUpW);
+          }
+          `
+        );
 
+      shader.fragmentShader = shader.fragmentShader
+        .replace(
+          '#include <common>',
+          /* glsl */`
+          #include <common>
+          uniform sampler2D uRockTex;
+          uniform sampler2D uRockNorm;
+          uniform sampler2D uMossTex;
+          uniform sampler2D uMossNorm;
+          varying vec3 vSWorldPos;
+          varying vec3 vSWorldNorm;
+          varying vec3 vSGroundUp;
+          varying float vSHeightAboveBase;
+          ${ATMO_GLSL_PARS}
+          ${TERRAIN_BLEND_GLSL}
+          `
+        )
+        .replace(
+          '#include <color_fragment>',
+          /* glsl */`
+          #include <color_fragment>
+          vec3 sFinalNorm = normalize(vSWorldNorm);
+          {
+            vec3 wp = vSWorldPos;
+            vec3 wn = normalize(vSWorldNorm);
+            vec3 gUp = normalize(vSGroundUp);
+            vec4 rockS = texture2D(uRockTex, wp.xz * 0.85 + vec2(wp.y * 0.65));
+            vec3 rockCol = diffuseColor.rgb * rockS.rgb * mix(0.75, 1.48, rockS.a) * 1.35;
+
+            vec4 mossS;
+            vec3 terrainMoss = evalTerrainMossColor(uMossTex, wp, gUp, mossS);
+            float baseBlend = 1.0 - smoothstep(-0.04, ${skirtHeight.toFixed(2)}, vSHeightAboveBase + (mossS.a - 0.5) * 0.08);
+            float topMoss = smoothstep(0.62, 0.90, wn.y + (mossS.a - 0.5) * 0.25) * 0.38;
+            float totalMoss = clamp(max(baseBlend, topMoss), 0.0, 1.0);
+
+            vec3 col = mix(rockCol, terrainMoss, totalMoss);
+            col *= mix(0.78, 1.04, sampleCloudShadow(wp.xz));
+            diffuseColor.rgb = col;
+
+            vec3 rn = texture2D(uRockNorm, wp.xz * 0.85 + vec2(wp.y * 0.65)).xyz * 2.0 - 1.0;
+            vec3 mn = texture2D(uMossNorm, wp.xz * 0.46).xyz * 2.0 - 1.0;
+            vec3 stoneN = normalize(wn + vec3(rn.x, 0.0, rn.y) * 0.72);
+            vec3 gndN = normalize(gUp + vec3(mn.x, 0.0, mn.y) * 1.40);
+            sFinalNorm = normalize(mix(stoneN, gndN, baseBlend));
+          }
+          `
+        )
+        .replace(
+          '#include <normal_fragment_maps>',
+          /* glsl */`
+          #include <normal_fragment_maps>
+          normal = normalize((viewMatrix * vec4(sFinalNorm, 0.0)).xyz);
+          `
+        )
+        .replace(
+          '#include <dithering_fragment>',
+          /* glsl */`
+          gl_FragColor.rgb += sampleOdradekScan(vSWorldPos, sFinalNorm);
+          gl_FragColor.rgb = applyIcelandAtmo(gl_FragColor.rgb, vSWorldPos);
+          #include <dithering_fragment>
+          `
+        );
+    };
+    return mat;
+  };
+
+  const smallStoneMat = makeBlendedStoneMat('ls_small_stones_v5', 0.08, 0.86);
+  const cobbleMat = makeBlendedStoneMat('ls_cobbles_v5', 0.16, 0.84);
+
+  // Seamless Terrain-Blended Eldhraun Moss-Pillow Mound Material:
+  // Exact terrain moss color + terrain-matched base normals so pillows flow organically out of the ground with ZERO seam!
   const cushionMat = new THREE.MeshStandardMaterial({
-    color: 0x5c7221,
-    map: texLib.moss.map,
+    color: 0xffffff,
     roughness: 0.95,
     metalness: 0.0
   });
-  enhanceMaterialWithAtmo(cushionMat, { cacheKey: 'ls_moss_cushion_v5', wetnessBoost: 0.10 });
+  cushionMat.fog = false;
+  cushionMat.customProgramCacheKey = () => 'ls_eldhraun_cushion_v3';
+  cushionMat.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, ATMO_UNIFORMS);
+    shader.uniforms.uMossTex = { value: texLib.moss.map };
+    shader.uniforms.uMossNorm = { value: texLib.moss.normalMap };
+    shader.uniforms.uRockTex = { value: texLib.basaltCliff.map };
+
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vCWorldPos;\nvarying vec3 vCWorldNorm;\nvarying vec3 vCGroundUp;\nvarying float vCHeightAboveBase;')
+      .replace(
+        '#include <project_vertex>',
+        /* glsl */`
+        #include <project_vertex>
+        {
+          vec4 cwp = vec4(transformed, 1.0);
+          vec3 cwn = objectNormal;
+          vec3 instOrigin = vec3(0.0);
+          vec3 instUp = vec3(0.0, 1.0, 0.0);
+          #ifdef USE_INSTANCING
+            cwp = instanceMatrix * cwp;
+            cwn = mat3(instanceMatrix) * cwn;
+            instOrigin = (instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+            instUp = normalize(mat3(instanceMatrix) * vec3(0.0, 1.0, 0.0));
+          #endif
+          vec3 instOriginW = (modelMatrix * vec4(instOrigin, 1.0)).xyz;
+          vec3 instUpW = normalize(mat3(modelMatrix) * instUp);
+          cwp = modelMatrix * cwp;
+          vCWorldPos = cwp.xyz;
+          vCWorldNorm = normalize(mat3(modelMatrix) * cwn);
+          vCGroundUp = instUpW;
+          vCHeightAboveBase = dot(cwp.xyz - instOriginW, instUpW);
+        }
+        `
+      );
+
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        /* glsl */`
+        #include <common>
+        uniform sampler2D uMossTex;
+        uniform sampler2D uMossNorm;
+        uniform sampler2D uRockTex;
+        varying vec3 vCWorldPos;
+        varying vec3 vCWorldNorm;
+        varying vec3 vCGroundUp;
+        varying float vCHeightAboveBase;
+        ${ATMO_GLSL_PARS}
+        ${TERRAIN_BLEND_GLSL}
+        `
+      )
+      .replace(
+        '#include <color_fragment>',
+        /* glsl */`
+        #include <color_fragment>
+        vec3 cWorldN = normalize(vCWorldNorm);
+        {
+          vec3 wp = vCWorldPos;
+          vec3 wn = normalize(vCWorldNorm);
+          vec3 gUp = normalize(vCGroundUp);
+
+          vec4 mossS;
+          vec3 mossCol = evalTerrainMossColor(uMossTex, wp, gUp, mossS);
+
+          // Blend lower skirt smoothly into terrain normal & color -> ZERO dark outline or pasted-on shadow seam!
+          float baseBlend = 1.0 - smoothstep(-0.06, 0.34, vCHeightAboveBase + (mossS.a - 0.5) * 0.14);
+
+          // Subtle weathered grey volcanic rock peeking ONLY on steep upper rock pockets (never a dark ring around the base!)
+          vec4 rockS = texture2D(uRockTex, wp.xz * 0.58 + vec2(wp.y * 0.52));
+          float upperMask = smoothstep(0.18, 0.44, vCHeightAboveBase);
+          float lavaPeek = (1.0 - smoothstep(0.32, 0.64, wn.y + (mossS.a - 0.5) * 0.28)) * smoothstep(0.30, 0.74, rockS.a) * upperMask;
+          vec3 lavaCol = rockS.rgb * vec3(0.76, 0.80, 0.84) * mix(0.50, 1.18, rockS.a);
+
+          vec3 col = mix(mossCol, lavaCol, lavaPeek * 0.68);
+          col *= mix(0.78, 1.04, sampleCloudShadow(wp.xz));
+
+          vec3 mn = texture2D(uMossNorm, wp.xz * 0.46).xyz * 2.0 - 1.0;
+          vec3 pillowN = normalize(wn + vec3(mn.x, 0.0, mn.y) * 1.25);
+          vec3 groundN = normalize(gUp + vec3(mn.x, 0.0, mn.y) * 1.50);
+          cWorldN = normalize(mix(pillowN, groundN, smoothstep(0.05, 0.95, baseBlend)));
+          diffuseColor.rgb = col;
+        }
+        `
+      )
+      .replace(
+        '#include <normal_fragment_maps>',
+        /* glsl */`
+        #include <normal_fragment_maps>
+        normal = normalize((viewMatrix * vec4(cWorldN, 0.0)).xyz);
+        `
+      )
+      .replace(
+        '#include <dithering_fragment>',
+        /* glsl */`
+        gl_FragColor.rgb += sampleOdradekScan(vCWorldPos, cWorldN);
+        gl_FragColor.rgb = applyIcelandAtmo(gl_FragColor.rgb, vCWorldPos);
+        #include <dithering_fragment>
+        `
+      );
+  };
 
   const grassMat = new THREE.MeshStandardMaterial({
     color: 0xffffff,
@@ -1453,8 +1792,8 @@ export function createTerrainSystem(texLib, scene) {
   });
   enhanceMaterialWithAtmo(cottonMat, { cacheKey: 'ls_cotton_grass', windSway: 0.42, wetnessBoost: 0.10 });
 
-  // Reusable lightweight sculpted basalt crags, spires & Icelandic botanical geometries
-  const boulderGeoA = createNaturalBasaltRockGeo(11, 2, 0.78);
+  // Reusable lightweight sculpted basalt crags, spires & Icelandic botanical geometries (100% smooth welded normals!)
+  const boulderGeoA = createNaturalBasaltRockGeo(11, 2, 0.74);
   const boulderGeoB = createJaggedLavaCragGeo(37);
   const spireGeo = createVolcanicSpireGeo(83);
   const cobbleGeo = createFacetedCobbleGeo(67);
@@ -1465,23 +1804,23 @@ export function createTerrainSystem(texLib, scene) {
   const bushGeo = createIcelandicBushGeo();
   const cottonGeo = createCottonGrassGeo();
 
-  // Authentic Multi-Color Icelandic Lupin Palette (setHex converts sRGB -> linear properly so colors stay rich & velvety!)
+  // Authentic Icelandic Nootka Lupin Palette (rich royal violet-purple, indigo-blue, lavender-lilac & rare cream-white!)
   const LUPIN_PALETTE = [
-    new THREE.Color().setHex(0x4a2ea8), // Deep Royal Icelandic Violet-Indigo
-    new THREE.Color().setHex(0x305bc6), // Nordic Cornflower / Periwinkle Blue
-    new THREE.Color().setHex(0xc44a88), // Dusty Heather Rose-Pink
-    new THREE.Color().setHex(0x82287e), // Deep Plum-Amethyst Magenta
-    new THREE.Color().setHex(0x7c5ad4), // Wild Lavender-Lilac
-    new THREE.Color().setHex(0xe2dcd0)  // Natural Creamy Ivory-White morph
+    new THREE.Color().setHex(0x5234b8), // Deep Royal Icelandic Violet-Purple (dominant!)
+    new THREE.Color().setHex(0x4658c8), // Periwinkle / Lupin Indigo-Blue
+    new THREE.Color().setHex(0x6e4ed4), // Vivid Highland Lavender-Violet
+    new THREE.Color().setHex(0x7c48b6), // Amethyst-Plum Violet
+    new THREE.Color().setHex(0x8c70e2), // Pale Soft Lilac-Blue
+    new THREE.Color().setHex(0xe8e4dc)  // Natural Creamy White morph
   ];
 
-  // Natural Weathered Grey-Slate & Warm Taupe Icelandic Stone/Cobble Palette (harmonious, never black dots!)
+  // Natural Weathered Grey-Slate & Warm Taupe Icelandic Stone/Cobble Palette (harmonious, never stark black dots!)
   const STONE_PALETTE = [
-    new THREE.Color().setHex(0x525960), // Weathered medium-dark slate
-    new THREE.Color().setHex(0x697076), // Cool grey weathered river stone
-    new THREE.Color().setHex(0x82888a), // Pale lichen-dusted grey cobble
-    new THREE.Color().setHex(0x746b5f), // Warm weathered volcanic sandstone-taupe
-    new THREE.Color().setHex(0x5c6853)  // Mossy grey-olive fieldstone
+    new THREE.Color().setHex(0x586066), // Weathered medium slate
+    new THREE.Color().setHex(0x6e757b), // Cool grey weathered river stone
+    new THREE.Color().setHex(0x848a8c), // Pale lichen-dusted grey cobble
+    new THREE.Color().setHex(0x786f62), // Warm weathered volcanic sandstone-taupe
+    new THREE.Color().setHex(0x626e56)  // Mossy grey-olive fieldstone
   ];
 
   // Far horizon continuous ring mesh
@@ -1537,6 +1876,18 @@ export function createTerrainSystem(texLib, scene) {
   const chunks = new Map();
   const dummy = new THREE.Object3D();
   const upVec = new THREE.Vector3(0, 1, 0);
+  const slopeQ = new THREE.Quaternion();
+  const yawQ = new THREE.Quaternion();
+  const blendN = new THREE.Vector3();
+
+  /** Align dummy transform smoothly to hillside surface normal so flared rock/moss bases hug slopes seamlessly! */
+  const alignToSlope = (wx, wz, yaw, slopeFollow = 0.85) => {
+    getTerrainNormal(wx, wz, blendN, 1.1);
+    blendN.lerp(upVec, 1.0 - slopeFollow).normalize();
+    slopeQ.setFromUnitVectors(upVec, blendN);
+    yawQ.setFromAxisAngle(upVec, yaw);
+    dummy.quaternion.copy(slopeQ).multiply(yawQ);
+  };
 
   /** Build per-chunk boulders, cobbles, small volcanic stone clusters & lush Icelandic flora (now extending hero rock outcrops out to LOD2 / 720m!). */
   function populateChunkDetails(cx, cz, lod, group) {
@@ -1554,7 +1905,9 @@ export function createTerrainSystem(texLib, scene) {
     const tmpColor = new THREE.Color();
 
     const boulderMatsA = [];
+    const boulderColorsA = [];
     const boulderMatsB = [];
+    const boulderColorsB = [];
     const spireMats = [];
     const cobbleMats = [];
     const cobbleColors = [];
@@ -1634,18 +1987,26 @@ export function createTerrainSystem(texLib, scene) {
         getTerrainNormal(wx, wz, norm, 1.2);
         if (norm.y < 0.62 || by > baseH + 11.0) continue;
         const s = 1.4 + hash2i(i, 912, 77) * 2.8;
-        dummy.position.set(lx, by - s * 0.20, lz);
-        dummy.rotation.set(hash2i(i, 1, 9) * 0.6, hash2i(i, 2, 9) * 6.28, hash2i(i, 3, 9) * 0.6);
-        dummy.scale.set(s * 1.25, s * 0.80, s * 1.05);
+        dummy.position.set(lx, by - s * 0.24, lz);
+        alignToSlope(wx, wz, hash2i(i, 2, 9) * 6.28, 0.72);
+        dummy.scale.set(s * 1.25, s * 0.76, s * 1.05);
         dummy.updateMatrix();
-        (i % 2 === 0 ? boulderMatsA : boulderMatsB).push(dummy.matrix.clone());
+        // Plunge-pool boulders sit on wet dark scree -> mossAllow = 0.08 so they blend into grey scree, not green grass!
+        const wetRockTag = new THREE.Color(0.08, 1.0, 1.0);
+        if (i % 2 === 0) {
+          boulderMatsA.push(dummy.matrix.clone());
+          boulderColorsA.push(wetRockTag);
+        } else {
+          boulderMatsB.push(dummy.matrix.clone());
+          boulderColorsB.push(wetRockTag);
+        }
       }
     }
 
-    // 2. Geologically Clustered Basalt Rock Outcrops, Boulder Gardens & Riverbank Shoals (zero random isolated rock peppering!)
-    // Hero boulders persist to LOD2 (720m); each outcrop grades naturally: hero boulders -> companion rocks -> cobbles -> pebbles!
+    // 2. Geologically Clustered Eldhraun Moss-Lava Fields, Basalt Rock Outcrops & Riverbank Shoals!
+    // Cohesive sweeping lava-moss beds juxtapose densely piled mossy lava mounds & dark crags against open lupin/sedge meadows!
     const halfChunkRock = CHUNK_SIZE * 0.49;
-    const outcropCenters = lod === 0 ? 48 : lod === 1 ? 24 : 14;
+    const outcropCenters = lod === 0 ? 78 : lod === 1 ? 34 : 16;
     for (let i = 0; i < outcropCenters; i++) {
       const cx0 = (hash2i(cx * 97 + i, cz * 53, 301) - 0.5) * CHUNK_SIZE;
       const cz0 = (hash2i(cx * 41, cz * 89 + i, 307) - 0.5) * CHUNK_SIZE;
@@ -1660,14 +2021,14 @@ export function createTerrainSystem(texLib, scene) {
       const slopeLimit = tmpSample.riverMask > 0.12 ? 0.62 : 0.74;
       if (norm.y < slopeLimit) continue;
 
-      const rockField = fbm2(wx0 * 0.028 + 2.1, wz0 * 0.028 - 4.7, 2, 419);
+      const rockField = fbm2(wx0 * 0.022 + 2.1, wz0 * 0.022 - 4.7, 2, 419);
       const hRand = hash2i(i, cx * 19 + cz * 31, 419);
 
       const inRiver = tmpSample.riverMask > 0.12 && hRand > 0.24;
-      const inOutcrop = (tmpSample.scree > 0.28 && hRand > 0.34) || (rockField > 0.54 && hRand > 0.42);
+      const inOutcrop = (tmpSample.scree > 0.26 && hRand > 0.30) || (rockField > 0.44 && hRand > 0.30);
       if (!inRiver && !inOutcrop) continue;
 
-      // Rare dramatic volcanic crag pinnacle rising from lava plains / rocky ridges (surrounded by clustered boulders!)
+      // Rare dramatic volcanic crag pinnacle rising from lava plains / rocky ridges
       if (!inRiver && rockField > 0.62 && tmpSample.scree > 0.28 && tmpSample.cliff < 0.35 && hRand > 0.94 && spireMats.length < 2) {
         const spSc = 3.2 + hash2i(i, 59, 509) * 4.4;
         dummy.position.set(cx0, tmpSample.height - 0.65, cz0);
@@ -1678,21 +2039,21 @@ export function createTerrainSystem(texLib, scene) {
         colliders.push({ x: wx0, z: wz0, r: spSc * 0.92 });
       }
 
-      // Elongated geological outcrop orientation (rocks fracture & tumble along natural strike lines!)
+      // Elongated geological outcrop orientation (lava flows & fractures along natural strike lines!)
       const strikeYaw = hash2i(i, cx * 13 + cz * 29, 501) * Math.PI * 2;
       const sCos = Math.cos(strikeYaw);
       const sSin = Math.sin(strikeYaw);
-      const stretch = 1.25 + hash2i(i, 5, 503) * 0.75;
+      const stretch = 1.25 + hash2i(i, 5, 503) * 0.85;
 
-      // Cluster 2..5 boulders tightly per outcrop (1..2 anchor boulders + smaller companion rocks nestled beside them!)
+      // Cluster 3..7 craggy mossy lava boulders tightly per outcrop
       const bCount = lod === 0
-        ? (inRiver ? (3 + Math.floor(hash2i(i, 7, 505) * 3)) : (2 + Math.floor(hash2i(i, 7, 505) * 4)))
+        ? (inRiver ? (3 + Math.floor(hash2i(i, 7, 505) * 3)) : (3 + Math.floor(hash2i(i, 7, 505) * 5)))
         : (lod === 1 ? 2 : 1);
 
       for (let b = 0; b < bCount; b++) {
         const ang = hash2i(i * 11 + b, cx * 7 + cz * 13, 511) * Math.PI * 2;
-        const rFrac = b === 0 ? 0.0 : (0.28 + Math.pow(hash2i(b * 17 + i, cz * 9 + cx, 513), 0.85) * 0.72);
-        const rad = rFrac * (inRiver ? 5.2 : 6.2);
+        const rFrac = b === 0 ? 0.0 : (0.24 + Math.pow(hash2i(b * 17 + i, cz * 9 + cx, 513), 0.82) * 0.76);
+        const rad = rFrac * (inRiver ? 5.2 : 7.8);
         const ux = Math.cos(ang) * rad * stretch;
         const uz = Math.sin(ang) * rad;
         const lx = cx0 + ux * sCos - uz * sSin;
@@ -1708,25 +2069,59 @@ export function createTerrainSystem(texLib, scene) {
           if (Math.abs(tmpSample.caveSignedD) < 17.0 && tmpSample.caveOverburden > 6.0 && tmpSample.caveOverburden < 28.0) continue;
         }
 
-        const isCrag = !inRiver && hash2i(i + b * 3, 29, 503) > 0.35;
-        const coreScale = b === 0 ? 1.18 : mix(0.92, 0.48, rFrac);
+        const isCrag = !inRiver && hash2i(i + b * 3, 29, 503) > 0.30;
+        const coreScale = b === 0 ? 1.12 : mix(0.88, 0.42, rFrac);
         const baseSc = inRiver
           ? (0.58 + hash2i(i + b * 5, 31, 503) * 1.25)
-          : (isCrag ? (1.05 + hash2i(i + b * 5, 31, 503) * 2.15) : (0.72 + hash2i(i + b * 5, 31, 503) * 1.55));
+          : (isCrag ? (0.72 + hash2i(i + b * 5, 31, 503) * 1.65) : (0.58 + hash2i(i + b * 5, 31, 503) * 1.25));
         const sc = baseSc * coreScale;
 
-        dummy.position.set(lx, tmpSample.height + (inRiver ? sc * 0.04 : -sc * 0.26), lz);
-        dummy.rotation.set(hash2i(i + b, 32, 503) * 0.38, hash2i(i + b, 33, 503) * 6.28, hash2i(i + b, 34, 503) * 0.38);
-        dummy.scale.set(sc * 1.30, sc * (isCrag ? 0.88 : 0.70), sc * 1.06);
+        dummy.position.set(lx, tmpSample.height + (inRiver ? sc * 0.02 : -sc * 0.24), lz);
+        alignToSlope(wx, wz, hash2i(i + b, 33, 503) * 6.28, 0.78);
+        dummy.scale.set(sc * 1.24, sc * (isCrag ? 0.80 : 0.62), sc * 1.08);
         dummy.updateMatrix();
-        (isCrag ? boulderMatsB : boulderMatsA).push(dummy.matrix.clone());
-        if (sc > 1.25) colliders.push({ x: wx, z: wz, r: sc * 0.88 });
+        const mossAllow = inRiver ? 0.05 : clamp(1.0 - smoothstep(0.32, 0.76, tmpSample.scree), 0.08, 1.0);
+        const rockTag = new THREE.Color(mossAllow, 1.0, 1.0);
+        if (isCrag) {
+          boulderMatsB.push(dummy.matrix.clone());
+          boulderColorsB.push(rockTag);
+        } else {
+          boulderMatsA.push(dummy.matrix.clone());
+          boulderColorsA.push(rockTag);
+        }
+        if (sc > 1.25) colliders.push({ x: wx, z: wz, r: sc * 0.82 });
       }
 
-      // Natural frost-heaved talus apron of cobbles & angular pebbles spilling around every LOD0 rock outcrop!
+      // Surround every Eldhraun lava outcrop with smooth, slope-hugging mossy pillow mounds!
+      if (!inRiver && lod <= 1) {
+        const maxCushions = lod === 0 ? 190 : 48;
+        const cushCount = lod === 0 ? (3 + Math.floor(hash2i(i, cx * 31 + cz, 541) * 4)) : 2;
+        for (let k = 0; k < cushCount && cushionMats.length < maxCushions; k++) {
+          const cAng = hash2i(i * 19 + k, cz * 13 + cx, 543) * Math.PI * 2;
+          const cDist = 1.0 + Math.pow(hash2i(k * 11, i * 5, 547), 0.74) * 10.6;
+          const ux = Math.cos(cAng) * cDist * stretch;
+          const uz = Math.sin(cAng) * cDist;
+          const clx = cx0 + ux * sCos - uz * sSin;
+          const clz = cz0 + ux * sSin + uz * sCos;
+          if (Math.abs(clx) > halfChunkRock || Math.abs(clz) > halfChunkRock) continue;
+          const cwx = ox + clx;
+          const cwz = oz + clz;
+          if (isInsideSettlementOrSpring(cwx, cwz)) continue;
+          sampleWorld(cwx, cwz, tmpSample);
+          if (tmpSample.path > 0.24 || tmpSample.riverMask > 0.14 || tmpSample.cliff > 0.42 || tmpSample.snow > 0.18) continue;
+          const csc = (0.80 + hash2i(i + k, 73, 557) * 0.92) * mix(1.16, 0.72, cDist / 11.6);
+          dummy.position.set(clx, tmpSample.height - csc * 0.10, clz);
+          alignToSlope(cwx, cwz, hash2i(i, k, 563) * 6.28, 0.96);
+          dummy.scale.set(csc * 1.28, csc * (0.72 + hash2i(i + k, 79, 557) * 0.42), csc * 1.14);
+          dummy.updateMatrix();
+          cushionMats.push(dummy.matrix.clone());
+        }
+      }
+
+      // Natural frost-heaved talus apron of smooth terrain-blended cobbles & pebbles spilling around every LOD0 outcrop!
       if (lod === 0) {
         const satCobbles = 5 + Math.floor(hash2i(i, cx + cz * 7, 561) * 5);
-        for (let k = 0; k < satCobbles && cobbleMats.length < 440; k++) {
+        for (let k = 0; k < satCobbles && cobbleMats.length < 340; k++) {
           const ang = hash2i(i * 13 + k, cx * 7 + cz, 563) * Math.PI * 2;
           const dist = 1.4 + Math.pow(hash2i(k * 7, i * 3, 569), 0.78) * 7.2;
           const ux = Math.cos(ang) * dist * stretch;
@@ -1738,17 +2133,17 @@ export function createTerrainSystem(texLib, scene) {
           const swz = oz + slz;
           if (isInsideBuildingFootprint(swx, swz)) continue;
           const sh = getTerrainHeight(swx, swz);
-          const csc = (0.22 + hash2i(i + k, 71, 577) * 0.40) * mix(1.12, 0.72, dist / 8.6);
-          dummy.position.set(slx, sh - csc * 0.18, slz);
-          dummy.rotation.set(hash2i(k, i, 587) * 0.8, hash2i(i, k, 593) * 6.28, hash2i(k + 2, i, 599) * 0.8);
-          dummy.scale.set(csc * 1.32, csc * 0.68, csc * 1.05);
+          const csc = (0.22 + hash2i(i + k, 71, 577) * 0.38) * mix(1.12, 0.72, dist / 8.6);
+          dummy.position.set(slx, sh - csc * 0.22, slz);
+          alignToSlope(swx, swz, hash2i(i, k, 593) * 6.28, 0.90);
+          dummy.scale.set(csc * 1.32, csc * 0.64, csc * 1.06);
           dummy.updateMatrix();
           cobbleMats.push(dummy.matrix.clone());
           cobbleColors.push(pickStoneColor(i * 11 + k, cx * 17 + cz));
         }
 
         const satStones = 4 + Math.floor(hash2i(i, cz + cx * 11, 603) * 4);
-        for (let k = 0; k < satStones && stoneMats.length < 460; k++) {
+        for (let k = 0; k < satStones && stoneMats.length < 360; k++) {
           const pang = hash2i(i * 7 + k, cx + 19, 601) * Math.PI * 2;
           const pdist = 1.6 + Math.pow(hash2i(k * 5, i * 11, 605), 0.75) * 7.8;
           const plx = cx0 + Math.cos(pang) * pdist;
@@ -1758,10 +2153,10 @@ export function createTerrainSystem(texLib, scene) {
           const pwz = oz + plz;
           if (isInsideBuildingFootprint(pwx, pwz)) continue;
           const ph = getTerrainHeight(pwx, pwz);
-          const ps = 0.84 + hash2i(i + k, 83, 607) * 0.92;
-          dummy.position.set(plx, ph - 0.01, plz);
-          dummy.rotation.set(0, hash2i(i + k, 87, 607) * 6.28, 0);
-          dummy.scale.set(ps, ps * 0.90, ps);
+          const ps = 0.84 + hash2i(i + k, 83, 607) * 0.88;
+          dummy.position.set(plx, ph - 0.02, plz);
+          alignToSlope(pwx, pwz, hash2i(i + k, 87, 607) * 6.28, 0.96);
+          dummy.scale.set(ps, ps * 0.86, ps);
           dummy.updateMatrix();
           stoneMats.push(dummy.matrix.clone());
           stoneColors.push(pickStoneColor(i * 13 + k, cz * 29 + cx));
@@ -1787,7 +2182,7 @@ export function createTerrainSystem(texLib, scene) {
 
         const pRad = nearFeature ? (2.2 + hash2i(i, 11, 481) * 3.4) : (1.5 + hash2i(i, 11, 481) * 2.2);
         const cCount = 3 + Math.floor(hash2i(i, 13, 483) * 5);
-        for (let k = 0; k < cCount && cobbleMats.length < 440; k++) {
+        for (let k = 0; k < cCount && cobbleMats.length < 340; k++) {
           const ang = hash2i(i * 17 + k, cx * 19 + cz, 485) * Math.PI * 2;
           const rFrac = k === 0 ? 0.0 : Math.pow(hash2i(k * 9 + i, cz * 13 + cx, 487), 0.72);
           const lx = cx0 + Math.cos(ang) * rFrac * pRad;
@@ -1797,17 +2192,17 @@ export function createTerrainSystem(texLib, scene) {
           const wz = oz + lz;
           if (isInsideBuildingFootprint(wx, wz)) continue;
           const hy = k === 0 ? tmpSample.height : getTerrainHeight(wx, wz);
-          const sc = (0.20 + hash2i(i + k, 19, 487) * 0.36) * mix(1.14, 0.72, rFrac);
-          dummy.position.set(lx, hy - sc * 0.20, lz);
-          dummy.rotation.set(hash2i(i + k, 21, 487) * 0.7, hash2i(i + k, 22, 487) * 6.28, hash2i(i + k, 23, 487) * 0.7);
-          dummy.scale.set(sc * 1.34, sc * 0.66, sc * 1.05);
+          const sc = (0.20 + hash2i(i + k, 19, 487) * 0.34) * mix(1.12, 0.72, rFrac);
+          dummy.position.set(lx, hy - sc * 0.22, lz);
+          alignToSlope(wx, wz, hash2i(i + k, 22, 487) * 6.28, 0.90);
+          dummy.scale.set(sc * 1.34, sc * 0.62, sc * 1.06);
           dummy.updateMatrix();
           cobbleMats.push(dummy.matrix.clone());
           cobbleColors.push(pickStoneColor(i + k + cx * 31, cz * 43 + i));
         }
 
         const sCount = 4 + Math.floor(hash2i(i, 27, 521) * 5);
-        for (let k = 0; k < sCount && stoneMats.length < 460; k++) {
+        for (let k = 0; k < sCount && stoneMats.length < 360; k++) {
           const ang = hash2i(i * 19 + k, cx * 23 + cz, 523) * Math.PI * 2;
           const rFrac = Math.pow(hash2i(k * 11 + i, cz * 17 + cx, 527), 0.75);
           const lx = cx0 + Math.cos(ang) * rFrac * (pRad * 1.25);
@@ -1817,10 +2212,10 @@ export function createTerrainSystem(texLib, scene) {
           const wz = oz + lz;
           if (isInsideBuildingFootprint(wx, wz)) continue;
           const hy = getTerrainHeight(wx, wz);
-          const s = (nearFeature ? 0.90 : 0.76) + hash2i(i + k, 41, 547) * 0.96;
-          dummy.position.set(lx, hy - 0.01, lz);
-          dummy.rotation.set(0, hash2i(i + k, 42, 547) * 6.28, 0);
-          dummy.scale.set(s, s * 0.92, s);
+          const s = (nearFeature ? 0.88 : 0.74) + hash2i(i + k, 41, 547) * 0.90;
+          dummy.position.set(lx, hy - 0.02, lz);
+          alignToSlope(wx, wz, hash2i(i + k, 42, 547) * 6.28, 0.96);
+          dummy.scale.set(s, s * 0.86, s);
           dummy.updateMatrix();
           stoneMats.push(dummy.matrix.clone());
           stoneColors.push(pickStoneColor((i + k) * 3 + cx * 19, cz * 37 + i));
@@ -1831,9 +2226,9 @@ export function createTerrainSystem(texLib, scene) {
     // 4. Ecologically Clustered Icelandic Flora: Lupin Flower Colonies, Heather Thickets, Meadow Grass Swales & Cotton Grass Clumps
     const halfChunk = CHUNK_SIZE * 0.49;
 
-    // 4a) Multi-Colored Icelandic Lupin Flower Colonies (lush tightly clustered drifts of 5..11 blooms with tall cores & feathered edges!)
-    const lupinCenters = lod === 0 ? 82 : lod === 1 ? 22 : 0;
-    const maxLupins = lod === 0 ? 330 : 60;
+    // 4a) Lush Sweeping Icelandic Nootka Lupin Flower Colonies (dense drifts of 6..12 rich violet-blue spires!)
+    const lupinCenters = lod === 0 ? 96 : lod === 1 ? 26 : 0;
+    const maxLupins = lod === 0 ? 440 : 80;
     for (let i = 0; i < lupinCenters && lupinMats.length < maxLupins; i++) {
       const cx0 = (hash2i(cx * 131 + i, cz * 79, 613) - 0.5) * CHUNK_SIZE;
       const cz0 = (hash2i(cx * 61, cz * 113 + i, 619) - 0.5) * CHUNK_SIZE;
@@ -1842,28 +2237,27 @@ export function createTerrainSystem(texLib, scene) {
       if (isInsideBuildingFootprint(wx0, wz0)) continue;
 
       sampleWorld(wx0, wz0, tmpSample);
-      if (tmpSample.moss < 0.24 || tmpSample.height > 76 || tmpSample.path > 0.28 || tmpSample.riverMask > 0.20 || tmpSample.cliff > 0.40 || tmpSample.snow > 0.18 || tmpSample.glacier > 0.10) continue;
+      if (tmpSample.moss < 0.20 || tmpSample.height > 78 || tmpSample.path > 0.28 || tmpSample.riverMask > 0.20 || tmpSample.cliff > 0.40 || tmpSample.snow > 0.18 || tmpSample.glacier > 0.10) continue;
       getTerrainNormal(wx0, wz0, norm, 0.9);
       if (norm.y < 0.70) continue;
 
-      const lupinField = fbm2(wx0 * 0.022 + 3.4, wz0 * 0.022 - 7.1, 2, 647);
-      if (lupinField < 0.45) continue;
+      const lupinField = fbm2(wx0 * 0.020 + 3.4, wz0 * 0.020 - 7.1, 2, 647);
+      if (lupinField < 0.36) continue;
 
-      // Dominant colony hue + organic elliptical drift orientation so beds flow naturally across slopes
-      const hueField = fbm2(wx0 * 0.038 - 11.3, wz0 * 0.038 + 6.8, 2, 709);
+      // Dominant colony hue + organic elliptical drift orientation so beds sweep dramatically across foreground meadows!
+      const hueField = fbm2(wx0 * 0.036 - 11.3, wz0 * 0.036 + 6.8, 2, 709);
       const driftYaw = hash2i(i, cx * 17 + cz * 29, 681) * Math.PI * 2;
       const driftCos = Math.cos(driftYaw);
       const driftSin = Math.sin(driftYaw);
-      const stretch = 1.20 + hash2i(i, 7, 683) * 0.65;
-      const clusterRadius = 1.55 + smoothstep(0.45, 0.76, lupinField) * 2.25;
+      const stretch = 1.25 + hash2i(i, 7, 683) * 0.75;
+      const clusterRadius = 2.0 + smoothstep(0.36, 0.74, lupinField) * 3.0;
       const count = lod === 0
-        ? (5 + Math.floor(hash2i(i, cx + cz * 13, 687) * 5) + (lupinField > 0.60 ? 2 : 0))
-        : (2 + Math.floor(hash2i(i, cx + cz * 13, 687) * 2));
+        ? (7 + Math.floor(hash2i(i, cx + cz * 13, 687) * 6) + (lupinField > 0.54 ? 3 : 0))
+        : (3 + Math.floor(hash2i(i, cx + cz * 13, 687) * 3));
 
       for (let c = 0; c < count && lupinMats.length < maxLupins; c++) {
         const ang = hash2i(i * 19 + c, cz * 11 + cx, 689) * Math.PI * 2;
-        // Bias plants denser toward center of each flower colony (r^0.75)
-        const rFrac = Math.pow(hash2i(c * 23 + i, cx * 7 + cz, 691), 0.75);
+        const rFrac = Math.pow(hash2i(c * 23 + i, cx * 7 + cz, 691), 0.72);
         const r = c === 0 ? 0.0 : rFrac * clusterRadius;
         const ux = Math.cos(ang) * r * stretch;
         const uz = Math.sin(ang) * r;
@@ -1879,40 +2273,40 @@ export function createTerrainSystem(texLib, scene) {
           if (tmpSample.path > 0.30 || tmpSample.riverMask > 0.22 || tmpSample.cliff > 0.44 || tmpSample.snow > 0.20) continue;
         }
 
-        // Taller, fuller blooms in colony core -> smaller buds around feathered rim
-        const coreBoost = mix(1.16, 0.74, rFrac);
-        const s = (0.78 + hash2i(i + c * 13, 61, 683) * 0.62) * coreBoost;
-        dummy.position.set(lxC, tmpSample.height - 0.05, lzC);
+        // Tall, lush full blooms in colony core -> smaller buds around feathered rim
+        const coreBoost = mix(1.24, 0.76, rFrac);
+        const s = (0.86 + hash2i(i + c * 13, 61, 683) * 0.56) * coreBoost;
+        dummy.position.set(lxC, tmpSample.height - 0.06, lzC);
         dummy.rotation.set(
           (hash2i(i + c, 62, 683) - 0.5) * 0.14,
           hash2i(i + c, 63, 683) * 6.28,
           (hash2i(i + c, 64, 683) - 0.5) * 0.14
         );
-        dummy.scale.set(s, s * (0.90 + hash2i(i + c, 65, 683) * 0.32), s);
+        dummy.scale.set(s * 1.08, s * (0.94 + hash2i(i + c, 65, 683) * 0.34), s * 1.08);
         dummy.updateMatrix();
         lupinMats.push(dummy.matrix.clone());
 
-        // Cohesive colony palette with natural ~11% white morph & subtle neighbor variation
+        // Authentic Icelandic lupin palette: predominantly rich violet-purple, indigo-blue & lavender + rare cream-white
         const rCol = hash2i(i + c * 7, cx * 13 + cz * 17, 719);
-        const jitteredHue = clamp(hueField + (rCol - 0.5) * 0.18, 0.0, 1.0);
+        const jitteredHue = clamp(hueField + (rCol - 0.5) * 0.20, 0.0, 1.0);
         let palIdx;
-        if (rCol > 0.89) palIdx = 5;
-        else if (jitteredHue < 0.36) palIdx = 0;
-        else if (jitteredHue < 0.48) palIdx = 1;
-        else if (jitteredHue < 0.58) palIdx = 2;
-        else if (jitteredHue < 0.67) palIdx = 4;
-        else palIdx = 3;
+        if (rCol > 0.93) palIdx = 5;
+        else if (jitteredHue < 0.42) palIdx = 0;
+        else if (jitteredHue < 0.62) palIdx = 1;
+        else if (jitteredHue < 0.78) palIdx = 2;
+        else if (jitteredHue < 0.90) palIdx = 3;
+        else palIdx = 4;
 
         const baseC = LUPIN_PALETTE[palIdx];
-        const shade = 0.86 + hash2i(i + c, 99, 727) * 0.28;
+        const shade = 0.84 + hash2i(i + c, 99, 727) * 0.32;
         tmpColor.setRGB(baseC.r * shade, baseC.g * shade, baseC.b * shade);
         lupinColors.push(tmpColor.clone());
       }
     }
 
-    // 4b) Clustered Russet-Tipped Icelandic Heather & Berry Bush Thickets (3..7 shrubs huddled tightly with open clearings between!)
-    const bushCenters = lod === 0 ? 68 : lod === 1 ? 18 : 0;
-    const maxBushes = lod === 0 ? 210 : 42;
+    // 4b) Clustered Silvery-Sage Icelandic Dwarf Willow & Crowberry Thickets (natural companion shrubs beside lupins & rocks!)
+    const bushCenters = lod === 0 ? 86 : lod === 1 ? 22 : 0;
+    const maxBushes = lod === 0 ? 280 : 54;
     for (let i = 0; i < bushCenters && bushMats.length < maxBushes; i++) {
       const cx0 = (hash2i(cx * 149 + i, cz * 83, 653) - 0.5) * CHUNK_SIZE;
       const cz0 = (hash2i(cx * 71, cz * 127 + i, 659) - 0.5) * CHUNK_SIZE;
@@ -1921,14 +2315,14 @@ export function createTerrainSystem(texLib, scene) {
       if (isInsideBuildingFootprint(wx0, wz0)) continue;
 
       sampleWorld(wx0, wz0, tmpSample);
-      if (tmpSample.moss < 0.22 || tmpSample.path > 0.30 || tmpSample.riverMask > 0.22 || tmpSample.cliff > 0.44 || tmpSample.snow > 0.20 || tmpSample.glacier > 0.12) continue;
+      if (tmpSample.moss < 0.20 || tmpSample.path > 0.30 || tmpSample.riverMask > 0.22 || tmpSample.cliff > 0.44 || tmpSample.snow > 0.20 || tmpSample.glacier > 0.12) continue;
       getTerrainNormal(wx0, wz0, norm, 0.9);
       if (norm.y < 0.68) continue;
 
-      const bushField = fbm2(wx0 * 0.032 - 5.2, wz0 * 0.032 + 2.9, 2, 659);
-      if (bushField < 0.42) continue;
+      const bushField = fbm2(wx0 * 0.030 - 5.2, wz0 * 0.030 + 2.9, 2, 659);
+      if (bushField < 0.38) continue;
 
-      const thicketRad = 1.25 + smoothstep(0.42, 0.76, bushField) * 1.85;
+      const thicketRad = 1.45 + smoothstep(0.38, 0.76, bushField) * 2.15;
       const count = lod === 0 ? (3 + Math.floor(hash2i(i, cx * 19 + cz * 7, 661) * 5)) : 2;
 
       for (let c = 0; c < count && bushMats.length < maxBushes; c++) {
@@ -1947,16 +2341,14 @@ export function createTerrainSystem(texLib, scene) {
           if (tmpSample.path > 0.32 || tmpSample.riverMask > 0.22 || tmpSample.cliff > 0.45 || tmpSample.snow > 0.20) continue;
         }
 
-        // Larger mature central bush surrounded by lower creeping satellite shoots
-        const coreScale = c === 0 ? 1.18 : mix(1.02, 0.68, rFrac);
-        const s = (0.78 + hash2i(i + c * 11, 51, 661) * 0.62) * coreScale;
+        const coreScale = c === 0 ? 1.22 : mix(1.04, 0.70, rFrac);
+        const s = (0.82 + hash2i(i + c * 11, 51, 661) * 0.64) * coreScale;
         dummy.position.set(lxC, tmpSample.height - 0.05, lzC);
         dummy.rotation.set(0, hash2i(i + c, 52, 661) * 6.28, 0);
-        dummy.scale.set(s * 1.28, s * 0.90, s * 1.28);
+        dummy.scale.set(s * 1.32, s * 0.92, s * 1.32);
         dummy.updateMatrix();
         bushMats.push(dummy.matrix.clone());
 
-        // Tuck 1 sheltered grass clump right beside thicket perimeter on LOD0 for natural plant association!
         if (lod === 0 && c === 1 && grassMats.length < 780) {
           const gAng = ang + 1.1;
           const glx = lxC + Math.cos(gAng) * 0.95;
@@ -1975,28 +2367,31 @@ export function createTerrainSystem(texLib, scene) {
     }
 
     if (lod === 0) {
-      // 4c) Clustered Arctic Cotton Grass Clumps (3..5 delicate white plumes grouped in damp hollows & stream edges)
-      const cottonCenters = 26;
-      for (let i = 0; i < cottonCenters && cottonMats.length < 76; i++) {
+      // 4c) Dense Sparkling White Arctic Cotton Grass Carpets (Eriophorum grouped in damp marsh hollows & meadow swales!)
+      const cottonCenters = 68;
+      const maxCotton = 320;
+      for (let i = 0; i < cottonCenters && cottonMats.length < maxCotton; i++) {
         const cx0 = (hash2i(cx * 167 + i, cz * 97, 701) - 0.5) * CHUNK_SIZE;
         const cz0 = (hash2i(cx * 89, cz * 151 + i, 703) - 0.5) * CHUNK_SIZE;
         const wx0 = ox + cx0;
         const wz0 = oz + cz0;
         if (isInsideBuildingFootprint(wx0, wz0)) continue;
         sampleWorld(wx0, wz0, tmpSample);
-        if (tmpSample.path > 0.28 || tmpSample.riverMask > 0.24 || tmpSample.cliff > 0.42 || tmpSample.snow > 0.18) continue;
-        const wetSpot = tmpSample.wetness > 0.20 || tmpSample.riverMask > 0.04 || fbm2(wx0 * 0.045, wz0 * 0.045, 2, 707) > 0.66;
+        if (tmpSample.path > 0.28 || tmpSample.riverMask > 0.24 || tmpSample.cliff > 0.42 || tmpSample.snow > 0.18 || tmpSample.height > 54) continue;
+        getTerrainNormal(wx0, wz0, norm, 0.9);
+        if (norm.y < 0.82) continue;
+        const wetSpot = tmpSample.wetness > 0.12 || tmpSample.riverMask > 0.02 || fbm2(wx0 * 0.036, wz0 * 0.036, 2, 707) > 0.46;
         if (!wetSpot) continue;
 
-        const cCount = 3 + Math.floor(hash2i(i, cx * 7 + cz, 709) * 3);
-        for (let c = 0; c < cCount && cottonMats.length < 76; c++) {
+        const cCount = 5 + Math.floor(hash2i(i, cx * 7 + cz, 709) * 6);
+        for (let c = 0; c < cCount && cottonMats.length < maxCotton; c++) {
           const ang = hash2i(i * 9 + c, cx + cz * 17, 711) * Math.PI * 2;
-          const r = c === 0 ? 0.0 : (0.35 + hash2i(c, i * 11, 713) * 1.25);
+          const r = c === 0 ? 0.0 : (0.35 + Math.pow(hash2i(c, i * 11, 713), 0.72) * 3.2);
           const lxC = cx0 + Math.cos(ang) * r;
           const lzC = cz0 + Math.sin(ang) * r;
           if (Math.abs(lxC) > halfChunk || Math.abs(lzC) > halfChunk) continue;
           const hy = c === 0 ? tmpSample.height : getTerrainHeight(ox + lxC, oz + lzC);
-          const s = 0.78 + hash2i(i + c, 71, 709) * 0.52;
+          const s = 0.88 + hash2i(i + c, 71, 709) * 0.54;
           dummy.position.set(lxC, hy - 0.03, lzC);
           dummy.rotation.set(0, hash2i(i + c, 72, 709) * 6.28, 0);
           dummy.scale.set(s, s, s);
@@ -2081,8 +2476,8 @@ export function createTerrainSystem(texLib, scene) {
     };
 
     // Only main boulders & crag spires cast directional shadows (saves millions of shadow-map triangles!)
-    addInstanced(boulderGeoA, boulderMat, boulderMatsA, true);
-    addInstanced(boulderGeoB, boulderMat, boulderMatsB, true);
+    addInstanced(boulderGeoA, boulderMat, boulderMatsA, true, boulderColorsA);
+    addInstanced(boulderGeoB, boulderMat, boulderMatsB, true, boulderColorsB);
     addInstanced(spireGeo, boulderMat, spireMats, true);
     addInstanced(cobbleGeo, cobbleMat, cobbleMats, false, cobbleColors);
     addInstanced(stoneClusterGeo, smallStoneMat, stoneMats, false, stoneColors);

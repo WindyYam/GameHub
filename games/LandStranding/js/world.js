@@ -74,6 +74,23 @@ export function setWorldSeed(seedStr) {
   _trunkOverCache.clear();
 }
 
+function sampleBroadPlateau(x, z) {
+  // Huge 1.5km..3.5km+ sweeping Icelandic table-plateaus with gentle rolling hills on top
+  const plateauField = warpedFbm2(x * 0.00038 + 7.2, z * 0.00038 - 4.1, 0.52, 3, _seedInt + 911);
+  const plateauGuard = smoothstep(340.0, 820.0, Math.hypot(x, z));
+  const mask = smootherstep(0.46, 0.58, plateauField) * plateauGuard;
+  if (mask <= 0.001) return { height: 0, rimCliff: 0 };
+
+  const gentleHills =
+    (fbm2(x * 0.0028 + 1.5, z * 0.0028 - 2.3, 4, _seedInt + 929) - 0.5) * 26.0 +
+    (fbm2(x * 0.0085 - 3.1, z * 0.0085 + 5.2, 3, _seedInt + 937) - 0.5) * 10.0;
+  const rimCliff = smoothstep(0.06, 0.35, mask) * (1.0 - smoothstep(0.62, 0.94, mask));
+  return {
+    height: mask * (58.0 + gentleHills),
+    rimCliff
+  };
+}
+
 /**
  * Pure macro geological elevation (valley + broad glaciated mountain ranges + cell basalt escarpments)
  * BEFORE any river carving or micro hummocks. Used to determine clean, smooth mountain overburden for river caves!
@@ -108,10 +125,12 @@ export function sampleMacroHeight(x, z) {
     smoothstep(0.26, 0.72, rangePresence);
 
   const ridgeCapped = Math.min(Math.pow(broadRidge, 1.55), 0.74);
+  const broadPlateau = sampleBroadPlateau(x, z);
   let h =
     12.5 +
     valleyLow * 16.0 +
     ridgeCapped * 44.0 +
+    broadPlateau.height +
     highlandMassifH +
     broadMountainH -
     glacierTrough * 22.0 +
@@ -127,7 +146,7 @@ export function sampleMacroHeight(x, z) {
     const relX = x - f.centerX;
     const relZ = z - f.centerZ;
     const distCell = Math.hypot(relX, relZ);
-    const cellMask = 1.0 - smoothstep(280, 540, distCell);
+    const cellMask = 1.0 - smoothstep(420, 760, distCell);
     if (cellMask <= 0.001) continue;
 
     const curve = sampleEscarpmentCurve(x, z, _seedInt);
@@ -143,6 +162,7 @@ export function sampleMacroHeight(x, z) {
     const mesaRaw = fbm2(x * 0.024, z * 0.024, 3, _seedInt + 227);
     const mesaSteps = (Math.floor(mesaRaw * 5.0) + smoothstep(0.18, 0.82, (mesaRaw * 5.0) % 1)) * 2.2;
     const crownCrag = ridged2(x * 0.036, z * 0.036, 3, _seedInt + 251);
+    const plateauHill = (fbm2(x * 0.0055, z * 0.0055, 3, _seedInt + 263) - 0.5) * 14.0 * smoothstep(20, 65, signedD);
 
     const wallH = f.cliffHeight * 0.62;
     let escarpH =
@@ -151,7 +171,8 @@ export function sampleMacroHeight(x, z) {
       midTier * (wallH * 0.28) +
       upperTier * (wallH * 0.16) +
       strataBench +
-      smoothstep(-5.0, 22.0, signedD) * (mesaSteps + (crownCrag - 0.5) * 7.5);
+      smoothstep(-5.0, 22.0, signedD) * (mesaSteps + (crownCrag - 0.5) * 4.0) +
+      plateauHill;
 
     if (f.waterfall) {
       const wRelX = x - f.waterfall.x;
@@ -485,12 +506,12 @@ export function getCellFeatures(cx, cz) {
       }
     }
   }
-  if (h3 > 0.38) {
-    const count = 2 + Math.floor(h2 * 3);
+  if (isOriginCell || h3 > 0.30) {
+    const count = isOriginCell ? 5 : (2 + Math.floor(h2 * 4));
     for (let i = 0; i < count; i++) {
-      const fx = originX - nx * (90 + hash2i(cx + i, cz, _seedInt + 313) * 190) + tx * ((hash2i(cx, cz + i, _seedInt + 521) - 0.5) * 380);
-      const fz = originZ - nz * (90 + hash2i(cx + i, cz, _seedInt + 313) * 190) + tz * ((hash2i(cx, cz + i, _seedInt + 521) - 0.5) * 380);
-      if (riverDistAt(fx, fz) > 18) fumaroles.push({ x: fx, z: fz });
+      const fx = originX - nx * (85 + hash2i(cx + i, cz, _seedInt + 313) * 195) + tx * ((hash2i(cx, cz + i, _seedInt + 521) - 0.5) * 360);
+      const fz = originZ - nz * (85 + hash2i(cx + i, cz, _seedInt + 313) * 195) + tz * ((hash2i(cx, cz + i, _seedInt + 521) - 0.5) * 360);
+      if (riverDistAt(fx, fz) > 16) fumaroles.push({ x: fx, z: fz });
     }
   }
 
@@ -672,16 +693,21 @@ export function sampleWorld(x, z, out = null) {
     smoothstep(0.26, 0.72, rangePresence);
 
   const ridgeCapped = Math.min(Math.pow(broadRidge, 1.55), 0.74);
+  const broadPlateau = sampleBroadPlateau(x, z);
   let h =
     12.5 +
     valleyLow * 16.0 +
     ridgeCapped * 44.0 +
+    broadPlateau.height +
     highlandMassifH +
     broadMountainH -
     glacierTrough * 22.0 +
     (medSwell - 0.5) * 10.0 +
     rollingMound;
-  let cliffInfluence = smoothstep(0.50, 0.78, broadRidge) * smoothstep(0.42, 0.74, steepCrag);
+  let cliffInfluence = Math.max(
+    smoothstep(0.50, 0.78, broadRidge) * smoothstep(0.42, 0.74, steepCrag),
+    broadPlateau.rimCliff * 0.88
+  );
   let talusScree = glacierTrough * smoothstep(115.0, 175.0, h) * 0.55;
   let wfSprayWet = 0;
   let padFlatten = 0;
@@ -702,7 +728,7 @@ export function sampleWorld(x, z, out = null) {
         const relX = x - f.centerX;
         const relZ = z - f.centerZ;
         const distCell = Math.hypot(relX, relZ);
-        const cellMask = 1.0 - smoothstep(280, 540, distCell);
+        const cellMask = 1.0 - smoothstep(420, 760, distCell);
         if (cellMask > 0.001) {
           const curve = sampleEscarpmentCurve(x, z, _seedInt);
           const signedD = relX * f.nx + relZ * f.nz + curve;
@@ -720,6 +746,7 @@ export function sampleWorld(x, z, out = null) {
           const mesaRaw = fbm2(x * 0.024, z * 0.024, 3, _seedInt + 227);
           const mesaSteps = (Math.floor(mesaRaw * 5.0) + smoothstep(0.18, 0.82, (mesaRaw * 5.0) % 1)) * 2.2;
           const crownCrag = ridged2(x * 0.036, z * 0.036, 3, _seedInt + 251);
+          const plateauHill = (fbm2(x * 0.0055, z * 0.0055, 3, _seedInt + 263) - 0.5) * 14.0 * smoothstep(20, 65, signedD);
 
           const wallH = f.cliffHeight * 0.62;
           let escarpH =
@@ -728,7 +755,8 @@ export function sampleWorld(x, z, out = null) {
             midTier * (wallH * 0.28) +
             upperTier * (wallH * 0.16) +
             strataBench +
-            smoothstep(-5.0, 22.0, signedD) * (mesaSteps + (crownCrag - 0.5) * 7.5);
+            smoothstep(-5.0, 22.0, signedD) * (mesaSteps + (crownCrag - 0.5) * 4.0) +
+            plateauHill;
 
           // Recessed gorge cleft & plunge basin where cell waterfall plunges!
           if (f.waterfall) {
@@ -806,9 +834,12 @@ export function sampleWorld(x, z, out = null) {
       for (let hi = 0; hi < f.hotSprings.length; hi++) {
         const hs = f.hotSprings[hi];
         const hd = Math.hypot(x - hs.x, z - hs.z);
-        if (hd < hs.radius * 2.2) {
-          const basin = 1.0 - smoothstep(hs.radius * 0.55, hs.radius * 1.4, hd);
-          h -= basin * 1.1;
+        if (hd < hs.radius * 2.4) {
+          const hsBase = sampleMacroHeight(hs.x, hs.z);
+          const rimFlat = 1.0 - smoothstep(hs.radius * 1.15, hs.radius * 2.35, hd);
+          h = mix(h, hsBase, rimFlat * 0.96);
+          const basin = 1.0 - smoothstep(hs.radius * 0.62, hs.radius * 1.10, hd);
+          h -= basin * 1.05;
           talusScree = Math.max(talusScree, (1.0 - smoothstep(hs.radius * 0.8, hs.radius * 2.0, hd)) * 0.85);
           wfSprayWet = Math.max(wfSprayWet, (1.0 - smoothstep(hs.radius * 0.6, hs.radius * 2.2, hd)) * 0.92);
         }
@@ -831,14 +862,16 @@ export function sampleWorld(x, z, out = null) {
             const targetBedY = targetWaterY - 0.35;
 
             h = mix(h, Math.min(h, targetBedY + 2.4), valleyF * 0.88);
+            // Wide black volcanic sandur shingle/gravel outwash flats flanking braided river channels!
+            talusScree = Math.max(talusScree, valleyF * 0.92);
             if (bankF > 0.001) {
               const chanC = 1.0 - smoothstep(0, halfW * 0.84, _polyTmp.dist);
               const bedProf = mix(targetWaterY + 0.35, targetWaterY - 1.15, chanC);
               h = mix(h, bedProf, bankF * 0.99);
 
-              const braid = smoothstep(0.60, 0.82, fbm2(x * 0.14 + 4.1, z * 0.11 - 2.3, 3, _seedInt + 433));
-              const bar = braid * (1.0 - chanC * 0.62) * smoothstep(0.12, 0.80, _polyTmp.t);
-              h += bar * 0.82;
+              const braid = smoothstep(0.54, 0.78, fbm2(x * 0.12 + 4.1, z * 0.09 - 2.3, 3, _seedInt + 433));
+              const bar = braid * (1.0 - chanC * 0.55) * smoothstep(0.10, 0.85, _polyTmp.t);
+              h += bar * 0.96;
 
               const d = clamp((chanC * 1.45 + bankF * 0.35 - bar * 1.05) * 1.15, 0, 1.85);
               if (bankF > riverMask) {
@@ -889,8 +922,8 @@ export function sampleWorld(x, z, out = null) {
     const overburden = getTrunkCenterOverburden(z, tBand);
     caveOverburden = overburden;
 
-    // Fade surface carving crisply over 15.5m..19.5m -> crisp cliff portal face while mountain & snow cap stay 100% unbroken!
-    const openCarve = 1.0 - smoothstep(15.5, 19.5, overburden);
+    // Fade surface carving crisply over 13.5m..16.5m -> crisp cliff portal face while mountain & snow cap stay 100% unbroken!
+    const openCarve = 1.0 - smoothstep(13.5, 16.5, overburden);
     const tJit = (fbm2(x * 0.065, z * 0.065, 2, _seedInt + 467) - 0.5) * 3.8;
     const halfW = 12.2 + tJit;
 
@@ -898,16 +931,17 @@ export function sampleWorld(x, z, out = null) {
       const bankF = (1.0 - smoothstep(halfW * 0.55, halfW * 1.48, perpD)) * openCarve;
       const gorgeF = (1.0 - smoothstep(halfW * 0.95, halfW * 3.05, perpD)) * openCarve;
 
-      // Gently shape lowland riverbanks without cutting high mountains
+      // Gently shape lowland riverbanks & broad black volcanic sandur gravel bars
       h = mix(h, Math.min(h, tWaterY + 2.8), gorgeF * 0.88);
+      talusScree = Math.max(talusScree, gorgeF * 0.95);
       if (bankF > 0.001) {
         const chanC = 1.0 - smoothstep(0.0, halfW * 0.85, perpD);
         const bedProf = mix(tWaterY + 0.42, tWaterY - 1.25, chanC);
         h = mix(h, bedProf, bankF * 0.99);
 
-        const braid = smoothstep(0.62, 0.84, fbm2(x * 0.11 + 3.7, z * 0.09 - 1.9, 3, _seedInt + 479));
-        const bar = braid * (1.0 - chanC * 0.65);
-        h += bar * 0.78 * openCarve;
+        const braid = smoothstep(0.56, 0.80, fbm2(x * 0.095 + 3.7, z * 0.078 - 1.9, 3, _seedInt + 479));
+        const bar = braid * (1.0 - chanC * 0.56);
+        h += bar * 0.94 * openCarve;
 
         const d = clamp((chanC * 1.55 + bankF * 0.32 - bar * 0.95) * 1.12, 0, 1.95);
         if (bankF > riverMask) {
@@ -1023,12 +1057,12 @@ const _tmpSample = {
 export function getRiverCaveState(x, z, curY) {
   const s = sampleWorld(x, z, _tmpSample);
   const absD = Math.abs(s.caveSignedD);
-  if (s.caveOverburden > 15.2 && absD < 13.0 && curY < s.caveWaterY + 11.2) {
+  if (s.caveOverburden > 16.8 && absD < 13.0 && curY < s.caveWaterY + 11.2) {
     const archU = Math.min(absD / 13.0, 0.99);
     const archCeil = s.caveWaterY + 10.6 * Math.sqrt(1.0 - archU * archU);
     const chanC = 1.0 - smoothstep(0.0, 11.8, absD);
     const floorY = mix(s.caveWaterY + 0.35, s.caveWaterY - 0.95, chanC);
-    const darkness = smoothstep(15.5, 30.0, s.caveOverburden);
+    const darkness = smoothstep(16.8, 30.0, s.caveOverburden);
     return {
       inCave: true,
       floorY,

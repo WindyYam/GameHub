@@ -203,11 +203,10 @@ function buildRiverCaveTunnels(bandIdx, zIdx) {
         const wz = sp.z + nz * localX;
         let wy = sp.waterY + localY;
 
-        // Tuck high crag peaks neatly beneath the mountain hillside while GUARANTEEING the cave arch stays wide open (>10.7m)!
-        if (ri <= archSegs && localY > 0.5 && portalDist < 16.0) {
-          const archClearY = sp.waterY + Math.max(0.0, sa) * 10.75;
+        // Tuck cave roof cleanly beneath the actual mountain hillside so it never pokes through outside slopes
+        if (ri <= archSegs && localY > 0.2 && portalDist < 24.0) {
           const actualSurfY = getTerrainHeight(wx, wz);
-          const maxRoofY = Math.max(archClearY, actualSurfY - 0.20);
+          const maxRoofY = actualSurfY - 0.25;
           if (wy > maxRoofY) wy = maxRoofY;
         }
 
@@ -379,28 +378,51 @@ function buildWaterfallGroup(wf, waterfallMat, plungePoolMat, mistMat) {
   const lipStartX = wf.x + forwardX * 4.5;
   const lipStartZ = wf.z + forwardZ * 4.5;
 
-  // 3 graceful braided 3D cascade layers (slender multi-stream profile with dark wet cliff peeking between jets!)
-  const layers = [
-    { width: 8.8,  curveOut: 11.4, zOff: -0.4, alphaMul: 0.92, fanAmt: 0.62, speedMul: 1.00 },
-    { width: 12.6, curveOut: 12.6, zOff: 0.8,  alphaMul: 0.72, fanAmt: 0.78, speedMul: 1.22 },
-    { width: 17.0, curveOut: 14.0, zOff: 2.2,  alphaMul: 0.36, fanAmt: 1.02, speedMul: 0.88 }
+  // 3 graceful braided 3D cascade ribbons nestled inside the recessed basalt cliff cleft:
+  // 1 dramatic main cascade + 2 slender companion silver ribbons plunging cleanly into the misty plunge pool!
+  const tangentX = Math.cos(wf.yaw);
+  const tangentZ = -Math.sin(wf.yaw);
+  const cascadeSpecs = [
+    { offT: 0.0,  width: 7.4,  curveOut: 11.2, zOff: -0.4, alphaMul: 0.90, fanAmt: 0.62, speedMul: 1.00 },
+    { offT: 0.0,  width: 11.2, curveOut: 12.4, zOff: 0.9,  alphaMul: 0.64, fanAmt: 0.80, speedMul: 1.22 },
+    { offT: 0.0,  width: 15.8, curveOut: 13.8, zOff: 2.3,  alphaMul: 0.34, fanAmt: 1.05, speedMul: 0.88 },
+    // Companion slender Icelandic cliff ribbons inside the amphitheater cleft (plunging cleanly into plunge mist!)
+    { offT: -8.2, width: 4.2,  curveOut: 12.6, zOff: 0.6,  alphaMul: 0.72, fanAmt: 0.66, speedMul: 1.14 },
+    { offT: 9.8,  width: 3.6,  curveOut: 12.4, zOff: 0.8,  alphaMul: 0.62, fanAmt: 0.60, speedMul: 0.92 }
   ];
 
-  for (let l = 0; l < layers.length; l++) {
-    const spec = layers[l];
-    const geo = new THREE.PlaneGeometry(spec.width, dropH, 16, 40);
+  const companionBases = [];
+  for (let l = 0; l < cascadeSpecs.length; l++) {
+    const spec = cascadeSpecs[l];
+    const cxLip = lipStartX + tangentX * spec.offT;
+    const czLip = lipStartZ + tangentZ * spec.offT;
+    const localBaseY = baseY;
+    const localCrestY = spec.offT === 0 ? crestY : Math.max(
+      getTerrainHeight(cxLip - forwardX * 16.0, czLip - forwardZ * 16.0),
+      getTerrainHeight(cxLip - forwardX * 24.0, czLip - forwardZ * 24.0)
+    );
+    const localDropH = clamp(localCrestY - localBaseY + 4.0, 38, 142);
+    if (localDropH < 40 && spec.offT !== 0) continue;
+
+    if (spec.offT !== 0) {
+      companionBases.push({
+        x: plungeCenterX + tangentX * spec.offT,
+        y: baseY + 0.8,
+        z: plungeCenterZ + tangentZ * spec.offT
+      });
+    }
+
+    const geo = new THREE.PlaneGeometry(spec.width, localDropH, 12, 32);
     const p = geo.attributes.position;
     for (let i = 0; i < p.count; i++) {
       const x = p.getX(i);
       const y = p.getY(i);
-      const t = clamp(1.0 - (y + dropH * 0.5) / dropH, 0.0, 1.0); // 0 at lip crest, 1 at plunge pool
+      const t = clamp(1.0 - (y + localDropH * 0.5) / localDropH, 0.0, 1.0);
 
-      // Smooth parabolic free-fall arc rolling organically over the cliff lip
       const lipTuck = (1.0 - Math.min(t * 8.0, 1.0)) * -3.2;
       const parabola = Math.pow(t, 0.74) * spec.curveOut;
-      const lateralBow = Math.cos((x / (spec.width * 0.5)) * 1.45) * 1.9;
-      // Graceful narrowing at cliff notch, fanning into airy mist spray toward plunge boulders
-      const fan = 0.62 + Math.pow(t, 1.2) * spec.fanAmt;
+      const lateralBow = Math.cos((x / (spec.width * 0.5)) * 1.45) * 1.8;
+      const fan = 0.54 + Math.pow(t, 1.2) * spec.fanAmt;
       p.setXYZ(i, x * fan, y, lipTuck + parabola + lateralBow + spec.zOff);
     }
     geo.computeVertexNormals();
@@ -416,9 +438,9 @@ function buildWaterfallGroup(wf, waterfallMat, plungePoolMat, mistMat) {
     mat.uniforms.uSpeedMul.value = spec.speedMul;
 
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.set(lipStartX, baseY + dropH * 0.5 - 2.0, lipStartZ);
+    mesh.position.set(cxLip, localBaseY + localDropH * 0.5 - 2.0, czLip);
     mesh.rotation.y = wf.yaw;
-    mesh.renderOrder = 4 + l;
+    mesh.renderOrder = 4 + Math.min(l, 2);
     grp.add(mesh);
   }
 
@@ -430,17 +452,17 @@ function buildWaterfallGroup(wf, waterfallMat, plungePoolMat, mistMat) {
   poolMesh.renderOrder = 3;
   grp.add(poolMesh);
 
-  // Translucent swirling volumetric plunge-pool spray plume (lets dark boulders peek through!)
-  const puffCount = 30;
+  // Translucent swirling volumetric plunge-pool spray plumes (main + companion cascade bases!)
+  const extraPuffs = companionBases.length * 6;
+  const puffCount = 30 + extraPuffs;
   const puffGeo = new THREE.PlaneGeometry(1, 1);
   const puffInst = new THREE.InstancedMesh(puffGeo, mistMat, puffCount);
   const dummy = new THREE.Object3D();
   const seeds = new Float32Array(puffCount * 4);
 
-  for (let i = 0; i < puffCount; i++) {
+  for (let i = 0; i < 30; i++) {
     const angle = hash2i(i, 11, 881) * Math.PI * 2;
     const rad = Math.pow(hash2i(i, 23, 881), 0.7) * 20.0;
-    // Bias spray gently forward out of cliff cleft & bottom-anchored cleanly above plunge pool water (ZERO hard ground/cliff cuts!)
     const spreadX = Math.cos(angle) * rad * 1.05 + forwardX * 7.5;
     const spreadZ = Math.sin(angle) * rad * 0.90 + forwardZ * 7.5;
     const sc = 11.0 + hash2i(i, 41, 881) * 14.0;
@@ -449,10 +471,28 @@ function buildWaterfallGroup(wf, waterfallMat, plungePoolMat, mistMat) {
     dummy.scale.set(sc * 1.45, sc * 0.88, 1);
     dummy.updateMatrix();
     puffInst.setMatrixAt(i, dummy.matrix);
-    seeds[i * 4] = hash2i(i, 53, 881) * 100.0;              // phase seed
-    seeds[i * 4 + 1] = 0.14 + hash2i(i, 67, 881) * 0.16;    // subtle translucent opacity!
-    seeds[i * 4 + 2] = 0.42 + hash2i(i, 79, 881) * 0.45;    // swirl speed
-    seeds[i * 4 + 3] = 1.0;                                  // isSpray (brighter mist)
+    seeds[i * 4] = hash2i(i, 53, 881) * 100.0;
+    seeds[i * 4 + 1] = 0.14 + hash2i(i, 67, 881) * 0.16;
+    seeds[i * 4 + 2] = 0.42 + hash2i(i, 79, 881) * 0.45;
+    seeds[i * 4 + 3] = 1.0;
+  }
+  let pIdx = 30;
+  for (let cb = 0; cb < companionBases.length; cb++) {
+    const b = companionBases[cb];
+    for (let k = 0; k < 6; k++) {
+      const ang = (k / 6) * Math.PI * 2 + cb;
+      const rad = 2.0 + hash2i(k, cb + 7, 883) * 6.5;
+      const sc = 7.5 + hash2i(k, cb + 19, 883) * 7.5;
+      dummy.position.set(b.x + Math.cos(ang) * rad, b.y + hash2i(k, cb + 31, 883) * 5.0, b.z + Math.sin(ang) * rad);
+      dummy.scale.set(sc * 1.35, sc * 0.85, 1);
+      dummy.updateMatrix();
+      puffInst.setMatrixAt(pIdx, dummy.matrix);
+      seeds[pIdx * 4] = (pIdx + 11) * 7.7;
+      seeds[pIdx * 4 + 1] = 0.16 + hash2i(k, cb + 41, 883) * 0.14;
+      seeds[pIdx * 4 + 2] = 0.50;
+      seeds[pIdx * 4 + 3] = 1.0;
+      pIdx++;
+    }
   }
   puffInst.instanceMatrix.needsUpdate = true;
   puffGeo.setAttribute('aMistSeed', new THREE.InstancedBufferAttribute(seeds, 4));
@@ -532,23 +572,27 @@ export function createWaterSystem(texLib, scene) {
         vec3 shallowBed = vec3(0.046, 0.062, 0.068) * mix(0.07, 1.0, dayFactor);
         vec3 waterCol = mix(deepWater, shallowBed, shallow);
 
-        // Physically balanced sky Fresnel reflection (reflects bright azure/silver sky by day, dark starry sky + moonlight + aurora at night!)
+        // Physically calibrated Icelandic glacial river reflection (linear PBR space!):
+        // Dark glassy translucent slate-blue water close-up with crisp ripples -> luminous silver-blue sky sheen at grazing valley angles!
         vec3 reflDir = reflect(-viewDir, n);
         float cosT = clamp(dot(n, viewDir), 0.0, 1.0);
-        float fresnel = 0.045 + 0.54 * pow(1.0 - cosT, 3.8);
-        vec3 dayZenith = mix(uSkyZenith * 0.78, vec3(0.16, 0.22, 0.26), uCloudCoverage * 0.65);
-        vec3 skyZen = mix(dayZenith, uSkyZenith * 0.55, uNightFactor);
-        vec3 skyHor = mix(uSkyHorizon * 0.62, uSkyHorizon * 0.45, uNightFactor);
-        vec3 reflSky = mix(skyHor, skyZen, smoothstep(0.06, 0.60, max(reflDir.y, 0.0)));
+        float fresnel = 0.04 + 0.72 * pow(1.0 - cosT, 3.8);
+        vec3 dayZenith = mix(uSkyZenith * 0.65, vec3(0.11, 0.145, 0.185), uCloudCoverage * 0.75);
+        vec3 skyZen = mix(dayZenith, uSkyZenith * 0.45, uNightFactor);
+        vec3 skyHor = mix(uSkyHorizon * 0.54, uSkyHorizon * 0.38, uNightFactor);
+        vec3 reflSky = mix(skyHor, skyZen, smoothstep(0.03, 0.48, max(reflDir.y, 0.0)));
         reflSky += vec3(0.04, 0.34, 0.24) * uAuroraStrength * uNightFactor * 0.48;
+        // Pronounced flowing ripple luminance variation so water reads liquid & alive (never flat white!)
+        float ripMod = 0.68 + 0.48 * clamp((nA.x + nB.y) * 1.65 + 0.5, 0.0, 1.0);
+        reflSky *= ripMod;
 
         // Sun specular by day + crisp cool lunar glint by night!
         vec3 halfSun = normalize(viewDir + normalize(vec3(uSunDir.x, max(uSunDir.y, 0.38), uSunDir.z)));
-        float sunSpec = pow(max(dot(n, halfSun), 0.0), 64.0) * 0.24 * dayFactor;
+        float sunSpec = pow(max(dot(n, halfSun), 0.0), 64.0) * 0.22 * dayFactor;
         vec3 halfMoon = normalize(viewDir + normalize(vec3(uMoonDir.x, max(uMoonDir.y, 0.25), uMoonDir.z)));
         float moonSpec = pow(max(dot(n, halfMoon), 0.0), 96.0) * 0.14 * uNightFactor * (1.0 - uCloudCoverage * 0.65);
 
-        vec3 col = mix(waterCol, reflSky, clamp(fresnel * 0.74, 0.10, 0.62)) + uSunColor * sunSpec + vec3(0.55, 0.70, 0.92) * moonSpec;
+        vec3 col = mix(waterCol, reflSky, clamp(fresnel * 0.85, 0.10, 0.76)) + uSunColor * sunSpec + vec3(0.55, 0.70, 0.92) * moonSpec;
 
         // Crisp broken whitewater riffles & shallow bank ripples (true physical moonlit foam brightness at night!)
         vec2 foamUvA = vec2(vUv.x * 2.2, vUv.y * 0.82 - uTime * 0.78);
@@ -577,8 +621,8 @@ export function createWaterSystem(texLib, scene) {
 
         vec3 atmoWater = applyIcelandAtmo(col, vWorldPos);
         col = mix(atmoWater, mix(col, atmoWater * 0.35, 0.45), darkT * 0.78);
-        float bankAlpha = smoothstep(0.0, 0.20, depthClean);
-        float alpha = bankAlpha * mix(0.90, 0.99, clamp(foam + fresnel * 0.5, 0.0, 1.0));
+        float bankAlpha = smoothstep(0.0, 0.32, depthClean);
+        float alpha = bankAlpha * mix(0.84, 0.98, clamp(foam + fresnel * 0.5, 0.0, 1.0));
         gl_FragColor = vec4(col, alpha);
       }
     `
@@ -650,12 +694,13 @@ export function createWaterSystem(texLib, scene) {
         float ribbons = fA.r * 0.44 + fB.g * 0.36 + fC.g * 0.20;
         float breakup = smoothstep(0.24, 0.82, ribbons + t * 0.16);
 
-        // Organic tattered edges & smooth top/bottom transitions
+        // Organic tattered edges & smooth top + soft misty bottom fade (zero flat horizontal ribbon cutoffs!)
         float sideFade = smoothstep(0.05, 0.26, vUv.x) * (1.0 - smoothstep(0.74, 0.95, vUv.x));
         float topFade = smoothstep(0.0, 0.10, t + (fB.r - 0.5) * 0.07);
-        float botSpray = smoothstep(0.65, 0.98, t) * fC.b * 0.48;
+        float botFade = 1.0 - smoothstep(0.84, 1.0, t + (fA.b - 0.5) * 0.08);
+        float botSpray = smoothstep(0.62, 0.94, t) * fC.b * 0.48;
 
-        float alpha = clamp((breakup * 0.88 + 0.04 + botSpray) * coreShape * sideFade * topFade * uLayerOpacity, 0.0, 0.94);
+        float alpha = clamp((breakup * 0.88 + 0.04 + botSpray) * coreShape * sideFade * topFade * botFade * uLayerOpacity, 0.0, 0.94);
         if (alpha < 0.015) discard;
 
         float foamDensity = clamp(breakup * 0.78 + fC.b * 0.22 + botSpray, 0.0, 1.0);
@@ -923,7 +968,7 @@ export function createWaterSystem(texLib, scene) {
     color: 0xffffff,
     roughness: 0.72,
     metalness: 0.04,
-    side: THREE.DoubleSide
+    side: THREE.FrontSide
   });
   caveRockMat.fog = false;
   caveRockMat.customProgramCacheKey = () => 'ls_river_cave_rock_v1';
@@ -1069,10 +1114,10 @@ export function createWaterSystem(texLib, scene) {
 
       for (const hs of f.hotSprings) {
         const gy = getTerrainHeight(hs.x, hs.z);
-        const poolGeo = new THREE.CircleGeometry(hs.radius * 1.15, 24);
+        const poolGeo = new THREE.CircleGeometry(hs.radius * 1.02, 24);
         poolGeo.rotateX(-Math.PI / 2);
         const poolMesh = new THREE.Mesh(poolGeo, hotSpringMat);
-        poolMesh.position.set(hs.x, gy + 0.42, hs.z);
+        poolMesh.position.set(hs.x, gy + 0.72, hs.z);
         poolMesh.renderOrder = 3;
         group.add(poolMesh);
         disposables.push(poolGeo);
@@ -1103,27 +1148,31 @@ export function createWaterSystem(texLib, scene) {
       disposables.push(steamGeo);
     }
 
-    // Geothermal steam fumaroles in volcanic cells
+    // Animated rising billowing Icelandic geothermal steam plumes across the valley!
     if (f.fumaroles && f.fumaroles.length > 0) {
       const fumGeo = new THREE.PlaneGeometry(1, 1);
-      const count = f.fumaroles.length * 6;
+      const puffsPerVent = 10;
+      const count = f.fumaroles.length * puffsPerVent;
       const fumInst = new THREE.InstancedMesh(fumGeo, mistMat, count);
       const dummy = new THREE.Object3D();
       const seeds = new Float32Array(count * 4);
       let idx = 0;
       for (const fm of f.fumaroles) {
         const gy = getTerrainHeight(fm.x, fm.z);
-        for (let k = 0; k < 6; k++) {
-          const fx = fm.x + (k - 2.5) * 1.2;
-          const fz = fm.z + (k % 2 - 0.5) * 1.4;
+        for (let k = 0; k < puffsPerVent; k++) {
+          const frac = k / (puffsPerVent - 1);
+          const windDrift = Math.pow(frac, 1.35) * 14.0;
+          const fx = fm.x + windDrift * 0.86 + Math.sin(k * 1.9 + fm.x) * 1.4;
+          const fz = fm.z + windDrift * 0.51 + Math.cos(k * 1.7 + fm.z) * 1.4;
           const localY = Math.max(gy, getTerrainHeight(fx, fz));
-          dummy.position.set(fx, localY + 0.40 + k * 1.45, fz);
-          dummy.scale.set(5.5 + k * 2.0, 5.5 + k * 2.0, 1);
+          dummy.position.set(fx, localY + 0.35 + frac * 17.5, fz);
+          const sz = mix(4.2, 16.5, Math.pow(frac, 0.75));
+          dummy.scale.set(sz * 1.25, sz * 1.05, 1);
           dummy.updateMatrix();
           fumInst.setMatrixAt(idx, dummy.matrix);
-          seeds[idx * 4] = idx * 7.3;
-          seeds[idx * 4 + 1] = 0.28 * (1 - k * 0.12);
-          seeds[idx * 4 + 2] = 0.55;
+          seeds[idx * 4] = idx * 7.3 + fm.x * 0.13;
+          seeds[idx * 4 + 1] = 0.42 * (1.0 - Math.pow(frac, 1.35) * 0.82);
+          seeds[idx * 4 + 2] = 0.65 + frac * 0.35;
           seeds[idx * 4 + 3] = 1.0;
           idx++;
         }
@@ -1131,6 +1180,7 @@ export function createWaterSystem(texLib, scene) {
       fumInst.instanceMatrix.needsUpdate = true;
       fumGeo.setAttribute('aMistSeed', new THREE.InstancedBufferAttribute(seeds, 4));
       fumInst.renderOrder = 8;
+      fumInst.frustumCulled = false;
       group.add(fumInst);
       disposables.push(fumGeo);
     }

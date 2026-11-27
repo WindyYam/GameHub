@@ -283,6 +283,21 @@ export function createLandmarkSystem(texLib, scene) {
     metalness: 0.74
   }, 'ls_dark_steel', 0.6);
 
+  // Icelandic grazing sheep wool (warm textured creamy-oatmeal fleece + charcoal face/legs)
+  const sheepWoolMat = makeMat({
+    color: 0xc2bdb0,
+    normalMap: texLib.moss.normalMap,
+    normalScale: new THREE.Vector2(0.45, 0.45),
+    roughness: 0.96,
+    metalness: 0.0
+  }, 'ls_sheep_wool_v2', 0.12);
+
+  const sheepDarkMat = makeMat({
+    color: 0x201e1c,
+    roughness: 0.88,
+    metalness: 0.02
+  }, 'ls_sheep_dark', 0.25);
+
   // Realistic Time-of-Day Window Glass Shader:
   // Dark cool reflective sky-glass in daytime overcast -> warm cozy hearth glow at dusk/night!
   const windowGlassMat = new THREE.ShaderMaterial({
@@ -577,6 +592,16 @@ export function createLandmarkSystem(texLib, scene) {
     turfRoof.position.y = 0.92 + h;
     grp.add(turfRoof);
 
+    // Traditional battered mossy turf-and-earth side buttress embankments tucked neatly along the stone flanks
+    for (const side of [-1, 1]) {
+      const bank = new THREE.Mesh(new THREE.BoxGeometry(1.15, h + 0.55, len - 0.55), turfRoofMat);
+      bank.position.set(side * (w * 0.5 + 0.46), 0.95, 0);
+      bank.rotation.z = side * 0.34;
+      bank.castShadow = true;
+      bank.receiveShadow = true;
+      grp.add(bank);
+    }
+
     // Weathered stone chimney
     const chX = -0.85;
     const chY = 0.95 + h + roofH + 0.55;
@@ -817,39 +842,101 @@ export function createLandmarkSystem(texLib, scene) {
       grp.add(post);
     }
 
+    // Grazing Icelandic Sheep Flock scattered peacefully in the paddock & green valley meadow (matching reference!)
+    const sheepCount = 12;
+    for (let s = 0; s < sheepCount; s++) {
+      const inPaddock = s < 5;
+      const along = inPaddock
+        ? (-28 + hash2i(s, 11, 887) * 20)
+        : (-46 + hash2i(s, 13, 887) * 92);
+      const depth = inPaddock
+        ? (-14 - hash2i(s, 17, 887) * 9)
+        : (-28 - hash2i(s, 19, 887) * 34);
+      const sx = village.x + tx * along + nx * depth;
+      const sz = village.z + tz * along + nz * depth;
+      const sy = getTerrainHeight(sx, sz);
+      const yaw = hash2i(s, 23, 887) * Math.PI * 2;
+      const sc = 0.85 + hash2i(s, 29, 887) * 0.28;
+      const isGrazing = hash2i(s, 31, 887) > 0.30;
+      const isDarkSheep = hash2i(s, 37, 887) > 0.82;
+
+      const sheep = new THREE.Group();
+      sheep.position.set(sx, sy, sz);
+      sheep.rotation.y = yaw;
+      sheep.scale.setScalar(sc);
+
+      const fleeceMat = isDarkSheep ? sheepDarkMat : sheepWoolMat;
+      const body = new THREE.Mesh(new THREE.SphereGeometry(0.42, 8, 6), fleeceMat);
+      body.scale.set(0.84, 0.78, 1.32);
+      body.position.set(0, 0.72, 0);
+      body.castShadow = true;
+      body.receiveShadow = true;
+      sheep.add(body);
+
+      const rump = new THREE.Mesh(new THREE.SphereGeometry(0.28, 7, 5), fleeceMat);
+      rump.position.set(0, 0.70, -0.40);
+      sheep.add(rump);
+
+      const head = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.21, 0.36), sheepDarkMat);
+      if (isGrazing) {
+        head.position.set(0, 0.42, 0.58);
+        head.rotation.x = 0.65;
+      } else {
+        head.position.set(0, 0.90, 0.54);
+        head.rotation.x = 0.14;
+      }
+      sheep.add(head);
+
+      // Tiny horizontal Icelandic sheep ears
+      for (const ex of [-0.14, 0.14]) {
+        const ear = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.05, 0.06), sheepDarkMat);
+        ear.position.set(ex, head.position.y + 0.07, head.position.z - 0.06);
+        sheep.add(ear);
+      }
+
+      for (const lx of [-0.15, 0.15]) {
+        for (const lz of [-0.28, 0.28]) {
+          const leg = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.58, 0.085), sheepDarkMat);
+          leg.position.set(lx, 0.26, lz);
+          sheep.add(leg);
+        }
+      }
+      grp.add(sheep);
+    }
+
     return grp;
   }
 
-  /** 4. Hexagonal Basalt Column Outcrop (Svartifoss-style volcanic organ pipes) */
+  /** 4. Grounded Low-Profile Hexagonal Basalt Column Outcrop (natural volcanic organ-pipe shelf, never a floating tower!) */
   function buildBasaltColumnCluster(spec, colliders) {
     const grp = new THREE.Group();
     const gy = getTerrainHeight(spec.x, spec.z);
-    grp.position.set(spec.x, gy - 0.6, spec.z);
-    const sc = spec.scale || 1.0;
+    grp.position.set(spec.x, gy - 1.15, spec.z);
+    const sc = (spec.scale || 1.0) * 0.72;
 
-    const count = 16;
+    const count = 18;
     for (let i = 0; i < count; i++) {
       const ring = i < 6 ? 1 : 2;
-      const ang = (i / (ring === 1 ? 6 : 10)) * Math.PI * 2 + hash2i(i, spec.seed, 17) * 0.35;
-      const dist = (ring === 1 ? 1.15 : 2.35) * sc * (0.85 + hash2i(i, spec.seed, 31) * 0.35);
-      const colR = (0.48 + hash2i(i, spec.seed, 43) * 0.34) * sc;
-      const colH = (ring === 1 ? 5.2 + hash2i(i, spec.seed, 59) * 5.8 : 2.2 + hash2i(i, spec.seed, 71) * 3.8) * sc;
+      const ang = (i / (ring === 1 ? 6 : 12)) * Math.PI * 2 + hash2i(i, spec.seed, 17) * 0.38;
+      const dist = (ring === 1 ? 1.10 : 2.45) * sc * (0.80 + hash2i(i, spec.seed, 31) * 0.42);
+      const colR = (0.52 + hash2i(i, spec.seed, 43) * 0.36) * sc;
+      const colH = (ring === 1 ? 2.6 + hash2i(i, spec.seed, 59) * 2.4 : 1.3 + hash2i(i, spec.seed, 71) * 1.8) * sc;
 
-      const mesh = new THREE.Mesh(new THREE.CylinderGeometry(colR, colR * 1.04, colH, 6), basaltColMat);
+      const mesh = new THREE.Mesh(new THREE.CylinderGeometry(colR, colR * 1.08, colH, 6), basaltColMat);
       mesh.position.set(Math.cos(ang) * dist, colH * 0.5, Math.sin(ang) * dist);
       mesh.rotation.y = (i % 6) * (Math.PI / 6);
       mesh.castShadow = true;
       mesh.receiveShadow = true;
       grp.add(mesh);
 
-      if (ring === 2 && hash2i(i, spec.seed, 89) > 0.45) {
-        const cap = new THREE.Mesh(new THREE.CylinderGeometry(colR * 0.96, colR * 1.02, 0.24, 6), turfRoofMat);
-        cap.position.set(mesh.position.x, colH + 0.08, mesh.position.z);
+      if (hash2i(i, spec.seed, 89) > 0.32) {
+        const cap = new THREE.Mesh(new THREE.CylinderGeometry(colR * 0.96, colR * 1.04, 0.32, 6), turfRoofMat);
+        cap.position.set(mesh.position.x, colH + 0.06, mesh.position.z);
         cap.rotation.y = mesh.rotation.y;
         grp.add(cap);
       }
     }
-    colliders.push({ x: spec.x, z: spec.z, r: 3.1 * sc });
+    colliders.push({ x: spec.x, z: spec.z, r: 2.8 * sc });
     return grp;
   }
 
