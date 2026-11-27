@@ -864,7 +864,7 @@ export function createTerrainSystem(texLib, scene) {
     metalness: 0.02
   });
   terrainMat.fog = false;
-  terrainMat.customProgramCacheKey = () => 'ls_iceland_terrain_v12';
+  terrainMat.customProgramCacheKey = () => 'ls_iceland_terrain_v14';
 
   terrainMat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, ATMO_UNIFORMS);
@@ -941,45 +941,248 @@ export function createTerrainSystem(texLib, scene) {
           return normalize(vec3(a.xy * 0.78 + b.xy * 0.42, 1.0));
         }
 
-        // Non-repeating domain-warped & rotated triplanar rock sampling
-        vec4 triplanarCliffRGBA(sampler2D t, vec3 wp, vec3 wn, float sc, float rotAng) {
-          vec3 bw = pow(abs(wn), vec3(4.0));
-          bw /= max(bw.x + bw.y + bw.z, 0.0001);
-          float cs = cos(rotAng);
-          float sn = sin(rotAng);
-          mat2 R = mat2(cs, -sn, sn, cs);
-          return texture2D(t, R * vec2(wp.z, wp.y) * sc + vec2(0.17, 0.43)) * bw.x +
-                 texture2D(t, R * wp.xz * sc + vec2(0.61, 0.19)) * bw.y +
-                 texture2D(t, R * vec2(wp.x, wp.y) * sc + vec2(0.29, 0.73)) * bw.z;
+        // Exact C2 quintic gradient noise with analytical derivatives: returns vec3(value [0..1], dVal/dx, dVal/dz)
+        vec3 gnoiseGrad(vec2 p) {
+          vec2 i = floor(p);
+          vec2 f = fract(p);
+          vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+          vec2 du = 30.0 * f * f * (f * (f - 2.0) + 1.0);
+          vec2 ga = atmoHash22(i + vec2(0.0, 0.0));
+          vec2 gb = atmoHash22(i + vec2(1.0, 0.0));
+          vec2 gc = atmoHash22(i + vec2(0.0, 1.0));
+          vec2 gd = atmoHash22(i + vec2(1.0, 1.0));
+          float va = dot(ga, f - vec2(0.0, 0.0));
+          float vb = dot(gb, f - vec2(1.0, 0.0));
+          float vc = dot(gc, f - vec2(0.0, 1.0));
+          float vd = dot(gd, f - vec2(1.0, 1.0));
+          float k0 = va;
+          float k1 = vb - va;
+          float k2 = vc - va;
+          float k3 = va - vb - vc + vd;
+          float val = clamp((k0 + k1 * u.x + k2 * u.y + k3 * u.x * u.y) * 0.72 + 0.5, 0.0, 1.0);
+          vec2 g = (ga + (gb - ga) * u.x + (gc - ga) * u.y + (ga - gb - gc + gd) * u.x * u.y
+                   + du * vec2(k1 + k3 * u.y, k2 + k3 * u.x)) * 0.72;
+          return vec3(val, g.x, g.y);
         }
 
-        vec3 triplanarCliffNorm(sampler2D t, vec3 wp, vec3 wn, float sc, float rotAng) {
-          vec3 bw = pow(abs(wn), vec3(4.0));
-          bw /= max(bw.x + bw.y + bw.z, 0.0001);
-          vec3 sgn = sign(wn);
-          float cs = cos(rotAng);
-          float sn = sin(rotAng);
-          mat2 R = mat2(cs, -sn, sn, cs);
-          vec3 nx = texture2D(t, R * vec2(wp.z, wp.y) * sc + vec2(0.17, 0.43)).xyz * 2.0 - 1.0;
-          vec3 ny = texture2D(t, R * wp.xz * sc + vec2(0.61, 0.19)).xyz * 2.0 - 1.0;
-          vec3 nz = texture2D(t, R * vec2(wp.x, wp.y) * sc + vec2(0.29, 0.73)).xyz * 2.0 - 1.0;
-          return vec3(0.0, nx.y, nx.x * sgn.x) * bw.x +
-                 vec3(ny.x, 0.0, ny.y * sgn.y) * bw.y +
-                 vec3(nz.x * sgn.z, nz.y, 0.0) * bw.z;
+        // 3-octave rotated C2 gradient FBM with exact world-space slope derivatives for macro/meso terrain relief!
+        vec3 fbmGrad3(vec2 p) {
+          vec3 acc = vec3(0.0);
+          float amp = 0.5;
+          float freq = 1.0;
+          mat2 m = mat2(1.0, 0.0, 0.0, 1.0);
+          const mat2 rot = mat2(0.80, -0.60, 0.60, 0.80);
+          const mat2 rotT = mat2(0.80, 0.60, -0.60, 0.80);
+          for (int i = 0; i < 3; i++) {
+            vec3 n = gnoiseGrad(p);
+            acc.x += amp * n.x;
+            acc.yz += amp * freq * (m * n.yz);
+            p = rot * p * 2.03 + vec2(17.3, -11.7);
+            m = m * rotT;
+            freq *= 2.03;
+            amp *= 0.5;
+          }
+          return vec3(acc.x / 0.875, acc.yz);
         }
 
-        // Fast 3-octave non-periodic ridged noise for chaotic basalt cliff crevices
+        // Fast 3-octave smooth C2 gradient FBM (zero grid creases)
+        float terrainFbm3(vec2 p) {
+          float v = 0.0;
+          float a = 0.5;
+          const mat2 rot = mat2(0.80, -0.60, 0.60, 0.80);
+          for (int i = 0; i < 3; i++) {
+            v += a * atmoGNoise(p);
+            p = rot * p * 2.04 + vec2(11.3, -19.7);
+            a *= 0.5;
+          }
+          return v / 0.875;
+        }
+
+        // Smooth C2 3-octave non-periodic ridged multifractal for basalt fissures & hillside erosion gullies
         float rockRidged(vec2 p) {
           float v = 0.0;
           float a = 0.5;
-          mat2 rot = mat2(0.80, -0.60, 0.60, 0.80);
+          const mat2 rot = mat2(0.80, -0.60, 0.60, 0.80);
           for (int i = 0; i < 3; i++) {
-            float n = 1.0 - abs(atmoNoise(p) * 2.0 - 1.0);
+            float n = 1.0 - abs(atmoGNoise(p) * 2.0 - 1.0);
             v += a * n * n;
             p = rot * p * 2.07 + vec2(17.3, -9.1);
             a *= 0.5;
           }
-          return v;
+          return v / 0.875;
+        }
+
+        // Simplex-grid 3-tap stochastic texture coordinates & smooth barycentric weights
+        void simplexGrid(vec2 uv, out vec2 i0, out vec2 i1, out vec2 i2, out vec3 w) {
+          vec2 s = vec2(uv.x + uv.y * 0.57735027, uv.y * 1.15470054);
+          vec2 i = floor(s);
+          vec2 f = fract(s);
+          vec2 off = (f.x > f.y) ? vec2(1.0, 0.0) : vec2(0.0, 1.0);
+          i0 = i;
+          i1 = i + off;
+          i2 = i + 1.0;
+          vec3 bw = (f.x > f.y)
+            ? vec3(1.0 - f.x, f.x - f.y, f.y)
+            : vec3(1.0 - f.y, f.y - f.x, f.x);
+          w = pow(max(bw, vec3(0.0001)), vec3(3.0));
+          w /= (w.x + w.y + w.z);
+        }
+
+        // Shared-simplex stochastic albedo+normal pair with uniform-flow gradients & height-modulated blending
+        // (eliminates 100% of grid tiling & saves ALU by sharing simplex hashes/rotations between albedo and normal!)
+        void sampleNoTilePairGrad(
+          sampler2D albedoTex,
+          sampler2D normTex,
+          vec2 uv,
+          vec2 dx,
+          vec2 dy,
+          out vec4 outAlbedo,
+          out vec3 outNorm
+        ) {
+          vec2 i0, i1, i2;
+          vec3 w;
+          simplexGrid(uv, i0, i1, i2, w);
+
+          float h0 = atmoHash(i0);
+          float h1 = atmoHash(i1);
+          float h2 = atmoHash(i2);
+
+          float a0 = h0 * 6.2831853;
+          float a1 = h1 * 6.2831853;
+          float a2 = h2 * 6.2831853;
+          float c0 = cos(a0), sn0 = sin(a0);
+          float c1 = cos(a1), sn1 = sin(a1);
+          float c2 = cos(a2), sn2 = sin(a2);
+          mat2 r0 = mat2(c0, -sn0, sn0, c0);
+          mat2 r1 = mat2(c1, -sn1, sn1, c1);
+          mat2 r2 = mat2(c2, -sn2, sn2, c2);
+
+          vec2 uv0 = r0 * uv + vec2(h0, fract(h0 * 17.31));
+          vec2 uv1 = r1 * uv + vec2(h1, fract(h1 * 17.31));
+          vec2 uv2 = r2 * uv + vec2(h2, fract(h2 * 17.31));
+          vec2 dx0 = r0 * dx, dy0 = r0 * dy;
+          vec2 dx1 = r1 * dx, dy1 = r1 * dy;
+          vec2 dx2 = r2 * dx, dy2 = r2 * dy;
+
+          vec4 s0 = textureGrad(albedoTex, uv0, dx0, dy0);
+          vec4 s1 = textureGrad(albedoTex, uv1, dx1, dy1);
+          vec4 s2 = textureGrad(albedoTex, uv2, dx2, dy2);
+
+          vec3 n0 = textureGrad(normTex, uv0, dx0, dy0).xyz * 2.0 - 1.0;
+          vec3 n1 = textureGrad(normTex, uv1, dx1, dy1).xyz * 2.0 - 1.0;
+          vec3 n2 = textureGrad(normTex, uv2, dx2, dy2).xyz * 2.0 - 1.0;
+
+          n0.xy = mat2(c0, sn0, -sn0, c0) * n0.xy;
+          n1.xy = mat2(c1, sn1, -sn1, c1) * n1.xy;
+          n2.xy = mat2(c2, sn2, -sn2, c2) * n2.xy;
+
+          vec3 hw = w * (0.28 + vec3(s0.a, s1.a, s2.a) * 1.44);
+          hw /= max(hw.x + hw.y + hw.z, 0.0001);
+          outAlbedo = s0 * hw.x + s1 * hw.y + s2 * hw.z;
+          outNorm = normalize(vec3(n0.xy * hw.x + n1.xy * hw.y + n2.xy * hw.z, 1.0));
+        }
+
+        // Non-repeating stochastic cliff sampler: full random rotation, flip, scale jitter & UV offset
+        // (100% kills cliff wall tiling while keeping the original clean weathered isotropic basalt style!)
+        void sampleCliffNoTilePairGrad(
+          sampler2D albedoTex,
+          sampler2D normTex,
+          vec2 uv,
+          vec2 dx,
+          vec2 dy,
+          out vec4 outAlbedo,
+          out vec3 outNorm
+        ) {
+          vec2 i0, i1, i2;
+          vec3 w;
+          simplexGrid(uv, i0, i1, i2, w);
+
+          float h0 = atmoHash(i0);
+          float h1 = atmoHash(i1);
+          float h2 = atmoHash(i2);
+
+          float a0 = h0 * 6.2831853;
+          float a1 = h1 * 6.2831853;
+          float a2 = h2 * 6.2831853;
+          float c0 = cos(a0), sn0 = sin(a0);
+          float c1 = cos(a1), sn1 = sin(a1);
+          float c2 = cos(a2), sn2 = sin(a2);
+          float sc0 = 0.86 + fract(h0 * 7.3) * 0.30;
+          float sc1 = 0.86 + fract(h1 * 7.3) * 0.30;
+          float sc2 = 0.86 + fract(h2 * 7.3) * 0.30;
+
+          mat2 r0 = mat2(c0, -sn0, sn0, c0);
+          mat2 r1 = mat2(c1, -sn1, sn1, c1);
+          mat2 r2 = mat2(c2, -sn2, sn2, c2);
+
+          vec2 u0 = (r0 * uv) * sc0 + vec2(h0, fract(h0 * 19.31));
+          vec2 u1 = (r1 * uv) * sc1 + vec2(h1, fract(h1 * 19.31));
+          vec2 u2 = (r2 * uv) * sc2 + vec2(h2, fract(h2 * 19.31));
+          vec2 dx0 = (r0 * dx) * sc0, dy0 = (r0 * dy) * sc0;
+          vec2 dx1 = (r1 * dx) * sc1, dy1 = (r1 * dy) * sc1;
+          vec2 dx2 = (r2 * dx) * sc2, dy2 = (r2 * dy) * sc2;
+
+          vec4 s0 = textureGrad(albedoTex, u0, dx0, dy0);
+          vec4 s1 = textureGrad(albedoTex, u1, dx1, dy1);
+          vec4 s2 = textureGrad(albedoTex, u2, dx2, dy2);
+
+          vec3 n0 = textureGrad(normTex, u0, dx0, dy0).xyz * 2.0 - 1.0;
+          vec3 n1 = textureGrad(normTex, u1, dx1, dy1).xyz * 2.0 - 1.0;
+          vec3 n2 = textureGrad(normTex, u2, dx2, dy2).xyz * 2.0 - 1.0;
+
+          n0.xy = mat2(c0, sn0, -sn0, c0) * n0.xy;
+          n1.xy = mat2(c1, sn1, -sn1, c1) * n1.xy;
+          n2.xy = mat2(c2, sn2, -sn2, c2) * n2.xy;
+
+          vec3 hw = w * (0.28 + vec3(s0.a, s1.a, s2.a) * 1.44);
+          hw /= max(hw.x + hw.y + hw.z, 0.0001);
+          outAlbedo = s0 * hw.x + s1 * hw.y + s2 * hw.z;
+          outNorm = normalize(vec3(n0.xy * hw.x + n1.xy * hw.y + n2.xy * hw.z, 1.0));
+        }
+
+        // Active-axis stochastic triplanar cliff sampler (skips negligible axes -> fast AND zero tiling!)
+        void triplanarCliffPair(
+          sampler2D albedoTex,
+          sampler2D normTex,
+          vec3 wp,
+          vec3 wpDx,
+          vec3 wpDy,
+          vec3 wn,
+          float sc,
+          out vec4 outAlbedo,
+          out vec3 outWorldNormDelta
+        ) {
+          vec3 bw = pow(abs(wn), vec3(6.0));
+          bw /= max(bw.x + bw.y + bw.z, 0.0001);
+          vec3 sgn = sign(wn);
+          vec4 accCol = vec4(0.0);
+          vec3 accNorm = vec3(0.0);
+          float accW = 0.0;
+
+          if (bw.x > 0.025) {
+            vec4 cX; vec3 nX;
+            sampleCliffNoTilePairGrad(albedoTex, normTex, vec2(wp.z, wp.y) * sc, vec2(wpDx.z, wpDx.y) * sc, vec2(wpDy.z, wpDy.y) * sc, cX, nX);
+            accCol += cX * bw.x;
+            accNorm += vec3(0.0, nX.y, nX.x * sgn.x) * bw.x;
+            accW += bw.x;
+          }
+          if (bw.y > 0.025) {
+            vec4 cY; vec3 nY;
+            sampleCliffNoTilePairGrad(albedoTex, normTex, wp.xz * sc, wpDx.xz * sc, wpDy.xz * sc, cY, nY);
+            accCol += cY * bw.y;
+            accNorm += vec3(nY.x, 0.0, nY.y * sgn.y) * bw.y;
+            accW += bw.y;
+          }
+          if (bw.z > 0.025) {
+            vec4 cZ; vec3 nZ;
+            sampleCliffNoTilePairGrad(albedoTex, normTex, vec2(wp.x, wp.y) * sc, vec2(wpDx.x, wpDx.y) * sc, vec2(wpDy.x, wpDy.y) * sc, cZ, nZ);
+            accCol += cZ * bw.z;
+            accNorm += vec3(nZ.x * sgn.z, nZ.y, 0.0) * bw.z;
+            accW += bw.z;
+          }
+          float invW = 1.0 / max(accW, 0.0001);
+          outAlbedo = accCol * invW;
+          outWorldNormDelta = accNorm * invW;
         }
 
         float heightBlendFactor(float mask, float hA, float hB, float sharpness) {
@@ -997,7 +1200,6 @@ export function createTerrainSystem(texLib, scene) {
         // Uses smooth centerline overburden (vCave.z) so mountain cliff, moss, snow & glacier stay 100% solid overhead with ZERO sidewall spikes!
         if (vCave.z > 17.5 && abs(vCave.x) < 11.8) {
           float archU = abs(vCave.x) / 11.8;
-          // Organic slightly irregular natural Icelandic sea-cave / lava-tube arch silhouette strictly inside cave mesh
           float archCeil = vCave.y + 9.4 * pow(max(0.0, 1.0 - archU * archU), 0.56);
           float archRough = (atmoNoise(vWPos.xz * 0.24 + vec2(vWPos.y * 0.22)) - 0.5) * 1.4;
           if (vWPos.y < archCeil + archRough) discard;
@@ -1007,61 +1209,133 @@ export function createTerrainSystem(texLib, scene) {
         {
           vec3 wp = vWPos;
           vec3 wn = normalize(vWNorm);
+          // Uniform-control-flow screen-space derivatives (safe for textureGrad inside all distance/material branches!)
+          vec3 wpDx = dFdx(wp);
+          vec3 wpDy = dFdy(wp);
+          vec2 wpXZ_dx = wpDx.xz;
+          vec2 wpXZ_dy = wpDy.xz;
+
           float camDist = length(cameraPosition - wp);
-          // Extended texture & micro-detail LOD distances: keep high-res turf/rock/scree razor-sharp far into the vista!
-          float closeFade = 1.0 - smoothstep(85.0, 340.0, camDist);
-          float midFade = 1.0 - smoothstep(260.0, 1100.0, camDist);
+          float closeFade = 1.0 - smoothstep(75.0, 290.0, camDist);
+          float midFarWeight = smoothstep(32.0, 220.0, camDist);
+          float farWeight = smoothstep(180.0, 1200.0, camDist);
           float slope = 1.0 - clamp(wn.y, 0.0, 1.0);
 
-          float macroN = atmoNoise(wp.xz * 0.016) * 0.62 + atmoNoise(wp.xz * 0.044 + vec2(3.1, -5.2)) * 0.38;
-          float midN   = atmoNoise(wp.xz * 0.092 + vec2(4.1, -6.7));
-          float patchN = atmoNoise(wp.xz * 0.026 - vec2(7.4, 2.8)) * 0.62 + midN * 0.38;
-          float microDetail = closeFade > 0.01 ? (atmoNoise(wp.xz * 4.2) * 0.60 + atmoNoise(wp.xz * 10.5 + vec2(3.7, -1.9)) * 0.40) : 0.5;
+          // Domain-warped macro/meso coordinates so original sunlit moss & biome zones flow organically
+          vec2 bioWarp = vec2(
+            atmoGNoise(wp.xz * 0.0085 + vec2(1.7, -3.3)) - 0.5,
+            atmoGNoise(wp.xz * 0.0085 + vec2(-4.2, 2.9)) - 0.5
+          ) * 48.0;
+          vec2 wpBio = wp.xz + bioWarp;
 
-          // Natural rocky weathered strata ribs peeking through steeper hillsides (like reference left hill!)
+          // Smooth C2 multi-octave gradient FBM for seamless non-repetitive macro/meso variation & subtle distant hill relief
+          vec3 hillGrad = fbmGrad3(wpBio * 0.014);
+          vec3 mesoGrad = fbmGrad3(wpBio * 0.056 + vec2(4.1, -6.7));
+          float macroN = clamp((hillGrad.x - 0.5) * 2.1 + 0.5, 0.0, 1.0);
+          float midN   = clamp((mesoGrad.x - 0.5) * 2.1 + 0.5, 0.0, 1.0);
+          float patchN = clamp((terrainFbm3(wpBio * 0.024 - vec2(7.4, 2.8)) - 0.5) * 2.2 + 0.5, 0.0, 1.0);
+          float biomeN = clamp((terrainFbm3(wpBio * 0.0052 + vec2(11.3, -8.4)) - 0.5) * 2.3 + 0.5, 0.0, 1.0);
+          float microDetail = closeFade > 0.01 ? (atmoGNoise(wp.xz * 6.5) * 0.58 + atmoGNoise(wp.xz * 15.0 + vec2(3.7, -1.9)) * 0.42) : 0.5;
+
+          // Preserve exact original lush moss-to-cliff balance on hills & escarpments
           float rockRib = smoothstep(0.50, 0.78, patchN) * smoothstep(0.16, 0.36, slope);
           float cliffRaw = clamp(max(max(vSurf.y * 0.84, smoothstep(0.22, 0.46, slope)), rockRib * 0.72), 0.0, 1.0);
           float screeRaw = clamp(vSurf.w * (1.0 - cliffRaw * 0.55), 0.0, 1.0);
           float pathRaw  = clamp(vSurf.z * (1.0 - cliffRaw), 0.0, 1.0);
 
-          // 1) Rich, Earthy, High-Contrast Olive-Gold Grassy Meadow & Icelandic Moss (sharp detail out to 340m+!)
-          vec4 mossMid  = texture2D(uMossMap, wp.xz * 0.42);
-          vec2 rotFar   = mat2(0.80, -0.60, 0.60, 0.80) * wp.xz * 0.092 + vec2(0.31, 0.73);
-          vec4 mossFar  = texture2D(uMossMap, rotFar);
-          vec4 mossFine = closeFade > 0.02 ? texture2D(uMossMap, wp.xz * 1.55 + vec2(0.19, 0.53)) : mossMid;
-          float mossFarBlend = mix(0.42, 0.18, midFade);
-          vec4 mossSample = mix(mix(mossMid, mossFar, mossFarBlend), mossFine, closeFade * 0.58);
-          vec3 mossNBase = dualSampleNorm(uMossNorm, wp.xz, 0.46, 0.11);
-          vec3 mossN = closeFade > 0.02
-            ? normalize(mix(mossNBase, texture2D(uMossNorm, wp.xz * 1.55 + vec2(0.19, 0.53)).xyz * 2.0 - 1.0, closeFade * 0.52))
-            : mossNBase;
+          // 1) 4-Scale Distance-Adaptive Non-Repeating Stochastic Icelandic Meadow & Woolly Moss!
+          // Keeps original lush moss look while eliminating all tiling & mipmap flatness from 1m to 10km!
+          float mossLod = clamp(log2(max(camDist, 16.0) / 16.0) * 0.42, 0.0, 3.0);
+          vec4 mossSample;
+          vec3 mossN;
+          if (mossLod < 1.0) {
+            vec4 s0, s1; vec3 n0, n1;
+            sampleNoTilePairGrad(uMossMap, uMossNorm, wp.xz * 0.34, wpXZ_dx * 0.34, wpXZ_dy * 0.34, s1, n1);
+            float w0 = (1.0 - smoothstep(0.0, 1.0, mossLod)) * 0.44;
+            if (w0 > 0.01) {
+              sampleNoTilePairGrad(uMossMap, uMossNorm, wp.xz * 1.15 + vec2(0.19, 0.53), wpXZ_dx * 1.15, wpXZ_dy * 1.15, s0, n0);
+              mossSample = mix(s1, s0, w0);
+              mossN = normalize(mix(n1, n0, w0));
+            } else {
+              mossSample = s1;
+              mossN = n1;
+            }
+          } else if (mossLod < 2.0) {
+            vec4 s1, s2; vec3 n1, n2;
+            sampleNoTilePairGrad(uMossMap, uMossNorm, wp.xz * 0.34, wpXZ_dx * 0.34, wpXZ_dy * 0.34, s1, n1);
+            sampleNoTilePairGrad(uMossMap, uMossNorm, wp.xz * 0.078 + vec2(0.41, 0.17), wpXZ_dx * 0.078, wpXZ_dy * 0.078, s2, n2);
+            float w2 = smoothstep(0.0, 1.0, mossLod - 1.0);
+            mossSample = mix(s1, s2, w2);
+            mossN = normalize(mix(n1, n2, w2));
+          } else {
+            vec4 s2, s3; vec3 n2, n3;
+            sampleNoTilePairGrad(uMossMap, uMossNorm, wp.xz * 0.078 + vec2(0.41, 0.17), wpXZ_dx * 0.078, wpXZ_dy * 0.078, s2, n2);
+            sampleNoTilePairGrad(uMossMap, uMossNorm, wp.xz * 0.019 + vec2(0.73, 0.29), wpXZ_dx * 0.019, wpXZ_dy * 0.019, s3, n3);
+            float w3 = smoothstep(0.0, 1.0, mossLod - 2.0) * 0.72;
+            mossSample = mix(s2, s3, w3);
+            mossN = normalize(mix(n2, n3, w3));
+          }
           float mossH = mossSample.a;
 
-          float cushionAO = smoothstep(0.06, 0.86, vHydro.z * 0.50 + mossH * 0.62);
-          // Grounded photorealistic Death Stranding turf palette: deep moss hollows -> warm earthy olive-gold -> subtle dry meadow ochre
-          vec3 mossEmerald = vec3(0.42, 0.56, 0.22);
-          vec3 mossSunGold = vec3(0.84, 0.88, 0.34);
-          vec3 warmMeadow  = vec3(0.78, 0.68, 0.30);
-          vec3 mossTint = mix(mossEmerald, mossSunGold, smoothstep(0.20, 0.78, macroN * 0.55 + midN * 0.45));
-          mossTint = mix(mossTint, warmMeadow, smoothstep(0.54, 0.86, patchN) * 0.42);
-          float bladeCrisp = mix(1.0, 0.56 + microDetail * 0.86, closeFade * 0.92);
-          vec3 mossCol = mossSample.rgb * mossTint * mix(0.36, 1.24, cushionAO) * bladeCrisp;
+          // Fade out vertex hummockAO beyond close range to eliminate LOD1/LOD2 polka-dot Worley aliasing!
+          float nearHummock = mix(0.55, vHydro.z, 1.0 - smoothstep(26.0, 115.0, camDist));
+          float macroReliefAO = clamp(0.32 + macroN * 0.40 + midN * 0.28, 0.14, 1.0);
+          float cushionAO = smoothstep(0.08, 0.88, mix(macroReliefAO, nearHummock, closeFade * 0.70) * 0.45 + mossH * 0.60);
+
+          // Exact original vibrant sunlit Icelandic moss & turf palette
+          vec3 mossEmerald = vec3(0.38, 0.50, 0.21);
+          vec3 mossSunGold = vec3(0.78, 0.84, 0.34);
+          vec3 mossSage    = vec3(0.56, 0.63, 0.44);
+          vec3 warmMeadow  = vec3(0.72, 0.62, 0.32);
+
+          vec3 mossTint = mix(mossEmerald, mossSunGold, smoothstep(0.22, 0.78, macroN * 0.55 + midN * 0.45));
+          mossTint = mix(mossTint, mossSage, smoothstep(0.46, 0.82, biomeN) * 0.48);
+          mossTint = mix(mossTint, warmMeadow, smoothstep(0.52, 0.86, patchN + slope * 0.28) * 0.44);
+          float bladeCrisp = mix(1.0, 0.90 + microDetail * 0.20, closeFade * 0.65);
+          vec3 mossCol = mossSample.rgb * mossTint * mix(0.44, 1.22, cushionAO) * bladeCrisp;
+
+          // Subtle dark volcanic peat / basalt grit peeking through thin soil on slopes & eroded patches
+          float soilMask = smoothstep(0.10, 0.32, slope) * smoothstep(0.32, 0.70, 1.0 - patchN) * smoothstep(0.52, 0.14, mossH);
+          vec3 peatSoil = vec3(0.15, 0.14, 0.11) * mix(0.75, 1.18, midN);
+          mossCol = mix(mossCol, peatSoil, soilMask * 0.68);
 
           vec3 col = mossCol;
           vec3 horizN = mossN;
           float screeMask = 0.0;
           float pathMask = 0.0;
           float cliffMask = 0.0;
+          float cliffDustMask = 0.0;
+          float cliffMossMask = 0.0;
           vec3 cliffNormDelta = vec3(0.0);
 
-          // 2) Crisp Weathered Grey-Slate Riverbed Cobbles & Talus Scree
+          // 2) Distance-Adaptive Non-Repeating Weathered Grey-Slate Riverbed Cobbles & Talus Scree
           vec4 screeSample = vec4(0.28, 0.30, 0.32, 0.5);
           if (screeRaw > 0.01 || pathRaw > 0.01) {
-            screeSample = dualSampleRGBA(uScreeMap, wp.xz, 0.64, 0.15);
+            vec3 screeN;
+            float screeLod = clamp(log2(max(camDist, 18.0) / 18.0) * 0.45, 0.0, 2.0);
+            if (screeLod < 1.0) {
+              vec4 sc0, sc1; vec3 sn0, sn1;
+              sampleNoTilePairGrad(uScreeMap, uScreeNorm, wp.xz * 0.48, wpXZ_dx * 0.48, wpXZ_dy * 0.48, sc0, sn0);
+              float sw1 = smoothstep(0.15, 1.0, screeLod);
+              if (sw1 > 0.01) {
+                sampleNoTilePairGrad(uScreeMap, uScreeNorm, wp.xz * 0.115 + vec2(0.27, 0.61), wpXZ_dx * 0.115, wpXZ_dy * 0.115, sc1, sn1);
+                screeSample = mix(sc0, sc1, sw1);
+                screeN = normalize(mix(sn0, sn1, sw1));
+              } else {
+                screeSample = sc0;
+                screeN = sn0;
+              }
+            } else {
+              vec4 sc1, sc2; vec3 sn1, sn2;
+              sampleNoTilePairGrad(uScreeMap, uScreeNorm, wp.xz * 0.115 + vec2(0.27, 0.61), wpXZ_dx * 0.115, wpXZ_dy * 0.115, sc1, sn1);
+              sampleNoTilePairGrad(uScreeMap, uScreeNorm, wp.xz * 0.028 + vec2(0.63, 0.19), wpXZ_dx * 0.028, wpXZ_dy * 0.028, sc2, sn2);
+              float sw2 = smoothstep(0.0, 1.0, screeLod - 1.0) * 0.72;
+              screeSample = mix(sc1, sc2, sw2);
+              screeN = normalize(mix(sn1, sn2, sw2));
+            }
             if (screeRaw > 0.01) {
-              vec3 screeN = dualSampleNorm(uScreeNorm, wp.xz, 0.64, 0.15);
               vec3 gravelTone = mix(vec3(0.68, 0.72, 0.76), vec3(1.06, 1.09, 1.12), smoothstep(0.26, 0.78, screeSample.a));
-              vec3 screeCol = screeSample.rgb * gravelTone * mix(0.54, 1.22, screeSample.a) * mix(1.0, 0.74 + microDetail * 0.52, closeFade * 0.78);
+              vec3 screeCol = screeSample.rgb * gravelTone * mix(0.54, 1.22, screeSample.a) * mix(1.0, 0.88 + microDetail * 0.24, closeFade * 0.70);
               screeMask = heightBlendFactor(screeRaw, mossH, screeSample.a * 0.94, 4.6);
               col = mix(col, screeCol, screeMask);
               horizN = mix(horizN, screeN, screeMask);
@@ -1079,45 +1353,87 @@ export function createTerrainSystem(texLib, scene) {
             horizN = mix(horizN, pathN, pathMask);
           }
 
-          // 4) Non-Repeating Chaotic Fractured Basalt Cliffs (ZERO parallel lines! Strong 3D organic domain warping!)
+          // 4) Non-Repeating Volcanic Dust / Ash Mountain Slopes with Subtle Weathered Basalt & Green Moss
           if (cliffRaw > 0.01) {
-            float w1 = (atmoNoise(wp.xz * 0.011 + vec2(wp.y * 0.013)) - 0.5) * 18.0;
-            float w2 = (atmoNoise(vec2(wp.z * 0.023 - wp.y * 0.019, wp.x * 0.023 + wp.y * 0.017)) - 0.5) * 8.0;
+            float w1 = (atmoGNoise(wp.xz * 0.011 + vec2(wp.y * 0.013)) - 0.5) * 18.0;
+            float w2 = (atmoGNoise(vec2(wp.z * 0.023 - wp.y * 0.019, wp.x * 0.023 + wp.y * 0.017)) - 0.5) * 8.0;
             vec3 wpRock = wp + vec3(w1 + w2, w1 * 0.55 - w2 * 0.7, -w1 * 0.8 + w2 * 0.6);
 
-            // Two rotated, non-harmonic isotropic triplanar rock scales -> keep crisp high-res cliff rock sharp out to 1km+!
-            vec4 cliffNear = triplanarCliffRGBA(uCliffMap, wpRock, wn, 0.088, 0.38);
-            vec4 cliffFar  = triplanarCliffRGBA(uCliffMap, wpRock, wn, 0.024, 1.73);
-            float farW = clamp(smoothstep(140.0, 1050.0, camDist) * 0.48 + (1.0 - macroN) * 0.22, 0.16, 0.66);
-            vec4 cliffMix = mix(cliffNear, cliffFar, farW);
+            // Distance-adaptive stochastic triplanar rock (eliminates visible tiling at all ranges!)
+            float cliffLod = clamp(log2(max(camDist, 24.0) / 24.0) * 0.44, 0.0, 2.0);
+            vec4 cliffMix;
+            vec3 cliffTexNorm;
+            if (cliffLod < 1.0) {
+              vec4 cNear, cMid; vec3 nNear, nMid;
+              triplanarCliffPair(uCliffMap, uCliffNorm, wpRock, wpDx, wpDy, wn, 0.088, cNear, nNear);
+              triplanarCliffPair(uCliffMap, uCliffNorm, wpRock + vec3(17.3, 4.1, -11.7), wpDx, wpDy, wn, 0.028, cMid, nMid);
+              float wMid = clamp(smoothstep(0.0, 1.0, cliffLod) * 0.62 + (1.0 - macroN) * 0.16 + 0.18, 0.18, 0.88);
+              cliffMix = mix(cNear, cMid, wMid);
+              cliffTexNorm = nNear * (1.0 - wMid * 0.58) + nMid * (0.44 + wMid * 0.52);
+            } else {
+              vec4 cMid, cFar; vec3 nMid, nFar;
+              triplanarCliffPair(uCliffMap, uCliffNorm, wpRock + vec3(17.3, 4.1, -11.7), wpDx, wpDy, wn, 0.028, cMid, nMid);
+              triplanarCliffPair(uCliffMap, uCliffNorm, wpRock + vec3(-31.7, 9.3, 23.1), wpDx, wpDy, wn, 0.010, cFar, nFar);
+              float wFar = clamp(smoothstep(0.0, 1.0, cliffLod - 1.0) * 0.74, 0.0, 0.74);
+              cliffMix = mix(cMid, cFar, wFar);
+              cliffTexNorm = nMid * (1.0 - wFar * 0.52) + nFar * (0.44 + wFar * 0.60);
+            }
             float cliffH = cliffMix.a;
 
-            // True 3D chaotic diagonal rock fissures & irregular weathered crag facets (ZERO vertical line stretching!)
-            vec2 cragA = vec2(wpRock.x * 0.026 + wpRock.y * 0.021, wpRock.z * 0.026 - wpRock.y * 0.019);
-            vec2 cragB = vec2((wpRock.x - wpRock.z) * 0.015 + wpRock.y * 0.012, wpRock.y * 0.028 + (wpRock.x + wpRock.z) * 0.011);
+            // Subtle weathered volcanic rock peeking beneath a rich matte blanket of dark Icelandic volcanic dust / tephra ash
+            vec2 cragA = vec2(wpRock.x * 0.022 + wpRock.y * 0.016, wpRock.z * 0.022 - wpRock.y * 0.015);
+            vec2 cragB = vec2((wpRock.x - wpRock.z) * 0.013 + wpRock.y * 0.010, wpRock.y * 0.024 + (wpRock.x + wpRock.z) * 0.009);
             float fissureMacro = rockRidged(cragA) * 0.55 + rockRidged(cragB) * 0.45;
-            float mineralPatch = atmoNoise(vec2((wpRock.x + wpRock.z) * 0.008, wpRock.y * 0.014)) * 0.65 + macroN * 0.35;
-            float darkCrev = smoothstep(0.14, 0.78, fissureMacro);
+            float mineralPatch = terrainFbm3(vec2((wpRock.x + wpRock.z) * 0.008, wpRock.y * 0.014)) * 0.65 + macroN * 0.35;
+            float dustDrift    = terrainFbm3(vec2(wpRock.x * 0.022 - wpRock.z * 0.015, wp.y * 0.011 + wpRock.z * 0.018));
+            // Fine granular volcanic ash & tephra grit (multi-scale so it stays tactile at both mid & far range without chunky rock blocks!)
+            float dustGritCoarse = terrainFbm3(vec2(wp.x * 0.085 + wp.z * 0.045, wp.y * 0.040 + wp.z * 0.065));
+            float dustGritFine   = atmoGNoise(wp.xz * 0.42 + vec2(wp.y * 0.36)) * 0.58 + atmoGNoise(wp.xz * 1.15 - vec2(wp.y * 0.85)) * 0.42;
+            float dustGrit       = dustGritCoarse * 0.54 + dustGritFine * 0.46;
+            // Subtle downslope volcanic sand/ash slide streaks (soft gravity wash, never blocky cracks!)
+            float ashWash = atmoGNoise(vec2((wp.x * 0.72 + wp.z * 0.69) * 0.055 + dustDrift * 1.4, wp.y * 0.012)) * 0.55
+                          + atmoGNoise(vec2((wp.z * 0.72 - wp.x * 0.69) * 0.095 - dustDrift * 1.1, wp.y * 0.018)) * 0.45;
 
-            vec3 mineralTone = mix(vec3(0.68, 0.73, 0.79), vec3(1.14, 1.19, 1.25), smoothstep(0.22, 0.76, mineralPatch));
-            mineralTone = mix(mineralTone, vec3(0.92, 0.86, 0.76), smoothstep(0.56, 0.86, macroN) * 0.28);
+            // Subtle dark weathered basalt rock ribs peeking out gently on hardest steep ridges
+            float softCrev = smoothstep(0.10, 0.80, fissureMacro);
+            vec3 mineralTone = mix(vec3(0.50, 0.54, 0.60), vec3(0.84, 0.88, 0.92), smoothstep(0.22, 0.78, mineralPatch));
+            mineralTone = mix(mineralTone, vec3(0.76, 0.70, 0.62), smoothstep(0.56, 0.86, macroN) * 0.24);
+            float cliffAO = mix(0.52, 1.12, cliffH) * mix(0.72, 1.12, softCrev);
+            vec3 basaltCol = cliffMix.rgb * mineralTone * 0.84 * cliffAO;
+            float ridgeFacet = smoothstep(0.52, 0.88, cliffH * 0.55 + fissureMacro * 0.45);
+            basaltCol += vec3(0.028, 0.033, 0.038) * ridgeFacet * (0.40 + 0.60 * smoothstep(0.25, 0.75, mineralPatch));
 
-            float cliffAO = mix(0.46, 1.22, cliffH) * mix(0.54, 1.18, darkCrev);
-            vec3 basaltCol = cliffMix.rgb * mineralTone * 1.16 * cliffAO;
-            float ridgeFacet = smoothstep(0.46, 0.86, cliffH * 0.55 + fissureMacro * 0.45);
-            basaltCol += vec3(0.095, 0.108, 0.122) * ridgeFacet * (0.45 + 0.55 * smoothstep(0.22, 0.72, mineralPatch));
+            // Authentic dark matte Icelandic volcanic ash / tephra dust blanketing the big mountain slope
+            vec3 ashDeep  = vec3(0.030, 0.033, 0.038); // Deep charcoal black-ash volcanic dust
+            vec3 ashSlate = vec3(0.076, 0.081, 0.088); // Sunlit dusty dark-slate tephra
+            vec3 ashWarm  = vec3(0.068, 0.062, 0.054); // Subtle warm dusty volcanic tuff soil
+            vec3 volcDustCol = mix(ashDeep, ashSlate, smoothstep(0.20, 0.82, dustDrift * 0.58 + mineralPatch * 0.42));
+            volcDustCol = mix(volcDustCol, ashWarm, smoothstep(0.44, 0.82, patchN) * 0.36);
+            volcDustCol *= mix(0.70, 1.32, dustGrit * 0.68 + cliffH * 0.32);
+            volcDustCol *= mix(0.78, 1.18, smoothstep(0.18, 0.82, ashWash));
 
-            // Lush olive-green alpine moss & grass cloaking lower/mid mountain flanks (organic ragged treeline fading over ~180..275m!)
+            // Mostly volcanic dust (66%..88%), with subtle weathered dark rock ribs poking through steepest crags
+            float rockProtrude = smoothstep(0.52, 0.85, cliffH * 0.46 + fissureMacro * 0.54) * smoothstep(0.24, 0.58, slope);
+            cliffDustMask = clamp(0.80 - rockProtrude * 0.46 + (dustDrift - 0.5) * 0.20, 0.32, 0.92);
+            vec3 slopeRockCol = mix(basaltCol, volcDustCol, cliffDustMask);
+
+            // Lush green Icelandic moss draping over shoulders/ledges PLUS crisp organic moss patches clinging to the volcanic dust!
             float altGrassFade = 1.0 - smoothstep(180.0, 278.0, wp.y + (macroN - 0.5) * 76.0 + (patchN - 0.5) * 34.0);
-            float ledgeMoss = smoothstep(0.28, 0.70, wn.y + (midN - 0.5) * 0.28) * smoothstep(0.16, 0.66, macroN) * altGrassFade;
-            vec3 cliffCol = mix(basaltCol, mossCol * 0.88, ledgeMoss * 0.88);
+            float ledgeMoss = smoothstep(0.24, 0.66, wn.y + (midN - 0.5) * 0.28) * smoothstep(0.14, 0.62, macroN) * altGrassFade;
+            float slopeMossField  = terrainFbm3(vec2(wpRock.x * 0.022 + wp.y * 0.011, wpRock.z * 0.022 - wp.y * 0.009));
+            float slopeMossDetail = atmoGNoise(wp.xz * 0.095 + vec2(wp.y * 0.065, -wp.y * 0.055));
+            float mossSignal = slopeMossField * 0.56 + patchN * 0.22 + slopeMossDetail * 0.28 + (mossH - 0.5) * 0.22;
+            float dustSlopeMoss = smoothstep(0.44, 0.72, mossSignal) * smoothstep(0.08, 0.48, wn.y + 0.16) * altGrassFade;
+            cliffMossMask = clamp(max(ledgeMoss * 0.92, dustSlopeMoss * 0.78), 0.0, 0.92);
+            vec3 cliffCol = mix(slopeRockCol, mossCol * 0.94, cliffMossMask);
 
             cliffMask = heightBlendFactor(cliffRaw, mossH * 0.88, cliffH, 3.6);
             col = mix(col, cliffCol, cliffMask);
 
-            cliffNormDelta =
-              triplanarCliffNorm(uCliffNorm, wpRock, wn, 0.088, 0.38) * 0.78 +
-              triplanarCliffNorm(uCliffNorm, wpRock, wn, 0.024, 1.73) * 0.54;
+            // Tactile dusty-grit normal relief on volcanic ash (not chunky boulder-rocky!), soft velvety normals on moss patches
+            float dustNormScale = mix(0.76, 0.40, cliffDustMask);
+            vec3 softMossN = vec3(mossN.x, 0.0, mossN.y) * 0.90;
+            cliffNormDelta = mix(cliffTexNorm * dustNormScale, softMossN, cliffMossMask * 0.78);
           }
 
           // 5) Towering Icelandic High-Altitude Alpine Snowfields & Blue-White Crevassed Mountain Glaciers!
@@ -1127,7 +1443,7 @@ export function createTerrainSystem(texLib, scene) {
           float glacierMask = 0.0;
           float iceGloss = 0.0;
 
-          // Natural dark alpine tundra/scree belt between green foothills & ragged snowpack (prevents artificial green-touching-white border!)
+          // Natural dark alpine tundra/scree belt between green foothills & ragged snowpack
           float alpineBelt = smoothstep(185.0, 305.0, wp.y + (macroN - 0.5) * 95.0 + (patchN - 0.5) * 45.0) * (1.0 - cliffMask * 0.65);
           if (alpineBelt > 0.01) {
             vec3 tundraRock = mix(vec3(0.20, 0.22, 0.23), vec3(0.30, 0.29, 0.22), smoothstep(0.30, 0.78, midN));
@@ -1135,24 +1451,20 @@ export function createTerrainSystem(texLib, scene) {
           }
 
           if (snowRaw > 0.005 || glacierRaw > 0.005) {
-            // Organic ragged Icelandic snowline: warped downslope couloir/gully tongues, chaotic bare basalt crags,
-            // sheltered aspect bias & fragmented wind-drifted snow patches (ZERO straight lines & ZERO periodic rungs!)
             float aspectBias = dot(normalize(vec2(wn.x, wn.z) + vec2(0.0001)), normalize(vec2(-0.62, -0.78))) * 0.20;
             vec2 driftWarp = vec2(
-              atmoNoise(wp.xz * 0.014 + vec2(2.3, -4.1)) - 0.5,
-              atmoNoise(wp.xz * 0.014 + vec2(-5.7, 1.8)) - 0.5
+              atmoGNoise(wp.xz * 0.014 + vec2(2.3, -4.1)) - 0.5,
+              atmoGNoise(wp.xz * 0.014 + vec2(-5.7, 1.8)) - 0.5
             ) * 34.0;
             vec2 wpSnow = wp.xz + driftWarp;
             vec2 couloirUv = wpSnow * 0.017 + vec2(wp.y * 0.007, -wp.y * 0.006);
             float couloirGully = 1.0 - rockRidged(couloirUv);
-            float patchLarge = atmoNoise(wpSnow * 0.022 + vec2(wp.y * 0.005, -wp.y * 0.004));
-            float patchMed   = atmoNoise(wpSnow * 0.068 - vec2(wp.y * 0.012));
-            float patchFine  = atmoNoise(wp.xz * 0.22 + vec2(wp.y * 0.03));
+            float patchLarge = atmoGNoise(wpSnow * 0.022 + vec2(wp.y * 0.005, -wp.y * 0.004));
+            float patchMed   = atmoGNoise(wpSnow * 0.068 - vec2(wp.y * 0.012));
+            float patchFine  = atmoGNoise(wp.xz * 0.22 + vec2(wp.y * 0.03));
             float windPatch  = patchLarge * 0.52 + patchMed * 0.32 + patchFine * 0.16;
 
-            // Steep sheer rock walls shed snow cleanly while irregular rock hollows & concave couloirs trap snow fingers!
             float snowHold = smoothstep(0.38, 0.80, wn.y + (windPatch - 0.5) * 0.42 + (couloirGully - 0.46) * 0.38);
-            // Full-strength multi-scale patch & gully breakup right across the snowline transition!
             float snowBreakup = (couloirGully - 0.48) * 0.56 + (patchLarge - 0.50) * 0.54 + (patchMed - 0.50) * 0.28 + aspectBias;
             float transitionZone = smoothstep(0.01, 0.18, snowRaw) * (1.0 - smoothstep(0.68, 0.96, snowRaw) * 0.72);
             float snowSignal = snowRaw * (0.28 + 0.92 * snowHold) + snowBreakup * transitionZone;
@@ -1163,15 +1475,12 @@ export function createTerrainSystem(texLib, scene) {
             vec3 snowCol = mix(snowShadow, snowLit, clamp(0.42 + 0.58 * wn.y + (windPatch - 0.5) * 0.24, 0.0, 1.0));
             col = mix(col, snowCol, snowMask);
 
-            // Photorealistic Icelandic Glacier (compacted overcast silver-white firn, narrow cerulean crevasses & black volcanic ash moraine bands!)
             if (glacierRaw > 0.01) {
               vec2 iceCoord = vec2((wp.x * 0.72 + wp.z * 0.69) * 0.055, (wp.z * 0.72 - wp.x * 0.69) * 0.032 + wp.y * 0.024);
               float crevasse = rockRidged(iceCoord + vec2(macroN * 1.4, -midN * 0.9));
-              float serac = atmoNoise(wp.xz * 0.12 + vec2(wp.y * 0.05)) * 0.65 + atmoNoise(wp.xz * 0.34) * 0.35;
-              // Steep sheer rock faces stay rocky even near glacier borders -> natural jagged interlocking icefall!
+              float serac = atmoGNoise(wp.xz * 0.12 + vec2(wp.y * 0.05)) * 0.65 + atmoGNoise(wp.xz * 0.34) * 0.35;
               float slopeHold = smoothstep(0.32, 0.72, wn.y + (serac - 0.5) * 0.28 + (couloirGully - 0.45) * 0.22);
 
-              // Realistic overcast glacial colors (90% white-silver compacted ice + pale icy blue-grey + narrow deep cerulean crevasses!)
               vec3 crevasseBlue = vec3(0.22, 0.45, 0.60);
               vec3 glacialIce   = vec3(0.58, 0.72, 0.80);
               vec3 firnWhite    = vec3(0.84, 0.89, 0.93);
@@ -1179,9 +1488,8 @@ export function createTerrainSystem(texLib, scene) {
               vec3 iceCol = mix(glacialIce, firnWhite, smoothstep(0.25, 0.74, serac * 0.62 + crevasse * 0.48));
               iceCol = mix(iceCol, crevasseBlue, deepCrack * 0.82);
 
-              // Authentic Icelandic dark volcanic ash moraine ribbons lacing along the glacier edges & snout!
               float edgeBand = smoothstep(0.06, 0.48, glacierRaw) * (1.0 - smoothstep(0.45, 0.85, glacierRaw));
-              float ashStreak = edgeBand * smoothstep(0.38, 0.74, atmoNoise(wp.xz * 0.058 + vec2(midN * 1.6))) * (1.0 - smoothstep(200.0, 310.0, wp.y));
+              float ashStreak = edgeBand * smoothstep(0.38, 0.74, atmoGNoise(wp.xz * 0.058 + vec2(midN * 1.6))) * (1.0 - smoothstep(200.0, 310.0, wp.y));
               iceCol = mix(iceCol, vec3(0.20, 0.22, 0.24), ashStreak * 0.74);
 
               glacierMask = smoothstep(0.18, 0.58, glacierRaw * (0.42 + 0.72 * slopeHold) + (serac - 0.5) * 0.28 + (couloirGully - 0.48) * 0.22);
@@ -1191,12 +1499,11 @@ export function createTerrainSystem(texLib, scene) {
             }
           }
 
-          // Grazing-angle woolly moss velvet sheen (suppressed on snow/glacier!)
+          // Grazing-angle woolly moss velvet sheen (exact original sunlit glow!)
           vec3 viewDir = normalize(cameraPosition - wp);
           float fres = pow(1.0 - max(dot(wn, viewDir), 0.0), 3.0);
           float mossCoverage = (1.0 - cliffMask) * (1.0 - screeMask) * (1.0 - pathMask) * (1.0 - snowMask) * (1.0 - glacierMask);
           col += vec3(0.068, 0.080, 0.024) * fres * mossCoverage * (1.0 - uNightFactor * 0.88);
-          // Subtle icy Fresnel sheen on crystalline glacial blue ice
           col += vec3(0.10, 0.22, 0.30) * fres * iceGloss * (1.0 - uNightFactor * 0.85);
 
           // Gentle natural overcast cloud shadows (no harsh dark blotches)
@@ -1212,25 +1519,30 @@ export function createTerrainSystem(texLib, scene) {
           vec2 microGrad = vec2(0.0);
           if (closeFade > 0.02) {
             microGrad = vec2(
-              atmoNoise(wp.xz * 4.5 + vec2(0.08, 0.0)) - atmoNoise(wp.xz * 4.5 - vec2(0.08, 0.0)),
-              atmoNoise(wp.xz * 4.5 + vec2(0.0, 0.08)) - atmoNoise(wp.xz * 4.5 - vec2(0.0, 0.08))
-            ) * closeFade * mix(0.50, 0.90, mossCoverage);
+              atmoNoise(wp.xz * 7.5 + vec2(0.06, 0.0)) - atmoNoise(wp.xz * 7.5 - vec2(0.06, 0.0)),
+              atmoNoise(wp.xz * 7.5 + vec2(0.0, 0.06)) - atmoNoise(wp.xz * 7.5 - vec2(0.0, 0.06))
+            ) * closeFade * mix(0.14, 0.28, mossCoverage);
           }
 
-          float horizStrength = mix(1.82, 0.95, screeMask + pathMask * 0.35);
-          vec3 flatDelta = vec3(horizN.x, 0.0, horizN.y) * horizStrength + vec3(microGrad.x, 0.0, microGrad.y);
-          lsWorldNorm = normalize(wn + mix(flatDelta, cliffNormDelta * 1.22, cliffMask));
+          // Subtle analytical macro/meso relief normals on mid/far hills so distant slopes keep organic depth without looking flat
+          vec2 macroSlope = hillGrad.yz * mix(0.06, 0.22, farWeight) + mesoGrad.yz * mix(0.04, 0.16, midFarWeight) * (1.0 - farWeight * 0.55);
+          vec3 macroNormDelta = vec3(-macroSlope.x, 0.0, -macroSlope.y) * (1.0 - snowMask * 0.60);
+
+          float horizStrength = mix(1.78, 0.95, screeMask + pathMask * 0.35);
+          vec3 flatDelta = vec3(horizN.x, 0.0, horizN.y) * horizStrength + vec3(microGrad.x, 0.0, microGrad.y) + macroNormDelta;
+          lsWorldNorm = normalize(wn + mix(flatDelta, cliffNormDelta + macroNormDelta * 0.55, cliffMask));
 
           // Specular AA
           vec3 dNdx = dFdx(lsWorldNorm);
           vec3 dNdy = dFdy(lsWorldNorm);
           float normVar = clamp(max(dot(dNdx, dNdx), dot(dNdy, dNdy)) * 4.5, 0.0, 0.82);
 
-          lsRough = mix(0.95, 0.78, cliffMask * 0.75 + screeMask * 0.48);
+          // Powdery volcanic dust slopes stay matte (~0.92), exposed bare rock slightly crisper (~0.80)
+          float bareRockWeight = cliffMask * (1.0 - cliffDustMask * 0.72) * (1.0 - cliffMossMask * 0.85);
+          lsRough = mix(0.95, 0.80, clamp(bareRockWeight * 0.85 + screeMask * 0.48, 0.0, 1.0));
           lsRough = mix(lsRough, 0.64, snowMask * 0.85);
           lsRough = mix(lsRough, 0.24, iceGloss * 0.90);
           lsRough = mix(lsRough, 0.44, clamp(rockWet * 0.72, 0.0, 0.82));
-          // Glistening wave-washed wet volcanic pebble shore right on gentle beaches (strictly flat slope -> zero cliff fireflies!)
           float shoreGlaze = smoothstep(0.68, 0.96, vHydro.x) * screeMask * (1.0 - smoothstep(0.14, 0.34, slope));
           lsRough = mix(lsRough, 0.40, shoreGlaze * 0.72);
           lsRough = mix(lsRough, 0.22, puddle * 0.75 * (1.0 - smoothstep(0.16, 0.36, slope)));
@@ -1278,30 +1590,53 @@ export function createTerrainSystem(texLib, scene) {
 
   // Shared GLSL snippet matching terrainMat's exact world-space moss albedo & normal so ground objects blend SEAMLESSLY into the terrain!
   const TERRAIN_BLEND_GLSL = /* glsl */`
+    float blendTerrainFbm3(vec2 p) {
+      float v = 0.0;
+      float a = 0.5;
+      const mat2 rot = mat2(0.80, -0.60, 0.60, 0.80);
+      for (int i = 0; i < 3; i++) {
+        v += a * atmoGNoise(p);
+        p = rot * p * 2.04 + vec2(11.3, -19.7);
+        a *= 0.5;
+      }
+      return v / 0.875;
+    }
+
     vec3 evalTerrainMossColor(sampler2D mossMap, vec3 wp, vec3 groundUp, out vec4 outMossS) {
       float camDist = length(cameraPosition - wp);
-      float closeFade = 1.0 - smoothstep(85.0, 340.0, camDist);
-      float midFade = 1.0 - smoothstep(260.0, 1100.0, camDist);
-      float macroN = atmoNoise(wp.xz * 0.016) * 0.62 + atmoNoise(wp.xz * 0.044 + vec2(3.1, -5.2)) * 0.38;
-      float midN   = atmoNoise(wp.xz * 0.092 + vec2(4.1, -6.7));
-      float patchN = atmoNoise(wp.xz * 0.026 - vec2(7.4, 2.8)) * 0.62 + midN * 0.38;
-      float microDetail = closeFade > 0.01 ? (atmoNoise(wp.xz * 4.2) * 0.60 + atmoNoise(wp.xz * 10.5 + vec2(3.7, -1.9)) * 0.40) : 0.5;
+      float closeFade = 1.0 - smoothstep(75.0, 290.0, camDist);
+      float slope = 1.0 - clamp(groundUp.y, 0.0, 1.0);
 
-      vec4 mossMid  = texture2D(mossMap, wp.xz * 0.42);
-      vec2 rotFar   = mat2(0.80, -0.60, 0.60, 0.80) * wp.xz * 0.092 + vec2(0.31, 0.73);
+      vec2 bioWarp = vec2(
+        atmoGNoise(wp.xz * 0.0085 + vec2(1.7, -3.3)) - 0.5,
+        atmoGNoise(wp.xz * 0.0085 + vec2(-4.2, 2.9)) - 0.5
+      ) * 48.0;
+      vec2 wpBio = wp.xz + bioWarp;
+      float macroN = clamp((blendTerrainFbm3(wpBio * 0.014) - 0.5) * 2.1 + 0.5, 0.0, 1.0);
+      float midN   = clamp((blendTerrainFbm3(wpBio * 0.056 + vec2(4.1, -6.7)) - 0.5) * 2.1 + 0.5, 0.0, 1.0);
+      float patchN = clamp((blendTerrainFbm3(wpBio * 0.024 - vec2(7.4, 2.8)) - 0.5) * 2.2 + 0.5, 0.0, 1.0);
+      float biomeN = clamp((blendTerrainFbm3(wpBio * 0.0052 + vec2(11.3, -8.4)) - 0.5) * 2.3 + 0.5, 0.0, 1.0);
+      float microDetail = closeFade > 0.01 ? (atmoGNoise(wp.xz * 6.5) * 0.58 + atmoGNoise(wp.xz * 15.0 + vec2(3.7, -1.9)) * 0.42) : 0.5;
+
+      vec4 mossMid  = texture2D(mossMap, wp.xz * 0.34);
+      vec2 rotFar   = mat2(0.80, -0.60, 0.60, 0.80) * wp.xz * 0.078 + vec2(0.41, 0.17);
       vec4 mossFar  = texture2D(mossMap, rotFar);
-      vec4 mossFine = closeFade > 0.02 ? texture2D(mossMap, wp.xz * 1.55 + vec2(0.19, 0.53)) : mossMid;
-      vec4 mossSample = mix(mix(mossMid, mossFar, mix(0.42, 0.18, midFade)), mossFine, closeFade * 0.58);
+      vec4 mossFine = closeFade > 0.02 ? texture2D(mossMap, wp.xz * 1.15 + vec2(0.19, 0.53)) : mossMid;
+      vec4 mossSample = mix(mix(mossMid, mossFar, smoothstep(70.0, 260.0, camDist) * 0.55), mossFine, closeFade * 0.44);
       outMossS = mossSample;
 
-      float cushionAO = smoothstep(0.06, 0.86, 0.28 + mossSample.a * 0.62);
-      vec3 mossEmerald = vec3(0.42, 0.56, 0.22);
-      vec3 mossSunGold = vec3(0.84, 0.88, 0.34);
-      vec3 warmMeadow  = vec3(0.78, 0.68, 0.30);
-      vec3 mossTint = mix(mossEmerald, mossSunGold, smoothstep(0.20, 0.78, macroN * 0.55 + midN * 0.45));
-      mossTint = mix(mossTint, warmMeadow, smoothstep(0.54, 0.86, patchN) * 0.42);
-      float bladeCrisp = mix(1.0, 0.56 + microDetail * 0.86, closeFade * 0.92);
-      vec3 mCol = mossSample.rgb * mossTint * mix(0.36, 1.24, cushionAO) * bladeCrisp;
+      float macroReliefAO = clamp(0.32 + macroN * 0.40 + midN * 0.28, 0.14, 1.0);
+      float cushionAO = smoothstep(0.08, 0.88, macroReliefAO * 0.45 + mossSample.a * 0.60);
+      vec3 mossEmerald = vec3(0.38, 0.50, 0.21);
+      vec3 mossSunGold = vec3(0.78, 0.84, 0.34);
+      vec3 mossSage    = vec3(0.56, 0.63, 0.44);
+      vec3 warmMeadow  = vec3(0.72, 0.62, 0.32);
+
+      vec3 mossTint = mix(mossEmerald, mossSunGold, smoothstep(0.22, 0.78, macroN * 0.55 + midN * 0.45));
+      mossTint = mix(mossTint, mossSage, smoothstep(0.46, 0.82, biomeN) * 0.48);
+      mossTint = mix(mossTint, warmMeadow, smoothstep(0.52, 0.86, patchN + slope * 0.28) * 0.44);
+      float bladeCrisp = mix(1.0, 0.90 + microDetail * 0.20, closeFade * 0.65);
+      vec3 mCol = mossSample.rgb * mossTint * mix(0.44, 1.22, cushionAO) * bladeCrisp;
       vec3 viewDir = normalize(cameraPosition - wp);
       float fres = pow(1.0 - max(dot(groundUp, viewDir), 0.0), 3.0);
       mCol += vec3(0.068, 0.080, 0.024) * fres * (1.0 - uNightFactor * 0.88);
@@ -1316,7 +1651,7 @@ export function createTerrainSystem(texLib, scene) {
     metalness: 0.02
   });
   boulderMat.fog = false;
-  boulderMat.customProgramCacheKey = () => 'ls_tri_boulder_v11';
+  boulderMat.customProgramCacheKey = () => 'ls_tri_boulder_v12';
   boulderMat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, ATMO_UNIFORMS);
     shader.uniforms.uRockTex = { value: texLib.basaltCliff.map };
@@ -1612,8 +1947,8 @@ export function createTerrainSystem(texLib, scene) {
     return mat;
   };
 
-  const smallStoneMat = makeBlendedStoneMat('ls_small_stones_v5', 0.08, 0.86);
-  const cobbleMat = makeBlendedStoneMat('ls_cobbles_v5', 0.16, 0.84);
+  const smallStoneMat = makeBlendedStoneMat('ls_small_stones_v6', 0.08, 0.86);
+  const cobbleMat = makeBlendedStoneMat('ls_cobbles_v6', 0.16, 0.84);
 
   // Seamless Terrain-Blended Eldhraun Moss-Pillow Mound Material:
   // Exact terrain moss color + terrain-matched base normals so pillows flow organically out of the ground with ZERO seam!
@@ -1623,7 +1958,7 @@ export function createTerrainSystem(texLib, scene) {
     metalness: 0.0
   });
   cushionMat.fog = false;
-  cushionMat.customProgramCacheKey = () => 'ls_eldhraun_cushion_v3';
+  cushionMat.customProgramCacheKey = () => 'ls_eldhraun_cushion_v4';
   cushionMat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, ATMO_UNIFORMS);
     shader.uniforms.uMossTex = { value: texLib.moss.map };

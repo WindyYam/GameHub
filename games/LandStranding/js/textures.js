@@ -180,61 +180,67 @@ function createMossTextures(size = 512) {
     const v = y / size;
     for (let x = 0; x < size; x++) {
       const u = x / size;
-      // Domain warp breaks up cellular regularity into organic turf/moss clusters
-      const warpU = (tileFbm(u, v, 4, 3, 71) - 0.5) * 0.10;
-      const warpV = (tileFbm(u + 0.37, v - 0.21, 4, 3, 89) - 0.5) * 0.10;
+      // Multi-scale domain warp breaks up cellular regularity into organic woven turf & woolly moss
+      const warpU = (tileFbm(u, v, 3, 3, 71) - 0.5) * 0.19 + (tileFbm(u, v, 8, 2, 137) - 0.5) * 0.06;
+      const warpV = (tileFbm(u + 0.37, v - 0.21, 3, 3, 89) - 0.5) * 0.19 + (tileFbm(u + 0.19, v - 0.43, 8, 2, 149) - 0.5) * 0.06;
       const wu = (u + warpU + 1.0) % 1.0;
       const wv = (v + warpV + 1.0) % 1.0;
 
-      // Soft turf swells + crisp fine grass-blade & moss-tuft micro-strands (two crossed anisotropic directions!)
-      tileWorley(wu, wv, 8, 107, wA);
-      tileWorley(wu, wv, 28, 211, wB);
-      const pillow = Math.pow(clamp(1.0 - wA.f1 * 1.05, 0, 1), 0.78);
-      const crevice = clamp(wA.edge * 2.6, 0, 1);
-      const clump = Math.pow(clamp(1.0 - wB.f1 * 1.18, 0, 1), 0.80);
+      // Fine organic moss micro-tufts (higher frequency to avoid blobby polka-dot repetition at range)
+      tileWorley(wu, wv, 22, 107, wA);
+      tileWorley(wu, wv, 48, 211, wB);
+      const tuft = Math.pow(clamp(1.0 - wA.f1 * 0.92, 0, 1), 0.80);
+      const clump = Math.pow(clamp(1.0 - wB.f1 * 1.08, 0, 1), 0.84);
+      const rootCrev = clamp(wA.edge * 2.8, 0, 1);
 
-      // Crisp fine directional micro-grass strands so terrain looks razor-sharp up close AND at mid-range!
-      const strandA = tileNoise((u * 2.0 + v * 0.35) % 1.0, (v * 0.45 - u * 0.15 + 1.0) % 1.0, 96, 331);
-      const strandB = tileNoise((u * 0.40 - v * 0.25 + 1.0) % 1.0, (v * 2.0 + u * 0.30) % 1.0, 96, 389);
-      const blades = Math.max(strandA, strandB);
-      const fuzz = tileFbm(u, v, 32, 4, 307);
-      const microBud = tileNoise(u, v, 160, 409);
-      const grain = tileNoise(u, v, 256, 463);
+      // Four non-orthogonal fine botanical blade/moss-fiber directions (organic woven turf, zero grid!)
+      const strandA = tileNoise((u * 2.0 + v * 0.38) % 1.0, (v * 0.48 - u * 0.18 + 1.0) % 1.0, 96, 331);
+      const strandB = tileNoise((u * 0.42 - v * 0.26 + 1.0) % 1.0, (v * 2.0 + u * 0.32) % 1.0, 96, 389);
+      const strandC = tileNoise((u * 1.41 + v * 1.41) % 1.0, (v * 0.54 - u * 0.54 + 1.0) % 1.0, 88, 419);
+      const strandD = tileNoise((u * 1.35 - v * 1.25 + 2.0) % 1.0, (v * 0.62 + u * 0.48) % 1.0, 112, 443);
+      const blades = Math.max(Math.max(strandA * 0.96, strandB * 0.96), Math.max(strandC * 0.92, strandD * 0.90));
+
+      const macroFbm = tileFbm(wu, wv, 5, 4, 271);
+      const ridgedTurf = tileRidged(wu, wv, 10, 3, 293);
+      const fuzz = tileFbm(u, v, 24, 4, 307);
+      const microBud = tileNoise(u, v, 144, 409);
+      const grain = tileNoise(u, v, 224, 463);
 
       const h = clamp(
-        pillow * 0.24 * (0.45 + 0.55 * crevice) +
-        clump * 0.22 +
-        blades * 0.26 +
-        fuzz * 0.14 +
-        microBud * 0.09 +
-        grain * 0.05,
+        (macroFbm * 0.20 +
+        ridgedTurf * 0.14 +
+        tuft * 0.13 +
+        clump * 0.14 +
+        blades * 0.21 +
+        fuzz * 0.10 +
+        microBud * 0.05 +
+        grain * 0.03) * (0.76 + 0.24 * rootCrev),
         0,
         1
       );
       hBuf[y * size + x] = h;
 
-      // Vibrant sunlit Icelandic meadow turf palette (full sRGB dynamic range, matching Death Stranding grass/moss!)
-      // Deep emerald-peat root gaps (#202d0d) -> rich meadow olive (#648024) -> sunlit golden-chartreuse tips (#b4c642)
-      const tipMask = clamp((h - 0.34) * 1.85, 0, 1);
-      const darkCrev = clamp(h * 1.38, 0, 1);
-      const patchTint = wA.id;
+      // Cohesive vibrant Icelandic moss & turf albedo matching original sunlit art direction
+      const tipMask = clamp((h - 0.36) * 1.75, 0, 1);
+      const darkCrev = clamp(0.28 + h * 0.92, 0, 1);
+      const patchTint = wA.id * 0.30 + macroFbm * 0.50 + fuzz * 0.20;
 
-      let r = mix(30, mix(88, 142, patchTint), darkCrev);
-      let g = mix(42, mix(116, 152, patchTint * 0.75), darkCrev);
-      let b = mix(13, mix(28, 38, patchTint * 0.5), darkCrev);
+      let r = mix(42, mix(96, 134, patchTint), darkCrev);
+      let g = mix(54, mix(118, 144, patchTint * 0.80), darkCrev);
+      let b = mix(20, mix(36, 48, patchTint * 0.65), darkCrev);
 
-      // Crisp sunlit golden-olive grass blade tips & woolly moss highlights
+      // Sunlit golden-olive grass blade tips & woolly moss highlights
       const bladeTip = clamp(tipMask * (0.35 + 0.65 * blades) * (0.55 + 0.45 * microBud), 0, 1);
-      r = mix(r, 186, bladeTip * 0.64);
-      g = mix(g, 198, bladeTip * 0.62);
-      b = mix(b, 64, bladeTip * 0.50);
+      r = mix(r, 174, bladeTip * 0.52);
+      g = mix(g, 186, bladeTip * 0.50);
+      b = mix(b, 72, bladeTip * 0.40);
 
-      // Subtle dry golden-straw & pale lichen micro-flecks for photographic natural breakup
-      if (fuzz > 0.68 && h > 0.54) {
-        const lt = clamp((fuzz - 0.68) * 3.0, 0, 0.45);
-        r = mix(r, 178, lt);
-        g = mix(g, 170, lt);
-        b = mix(b, 92, lt);
+      // Subtle silvery-sage Racomitrium lichen tips & dry sedge wisps
+      if (fuzz > 0.66 && h > 0.52) {
+        const lt = clamp((fuzz - 0.66) * 2.4, 0, 0.36);
+        r = mix(r, 166, lt);
+        g = mix(g, 166, lt);
+        b = mix(b, 108, lt);
       }
 
       const idx = (y * size + x) * 4;
@@ -247,13 +253,13 @@ function createMossTextures(size = 512) {
 
   return {
     map: makeDataTexture(rgba, size, { srgb: true }),
-    normalMap: heightToNormalDataTexture(hBuf, size, 6.8)
+    normalMap: heightToNormalDataTexture(hBuf, size, 5.4)
   };
 }
 
 /**
  * 2. Weathered Columnar & Fractured Icelandic Basalt Cliff — 512x512.
- * Full-range weathered slate-grey stone, crisp vertical columnar striations, angular fracture blocks & quartz edges.
+ * Preserves the original crisp weathered slate-grey volcanic stone palette with organic non-repetitive facets.
  */
 function createBasaltCliffTextures(size = 512) {
   const rgba = new Uint8Array(size * size * 4);
@@ -266,13 +272,13 @@ function createBasaltCliffTextures(size = 512) {
     for (let x = 0; x < size; x++) {
       const u = x / size;
 
-      // Strong isotropic geological domain warp breaks any directional striping or tiling
+      // Strong isotropic geological domain warp breaks directional striping or tiling
       const wU = (tileFbm(u, v, 4, 3, 503) - 0.5) * 0.16;
       const wV = (tileFbm(u + 0.37, v - 0.23, 4, 3, 521) - 0.5) * 0.16;
       const uu = (u + wU + 1.0) % 1.0;
       const vv = (v + wV + 1.0) % 1.0;
 
-      // Chaotic isotropic Voronoi basalt fracture blocks (zero vertical stripes!)
+      // Chaotic isotropic Voronoi basalt fracture blocks (clean weathered slate-grey)
       tileWorley(uu, vv, 7, 607, wBlock);
       tileWorley(uu, vv, 17, 653, wFract);
 
@@ -293,7 +299,7 @@ function createBasaltCliffTextures(size = 512) {
       );
       hBuf[y * size + x] = h;
 
-      // Weathered cool slate-grey basalt with rich contrast (#242a30 fissures -> #8e969e sunlit rock faces!)
+      // Weathered cool slate-grey basalt with original contrast (#242a30 fissures -> #8e969e sunlit rock faces)
       const edgeHighlight = clamp((1.0 - wBlock.f1) * 0.32 + ridgeA * 0.22, 0, 1);
       const base = mix(34, 128, Math.pow(h, 0.88)) + edgeHighlight * 20;
       const mineralTint = (wBlock.id - 0.5) * 14.0;
