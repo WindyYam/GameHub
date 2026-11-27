@@ -793,6 +793,20 @@ export function getCellFeatures(cx, cz) {
     }
   }
 
+  let riverMinX = Infinity, riverMaxX = -Infinity, riverMinZ = Infinity, riverMaxZ = -Infinity;
+  for (let i = 0; i < riverPts.length; i++) {
+    const p = riverPts[i];
+    if (p.x < riverMinX) riverMinX = p.x;
+    if (p.x > riverMaxX) riverMaxX = p.x;
+    if (p.z < riverMinZ) riverMinZ = p.z;
+    if (p.z > riverMaxZ) riverMaxZ = p.z;
+  }
+  const riverPad = 64.0;
+  riverMinX -= riverPad;
+  riverMaxX += riverPad;
+  riverMinZ -= riverPad;
+  riverMaxZ += riverPad;
+
   // Helper: check distance from rivers AND ensure landmarks never spawn underwater inside glacial lakes!
   const riverDistAt = (px, pz) => {
     let bestD = getNearestTrunkDist(px, pz);
@@ -838,42 +852,42 @@ export function getCellFeatures(cx, cz) {
     const baseYaw = Math.atan2(nx, nz); // Oriented organically relative to valley & escarpment
 
     // Iconic Black-Timber Icelandic Church (Búðakirkja style) standing prominently on village eastern edge
-    if (!isWetInLake(vx + tx * 21.0 + nx * 6.0, vz + tz * 21.0 + nz * 6.0, 14.0)) {
+    if (!isWetInLake(vx + tx * 25.0 + nx * 6.0, vz + tz * 25.0 + nz * 6.0, 15.0)) {
       buildings.push({
         kind: 'church',
-        x: vx + tx * 21.0 + nx * 6.0,
-        z: vz + tz * 21.0 + nz * 6.0,
+        x: vx + tx * 25.0 + nx * 6.0,
+        z: vz + tz * 25.0 + nz * 6.0,
         yaw: baseYaw + Math.PI * 0.5 + (h1 - 0.5) * 0.35,
-        radius: 8.5
+        radius: 10.5
       });
     }
 
     // Organic Icelandic hamlet cluster: mostly low-slung mossy turf farmhouses + 2-3 weathered silver-timber barns
     const villageLanePts = [
-      { x: vx - tx * 34 - nx * 16, z: vz - tz * 34 - nz * 16 },
-      { x: vx - tx * 10 - nx * 6,  z: vz - tz * 10 - nz * 6 },
-      { x: vx + tx * 8  - nx * 2,  z: vz + tz * 8  - nz * 2 },
-      { x: vx + tx * 22 + nx * 1,  z: vz + tz * 22 + nz * 1 }
+      { x: vx - tx * 38 - nx * 16, z: vz - tz * 38 - nz * 16 },
+      { x: vx - tx * 12 - nx * 6,  z: vz - tz * 12 - nz * 6 },
+      { x: vx + tx * 10 - nx * 2,  z: vz + tz * 10 - nz * 2 },
+      { x: vx + tx * 26 + nx * 1,  z: vz + tz * 26 + nz * 1 }
     ];
 
     for (let b = 0; b < houseCount; b++) {
       // Arrange turf houses along gentle arc behind the lane, timber barns slightly forward by the paddock!
       const isFrontBarn = b < 2;
-      const along = ((b / Math.max(houseCount - 1, 1)) - 0.5) * 48.0 + (hash2i(cx * 17 + b, cz, _seedInt + 401) - 0.5) * 8.0;
+      const along = ((b / Math.max(houseCount - 1, 1)) - 0.5) * 58.0 + (hash2i(cx * 17 + b, cz, _seedInt + 401) - 0.5) * 8.0;
       const depth = isFrontBarn
-        ? -13.0 - hash2i(b, cz * 19, _seedInt + 419) * 10.0
-        : 4.0 + hash2i(cx, b * 23, _seedInt + 421) * 18.0;
+        ? -14.5 - hash2i(b, cz * 19, _seedInt + 419) * 11.0
+        : 5.5 + hash2i(cx, b * 23, _seedInt + 421) * 20.0;
       const bx = vx + tx * along + nx * depth;
       const bz = vz + tz * along + nz * depth;
 
       let overlap = false;
       for (const ex of buildings) {
-        if (Math.hypot(ex.x - bx, ex.z - bz) < 12.0) {
+        if (Math.hypot(ex.x - bx, ex.z - bz) < 16.5) {
           overlap = true;
           break;
         }
       }
-      if (overlap || riverDistAt(bx, bz) < 22 || isWetInLake(bx, bz, 14.0)) continue;
+      if (overlap || riverDistAt(bx, bz) < 22 || isWetInLake(bx, bz, 15.0)) continue;
 
       const styleR = hash2i(cx + b * 7, cz + b * 13, _seedInt + 439);
       const kind = isFrontBarn ? 'weathered_barn' : (styleR < 0.78 ? 'turf_cottage' : 'weathered_barn');
@@ -884,10 +898,10 @@ export function getCellFeatures(cx, cz) {
         x: bx,
         z: bz,
         yaw: baseYaw + Math.PI + (isFrontBarn ? (b === 0 ? 0.22 : -0.18) : (hash2i(b, cx, _seedInt + 491) - 0.5) * 0.55),
-        scale: 0.90 + hash2i(cz, b, _seedInt + 509) * 0.24,
+        scale: 0.96 + hash2i(cz, b, _seedInt + 509) * 0.18,
         roofStyle,
         hasSmoke: kind === 'turf_cottage' && b < 4,
-        radius: 5.8
+        radius: 7.8
       });
     }
 
@@ -1110,6 +1124,10 @@ export function getCellFeatures(cx, cz) {
     cliffHeight,
     hasRiver,
     riverPts,
+    riverMinX,
+    riverMaxX,
+    riverMinZ,
+    riverMaxZ,
     waterfall,
     village,
     outposts,
@@ -1328,7 +1346,7 @@ export function sampleWorld(x, z, out = null) {
 
       // Carve waterfall outflow tributary channel connecting seamlessly into the infinite trunk river!
       if (f.hasRiver && f.riverPts.length >= 2) {
-        if (Math.abs(x - f.cx * CELL_SIZE) < 760 && Math.abs(z - f.cz * CELL_SIZE) < 760) {
+        if (x >= f.riverMinX && x <= f.riverMaxX && z >= f.riverMinZ && z <= f.riverMaxZ) {
           distToPolyline2D(x, z, f.riverPts, _polyTmp);
           const rJit = (fbm2(x * 0.08, z * 0.08, 2, _seedInt + 409) - 0.5) * 2.8;
           const halfW = mix(6.8, 11.4, _polyTmp.t) + rJit;
@@ -1337,8 +1355,12 @@ export function sampleWorld(x, z, out = null) {
             const valleyF = 1.0 - smootherstep(halfW * 0.85, halfW * 4.4, _polyTmp.dist);
             const p0 = f.riverPts[0];
             const pEnd = f.riverPts[f.riverPts.length - 1];
-            const startWaterY = Math.max(getTrunkWaterY(p0.x, p0.z) + 1.4, 13.5 + fbm2(p0.x * 0.0014, p0.z * 0.0014, 4, _seedInt + 7) * 14.0);
-            const endWaterY = getTrunkWaterY(pEnd.x, pEnd.z);
+            const endWaterY = getTrunkWaterYAt(pEnd.x, pEnd.z);
+            const startWaterY = Math.max(
+              endWaterY + 1.8,
+              getTrunkWaterY(p0.x, p0.z) + 1.4,
+              13.5 + fbm2(p0.x * 0.0014, p0.z * 0.0014, 4, _seedInt + 7) * 14.0
+            );
             const targetWaterY = mix(startWaterY, endWaterY, _polyTmp.t);
             const targetBedY = targetWaterY - 0.35;
 

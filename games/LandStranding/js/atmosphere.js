@@ -58,14 +58,14 @@ export const WEATHER_PRESETS = {
   },
   clear: {
     name: 'Crisp Arctic Sky',
-    cloudCoverage: 0.14,
-    cloudDarkness: 0.06,
-    fogDensity: 0.00028,
-    fogLowDensity: 0.00030,
+    cloudCoverage: 0.10,
+    cloudDarkness: 0.04,
+    fogDensity: 0.00024,
+    fogLowDensity: 0.00025,
     rainIntensity: 0.0,
-    wetness: 0.04,
+    wetness: 0.02,
     windStrength: 0.24,
-    sunGain: 1.38,
+    sunGain: 1.85,
     ambientGain: 0.98
   }
 };
@@ -629,9 +629,10 @@ export function createSkyDome() {
         vec3 sky = mix(uSkyZenith, uSkyHorizon, hMix);
 
         float sunCos = max(dot(rd, uSunDir), 0.0);
-        float sunScatter = pow(sunCos, 5.0) * 0.44 + pow(sunCos, 36.0) * 0.50;
+        float clearSunBoost = 1.0 - smoothstep(0.10, 0.55, uCloudCoverage);
+        float sunScatter = pow(sunCos, 5.0) * (0.44 + clearSunBoost * 0.18) + pow(sunCos, 36.0) * (0.50 + clearSunBoost * 0.35);
         float sunDisc = smoothstep(0.9993, 0.99985, sunCos) * (1.0 - smoothstep(0.45, 0.92, uCloudCoverage));
-        sky += uSunColor * (sunScatter * (1.0 - uCloudCoverage * 0.48) + sunDisc * 4.2) * (1.0 - uNightFactor * 0.92);
+        sky += uSunColor * (sunScatter * (1.0 - uCloudCoverage * 0.48) + sunDisc * (4.2 + clearSunBoost * 2.0)) * (1.0 - uNightFactor * 0.92);
 
         // Night Milky Way Galaxy & rotating Icelandic starfield (rotates around Polaris 64.15 deg N; Aurora stays Earth-fixed!)
         vec3 celDir = toIcelandCelestial(rd);
@@ -1046,11 +1047,11 @@ export function createEnvironmentController(scene, renderer, skyDome) {
     const overcastFrac = smoothstep(0.25, 0.88, curWx.cloudCoverage);
 
     // Clear crisp Nordic Azure Blue Sky vs Moody Storm Icelandic Overcast
-    _cA.setRGB(0.042, 0.165, 0.54); // Rich deep azure clear zenith
+    _cA.setRGB(0.048, 0.22, 0.72); // Rich bright azure clear zenith
     _cB.setRGB(0.11, 0.14, 0.18);   // Moody storm zenith
     _zenithCol.copy(_cA).lerp(_cB, overcastFrac);
 
-    _cA.setRGB(0.34, 0.56, 0.84);   // Crisp bright sky-blue clear horizon
+    _cA.setRGB(0.22, 0.50, 0.90);   // Crisp vibrant sky-blue clear horizon
     _cB.setRGB(0.58, 0.63, 0.67);   // Luminous overcast silver horizon
     _horizonCol.copy(_cA).lerp(_cB, overcastFrac);
 
@@ -1067,7 +1068,7 @@ export function createEnvironmentController(scene, renderer, skyDome) {
     _horizonCol.lerp(_cA, nightFactor);
 
     // Natural humid Icelandic misty blue-grey aerial perspective (crisp blue sky haze on clear days!)
-    _cA.setRGB(0.20, 0.33, 0.50); // Crisp Nordic clear-air azure haze
+    _cA.setRGB(0.18, 0.36, 0.62); // Crisp Nordic clear-air azure haze
     _cB.setRGB(0.25, 0.30, 0.34); // Humid overcast Icelandic blue-grey mist
     _fogCol.copy(_cA).lerp(_cB, overcastFrac);
     _fogCol.lerp(_cA.setRGB(0.46, 0.33, 0.26), twilightFactor * 0.55);
@@ -1092,8 +1093,8 @@ export function createEnvironmentController(scene, renderer, skyDome) {
     const stormBoost = smoothstep(0.75, 1.0, curWx.rainIntensity) * (0.14 + 0.20 * (0.5 + 0.5 * Math.sin(tWind * 0.32 + Math.sin(tWind * 0.14) * 1.4)));
     ATMO_UNIFORMS.uWindStrength.value = curWx.windStrength + stormBoost;
 
-    // Directional key light: WARMER golden sunlight on clear days -> cool silver overcast -> amber dusk -> pale arctic moon
-    _cA.setRGB(1.0, 0.90, 0.74); // Warm golden clear-day sun
+    // Directional key light: WARMER bright sunlight on clear days -> cool silver overcast -> amber dusk -> pale arctic moon
+    _cA.setRGB(1.0, 0.92, 0.78); // Bright warm clear-day sun
     _cB.setRGB(0.95, 0.97, 1.0); // Cool silver overcast diffuse light
     _sunCol.copy(_cA).lerp(_cB, overcastFrac);
     _sunCol.lerp(_cA.setRGB(1.0, 0.62, 0.34), twilightFactor * 0.85);
@@ -1114,7 +1115,7 @@ export function createEnvironmentController(scene, renderer, skyDome) {
     );
     sunLight.color.copy(_sunCol);
 
-    const dayKeyInt = (2.15 - overcastFrac * 0.62) * curWx.sunGain * (1.0 - nightFactor * 0.92);
+    const dayKeyInt = (2.35 - overcastFrac * 0.82) * curWx.sunGain * (1.0 - nightFactor * 0.92);
     const nightKeyInt = 0.26 * nightFactor;
     sunLight.intensity = dayKeyInt + nightKeyInt + state.lightningFlash * 1.6;
 

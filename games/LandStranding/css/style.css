@@ -233,8 +233,28 @@ button.active {
   transition: opacity 0.2s ease, transform 0.2s ease, border-color 0.18s;
 }
 
-#bike-banner.hidden {
+#bike-banner.hidden,
+#door-prompt.hidden {
   display: none;
+}
+
+#door-prompt {
+  position: absolute;
+  left: 50%;
+  bottom: 118px;
+  transform: translateX(-50%);
+  padding: 7px 16px;
+  border-radius: 999px;
+  background: rgba(12, 18, 24, 0.80);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: #eef4f8;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  pointer-events: none;
+  z-index: 20;
+  backdrop-filter: blur(6px);
 }
 
 #bike-banner.readonly {

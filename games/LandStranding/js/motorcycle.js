@@ -1611,13 +1611,55 @@ export function createMotorcycleSystem(scene, audioSys) {
     // Smooth glancing deflection ONLY for giant vertical spires & village buildings (never stops on field rocks!)
     const resolveSolidWalls = (cols) => {
       if (!cols) return;
+      const bikeR = 0.72;
       for (let i = 0; i < cols.length; i++) {
         const c = cols[i];
         if (c.kind === 'rock') continue;
+        if (c.kind === 'box') {
+          if (c.isInterior) continue;
+          const dx = state.pos.x - c.x;
+          const dz = state.pos.z - c.z;
+          const lx = dx * c.cosY - dz * c.sinY;
+          const lz = dx * c.sinY + dz * c.cosY;
+          const cx = Math.max(-c.hx, Math.min(c.hx, lx));
+          const cz = Math.max(-c.hz, Math.min(c.hz, lz));
+          const dlx = lx - cx;
+          const dlz = lz - cz;
+          const dist = Math.hypot(dlx, dlz);
+          if (dist < bikeR) {
+            let nlx = 0;
+            let nlz = 0;
+            let push = 0;
+            if (dist > 0.0001) {
+              nlx = dlx / dist;
+              nlz = dlz / dist;
+              push = bikeR - dist;
+            } else {
+              const ox = c.hx - Math.abs(lx);
+              const oz = c.hz - Math.abs(lz);
+              if (ox < oz) { nlx = lx >= 0 ? 1 : -1; push = ox + bikeR; }
+              else { nlz = lz >= 0 ? 1 : -1; push = oz + bikeR; }
+            }
+            const nx = nlx * c.cosY + nlz * c.sinY;
+            const nz = -nlx * c.sinY + nlz * c.cosY;
+            state.pos.x += nx * push;
+            state.pos.z += nz * push;
+            const fx = Math.sin(state.yaw);
+            const fz = Math.cos(state.yaw);
+            const headOn = -(fx * nx + fz * nz);
+            if (headOn > 0.0) {
+              const cross = fx * nz - fz * nx;
+              const deflectDir = cross >= 0 ? 1 : -1;
+              state.yaw += deflectDir * clamp((1.0 - headOn * 0.5) * 2.2 * dt, 0, 0.22);
+              state.speed *= mix(0.95, 0.70, clamp(headOn, 0, 1));
+            }
+          }
+          continue;
+        }
         const dx = state.pos.x - c.x;
         const dz = state.pos.z - c.z;
         const d = Math.hypot(dx, dz);
-        const minR = c.r + 0.72;
+        const minR = c.r + bikeR;
         if (d > 0.001 && d < minR) {
           const nx = dx / d;
           const nz = dz / d;

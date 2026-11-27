@@ -212,6 +212,8 @@ def build():
       <div class="bike-banner-sub" id="bike-banner-sub"></div>
     </div>
 
+    <div id="door-prompt" class="hidden" role="status"></div>
+
     <div class="hud-bottom-left" id="hud-key-hints">
       <div class="key-chip"><b>WASD</b> Walk</div>
       <div class="key-chip"><b>Shift</b> Sprint</div>

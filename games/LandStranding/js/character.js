@@ -1255,10 +1255,40 @@ export function createPorter(scene, onFootstep) {
       state.pos.z = nextZ;
     }
 
-    // Boulder & village building collision resolution
+    // Boulder & village building collision resolution (supports both circles and precise oriented wall boxes)
     const resolveCols = (cols) => {
+      const playerR = 0.38;
       for (const c of cols) {
         if (c.rideOnly) continue;
+        if (c.doorRef && c.doorRef.openProgress > 0.65) continue;
+        if (c.kind === 'box') {
+          const dx = state.pos.x - c.x;
+          const dz = state.pos.z - c.z;
+          const lx = dx * c.cosY - dz * c.sinY;
+          const lz = dx * c.sinY + dz * c.cosY;
+          const cx = Math.max(-c.hx, Math.min(c.hx, lx));
+          const cz = Math.max(-c.hz, Math.min(c.hz, lz));
+          const dlx = lx - cx;
+          const dlz = lz - cz;
+          const dist = Math.hypot(dlx, dlz);
+          let plx = 0;
+          let plz = 0;
+          if (dist > 0.0001 && dist < playerR) {
+            const push = (playerR - dist) / dist;
+            plx = dlx * push;
+            plz = dlz * push;
+          } else if (dist <= 0.0001) {
+            const ox = c.hx - Math.abs(lx);
+            const oz = c.hz - Math.abs(lz);
+            if (ox < oz) plx = (lx >= 0 ? 1 : -1) * (ox + playerR);
+            else plz = (lz >= 0 ? 1 : -1) * (oz + playerR);
+          }
+          if (plx !== 0 || plz !== 0) {
+            state.pos.x += plx * c.cosY + plz * c.sinY;
+            state.pos.z += -plx * c.sinY + plz * c.cosY;
+          }
+          continue;
+        }
         const dx = state.pos.x - c.x;
         const dz = state.pos.z - c.z;
         const d = Math.hypot(dx, dz);
@@ -1271,12 +1301,16 @@ export function createPorter(scene, onFootstep) {
       }
     };
     if (terrainSystem) resolveCols(terrainSystem.getCollidersNear(state.pos.x, state.pos.z, 3.5));
-    if (landmarkSystem) resolveCols(landmarkSystem.getCollidersNear(state.pos.x, state.pos.z, 3.5));
+    if (landmarkSystem) resolveCols(landmarkSystem.getCollidersNear(state.pos.x, state.pos.z, 6.5));
 
     state.pos.y += state.vel.y * safeDt;
     sampleWorld(state.pos.x, state.pos.z, _tmpSample);
     const caveInfo = getRiverCaveState(state.pos.x, state.pos.z, state.pos.y);
     let groundY = caveInfo.inCave ? caveInfo.floorY : _tmpSample.height;
+    if (landmarkSystem && landmarkSystem.getFloorHeightAt) {
+      const bFloor = landmarkSystem.getFloorHeightAt(state.pos.x, state.pos.z, state.pos.y);
+      if (bFloor !== null) groundY = Math.max(groundY, bFloor);
+    }
     // Buoyant wading floor in deep glacial lakes so the porter floats/wades smoothly at chest depth instead of sinking 30m!
     const lakeSubmerge = _tmpSample.lakeDepth || 0;
     if (lakeSubmerge > 1.12) {

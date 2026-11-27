@@ -556,32 +556,32 @@ function createLandmarkTextures(size = 256) {
       // 8d. Weathered Silver-Grey Vertical Barn Planks (driftwood Iceland barn siding!)
       const plankIdx = Math.floor(u * 14);
       const plankLocal = (u * 14) % 1;
-      const plankGap = plankLocal < 0.075 || plankLocal > 0.96 ? 0.18 : 1.0;
+      const plankGap = plankLocal < 0.075 || plankLocal > 0.96 ? 0.28 : 1.0;
       const plankVar = tileHash(plankIdx, 0, 14, 2447);
       const vertGrain = tileFbm(u * 6.0, v * 0.65, 14, 4, 2459);
-      const dampBot = mix(0.62, 1.04, clamp((1.0 - v) * 1.4, 0, 1));
+      const dampBot = mix(0.74, 1.04, clamp((1.0 - v) * 1.4, 0, 1));
       const wVal = clamp((0.35 + vertGrain * 0.55 + (plankVar - 0.5) * 0.28) * plankGap, 0, 1);
       woodH[y * size + x] = wVal;
-      const wr = mix(46, 134, wVal) * dampBot;
-      const wg = mix(45, 132, wVal) * dampBot;
-      const wb = mix(43, 127, wVal) * dampBot;
+      const wr = mix(88, 178, wVal) * dampBot;
+      const wg = mix(86, 175, wVal) * dampBot;
+      const wb = mix(82, 168, wVal) * dampBot;
       woodBuf[idx] = clamp(Math.round(wr), 0, 255);
       woodBuf[idx + 1] = clamp(Math.round(wg), 0, 255);
       woodBuf[idx + 2] = clamp(Math.round(wb), 0, 255);
       woodBuf[idx + 3] = 255;
 
-      // 8e. Pitch-Black Tarred Nordic Church Timber Siding (Búðakirkja dark weathered clapboard)
+      // 8e. Dark Weathered Tarred Nordic Church Timber Siding (Búðakirkja clapboard with legible grain & seams)
       const boardIdx = Math.floor(v * 16);
       const boardLocal = (v * 16) % 1;
-      const boardEdge = boardLocal < 0.09 ? 0.25 : 0.72 + boardLocal * 0.28;
+      const boardEdge = boardLocal < 0.09 ? 0.34 : 0.74 + boardLocal * 0.26;
       const boardVar = tileHash(0, boardIdx, 16, 2473);
       const hGrain = tileFbm(u * 0.6, v * 5.0, 12, 3, 2489);
-      const tVal = clamp((0.28 + hGrain * 0.45 + (boardVar - 0.5) * 0.20) * boardEdge, 0, 1);
+      const tVal = clamp((0.32 + hGrain * 0.45 + (boardVar - 0.5) * 0.22) * boardEdge, 0, 1);
       tarH[y * size + x] = tVal;
-      const tc = mix(14, 44, tVal);
-      tarBuf[idx] = clamp(Math.round(tc), 0, 255);
+      const tc = mix(46, 102, tVal);
+      tarBuf[idx] = clamp(Math.round(tc + 2), 0, 255);
       tarBuf[idx + 1] = clamp(Math.round(tc + 1), 0, 255);
-      tarBuf[idx + 2] = clamp(Math.round(tc + 3), 0, 255);
+      tarBuf[idx + 2] = clamp(Math.round(tc), 0, 255);
       tarBuf[idx + 3] = 255;
 
       // 8f. Dry-Stacked Volcanic Basalt Rubble Stone Wall with Mossy Mortar Crevices (authentic turf-house walls!)
@@ -594,15 +594,15 @@ function createLandmarkTextures(size = 256) {
       stoneH[y * size + x] = sVal;
 
       const isMossCrevice = stoneEdge < 0.36 && stoneTex > 0.38;
-      const stoneShade = mix(18, 72, sVal) * mix(0.75, 1.22, wStone.id);
+      const stoneShade = mix(68, 152, sVal) * mix(0.80, 1.20, wStone.id);
       if (isMossCrevice) {
-        stoneBuf[idx] = clamp(Math.round(mix(24, 58, stoneTex)), 0, 255);
-        stoneBuf[idx + 1] = clamp(Math.round(mix(32, 74, stoneTex)), 0, 255);
-        stoneBuf[idx + 2] = clamp(Math.round(mix(12, 24, stoneTex)), 0, 255);
+        stoneBuf[idx] = clamp(Math.round(mix(44, 92, stoneTex)), 0, 255);
+        stoneBuf[idx + 1] = clamp(Math.round(mix(64, 122, stoneTex)), 0, 255);
+        stoneBuf[idx + 2] = clamp(Math.round(mix(26, 48, stoneTex)), 0, 255);
       } else {
         stoneBuf[idx] = clamp(Math.round(stoneShade - 1), 0, 255);
         stoneBuf[idx + 1] = clamp(Math.round(stoneShade + 1), 0, 255);
-        stoneBuf[idx + 2] = clamp(Math.round(stoneShade + 3), 0, 255);
+        stoneBuf[idx + 2] = clamp(Math.round(stoneShade + 4), 0, 255);
       }
       stoneBuf[idx + 3] = clamp(Math.round(sVal * 255), 0, 255);
     }

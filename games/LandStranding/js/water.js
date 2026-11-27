@@ -329,6 +329,13 @@ function buildRiverGeometry(pts) {
       spanWaterY[i] = spanWaterY[i - 1] * 0.25 + spanWaterY[i] * 0.5 + spanWaterY[i + 1] * 0.25;
     }
   }
+  // Enforce strict gravity-consistent downhill profile (water surface never climbs uphill toward confluence)
+  spanWaterY[samples.length - 1] = confWaterY + 0.02;
+  for (let i = samples.length - 2; i >= 0; i--) {
+    if (spanWaterY[i] < spanWaterY[i + 1]) {
+      spanWaterY[i] = spanWaterY[i + 1];
+    }
+  }
 
   for (let i = 0; i < samples.length; i++) {
     const sp = samples[i];

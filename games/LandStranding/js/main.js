@@ -506,6 +506,7 @@ async function bootWorld() {
   updateTitleCamera(camState.yaw);
   camera.updateMatrixWorld(true);
   bikeSys.prewarmShaders(composer, camera);
+  landmarkSys.finishPrewarm();
   composer.render();
 
   setLoadProgress(100, 'Ready');
@@ -588,6 +589,9 @@ window.addEventListener('keydown', (e) => {
     }
   }
   if ((k === 'e' || k === 'f') && !e.repeat) {
+    if (!bikeSys.state.riding && landmarkSys.toggleNearestDoor(porter.state.pos.x, porter.state.pos.y, porter.state.pos.z)) {
+      return;
+    }
     toggleMountMotorcycle();
   }
   if (k === 'v') {
@@ -1166,7 +1170,7 @@ function animate() {
 
   terrainSys.update(px, pz, false);
   waterSys.update(px, pz);
-  landmarkSys.update(px, pz);
+  landmarkSys.update(px, pz, dt);
   envCtrl.update(dt, porter.state.pos);
   weatherFX.update(camera, envCtrl.curWx.rainIntensity, porter.state.pos, dt);
   audioSys.update(
@@ -1280,8 +1284,22 @@ function animate() {
 
     // Lock camera directly to the already-smoothed gimbal pivot (eliminates double-lerp pitch oscillation!)
     camState.pos.set(desiredX, desiredY + camState.smoothFloorLift, desiredZ);
+    landmarkSys.clampCameraPos(camState.target, camState.pos);
     camera.position.copy(camState.pos);
     camera.lookAt(camState.target.x, camState.target.y + 0.56 + camState.smoothFloorLift * 0.65, camState.target.z);
+  }
+
+  const elDoorPrompt = document.getElementById('door-prompt');
+  if (elDoorPrompt) {
+    const nearDoor = !bikeSys.state.riding
+      ? landmarkSys.getNearestDoor(porter.state.pos.x, porter.state.pos.y, porter.state.pos.z)
+      : null;
+    if (nearDoor) {
+      elDoorPrompt.textContent = `[E] ${nearDoor.isOpen ? 'Close' : 'Open'} ${nearDoor.label} Door`;
+      elDoorPrompt.classList.remove('hidden');
+    } else {
+      elDoorPrompt.classList.add('hidden');
+    }
   }
 
   resolvePass.uniforms.uExposure.value = mix(1.06, 1.38, ATMO_UNIFORMS.uNightFactor.value);
@@ -1464,5 +1482,13 @@ window.__LANDSTRANDING__ = {
       triangles: lastSceneTris || renderer.info.render.triangles,
       planarReflActive: lastReflRendered
     };
+  },
+  getNearestDoor() {
+    const d = landmarkSys.getNearestDoor(porter.state.pos.x, porter.state.pos.y, porter.state.pos.z, 6.0);
+    return d ? { id: d.id, label: d.label, isOpen: d.isOpen, openProgress: d.openProgress, worldX: d.worldX, worldY: d.worldY, worldZ: d.worldZ } : null;
+  },
+  getVillageBuildings() {
+    const f = getCellFeatures(Math.round(porter.state.pos.x / 800), Math.round(porter.state.pos.z / 800));
+    return f.village ? f.village.buildings.map((b) => ({ kind: b.kind, x: b.x, z: b.z, yaw: b.yaw, scale: b.scale || 1 })) : [];
   }
 };
