@@ -899,6 +899,7 @@ export function createPorter(scene, onFootstep) {
 
   function createArm(side) {
     const shoulder = new THREE.Group();
+    shoulder.rotation.order = 'YXZ';
     shoulder.position.set(side * 0.218, 0.372, -0.006);
     upperTorsoGroup.add(shoulder);
 
@@ -988,6 +989,7 @@ export function createPorter(scene, onFootstep) {
 
   function createLeg(side) {
     const hip = new THREE.Group();
+    hip.rotation.order = 'YXZ';
     hip.position.set(side * 0.104, -0.03, 0); // World y = 0.91
     pelvisGroup.add(hip);
 
@@ -1104,6 +1106,9 @@ export function createPorter(scene, onFootstep) {
     scanActive: false,
     scanAge: 0,
     scanDuration: 2.8,
+    laserPrintActive: false,
+    laserTarget: new THREE.Vector3(),
+    isRiding: false,
     surfaceType: 'moss'
   };
 
@@ -1113,9 +1118,15 @@ export function createPorter(scene, onFootstep) {
   const _invPelvisQuat = new THREE.Quaternion();
   const _hipWorld = new THREE.Vector3();
   const _footTarget = new THREE.Vector3();
+  const _armTargetLocal = new THREE.Vector3();
+  const _pegLocal = new THREE.Vector3();
+  const _invRootMat = new THREE.Matrix4();
+  const _invTorsoMat = new THREE.Matrix4();
+  const _laserLocal = new THREE.Vector3();
   const _tmpSample = {
     height: 0, moss: 0, cliff: 0, path: 0, scree: 0,
-    riverDepth: 0, riverMask: 0, flowX: 0, flowZ: 1, snow: 0, wetness: 0, hummockAO: 0.5
+    riverDepth: 0, riverMask: 0, lakeDepth: 0, lakeMask: 0, lakeWaterY: 16, lakeShoreDist: -9999,
+    flowX: 0, flowZ: 1, snow: 0, glacier: 0, wetness: 0, hummockAO: 0.5
   };
 
   function placeAt(x, z, yaw = state.yaw) {
@@ -1129,8 +1140,9 @@ export function createPorter(scene, onFootstep) {
     state.wasGrounded = true;
     state.landSquash = 0;
     state.landSquashVel = 0;
+    root.quaternion.identity();
     root.position.copy(state.pos);
-    root.rotation.y = yaw;
+    root.rotation.set(0, yaw, 0);
   }
 
   function triggerScan() {
@@ -1139,6 +1151,29 @@ export function createPorter(scene, onFootstep) {
     ATMO_UNIFORMS.uScanOrigin.value.copy(state.pos);
     ATMO_UNIFORMS.uScanRadius.value = 0.0;
     ATMO_UNIFORMS.uScanStrength.value = 1.0;
+  }
+
+  function setArmLaserTarget(worldPos, active) {
+    state.laserPrintActive = !!active;
+    if (active && worldPos) {
+      state.laserTarget.copy(worldPos);
+    }
+  }
+
+  function getArmEmitterWorldPos(outVec) {
+    root.updateMatrixWorld(true);
+    odradekCore.getWorldPosition(outVec);
+    return outVec;
+  }
+
+  function setRiding(riding) {
+    state.isRiding = !!riding;
+    if (!state.isRiding) {
+      root.quaternion.identity();
+      root.rotation.set(0, state.yaw, 0);
+      leftArm.shoulder.rotation.y = 0;
+      rightArm.shoulder.rotation.y = 0;
+    }
   }
 
   function update(dt, input, cameraYaw, terrainSystem, landmarkSystem) {
@@ -1223,6 +1258,7 @@ export function createPorter(scene, onFootstep) {
     // Boulder & village building collision resolution
     const resolveCols = (cols) => {
       for (const c of cols) {
+        if (c.rideOnly) continue;
         const dx = state.pos.x - c.x;
         const dz = state.pos.z - c.z;
         const d = Math.hypot(dx, dz);
@@ -1240,7 +1276,12 @@ export function createPorter(scene, onFootstep) {
     state.pos.y += state.vel.y * safeDt;
     sampleWorld(state.pos.x, state.pos.z, _tmpSample);
     const caveInfo = getRiverCaveState(state.pos.x, state.pos.z, state.pos.y);
-    const groundY = caveInfo.inCave ? caveInfo.floorY : _tmpSample.height;
+    let groundY = caveInfo.inCave ? caveInfo.floorY : _tmpSample.height;
+    // Buoyant wading floor in deep glacial lakes so the porter floats/wades smoothly at chest depth instead of sinking 30m!
+    const lakeSubmerge = _tmpSample.lakeDepth || 0;
+    if (lakeSubmerge > 1.12) {
+      groundY = Math.max(groundY, _tmpSample.lakeWaterY - 1.12);
+    }
 
     state.wasGrounded = state.grounded;
     // Allow slope/bump step-down snapping when previously grounded and not jumping upward
@@ -1275,8 +1316,8 @@ export function createPorter(scene, onFootstep) {
     const suspOffset = clamp(state.smoothBodyY - state.pos.y, -0.22, 0.09);
     state.smoothBodyY = state.pos.y + suspOffset;
 
-    // Classify ground surface & wading depth
-    const isWading = caveInfo.inCave || _tmpSample.riverDepth > 0.18;
+    // Classify ground surface & wading depth (rivers, caves, and glacial lake shallows)
+    const isWading = caveInfo.inCave || _tmpSample.riverDepth > 0.18 || lakeSubmerge > 0.16;
     if (isWading) state.surfaceType = 'water';
     else if (_tmpSample.scree > 0.45 || _tmpSample.path > 0.35) state.surfaceType = 'gravel';
     else state.surfaceType = 'moss';
@@ -1306,16 +1347,39 @@ export function createPorter(scene, onFootstep) {
 
     const t = ATMO_UNIFORMS.uTime.value;
 
-    // 4. Articulated 3-Joint Shoulder Odradek Scanner Animation
-    if (state.scanActive) {
+    // 4. Articulated 3-Joint Shoulder Mechanical Arm (Odradek Scanner & 3D Laser Printer!)
+    if (state.laserPrintActive) {
+      // Transform live 3D laser print focal point into upperTorsoGroup local space to articulate the mechanical arm!
+      upperTorsoGroup.updateMatrixWorld(true);
+      _invTorsoMat.copy(upperTorsoGroup.matrixWorld).invert();
+      _laserLocal.copy(state.laserTarget).applyMatrix4(_invTorsoMat).sub(odradekBase.position);
+      const aimYaw = clamp(Math.atan2(_laserLocal.x, Math.max(0.25, _laserLocal.z)), -1.15, 1.15);
+      const horizD = Math.hypot(_laserLocal.x, _laserLocal.z);
+      const aimPitch = clamp(Math.atan2(-_laserLocal.y, Math.max(0.35, horizD)), -0.55, 0.72);
+
+      // Unfold arm high & forward over the shoulder and track the rising laser print plane!
+      odradekBase.rotation.y = mix(odradekBase.rotation.y, aimYaw * 0.85, clamp(safeDt * 12, 0, 1));
+      odradekLowerArm.rotation.z = mix(odradekLowerArm.rotation.z, -0.22, clamp(safeDt * 10, 0, 1));
+      odradekLowerArm.rotation.x = mix(odradekLowerArm.rotation.x, 0.56 + aimPitch * 0.35, clamp(safeDt * 12, 0, 1));
+      odradekUpperArm.rotation.z = mix(odradekUpperArm.rotation.z, 0.14, clamp(safeDt * 10, 0, 1));
+      odradekUpperArm.rotation.x = mix(odradekUpperArm.rotation.x, 0.34 + aimPitch * 0.45, clamp(safeDt * 12, 0, 1));
+      odradekHead.rotation.x = mix(odradekHead.rotation.x, aimPitch * 0.45, clamp(safeDt * 14, 0, 1));
+      odradekHead.rotation.z += safeDt * 18.0;
+      for (let i = 0; i < petals.length; i++) {
+        petals[i].rotation.x = mix(petals[i].rotation.x, -0.58, clamp(safeDt * 12, 0, 1));
+      }
+    } else if (state.scanActive) {
       state.scanAge += safeDt;
       const p = state.scanAge / state.scanDuration;
       ATMO_UNIFORMS.uScanRadius.value = p * 125.0;
       ATMO_UNIFORMS.uScanStrength.value = Math.sin(clamp(p, 0, 1) * Math.PI);
       // Unfold arm dramatically up & forward, flare petals wide & spin optical head
+      odradekBase.rotation.y = mix(odradekBase.rotation.y, 0, clamp(safeDt * 8, 0, 1));
       odradekLowerArm.rotation.z = mix(odradekLowerArm.rotation.z, -0.14, clamp(safeDt * 10, 0, 1));
       odradekLowerArm.rotation.x = mix(odradekLowerArm.rotation.x, 0.28, clamp(safeDt * 10, 0, 1));
       odradekUpperArm.rotation.z = mix(odradekUpperArm.rotation.z, 0.08, clamp(safeDt * 10, 0, 1));
+      odradekUpperArm.rotation.x = mix(odradekUpperArm.rotation.x, 0, clamp(safeDt * 8, 0, 1));
+      odradekHead.rotation.x = mix(odradekHead.rotation.x, 0, clamp(safeDt * 8, 0, 1));
       odradekHead.rotation.z += safeDt * 15.0;
       for (let i = 0; i < petals.length; i++) {
         petals[i].rotation.x = mix(petals[i].rotation.x, -0.35, clamp(safeDt * 12, 0, 1));
@@ -1328,9 +1392,12 @@ export function createPorter(scene, onFootstep) {
     } else {
       // Subtle living mechanical idle micro-tracking & breathing sway
       const idleWave = Math.sin(t * 1.4) * 0.04;
+      odradekBase.rotation.y = mix(odradekBase.rotation.y, 0, clamp(safeDt * 5, 0, 1));
       odradekLowerArm.rotation.z = mix(odradekLowerArm.rotation.z, -0.32 + idleWave, clamp(safeDt * 5, 0, 1));
       odradekLowerArm.rotation.x = mix(odradekLowerArm.rotation.x, -0.08 + state.sprintBlend * 0.16, clamp(safeDt * 5, 0, 1));
       odradekUpperArm.rotation.z = mix(odradekUpperArm.rotation.z, 0.24 - idleWave * 0.8, clamp(safeDt * 5, 0, 1));
+      odradekUpperArm.rotation.x = mix(odradekUpperArm.rotation.x, 0, clamp(safeDt * 5, 0, 1));
+      odradekHead.rotation.x = mix(odradekHead.rotation.x, 0, clamp(safeDt * 6, 0, 1));
       odradekHead.rotation.z += safeDt * (state.isMoving ? 2.1 : 0.48);
       for (let i = 0; i < petals.length; i++) {
         petals[i].rotation.x = mix(petals[i].rotation.x, 0.05, clamp(safeDt * 6, 0, 1));
@@ -1483,7 +1550,7 @@ export function createPorter(scene, onFootstep) {
       const dy = _footTarget.y;
       const dz = _footTarget.z;
 
-      const r = Math.hypot(dx, Math.max(0.05, -dy));
+      const r = Math.hypot(dx, Math.max(0.15, -dy));
       const d = clamp(Math.hypot(r, dz), 0.18, L1 + L2 - 0.004);
 
       const cosKnee = clamp((L1 * L1 + L2 * L2 - d * d) / (2.0 * L1 * L2), -1, 1);
@@ -1493,7 +1560,7 @@ export function createPorter(scene, onFootstep) {
       const alpha = Math.acos(cosAlpha);
       const targetPitch = Math.atan2(dz, r);
       const hipX = -(targetPitch + alpha);
-      const hipZ = Math.atan2(dx, Math.max(0.1, -dy));
+      const hipZ = clamp(Math.atan2(dx, Math.max(0.45, Math.hypot(-dy, dz))), -0.22, 0.22);
 
       // Keep boot sole flat on terrain during stance, with natural heel-strike & toe-off roll
       const flatAnkleX = -(hipX + kneeX + pelvisGroup.rotation.x * 0.85);
@@ -1565,6 +1632,8 @@ export function createPorter(scene, onFootstep) {
 
     leftArm.wrist.rotation.x = mix(-0.08, -0.16 - sp * 0.14, g);
     rightArm.wrist.rotation.x = mix(-0.08, -0.16 - sp * 0.14, g);
+    leftArm.shoulder.rotation.y = mix(leftArm.shoulder.rotation.y, 0, armLerp);
+    rightArm.shoulder.rotation.y = mix(rightArm.shoulder.rotation.y, 0, armLerp);
 
     // Automatic night & subterranean cave chest-lamp activation!
     const lampNeed = Math.max(smoothstep(0.35, 0.85, ATMO_UNIFORMS.uNightFactor.value), caveInfo.darkness || 0);
@@ -1574,11 +1643,161 @@ export function createPorter(scene, onFootstep) {
     root.rotation.y = state.yaw;
   }
 
+  /**
+   * Lock the Porter anatomically onto the Bridges RT-04 motorcycle saddle with live 2-bone IK
+   * connecting both gloved hands to the steering handlebar grips and both arctic boots to the footpegs!
+   */
+  function syncRidingPose(dt, bikeData) {
+    const safeDt = Math.min(dt, 0.05);
+    const t = ATMO_UNIFORMS.uTime.value;
+
+    state.pos.copy(bikeData.bikePos);
+    state.smoothBodyY = bikeData.bikePos.y;
+    state.yaw = bikeData.bikeYaw;
+    state.speed = Math.abs(bikeData.bikeSpeed);
+    state.isMoving = state.speed > 0.3;
+    state.grounded = true;
+    state.wasGrounded = true;
+
+    root.position.copy(bikeData.seatWorldPos);
+    root.quaternion.copy(bikeData.seatWorldQuat);
+
+    const speedRatio = clamp(state.speed / 22.0, 0, 1);
+    const boostTuck = bikeData.boosting ? 0.14 : 0.0;
+    const breathe = Math.sin(t * 2.2) * 0.008;
+
+    // Seated pelvis squarely on the motorcycle saddle (local y = 0.87 matches saddle height 0.84)
+    pelvisGroup.position.set(0, 0.87, 0.01);
+    pelvisGroup.rotation.set(0.14, 0, 0);
+
+    // Forward aerodynamic riding lean + subtle turn lean-in & boost crouch
+    const torsoPitch = 0.34 + speedRatio * 0.10 + boostTuck + breathe;
+    upperTorsoGroup.position.set(0, 0.09, 0);
+    upperTorsoGroup.rotation.set(torsoPitch, bikeData.steerAngle * 0.18, -bikeData.steerAngle * 0.14);
+
+    // Head looks cleanly ahead down the trail & subtly into corners
+    headGroup.rotation.x = mix(headGroup.rotation.x, -torsoPitch * 0.78, clamp(safeDt * 10, 0, 1));
+    headGroup.rotation.y = mix(headGroup.rotation.y, bikeData.steerAngle * 0.55, clamp(safeDt * 10, 0, 1));
+    headGroup.rotation.z = -upperTorsoGroup.rotation.z * 0.6;
+
+    // Smooth suspension-coupled backpack settle (zero high-frequency vibration!)
+    const targetPackY = 0.21 + clamp(-(bikeData.suspVel || 0) * 0.009, -0.024, 0.024);
+    packGroup.position.y = mix(packGroup.position.y, targetPackY, clamp(safeDt * 10, 0, 1));
+    packGroup.rotation.z = -bikeData.steerAngle * 0.12;
+    packGroup.rotation.x = 0.05;
+
+    // Keep Odradek terrain scanner fully functional while riding!
+    if (state.scanActive) {
+      state.scanAge += safeDt;
+      const p = state.scanAge / state.scanDuration;
+      ATMO_UNIFORMS.uScanRadius.value = p * 125.0;
+      ATMO_UNIFORMS.uScanStrength.value = Math.sin(clamp(p, 0, 1) * Math.PI);
+      odradekBase.rotation.y = mix(odradekBase.rotation.y, 0, clamp(safeDt * 8, 0, 1));
+      odradekLowerArm.rotation.z = mix(odradekLowerArm.rotation.z, -0.14, clamp(safeDt * 10, 0, 1));
+      odradekLowerArm.rotation.x = mix(odradekLowerArm.rotation.x, 0.28, clamp(safeDt * 10, 0, 1));
+      odradekUpperArm.rotation.z = mix(odradekUpperArm.rotation.z, 0.08, clamp(safeDt * 10, 0, 1));
+      odradekUpperArm.rotation.x = mix(odradekUpperArm.rotation.x, 0, clamp(safeDt * 8, 0, 1));
+      odradekHead.rotation.z += safeDt * 15.0;
+      for (let i = 0; i < petals.length; i++) {
+        petals[i].rotation.x = mix(petals[i].rotation.x, -0.35, clamp(safeDt * 12, 0, 1));
+      }
+      if (p >= 1.0) {
+        state.scanActive = false;
+        ATMO_UNIFORMS.uScanStrength.value = 0.0;
+        ATMO_UNIFORMS.uScanRadius.value = -10.0;
+      }
+    } else {
+      odradekBase.rotation.y = mix(odradekBase.rotation.y, 0, clamp(safeDt * 5, 0, 1));
+      odradekLowerArm.rotation.z = mix(odradekLowerArm.rotation.z, -0.34, clamp(safeDt * 5, 0, 1));
+      odradekLowerArm.rotation.x = mix(odradekLowerArm.rotation.x, -0.16 - speedRatio * 0.14, clamp(safeDt * 5, 0, 1));
+      odradekUpperArm.rotation.z = mix(odradekUpperArm.rotation.z, 0.28, clamp(safeDt * 5, 0, 1));
+      odradekUpperArm.rotation.x = mix(odradekUpperArm.rotation.x, 0, clamp(safeDt * 5, 0, 1));
+      odradekHead.rotation.x = mix(odradekHead.rotation.x, 0, clamp(safeDt * 6, 0, 1));
+      odradekHead.rotation.z += safeDt * (1.2 + speedRatio * 3.5);
+      for (let i = 0; i < petals.length; i++) {
+        petals[i].rotation.x = mix(petals[i].rotation.x, 0.12, clamp(safeDt * 6, 0, 1));
+      }
+    }
+
+    // Update matrices so world-to-local transforms for exact handlebar & footpeg IK are frame-accurate
+    root.updateMatrixWorld(true);
+    _invRootMat.copy(root.matrixWorld).invert();
+    _invTorsoMat.copy(upperTorsoGroup.matrixWorld).invert();
+
+    // 2-Bone Leg IK onto motorcycle left/right footpegs (knees naturally straddling tank!)
+    _pelvisQuat.setFromEuler(pelvisGroup.rotation);
+    _invPelvisQuat.copy(_pelvisQuat).invert();
+    const L1 = 0.42;
+    const L2 = 0.39;
+
+    function solveRidingLeg(leg, side, pegWorld) {
+      _pegLocal.copy(pegWorld).applyMatrix4(_invRootMat);
+      _hipWorld.set(side * 0.104, -0.03, 0).applyQuaternion(_pelvisQuat).add(pelvisGroup.position);
+      _footTarget.copy(_pegLocal).sub(_hipWorld).applyQuaternion(_invPelvisQuat);
+
+      const dx = _footTarget.x + side * 0.04;
+      const dy = _footTarget.y + 0.08;
+      const dz = _footTarget.z;
+      const r = Math.hypot(dx, Math.max(0.12, -dy));
+      const d = clamp(Math.hypot(r, dz), 0.22, L1 + L2 - 0.01);
+
+      const cosKnee = clamp((L1 * L1 + L2 * L2 - d * d) / (2 * L1 * L2), -1, 1);
+      const kneeX = Math.PI - Math.acos(cosKnee);
+      const cosAlpha = clamp((L1 * L1 + d * d - L2 * L2) / (2 * L1 * d), -1, 1);
+      const alpha = Math.acos(cosAlpha);
+      const targetPitch = Math.atan2(dz, r);
+
+      leg.hip.rotation.x = -(targetPitch + alpha);
+      leg.hip.rotation.z = side * 0.25; // Clean knee straddle around fuel tank
+      leg.hip.rotation.y = side * 0.08;
+      leg.knee.rotation.x = kneeX;
+      leg.ankle.rotation.x = -(leg.hip.rotation.x + kneeX) * 0.65 + 0.18;
+      leg.ankle.rotation.z = -side * 0.14;
+    }
+
+    solveRidingLeg(leftLeg, 1, bikeData.leftPegWorld);
+    solveRidingLeg(rightLeg, -1, bikeData.rightPegWorld);
+
+    // 2-Bone Arm IK locking gloved hands precisely onto the steering handlebar grips!
+    const La = 0.285;
+    const Lb = 0.315;
+    function solveRidingArm(arm, side, gripWorld) {
+      _armTargetLocal.copy(gripWorld).applyMatrix4(_invTorsoMat).sub(arm.shoulder.position);
+      const dx = _armTargetLocal.x;
+      const dy = _armTargetLocal.y;
+      const dz = _armTargetLocal.z;
+      const horizD = Math.hypot(dx, dz);
+      const d = clamp(Math.hypot(horizD, dy), 0.18, La + Lb - 0.008);
+
+      const cosElbow = clamp((La * La + Lb * Lb - d * d) / (2 * La * Lb), -1, 1);
+      const elbowBend = Math.PI - Math.acos(cosElbow);
+      const cosAlpha = clamp((La * La + d * d - Lb * Lb) / (2 * La * d), -1, 1);
+      const alpha = Math.acos(cosAlpha);
+      const basePitch = Math.atan2(horizD, -dy);
+
+      arm.shoulder.rotation.y = Math.atan2(dx, Math.max(0.06, dz));
+      arm.shoulder.rotation.x = -(basePitch - alpha);
+      arm.shoulder.rotation.z = side * 0.10;
+      arm.elbow.rotation.x = -elbowBend;
+      arm.wrist.rotation.x = 0.22;
+    }
+
+    solveRidingArm(leftArm, 1, bikeData.leftGripWorld);
+    solveRidingArm(rightArm, -1, bikeData.rightGripWorld);
+
+    // Keep chest headlamp dimmed while riding since motorcycle headlight takes over
+    chestLamp.intensity = 0.0;
+  }
+
   return {
     root,
     state,
     placeAt,
     triggerScan,
+    setArmLaserTarget,
+    getArmEmitterWorldPos,
+    setRiding,
+    syncRidingPose,
     update
   };
 }

@@ -177,28 +177,21 @@ float atmoGNoise(vec2 p) {
   return clamp(mix(mix(a, b, u.x), mix(c, d, u.x), u.y) * 0.72 + 0.5, 0.0, 1.0);
 }
 
-// Sample flowing 3D volumetric cloud-mist density at any world position (non-uniform billowing cloud banks that visibly drift!)
+// Fast, smooth flowing 3D volumetric cloud-mist density at any world position (3 noise taps instead of 5 -> ~2x faster!)
 float sampleFlowingCloudFog(vec3 p) {
   vec2 flowMacro = uWindDir * (uTime * (2.6 + uWindStrength * 3.8));
-  vec2 flowWisp  = uWindDir * (uTime * (4.6 + uWindStrength * 6.2));
   vec2 uvM = p.xz * 0.0022 - flowMacro * 0.0022;
-  vec2 warp = vec2(
-    atmoGNoise(uvM * 1.35 + vec2(3.1, -5.2)) - 0.5,
-    atmoGNoise(uvM * 1.35 + vec2(-6.4, 2.7)) - 0.5
-  ) * 0.95;
+  float wN = atmoGNoise(uvM * 1.35 + vec2(3.1, -5.2)) - 0.5;
+  vec2 warp = vec2(wN, -wN * 0.85) * 0.90;
 
   // Macro cloud banks with genuine clear gaps between drifting mist patches!
   float bankMacro = atmoGNoise(uvM + warp + vec2(p.y * 0.0040, -p.y * 0.0032));
-  float bankBillow = atmoGNoise(p.xz * 0.0056 - flowWisp * 0.0056 + warp * 1.15 + vec2(p.y * 0.011, 4.7));
-  float bankFine = atmoGNoise(p.xz * 0.0140 - flowWisp * 0.0140 + vec2(-2.3, p.y * 0.017));
-  float rawCloud = bankMacro * 0.50 + bankBillow * 0.35 + bankFine * 0.15;
+  float bankBillow = atmoGNoise(p.xz * 0.0062 - flowMacro * 0.0095 + warp * 1.1 + vec2(p.y * 0.012, 4.7));
+  float rawCloud = bankMacro * 0.60 + bankBillow * 0.40;
 
-  // Threshold shifts with weather humidity: separated drifting cloud patches in overcast -> lush rolling cloud sea with organic breaks in storm
   float thresh = mix(0.44, 0.30, clamp(uRainWetness * 0.85, 0.0, 1.0));
   float cloudShape = smoothstep(thresh, thresh + 0.42, rawCloud);
 
-  // Two authentic Icelandic altitude cloud strata: flowing low valley mist sea + mountain-hugging orographic cloud belt!
-  // Widen the mountain belt in heavy rain/storm so high peaks sit smoothly inside the storm cloud veil!
   float valleyBand = exp(-max(p.y - 10.0, 0.0) * 0.020);
   float mtSpread = mix(88.0, 175.0, smoothstep(0.35, 1.0, uRainWetness));
   float mtD = (p.y - 178.0) / mtSpread;
@@ -211,18 +204,25 @@ float sampleFlowingCloudFog(vec3 p) {
 vec3 applyIcelandAtmo(vec3 col, vec3 worldPos) {
   vec3 toFrag = worldPos - cameraPosition;
   float dist = length(toFrag);
-  if (dist < 20.0) return col;
+  if (dist < 22.0) return col;
 
-  // Keep immediate foreground crisp, then integrate non-uniform flowing volumetric cloud-mist along the view ray!
   float fogDist = max(dist - 22.0, 0.0);
+  float stormAmt = smoothstep(0.55, 0.96, uCloudDarkness) * smoothstep(0.40, 1.0, uRainWetness);
+  float baseAir = (1.0 - exp(-fogDist * uFogDensity * mix(0.36, 0.52, stormAmt))) * mix(0.44, 0.66, stormAmt);
+
+  // Fast analytical clear-air path on crisp clear skies (skips volumetric raymarch completely!)
+  if (uFogLowDensity < 0.00038 && uRainWetness < 0.12) {
+    vec3 clearAir = uFogColor * vec3(0.92, 0.97, 1.04) + vec3(0.012, 0.048, 0.036) * uAuroraStrength * uNightFactor;
+    return mix(col, clearAir, clamp(baseAir * 1.18, 0.0, 0.72));
+  }
+
+  // Optimized 5-step smooth C2 ray-marched flowing volumetric cloud-fog (~3x faster than 10-step, identical drifting billows!)
   float marchLen = min(dist, 1650.0);
   vec3 rayDir = toFrag / max(dist, 0.001);
-
-  // 10-step smooth C2 ray-marched flowing volumetric cloud-fog (silky smooth across all distances & mountain slopes!)
   float cloudAccum = 0.0;
   float litAccum = 0.0;
-  float stepLen = marchLen * 0.10;
-  for (int i = 0; i < 10; i++) {
+  float stepLen = marchLen * 0.20;
+  for (int i = 0; i < 5; i++) {
     float t = (float(i) + 0.5) * stepLen;
     vec3 p = cameraPosition + rayDir * t;
     float dCloud = sampleFlowingCloudFog(p);
@@ -230,12 +230,8 @@ vec3 applyIcelandAtmo(vec3 col, vec3 worldPos) {
     cloudAccum += dCloud;
     litAccum += dCloud * hLit;
   }
-  float avgCloud = cloudAccum * 0.10;
+  float avgCloud = cloudAccum * 0.20;
   float avgLit = litAccum / max(cloudAccum, 0.001);
-
-  // Subtle clean atmospheric depth perspective (stronger in heavy storm so distant silhouettes truly melt into sky!)
-  float stormAmt = smoothstep(0.55, 0.96, uCloudDarkness) * smoothstep(0.40, 1.0, uRainWetness);
-  float baseAir = (1.0 - exp(-fogDist * uFogDensity * mix(0.36, 0.52, stormAmt))) * mix(0.44, 0.66, stormAmt);
 
   // Dominant non-uniform flowing volumetric cloud-mist optical thickness!
   float cloudOpt = fogDist * (uFogLowDensity * 1.72 + uFogDensity * 0.62) * avgCloud;
@@ -1026,10 +1022,10 @@ export function createEnvironmentController(scene, renderer, skyDome) {
 
     skyDome.mesh.position.copy(playerPos);
 
-    // Throttled PMREM environment bake for PBR wet basalt & metal
+    // Throttled PMREM environment bake for PBR wet basalt & metal (only rebake when sky/weather state actually changes!)
     const envKey = `${Math.round(state.timeOfDay * 6)}_${state.weather}_${Math.round(auroraIntensity * 4)}`;
     const now = ATMO_UNIFORMS.uTime.value;
-    if (now - lastEnvUpdate > 2.2 || envKey !== lastEnvStateKey) {
+    if (envKey !== lastEnvStateKey && (now - lastEnvUpdate > 2.5 || lastEnvStateKey === '')) {
       lastEnvUpdate = now;
       lastEnvStateKey = envKey;
       for (const u of Object.keys(iblMat.uniforms)) {

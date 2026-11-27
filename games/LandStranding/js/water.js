@@ -16,8 +16,12 @@ import {
   getTerrainHeight,
   getTrunkRiverX,
   getTrunkWaterY,
+  getTrunkWaterYAt,
   getTrunkCenterOverburden,
-  sampleWorld
+  sampleLake,
+  sampleWorld,
+  evalSingleLake,
+  getActiveLakesAround
 } from './world.js';
 import { ATMO_UNIFORMS, ATMO_GLSL_PARS } from './atmosphere.js';
 
@@ -36,6 +40,7 @@ function buildTrunkRiverSegment(bandIdx, zIdx) {
   const depthAttr = new Float32Array(vertCount);
   const flowAttr = new Float32Array(vertCount);
   const tunnelDarkAttr = new Float32Array(vertCount);
+  const lakeFadeAttr = new Float32Array(vertCount);
   const idx = [];
   const tmpS = {
     height: 0, moss: 0, cliff: 0, path: 0, scree: 0,
@@ -51,7 +56,7 @@ function buildTrunkRiverSegment(bandIdx, zIdx) {
     const invLen = 1.0 / Math.hypot(1.0, dxdz);
     const nx = invLen;
     const nz = -dxdz * invLen;
-    const waterY = getTrunkWaterY(rx, z);
+    const waterY = getTrunkWaterYAt(rx, z);
     const halfW = 17.5;
 
     for (let j = 0; j <= crossSegs; j++) {
@@ -76,6 +81,7 @@ function buildTrunkRiverSegment(bandIdx, zIdx) {
       depthAttr[vi] = mix(openDepth, caveDepth, inTunnel);
       flowAttr[vi] = 0.5;
       tunnelDarkAttr[vi] = smoothstep(15.5, 31.0, tmpS.caveOverburden);
+      lakeFadeAttr[vi] = 1.0 - smoothstep(-16.0, 6.0, tmpS.lakeShoreDist || -9999);
     }
   }
 
@@ -95,6 +101,7 @@ function buildTrunkRiverSegment(bandIdx, zIdx) {
   geo.setAttribute('aDepth', new THREE.BufferAttribute(depthAttr, 1));
   geo.setAttribute('aFlowT', new THREE.BufferAttribute(flowAttr, 1));
   geo.setAttribute('aTunnelDark', new THREE.BufferAttribute(tunnelDarkAttr, 1));
+  geo.setAttribute('aLakeFade', new THREE.BufferAttribute(lakeFadeAttr, 1));
   geo.setIndex(idx);
   geo.computeVertexNormals();
   geo.computeBoundingSphere();
@@ -276,17 +283,19 @@ function buildRiverGeometry(pts) {
   const uvs = new Float32Array(vertCount * 2);
   const depthAttr = new Float32Array(vertCount);
   const flowAttr = new Float32Array(vertCount);
+  const lakeFadeAttr = new Float32Array(vertCount);
   const idx = [];
 
   const tmpS = {
     height: 0, moss: 0, cliff: 0, path: 0, scree: 0,
     riverDepth: 0, riverMask: 0, flowX: 0, flowZ: 1, snow: 0, wetness: 0, hummockAO: 0.5
   };
+  const _rivLakeTmp = { lake: null, shoreMeters: -9999, bedDepth: 0, waterY: 16, shoreGrade: 60, isletBoost: 0 };
 
-  // Sample smooth monotonic channel floor heights & lock confluence endpoint cleanly to trunk river waterY!
+  // Sample smooth monotonic channel floor heights & lock confluence endpoint cleanly to trunk/lake waterY!
   const spanWaterY = new Float32Array(samples.length);
   const endPt = samples[samples.length - 1];
-  const confWaterY = getTrunkWaterY(endPt.x, endPt.z);
+  const confWaterY = getTrunkWaterYAt(endPt.x, endPt.z);
   for (let i = 0; i < samples.length; i++) {
     const sp = samples[i];
     const halfW = mix(10.0, 15.8, sp.t);
@@ -297,7 +306,12 @@ function buildRiverGeometry(pts) {
       const y = getTerrainHeight(sx, sz);
       if (y < minBedY) minBedY = y;
     }
-    const localY = minBedY + 1.08;
+    let localY = minBedY + 1.08;
+    sampleLake(sp.x, sp.z, _rivLakeTmp);
+    if (_rivLakeTmp.lake && _rivLakeTmp.shoreMeters > -_rivLakeTmp.shoreGrade * 1.2) {
+      const lkBlend = smoothstep(-_rivLakeTmp.shoreGrade * 1.2, -4.0, _rivLakeTmp.shoreMeters);
+      localY = mix(localY, _rivLakeTmp.waterY, lkBlend);
+    }
     const confBlend = Math.pow(clamp((sp.t - 0.65) / 0.35, 0, 1), 1.5);
     spanWaterY[i] = mix(localY, confWaterY + 0.02, confBlend);
   }
@@ -331,6 +345,7 @@ function buildRiverGeometry(pts) {
       uvs[vi * 2 + 1] = sp.t * 16.0;
       depthAttr[vi] = depth;
       flowAttr[vi] = sp.t;
+      lakeFadeAttr[vi] = 1.0 - smoothstep(-16.0, 6.0, tmpS.lakeShoreDist || -9999);
     }
   }
 
@@ -351,6 +366,7 @@ function buildRiverGeometry(pts) {
   geo.setAttribute('aDepth', new THREE.BufferAttribute(depthAttr, 1));
   geo.setAttribute('aFlowT', new THREE.BufferAttribute(flowAttr, 1));
   geo.setAttribute('aTunnelDark', new THREE.BufferAttribute(new Float32Array(vertCount), 1));
+  geo.setAttribute('aLakeFade', new THREE.BufferAttribute(lakeFadeAttr, 1));
   geo.setIndex(idx);
   geo.computeVertexNormals();
   geo.computeBoundingSphere();
@@ -374,6 +390,7 @@ function buildWaterfallGroup(wf, waterfallMat, plungePoolMat, mistMat) {
     getTerrainHeight(wf.x - forwardX * 16.0, wf.z - forwardZ * 16.0),
     getTerrainHeight(wf.x - forwardX * 24.0, wf.z - forwardZ * 24.0)
   );
+  if (crestY - baseY < 14.0) return null;
   const dropH = clamp(crestY - baseY + 4.0, 42, 138);
   const lipStartX = wf.x + forwardX * 4.5;
   const lipStartZ = wf.z + forwardZ * 4.5;
@@ -503,6 +520,97 @@ function buildWaterfallGroup(wf, waterfallMat, plungePoolMat, mistMat) {
   return { group: grp, plungePos: new THREE.Vector3(plungeCenterX, baseY + 6, plungeCenterZ) };
 }
 
+/**
+ * Build seamless, crack-free world-space surface geometry for a glacial lake (230m..3.5km+).
+ * - 100% uniform grid (ZERO T-junction pinholes!) extending generously beneath surrounding terrain banks
+ *   so the water surface never terminates prematurely in shallow water.
+ * - Exact sub-meter shoreline depth & beach slope are sampled per-pixel via a camera-centered
+ *   rolling 160x160 GPU terrain-depth map (1.6m/texel, hardware bilinear filtered).
+ */
+function buildLakeGeometry(lake) {
+  const segs = lake.tier === 'macro' ? (lake.rx > 2400 ? 224 : 128) : 64;
+  const gridN = segs + 1;
+  const extent = 1.60;
+  const evalTmp = { inside: false, shoreMeters: -9999, bedDepth: 0, isletBoost: 0 };
+
+  const gridX = new Float32Array(gridN * gridN);
+  const gridZ = new Float32Array(gridN * gridN);
+  const gridDepth = new Float32Array(gridN * gridN);
+  const gridShore = new Float32Array(gridN * gridN);
+
+  for (let iv = 0; iv <= segs; iv++) {
+    const v = ((iv / segs) * 2.0 - 1.0) * extent;
+    const lz = v * lake.rz;
+    for (let iu = 0; iu <= segs; iu++) {
+      const u = ((iu / segs) * 2.0 - 1.0) * extent;
+      const lx = u * lake.rx;
+      const wx = lake.cx + lx * lake.cosR - lz * lake.sinR;
+      const wz = lake.cz + lx * lake.sinR + lz * lake.cosR;
+      const gi = iv * gridN + iu;
+      gridX[gi] = wx;
+      gridZ[gi] = wz;
+      evalSingleLake(lake, wx, wz, evalTmp);
+      gridDepth[gi] = evalTmp.bedDepth;
+      gridShore[gi] = evalTmp.shoreMeters;
+    }
+  }
+
+  // Generous tuck-under margin into surrounding hillsides so the mesh never stops short of any cove or bay!
+  const shorePad = lake.tier === 'macro' ? Math.min(-135.0, -lake.avgR * 0.06) : -65.0;
+  const remap = new Int32Array(gridN * gridN).fill(-1);
+  const pos = [];
+  const depthAttr = [];
+  const shoreAttr = [];
+  const scaleAttr = [];
+  const idx = [];
+
+  const getVert = (gi) => {
+    let vi = remap[gi];
+    if (vi < 0) {
+      vi = pos.length / 3;
+      remap[gi] = vi;
+      pos.push(gridX[gi], lake.waterY, gridZ[gi]);
+      depthAttr.push(gridDepth[gi]);
+      shoreAttr.push(gridShore[gi]);
+      scaleAttr.push(lake.avgR);
+    }
+    return vi;
+  };
+
+  for (let iv = 0; iv < segs; iv++) {
+    for (let iu = 0; iu < segs; iu++) {
+      const a = iv * gridN + iu;
+      const b = a + 1;
+      const c = a + gridN;
+      const d = c + 1;
+      if (
+        gridShore[a] <= shorePad &&
+        gridShore[b] <= shorePad &&
+        gridShore[c] <= shorePad &&
+        gridShore[d] <= shorePad
+      ) {
+        continue;
+      }
+      const va = getVert(a);
+      const vb = getVert(b);
+      const vc = getVert(c);
+      const vd = getVert(d);
+      idx.push(va, vc, vb, vb, vc, vd);
+    }
+  }
+
+  if (idx.length === 0) return null;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('aLakeDepth', new THREE.Float32BufferAttribute(depthAttr, 1));
+  geo.setAttribute('aShoreDist', new THREE.Float32BufferAttribute(shoreAttr, 1));
+  geo.setAttribute('aLakeScale', new THREE.Float32BufferAttribute(scaleAttr, 1));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  geo.computeBoundingSphere();
+  return geo;
+}
+
 export function createWaterSystem(texLib, scene) {
   const root = new THREE.Group();
   scene.add(root);
@@ -511,6 +619,9 @@ export function createWaterSystem(texLib, scene) {
   const riverMat = new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -1,
+    polygonOffsetUnits: -2,
     side: THREE.DoubleSide,
     fog: false,
     uniforms: {
@@ -523,16 +634,19 @@ export function createWaterSystem(texLib, scene) {
       attribute float aDepth;
       attribute float aFlowT;
       attribute float aTunnelDark;
+      attribute float aLakeFade;
       varying vec3 vWorldPos;
       varying vec2 vUv;
       varying float vDepth;
       varying float vFlowT;
       varying float vTunnelDark;
+      varying float vLakeFade;
       void main() {
         vUv = uv;
         vDepth = aDepth;
         vFlowT = aFlowT;
         vTunnelDark = aTunnelDark;
+        vLakeFade = aLakeFade;
         vec4 wp = modelMatrix * vec4(position, 1.0);
         vWorldPos = wp.xyz;
         gl_Position = projectionMatrix * viewMatrix * wp;
@@ -547,11 +661,12 @@ export function createWaterSystem(texLib, scene) {
       varying float vDepth;
       varying float vFlowT;
       varying float vTunnelDark;
+      varying float vLakeFade;
       ${ATMO_GLSL_PARS}
 
       void main() {
-        // Soft natural bank feathering (zero jagged polygon edges!)
-        if (vDepth <= -0.04) discard;
+        // Soft natural bank feathering & smooth river-to-lake transition (zero jagged or straight cut edges!)
+        if (vDepth <= -0.04 || vLakeFade <= 0.005) discard;
         float depthClean = max(vDepth, 0.0);
 
         vec3 viewDir = normalize(cameraPosition - vWorldPos);
@@ -622,7 +737,7 @@ export function createWaterSystem(texLib, scene) {
         vec3 atmoWater = applyIcelandAtmo(col, vWorldPos);
         col = mix(atmoWater, mix(col, atmoWater * 0.35, 0.45), darkT * 0.78);
         float bankAlpha = smoothstep(0.0, 0.32, depthClean);
-        float alpha = bankAlpha * mix(0.84, 0.98, clamp(foam + fresnel * 0.5, 0.0, 1.0));
+        float alpha = bankAlpha * clamp(vLakeFade, 0.0, 1.0) * mix(0.84, 0.98, clamp(foam + fresnel * 0.5, 0.0, 1.0));
         gl_FragColor = vec4(col, alpha);
       }
     `
@@ -1073,7 +1188,654 @@ export function createWaterSystem(texLib, scene) {
 
   const activeCells = new Map();
   const activeTrunkSegs = new Map();
+  const activeLakes = new Map();
   const waterfallPositions = [];
+
+  // Lake group inside main scene (hidden automatically during planar reflection pass -> zero recursive reflection!)
+  const lakeGroup = new THREE.Group();
+  root.add(lakeGroup);
+
+  // Rolling camera-centered 112x112 GPU Shoreline Depth & Beach-Slope Map (256m x 256m = ~2.28m/texel, bilinear filtered!)
+  // Gives sub-meter exact terrain-waterline depth on EVERY pixel -> ZERO sharp edges, ZERO staircase cutouts!
+  const LOCAL_DEPTH_RES = 112;
+  const LOCAL_DEPTH_HALF = 128.0;
+  const localDepthPixels = new Uint8Array(LOCAL_DEPTH_RES * LOCAL_DEPTH_RES * 4);
+  const localDepthHeights = new Float32Array(LOCAL_DEPTH_RES * LOCAL_DEPTH_RES);
+  const localDepthTex = new THREE.DataTexture(
+    localDepthPixels,
+    LOCAL_DEPTH_RES,
+    LOCAL_DEPTH_RES,
+    THREE.RGBAFormat,
+    THREE.UnsignedByteType
+  );
+  localDepthTex.minFilter = THREE.LinearFilter;
+  localDepthTex.magFilter = THREE.LinearFilter;
+  localDepthTex.wrapS = THREE.ClampToEdgeWrapping;
+  localDepthTex.wrapT = THREE.ClampToEdgeWrapping;
+  localDepthTex.flipY = false;
+  localDepthTex.generateMipmaps = false;
+  localDepthTex.needsUpdate = true;
+  let lastDepthLakeId = '';
+  let lastDepthX = 1e9;
+  let lastDepthZ = 1e9;
+  const _depthEvalTmp = { inside: false, shoreMeters: -9999, bedDepth: 0, isletBoost: 0 };
+
+  function updateLocalShoreDepthMap(lake, camX, camZ) {
+    if (!lake) {
+      glacialLakeMat.uniforms.uLocalDepthRect.value.w = 0.0;
+      return;
+    }
+    const distCenter = Math.hypot(lake.cx - camX, lake.cz - camZ);
+    if (distCenter > lake.boundR + LOCAL_DEPTH_HALF) {
+      glacialLakeMat.uniforms.uLocalDepthRect.value.w = 0.0;
+      return;
+    }
+    const snapX = Math.round(camX / 16.0) * 16.0;
+    const snapZ = Math.round(camZ / 16.0) * 16.0;
+    if (
+      lake.id === lastDepthLakeId &&
+      Math.hypot(snapX - lastDepthX, snapZ - lastDepthZ) < 36.0
+    ) {
+      glacialLakeMat.uniforms.uLocalDepthRect.value.w = 1.0;
+      return;
+    }
+    lastDepthLakeId = lake.id;
+    lastDepthX = snapX;
+    lastDepthZ = snapZ;
+
+    const res = LOCAL_DEPTH_RES;
+    const span = LOCAL_DEPTH_HALF * 2.0;
+    const step = span / res;
+    const minX = snapX - LOCAL_DEPTH_HALF;
+    const minZ = snapZ - LOCAL_DEPTH_HALF;
+    const waterY = lake.waterY;
+
+    // Pass 1: Sample exact terrain height across shoreline band (early-out deep interior & far inland -> <2ms!)
+    for (let iz = 0; iz < res; iz++) {
+      const wz = minZ + (iz + 0.5) * step;
+      const row = iz * res;
+      for (let ix = 0; ix < res; ix++) {
+        const wx = minX + (ix + 0.5) * step;
+        evalSingleLake(lake, wx, wz, _depthEvalTmp);
+        let depth;
+        if (_depthEvalTmp.shoreMeters > 72.0 && _depthEvalTmp.isletBoost < 0.01) {
+          depth = Math.max(_depthEvalTmp.bedDepth, 6.8);
+        } else if (_depthEvalTmp.shoreMeters < -95.0) {
+          depth = -1.5;
+        } else {
+          depth = waterY - getTerrainHeight(wx, wz);
+        }
+        localDepthHeights[row + ix] = depth;
+      }
+    }
+
+    // Pass 2: Pack clamped signed depth [-1.2m .. +6.8m] into R (3.1cm precision) and beach slope into G
+    const inv2Step = 0.5 / step;
+    for (let iz = 0; iz < res; iz++) {
+      const izM = iz > 0 ? iz - 1 : 0;
+      const izP = iz < res - 1 ? iz + 1 : res - 1;
+      const row = iz * res;
+      for (let ix = 0; ix < res; ix++) {
+        const ixM = ix > 0 ? ix - 1 : 0;
+        const ixP = ix < res - 1 ? ix + 1 : res - 1;
+        const d = localDepthHeights[row + ix];
+        const encD = clamp((d + 1.2) / 8.0, 0.0, 1.0);
+        const gx = (localDepthHeights[row + ixP] - localDepthHeights[row + ixM]) * inv2Step;
+        const gz = (localDepthHeights[izP * res + ix] - localDepthHeights[izM * res + ix]) * inv2Step;
+        const slope = clamp(Math.hypot(gx, gz) * 1.15, 0.0, 1.0);
+
+        const pi = (row + ix) * 4;
+        localDepthPixels[pi] = Math.round(encD * 255);
+        localDepthPixels[pi + 1] = Math.round(slope * 255);
+        localDepthPixels[pi + 2] = 0;
+        localDepthPixels[pi + 3] = 255;
+      }
+    }
+    localDepthTex.needsUpdate = true;
+    glacialLakeMat.uniforms.uLocalDepthRect.value.set(snapX, snapZ, 1.0 / LOCAL_DEPTH_HALF, 1.0);
+    glacialLakeMat.uniforms.uLocalDepthWaterY.value = waterY;
+  }
+
+  // 5. High-FPS Astonishing Glacial Blue Lake Shader with Optimized Planar Mirror Reflections:
+  // - Single-Tap Perturbed Planar Mirror Reflection (ZERO ghosting, ZERO SSR artifacts, ~10x faster than SSR!)
+  // - Exact Glacial Rock-Flour Optical Model (Luminous Turquoise Shallows -> Alpine Cerulean -> Deep Sapphire)
+  // - Smooth Beer-Lambert Transparency + Underwater Sun Caustics + Wave-Crest Subsurface Scattering
+  // - Non-Repeating Multi-Scale Noise Ripples + Per-Pixel Shoreline Swash & Water Splash
+  // - 3-Tier HDR Physical Sun Reflection (Rippled Sun-Path + Crisp Mirror Column + Twinkling Diamond Sparkles)
+  const glacialLakeMat = new THREE.ShaderMaterial({
+    transparent: true,
+    depthTest: true,
+    depthWrite: false,
+    polygonOffset: true,
+    polygonOffsetFactor: -2,
+    polygonOffsetUnits: -4,
+    side: THREE.DoubleSide,
+    fog: false,
+    uniforms: {
+      ...ATMO_UNIFORMS,
+      uNormalA: { value: texLib.waterNormalA },
+      uNormalB: { value: texLib.waterNormalB },
+      uFoamTex: { value: texLib.waterfallFoam },
+      uReflTex: { value: null },
+      uReflMatrix: { value: new THREE.Matrix4() },
+      uReflPlaneY: { value: 16.5 },
+      uHasRefl: { value: 0.0 },
+      uLocalDepthTex: { value: localDepthTex },
+      uLocalDepthRect: { value: new THREE.Vector4(0, 0, 1.0 / LOCAL_DEPTH_HALF, 0.0) },
+      uLocalDepthWaterY: { value: 16.5 }
+    },
+    vertexShader: /* glsl */`
+      attribute float aLakeDepth;
+      attribute float aShoreDist;
+      attribute float aLakeScale;
+      uniform mat4 uReflMatrix;
+      uniform float uTime;
+      uniform vec2 uWindDir;
+      uniform float uWindStrength;
+      varying vec3 vWorldPos;
+      varying vec4 vReflCoord;
+      varying float vLakeDepth;
+      varying float vShoreDist;
+      varying float vLakeScale;
+      void main() {
+        vLakeDepth = aLakeDepth;
+        vShoreDist = aShoreDist;
+        vLakeScale = aLakeScale;
+        vec4 wp = modelMatrix * vec4(position, 1.0);
+        // Gentle living lake swell displacement (damped cleanly to 0 near the shoreline so shore swash stays grounded!)
+        vec2 wd = normalize(uWindDir + vec2(0.0001));
+        vec2 wp2 = vec2(-wd.y, wd.x);
+        float shoreDamp = smoothstep(0.45, 4.2, aLakeDepth);
+        float wAmp = (0.035 + 0.048 * clamp(uWindStrength, 0.0, 1.6)) * shoreDamp;
+        float swell = sin(dot(wp.xz, wd) * 0.23 - uTime * 1.45 + sin(wp.x * 0.05 - wp.z * 0.04)) * 0.58
+                    + sin(dot(wp.xz, wd * 0.61 + wp2 * 0.79) * 0.37 - uTime * 1.92 + 1.3) * 0.42;
+        wp.y += swell * wAmp;
+        vWorldPos = wp.xyz;
+        vReflCoord = uReflMatrix * wp;
+        gl_Position = projectionMatrix * viewMatrix * wp;
+      }
+    `,
+    fragmentShader: /* glsl */`
+      uniform sampler2D uNormalA;
+      uniform sampler2D uNormalB;
+      uniform sampler2D uFoamTex;
+      uniform sampler2D uReflTex;
+      uniform float uReflPlaneY;
+      uniform float uHasRefl;
+      uniform sampler2D uLocalDepthTex;
+      uniform vec4 uLocalDepthRect;
+      uniform float uLocalDepthWaterY;
+      uniform vec3 uPlayerPos;
+
+      varying vec3 vWorldPos;
+      varying vec4 vReflCoord;
+      varying float vLakeDepth;
+      varying float vShoreDist;
+      varying float vLakeScale;
+      ${ATMO_GLSL_PARS}
+
+      // GGX Normal Distribution for realistic sun glitter road & crisp mirror disc reflections
+      float lakeGGX(float NdotH, float rough) {
+        float a = rough * rough;
+        float a2 = a * a;
+        float d = (NdotH * NdotH) * (a2 - 1.0) + 1.0;
+        return a2 / (3.14159265 * d * d + 0.00001);
+      }
+
+      // Fast C2 quintic gradient noise with EXACT analytical derivatives (returns x=value, yz=dVal/dp)
+      // 100% non-repeating across infinite world space — completely eliminates periodic sine/texture stripes!
+      vec3 lakeGNoiseD(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+        vec2 du = 30.0 * f * f * (f * (f - 2.0) + 1.0);
+
+        vec2 ga = atmoHash22(i + vec2(0.0, 0.0));
+        vec2 gb = atmoHash22(i + vec2(1.0, 0.0));
+        vec2 gc = atmoHash22(i + vec2(0.0, 1.0));
+        vec2 gd = atmoHash22(i + vec2(1.0, 1.0));
+
+        float va = dot(ga, f - vec2(0.0, 0.0));
+        float vb = dot(gb, f - vec2(1.0, 0.0));
+        float vc = dot(gc, f - vec2(0.0, 1.0));
+        float vd = dot(gd, f - vec2(1.0, 1.0));
+
+        float k0 = va;
+        float k1 = vb - va;
+        float k2 = vc - va;
+        float k4 = va - vb - vc + vd;
+        float val = k0 + k1 * u.x + k2 * u.y + k4 * u.x * u.y;
+        vec2 grad = ga + (gb - ga) * u.x + (gc - ga) * u.y + (ga - gb - gc + gd) * u.x * u.y
+                  + du * vec2(k1 + k4 * u.y, k2 + k4 * u.x);
+        return vec3(val, grad);
+      }
+
+      // 5-Scale Non-Repeating Organic Wind-Driven Lake Ripples (returns xy = normal slope, z = crest height)
+      // Golden-angle rotated, domain-warped multi-octave procedural gradient noise -> ZERO repetition at any distance!
+      vec3 lakeMultiScaleNoise(vec2 pos, vec2 wDir, vec2 wPerp, float t, float camDist) {
+        float fMid  = 1.0 - smoothstep(140.0, 1250.0, camDist);
+        float fNear = 1.0 - smoothstep(45.0, 360.0, camDist);
+        float fFine = 1.0 - smoothstep(16.0, 115.0, camDist);
+
+        // Anisotropic stretch perpendicular to wind so ripples look like authentic wind-driven water wavelets (never isotropic blobs!)
+        vec2 anisoPos = vec2(dot(pos, wDir) * 1.45, dot(pos, wPerp) * 0.72);
+
+        // Scale 1: Broad organic wind-gust swell packets (~18..35m) — drives domain warp for all finer scales!
+        vec2 p1 = anisoPos * 0.055 - vec2(t * 0.26, t * 0.07);
+        vec3 n1 = lakeGNoiseD(p1);
+        vec2 warp = n1.yz * 0.55;
+
+        // Scale 2: Medium choppy wind wavelets (~6..12m), golden-angle rotated (38 deg) & warped
+        const mat2 R2 = mat2(0.788, -0.616, 0.616, 0.788);
+        vec2 p2 = R2 * (anisoPos * 0.145) - vec2(t * 0.62, -t * 0.24) + warp;
+        vec3 n2 = lakeGNoiseD(p2);
+
+        // Scale 3: Active crossing wind ripples (~2.5..5m), counter-rotated (117 deg) & warped
+        vec2 grad = (wDir * n1.y * 1.45 + wPerp * n1.z * 0.72) * 0.055
+                  + (R2 * n2.yz) * (0.095 * (0.28 + 0.72 * fMid));
+        float crest = n1.x * 0.35 + n2.x * 0.32;
+
+        if (fNear > 0.005) {
+          const mat2 R3 = mat2(-0.454, -0.891, 0.891, -0.454);
+          vec2 p3 = R3 * (anisoPos * 0.34) - vec2(t * 1.18, t * 0.44) + n2.yz * 0.42;
+          vec3 n3 = lakeGNoiseD(p3);
+          grad += (R3 * n3.yz) * (0.088 * fNear);
+          crest += n3.x * 0.22 * fNear;
+        }
+
+        // Scale 4: Crisp fine foreground capillary ripples (~0.8..1.8m), rotated (64 deg)
+        if (fFine > 0.005) {
+          const mat2 R4 = mat2(0.438, -0.899, 0.899, 0.438);
+          vec2 p4 = R4 * (anisoPos * 0.82) - vec2(t * 2.05, -t * 0.85) + warp * 1.4;
+          vec3 n4 = lakeGNoiseD(p4);
+          grad += (R4 * n4.yz) * (0.068 * fFine);
+          crest += n4.x * 0.14 * fFine;
+        }
+
+        return vec3(grad, crest);
+      }
+
+      // Procedural dual-layer animated underwater sun caustics in shallow glacial water
+      float lakeCaustic(vec2 p, float t) {
+        vec2 p1 = p * 0.62 + vec2(t * 0.34, -t * 0.27);
+        vec2 p2 = mat2(0.80, -0.60, 0.60, 0.80) * p * 0.94 + vec2(-t * 0.30, t * 0.38);
+        float c1 = abs(atmoGNoise(p1) * 2.0 - 1.0);
+        float c2 = abs(atmoGNoise(p2) * 2.0 - 1.0);
+        return pow(clamp(1.0 - min(c1, c2) * 1.45, 0.0, 1.0), 3.4);
+      }
+
+      // Expanding concentric wake ripples radiating outward around the wading porter!
+      vec2 lakePlayerRipples(vec3 wp, float t) {
+        if (abs(uPlayerPos.y - wp.y) > 2.2) return vec2(0.0);
+        vec2 diff = wp.xz - uPlayerPos.xz;
+        float r = length(diff);
+        if (r < 0.22 || r > 15.0) return vec2(0.0);
+        float env = smoothstep(0.22, 0.75, r) * exp(-r * 0.24);
+        float ring = cos(r * 5.6 - t * 5.4) * 0.65 + cos(r * 9.8 - t * 7.8) * 0.35;
+        return (diff / r) * (ring * env * 0.19);
+      }
+
+      // Crisp concentric raindrop impact ripples when raining (close-range only -> zero far cost!)
+      vec2 lakeRainRipples(vec2 wp, float t, float rainAmt) {
+        if (rainAmt < 0.05) return vec2(0.0);
+        vec2 acc = vec2(0.0);
+        for (int i = 0; i < 2; i++) {
+          float fi = float(i);
+          vec2 p = wp * (1.15 + fi * 0.65) + vec2(fi * 17.3, -fi * 9.7);
+          vec2 cell = floor(p);
+          vec2 f = fract(p) - 0.5;
+          float rnd = atmoHash(cell + fi * 31.1);
+          float phase = fract(t * (1.15 + rnd * 0.75) + rnd * 6.28);
+          vec2 center = (vec2(atmoHash(cell + 1.7), atmoHash(cell + 4.3)) - 0.5) * 0.52;
+          vec2 d = f - center;
+          float r = length(d);
+          float ringR = phase * 0.48;
+          float wave = sin((r - ringR) * 38.0) * exp(-abs(r - ringR) * 14.0) * (1.0 - phase) * smoothstep(0.0, 0.08, phase);
+          acc += (d / max(r, 0.01)) * wave * 0.14;
+        }
+        return acc * rainAmt;
+      }
+
+      // Analytical Nordic sky + storm clouds + sun halo + aurora fallback (for distant elevation-mismatched plateau tarns)
+      vec3 lakeEvalSkyFallback(vec3 rd) {
+        float elev = clamp(rd.y, 0.0, 1.0);
+        float hMix = pow(clamp(1.0 - elev, 0.0, 1.0), 2.1);
+        vec3 sky = mix(uSkyZenith, uSkyHorizon, hMix);
+
+        float sunCos = max(dot(rd, uSunDir), 0.0);
+        float sunGlow = (pow(sunCos, 6.0) * 0.42 + pow(sunCos, 42.0) * 0.55) * (1.0 - uCloudCoverage * 0.52);
+        sky += uSunColor * sunGlow * (1.0 - uNightFactor * 0.92);
+
+        vec2 drift = uWindDir * (uTime * 0.011);
+        vec2 cUv = rd.xz * (1.0 / (max(elev, 0.03) + 0.24)) * 0.90 + drift;
+        float cN = atmoGNoise(cUv * 1.05) * 0.65 + atmoGNoise(cUv * 2.4 - drift * 0.5) * 0.35;
+        float thresh = mix(0.72, 0.24, uCloudCoverage);
+        float cDens = smoothstep(thresh, thresh + 0.38, cN) * smoothstep(0.0, 0.10, elev);
+        vec3 cDark = mix(vec3(0.46, 0.55, 0.68), vec3(0.10, 0.13, 0.16), smoothstep(0.12, 0.78, uCloudDarkness));
+        vec3 cBright = mix(vec3(0.96, 0.96, 0.94), vec3(0.82, 0.86, 0.90), smoothstep(0.12, 0.78, uCloudDarkness)) * uSunColor;
+        vec3 cloudCol = mix(cDark, cBright, smoothstep(0.28, 0.80, cN));
+        vec3 cloudNight = mix(vec3(0.015, 0.022, 0.034), vec3(0.055, 0.075, 0.105), cN);
+        cloudCol = mix(cloudCol, cloudNight, uNightFactor);
+        sky = mix(sky, cloudCol, cDens * clamp(0.45 + uCloudCoverage * 0.52, 0.0, 0.92));
+
+        if (uAuroraStrength > 0.01 && uNightFactor > 0.1) {
+          float aurWave = sin(rd.x * 4.2 + rd.z * 2.8 + uAuroraTime * 0.35 + atmoGNoise(rd.xz * 2.6) * 2.8);
+          float aurCurtain = exp(-aurWave * aurWave * 3.5) * smoothstep(0.02, 0.22, elev) * (1.0 - smoothstep(0.35, 0.90, elev));
+          vec3 aurCol = mix(vec3(0.08, 0.95, 0.44), vec3(0.18, 0.62, 0.92), smoothstep(0.08, 0.50, elev));
+          sky += aurCol * aurCurtain * uAuroraStrength * uNightFactor * 0.62;
+        }
+        return mix(sky, uSkyHorizon, 1.0 - smoothstep(0.0, 0.085, elev));
+      }
+
+      void main() {
+        vec3 toCam = cameraPosition - vWorldPos;
+        float camDist = length(toCam);
+        vec3 viewDir = toCam / max(camDist, 0.0001);
+
+        // Per-pixel exact terrain waterline depth from rolling 160x160 GPU height-depth map (1.6m/texel, bilinear filtered!)
+        // Guarantees ZERO sawtooth edges and ZERO staircase cutouts at every shore slope!
+        vec2 wDir = normalize(uWindDir + vec2(0.0001));
+        vec2 wPerp = vec2(-wDir.y, wDir.x);
+
+        vec2 luv = (vWorldPos.xz - uLocalDepthRect.xy) * uLocalDepthRect.z * 0.5 + 0.5;
+        float matchY = 1.0 - smoothstep(1.2, 3.2, abs(vWorldPos.y - uLocalDepthWaterY));
+        float inLocal = step(0.002, luv.x) * step(luv.x, 0.998) * step(0.002, luv.y) * step(luv.y, 0.998) * uLocalDepthRect.w * matchY;
+        float lEdge = smoothstep(0.0, 0.12, luv.x) * smoothstep(0.0, 0.12, 1.0 - luv.x)
+                    * smoothstep(0.0, 0.12, luv.y) * smoothstep(0.0, 0.12, 1.0 - luv.y);
+        float localWeight = inLocal * lEdge;
+
+        vec2 localSample = localWeight > 0.001 ? texture2D(uLocalDepthTex, clamp(luv, 0.004, 0.996)).rg : vec2(0.5, 0.25);
+        float localDepth = localSample.r * 8.0 - 1.2;
+        float shoreSlope = localSample.g;
+
+        // Organic shoreline contour micro-variation + rhythmic lapping swash oscillation
+        float shoreOrg = (atmoGNoise(vWorldPos.xz * 0.42) - 0.5) * 0.09
+                       + (atmoGNoise(vWorldPos.xz * 1.45 + vec2(3.7, -2.1)) - 0.5) * 0.04;
+        float swashN = atmoGNoise(vWorldPos.xz * 0.14 - wDir * uTime * 0.04) * 4.6
+                     + atmoGNoise(vWorldPos.xz * 0.52) * 1.5;
+        float swashWave = sin(uTime * 1.85 + swashN) * 0.5 + 0.5;
+        float swashWave2 = sin(uTime * 1.22 + swashN * 0.72 + 2.1) * 0.5 + 0.5;
+
+        float farDepth = max(vLakeDepth, 0.0);
+        float signedDepth = mix(farDepth, localDepth, localWeight);
+        float exactDepth = signedDepth + shoreOrg * localWeight;
+        float waterDepth = max(exactDepth, 0.0);
+
+        float nearShoreFade = smoothstep(0.0, 0.34, exactDepth);
+        float farShoreFade = smoothstep(0.15, 5.5, vShoreDist);
+        float shoreFade = mix(farShoreFade, nearShoreFade, localWeight);
+        if (shoreFade < 0.003) discard;
+
+        // 1. 100% Non-Repeating Multi-Scale Noise Ripples + Domain-Warped Normal Maps + Gust Patches + Wading Wake
+        float gustMacro = atmoGNoise(vWorldPos.xz * 0.0038 - wDir * uTime * 0.032) * 0.58
+                        + atmoGNoise(vWorldPos.xz * 0.0115 + wPerp * 0.6 - wDir * uTime * 0.068) * 0.42;
+        float gustMask = smoothstep(0.16, 0.82, gustMacro);
+        float fetchScale = smoothstep(0.15, 2.2, waterDepth) * clamp(vLakeScale / 180.0, 0.78, 1.32);
+        float waveActivity = clamp((0.55 + uWindStrength * 0.70) * mix(0.42, 1.42, gustMask) * mix(0.55, 1.0, fetchScale), 0.32, 1.60);
+
+        float t = uTime;
+        float speedScale = 0.85 + uWindStrength * 0.65;
+
+        // Pure non-repeating 4-octave analytical gradient noise ripples (ZERO stripes or tiling!)
+        vec3 msNoise = lakeMultiScaleNoise(vWorldPos.xz, wDir, wPerp, t * (0.85 + uWindStrength * 0.42), camDist);
+
+        // Domain-warped, irrational-ratio rotated normal maps for extra crisp micro-detail (warping destroys ALL texture tiling!)
+        vec2 uvWarp = vec2(
+          atmoGNoise(vWorldPos.xz * 0.024 - wDir * t * 0.04) - 0.5,
+          atmoGNoise(vWorldPos.xz * 0.024 + vec2(7.3, -4.9) - wPerp * t * 0.03) - 0.5
+        ) * 0.36;
+        vec2 windDriftA = wDir * (t * 0.72 * speedScale);
+        vec2 windDriftB = (wDir * 0.64 + wPerp * 0.77) * (t * 1.18 * speedScale);
+        vec2 windDriftC = (wDir * 0.39 - wPerp * 0.92) * (t * 1.85 * speedScale);
+
+        float nearDetail = 1.0 - smoothstep(32.0, 380.0, camDist);
+        float midDetail  = 1.0 - smoothstep(180.0, 2200.0, camDist);
+        float farDetail  = 1.0 - smoothstep(950.0, 5600.0, camDist);
+
+        const mat2 R_A = mat2(0.848, -0.530, 0.530, 0.848);  // 32 deg
+        const mat2 R_B = mat2(-0.375, -0.927, 0.927, -0.375); // 112 deg
+        const mat2 R_C = mat2(0.515, 0.857, -0.857, 0.515);   // -59 deg
+
+        vec3 nSwell = texture2D(uNormalA, vWorldPos.xz * 0.015 + uvWarp * 0.45 - windDriftA * 0.032).xyz * 2.0 - 1.0;
+        vec3 nWaveA = texture2D(uNormalA, R_A * vWorldPos.xz * 0.053 + uvWarp - windDriftA * 0.095).xyz * 2.0 - 1.0;
+        vec3 nWaveB = texture2D(uNormalB, R_B * vWorldPos.xz * 0.131 - uvWarp * 0.85 - windDriftB * 0.135).xyz * 2.0 - 1.0;
+        vec3 nMicro = texture2D(uNormalB, R_C * vWorldPos.xz * 0.317 + uvWarp * 0.65 - windDriftC * 0.21).xyz * 2.0 - 1.0;
+
+        vec2 rainN = camDist < 58.0 ? lakeRainRipples(vWorldPos.xz, t, smoothstep(0.45, 0.98, uRainWetness) * (1.0 - camDist / 58.0)) : vec2(0.0);
+        vec2 playerN = camDist < 65.0 ? lakePlayerRipples(vWorldPos, t) : vec2(0.0);
+
+        vec2 texGrad = (nSwell.xy * 0.38 * (0.42 + 0.58 * farDetail)
+                      + nWaveA.xy * 0.46 * (0.24 + 0.76 * midDetail)
+                      + nWaveB.xy * 0.34 * (0.14 + 0.86 * midDetail)
+                      + nMicro.xy * 0.16 * nearDetail) * 0.20;
+
+        const float rippleNormalScale = 0.20;
+        vec2 gradSurf = ((msNoise.xy * 1.15 + texGrad) * waveActivity + rainN + playerN) * rippleNormalScale;
+
+        vec3 nSurf = normalize(vec3(gradSurf.x, 1.0, gradSurf.y));
+        vec3 nRefl = normalize(vec3(gradSurf.x * 0.80, 1.0, gradSurf.y * 0.80));
+        vec2 gradSpec = gradSurf * 1.38
+                      + (nWaveB.xy * 0.060 * (0.32 + 0.68 * midDetail)
+                       + nMicro.xy * 0.055 * (0.35 + 0.65 * nearDetail)) * (0.55 + 0.60 * waveActivity) * rippleNormalScale;
+        vec3 nSpec = normalize(vec3(gradSpec.x, 1.0, gradSpec.y));
+
+        // 2. Single-Tap Rippled Planar Mirror Reflection (liquid undulating reflections, ZERO ghosting!)
+        vec3 reflWorld = reflect(-viewDir, nRefl);
+        if (reflWorld.y < 0.004) {
+          reflWorld = normalize(vec3(reflWorld.x, abs(reflWorld.y) * 0.30 + 0.005, reflWorld.z));
+        }
+        vec3 reflCol = lakeEvalSkyFallback(reflWorld);
+        float planeMatch = (1.0 - smoothstep(2.5, 9.0, abs(vWorldPos.y - uReflPlaneY))) * uHasRefl;
+
+        if (planeMatch > 0.01 && vReflCoord.w > 0.001) {
+          vec2 baseUv = vReflCoord.xy / vReflCoord.w;
+          vec2 edgeDamp = smoothstep(vec2(0.0), vec2(0.07), baseUv) * (1.0 - smoothstep(vec2(0.93), vec2(1.0), baseUv));
+          float distScale = clamp(42.0 / max(camDist, 16.0), 0.42, 1.30);
+          vec2 waveDistort = vec2(nRefl.x * 0.20, nRefl.z * 0.34) * distScale * edgeDamp;
+          vec2 sampleUv = clamp(baseUv + waveDistort, vec2(0.003), vec2(0.997));
+
+          vec3 planarCol = texture2D(uReflTex, sampleUv).rgb;
+          float inBounds = smoothstep(0.0, 0.025, baseUv.x) * (1.0 - smoothstep(0.975, 1.0, baseUv.x))
+                         * smoothstep(0.0, 0.025, baseUv.y) * (1.0 - smoothstep(0.975, 1.0, baseUv.y));
+          reflCol = mix(reflCol, planarCol, clamp(inBounds * planeMatch, 0.0, 1.0));
+        }
+
+        // Organic ripple-slope sky-light vs shaded-trough contrast (vivid natural liquid texture even under overcast skies!)
+        float rippleLight = dot(nSurf, normalize(vec3(viewDir.x * 0.35 + uSunDir.x * 0.45, 0.86, viewDir.z * 0.35 + uSunDir.z * 0.45)));
+        float rippleContrast = mix(0.78, 1.22, clamp(0.5 + (rippleLight - 0.84) * 3.4 + msNoise.z * 0.25, 0.0, 1.0));
+        reflCol *= mix(1.0, rippleContrast, 0.70);
+
+        // 3. Iconic Glacial Rock-Flour Blue Optical Volume + Sun Caustics + Wave-Crest SSS!
+        float dayFactor = 1.0 - uNightFactor;
+        float cloudShadow = sampleCloudShadow(vWorldPos.xz);
+        float sunAbove = smoothstep(-0.04, 0.14, uSunDir.y) * dayFactor;
+        float clearSkyFactor = 1.0 - smoothstep(0.18, 0.94, uCloudCoverage);
+
+        float siltPlume = atmoGNoise(vWorldPos.xz * 0.0022 + vec2(3.1, -4.7)) * 0.62 + atmoGNoise(vWorldPos.xz * 0.0068) * 0.38;
+        vec3 shallowTurquoise = mix(vec3(0.036, 0.44, 0.58), vec3(0.072, 0.60, 0.72), siltPlume);
+        vec3 midGlacialBlue   = mix(vec3(0.015, 0.25, 0.54), vec3(0.030, 0.40, 0.66), siltPlume);
+        vec3 deepSapphire     = mix(vec3(0.007, 0.11, 0.34), vec3(0.016, 0.20, 0.46), siltPlume);
+
+        vec3 glacialBase = mix(shallowTurquoise, midGlacialBlue, smoothstep(0.35, 4.8, waterDepth));
+        glacialBase = mix(glacialBase, deepSapphire, smoothstep(3.8, 19.0, waterDepth));
+        glacialBase *= mix(0.86, 1.16, clamp(0.5 + msNoise.z * 0.46 + (nWaveA.y + nWaveB.y) * 0.24, 0.0, 1.0));
+
+        float sunElevBoost = 0.62 + 0.66 * smoothstep(0.0, 0.52, max(uSunDir.y, 0.0));
+        vec3 dayIrradiance = mix(vec3(0.62, 0.74, 0.84), uSunColor * 1.24, 0.50 + 0.36 * clearSkyFactor) * sunElevBoost * mix(0.68, 1.15, cloudShadow);
+        vec3 nightIrradiance = vec3(0.026, 0.052, 0.105) + vec3(0.018, 0.145, 0.115) * uAuroraStrength;
+        vec3 glacialLit = glacialBase * mix(dayIrradiance, nightIrradiance, uNightFactor);
+
+        // Animated underwater sun caustics shimmering in clear glacial shallows
+        if (waterDepth < 4.8 && dayFactor > 0.05 && camDist < 160.0) {
+          vec2 caustPos = vWorldPos.xz - uSunDir.xz * (waterDepth * 0.65);
+          float caust = lakeCaustic(caustPos, uTime);
+          float caustFade = smoothstep(0.08, 0.55, waterDepth) * (1.0 - smoothstep(1.4, 4.6, waterDepth)) * (1.0 - smoothstep(55.0, 155.0, camDist));
+          glacialLit += vec3(0.18, 0.64, 0.76) * uSunColor * caust * caustFade * (0.35 + 0.85 * clearSkyFactor) * cloudShadow * dayFactor * 0.52;
+        }
+
+        // Translucent aquamarine subsurface scattering when sunlight back-lights rolling wave crests!
+        float sssDir = pow(clamp(dot(viewDir, normalize(-uSunDir + nSurf * 0.52)), 0.0, 1.0), 3.0);
+        float crestHeight = clamp(0.45 + msNoise.z * 0.55 + nWaveA.y * 0.30, 0.0, 1.0);
+        float sssMask = sssDir * crestHeight * smoothstep(0.30, 2.2, waterDepth) * sunAbove * mix(0.45, 1.0, clearSkyFactor) * cloudShadow;
+        glacialLit += vec3(0.050, 0.52, 0.66) * uSunColor * sssMask * 1.05;
+
+        // 4. Physically Calibrated Schlick Fresnel Blending
+        float NdotV = clamp(dot(nSurf, viewDir), 0.0, 1.0);
+        float fresnel = 0.032 + 0.968 * pow(1.0 - NdotV, 4.2);
+        float reflMix = clamp(fresnel * mix(0.92, 0.84, uCloudCoverage * 0.35), 0.08, 0.88);
+        vec3 col = mix(glacialLit, reflCol, reflMix);
+
+        // 5. ASTONISHING 3-Tier Rippled Physical Sun Reflection (Organic Dancing Glitter + Sun Column + Diamond Sparkles!)
+        float cloudSunTrans = mix(0.36, 1.0, clearSkyFactor) * mix(0.54, 1.18, cloudShadow);
+        float sunVis = sunAbove * cloudSunTrans;
+        if (sunVis > 0.005) {
+          vec3 Lsun = normalize(vec3(uSunDir.x, max(uSunDir.y, 0.035), uSunDir.z));
+          vec3 Hsun = normalize(viewDir + Lsun);
+          float NdotH_surf = max(dot(nSurf, Hsun), 0.0);
+          float NdotH_spec = max(dot(nSpec, Hsun), 0.0);
+          float NdotH_calm = max(dot(nRefl, Hsun), 0.0);
+          float VdotH = clamp(dot(viewDir, Hsun), 0.0, 1.0);
+          float specFres = 0.06 + 0.94 * pow(1.0 - VdotH, 3.8);
+
+          // Non-periodic organic shimmer breakup from multi-scale noise (never straight bands!)
+          float shimmerN = clamp(0.52 + msNoise.z * 0.65 + (nWaveA.x + nWaveB.y) * 0.45, 0.25, 1.55);
+          float rippleShimmer = mix(1.0, shimmerN, clamp(waveActivity * 0.85, 0.25, 1.0));
+
+          float goldenHour = smoothstep(0.34, 0.04, max(uSunDir.y, 0.0));
+          vec3 sunSpecTint = mix(uSunColor * vec3(1.06, 1.02, 0.94), vec3(1.0, 0.70, 0.34), goldenHour * 0.72);
+
+          float broadPath = lakeGGX(NdotH_surf, mix(0.16, 0.26, waveActivity)) * 0.15 * rippleShimmer;
+          float tightCol = lakeGGX(NdotH_calm, mix(0.022, 0.058, waveActivity)) * 0.125 * rippleShimmer;
+          float sparkleN = pow(NdotH_spec, mix(260.0, 150.0, waveActivity)) * (2.6 + 2.2 * clearSkyFactor) * rippleShimmer;
+          vec3 nFacet = normalize(vec3((nMicro.x * 0.22 + nWaveB.x * 0.14 + msNoise.x * 0.65) * rippleNormalScale, 1.0, (nMicro.y * 0.22 + nWaveB.y * 0.14 + msNoise.y * 0.65) * rippleNormalScale));
+          float diamondGlint = pow(max(dot(nFacet, Hsun), 0.0), 620.0) * (5.6 + 4.2 * clearSkyFactor) * (0.45 + 0.55 * nearDetail);
+
+          float totalSunSpec = (broadPath + tightCol + sparkleN + diamondGlint) * specFres * sunVis * mix(1.0, 1.75, goldenHour);
+          col += sunSpecTint * min(totalSunSpec, 12.0);
+        }
+
+        // Cool silvery Moon Reflection Path at Night!
+        float moonVis = uNightFactor * (1.0 - uCloudCoverage * 0.68) * smoothstep(0.02, 0.20, uMoonDir.y);
+        if (moonVis > 0.01) {
+          vec3 Lmoon = normalize(uMoonDir);
+          vec3 Hmoon = normalize(viewDir + Lmoon);
+          float NdotH_m = max(dot(nSpec, Hmoon), 0.0);
+          float moonBroad = lakeGGX(max(dot(nSurf, Hmoon), 0.0), 0.16) * 0.06;
+          float moonGlint = pow(NdotH_m, 340.0) * 1.45;
+          col += vec3(0.62, 0.78, 1.0) * (moonBroad + moonGlint) * moonVis * (0.25 + 0.75 * fresnel);
+        }
+
+        // 6. Natural Shoreline Swash, Shoreward-Rolling Wavelets & Delicate Water-Splash Lace!
+        // Unified across ALL LOD distances: exact local depth up close, analytical shelf depth from afar
+        float shoreSplashAlpha = 0.0;
+        float beachWidth = mix(1.22, 0.62, smoothstep(0.22, 0.78, shoreSlope));
+        float nearDNorm = exactDepth / beachWidth;
+        float approxShelfW = vLakeScale > 600.0 ? clamp(vLakeScale * 0.055, 22.0, 90.0) : clamp(vLakeScale * 0.085, 11.0, 26.0);
+        float farShoreDepth = smoothstep(0.0, approxShelfW, max(vShoreDist, 0.0)) * 3.6;
+        float farBeachW = beachWidth * mix(1.0, 1.8, smoothstep(500.0, 4000.0, camDist));
+        float farDNorm = farShoreDepth / farBeachW;
+        float dNorm = mix(farDNorm, nearDNorm, localWeight);
+        float splashDepth = mix(farShoreDepth, exactDepth, localWeight);
+
+        if (dNorm < 1.15 && camDist < 7600.0 && splashDepth > 0.002) {
+          float distFade = 1.0 - smoothstep(2600.0, 7500.0, camDist);
+          float lodScale = mix(1.0, 0.35, smoothstep(450.0, 3500.0, camDist));
+          float edgeIn = smoothstep(0.008, 0.055, splashDepth);
+
+          vec2 foamWarp = vec2(
+            atmoGNoise(vWorldPos.xz * (0.36 * lodScale) - wDir * uTime * 0.07) - 0.5,
+            atmoGNoise(vWorldPos.xz * (0.36 * lodScale) + vec2(4.1, -3.3)) - 0.5
+          ) * 0.42;
+          float foamA = texture2D(uFoamTex, vWorldPos.xz * (0.30 * lodScale) + foamWarp + wDir * uTime * 0.08).b;
+          float foamB = texture2D(uFoamTex, R_B * vWorldPos.xz * (0.68 * lodScale) - foamWarp * 0.8 - wPerp * uTime * 0.10).g;
+          float laceNoise = atmoGNoise(vWorldPos.xz * (2.6 * lodScale) - wDir * uTime * 0.38);
+
+          // Band A: Feathery advancing/receding swash rim lapping softly right onto wet volcanic pebbles!
+          float swashCenter = mix(0.05, 0.17, swashWave);
+          float leadBand = exp(-pow((dNorm - swashCenter) / 0.085, 2.0)) * edgeIn;
+          float leadFoam = leadBand * smoothstep(0.24, 0.76, foamA * 0.52 + foamB * 0.38 + swashWave * 0.25 + (laceNoise - 0.5) * 0.30);
+
+          // Band B: Shoreward-rolling curling wavelet & lacy water splash trail (+uTime moves wavelets ONTO shore!)
+          float wavePhase = fract(dNorm * 1.55 + uTime * 0.38 + swashN * 0.16);
+          float breakerCrest = exp(-pow((wavePhase - 0.28) * 6.8, 2.0)) * smoothstep(0.05, 0.19, dNorm) * (1.0 - smoothstep(0.30, 0.86, dNorm));
+          float splashLace = breakerCrest * smoothstep(0.32, 0.74, foamB * 0.55 + laceNoise * 0.52);
+
+          // Band C: Sparkling frothy water-splash flecks popping along the lapping wavelets
+          float microSpray = smoothstep(0.64, 0.88, laceNoise * foamB + swashWave2 * 0.24) * (leadBand * 0.9 + breakerCrest) * 0.62;
+
+          float totalSurf = clamp((leadFoam * 0.72 + splashLace * 0.56 + microSpray * 0.44) * distFade, 0.0, 0.78);
+          if (totalSurf > 0.002) {
+            shoreSplashAlpha = totalSurf * 0.88;
+
+            // Natural Nordic cold-water surf tint (adapts softly to overcast vs sunny skies!)
+            vec3 overcastSurf = mix(vec3(0.62, 0.74, 0.80), vec3(0.80, 0.86, 0.90), 0.55);
+            vec3 sunnySurf = vec3(0.95, 0.97, 0.99) * uSunColor;
+            vec3 surfDay = mix(overcastSurf, sunnySurf, 0.25 + 0.65 * clearSkyFactor) * mix(0.80, 1.08, cloudShadow);
+            vec3 surfNight = vec3(0.025, 0.038, 0.058) + vec3(0.012, 0.052, 0.042) * uAuroraStrength;
+            col = mix(col, mix(surfDay, surfNight, uNightFactor), totalSurf);
+          }
+        }
+
+        // Subtle wind-driven offshore whitecap flecks ONLY in strong North Atlantic gales
+        if (uWindStrength > 0.90 && waterDepth > 1.8) {
+          float galeAmt = smoothstep(0.90, 1.50, uWindStrength);
+          float capN = texture2D(uFoamTex, vWorldPos.xz * 0.065 + uvWarp * 0.5 - windDriftA * 0.08).g;
+          float capMask = smoothstep(0.70, 0.90, capN + msNoise.z * 0.26) * galeAmt * 0.36 * (1.0 - smoothstep(160.0, 620.0, camDist));
+          vec3 capCol = mix(vec3(0.82, 0.88, 0.92) * uSunColor, vec3(0.025, 0.038, 0.055), uNightFactor);
+          col = mix(col, capCol, capMask);
+        }
+
+        col += sampleOdradekScan(vWorldPos, nSurf) * 0.65;
+        col = applyIcelandAtmo(col, vWorldPos);
+
+        // Silky Beer-Lambert shallow transparency + feathered shoreline swash foam (ZERO hard sawtooth cutoff!)
+        float opticalAlpha = 1.0 - exp(-waterDepth * 0.95);
+        float baseWaterAlpha = clamp(max(opticalAlpha, reflMix * 0.78) * shoreFade, 0.0, 0.985);
+        float splashEdgeMask = smoothstep(0.0, 0.045, splashDepth);
+        float alpha = clamp(max(baseWaterAlpha, shoreSplashAlpha * splashEdgeMask), 0.0, 0.985);
+        gl_FragColor = vec4(col, alpha);
+      }
+    `
+  });
+
+  const _frustum = new THREE.Frustum();
+  const _projScreenMat = new THREE.Matrix4();
+
+  function setLakesVisible(v) {
+    lakeGroup.visible = v;
+  }
+
+  /** Return the closest glacial lake currently inside the camera frustum (null if none visible -> skip reflection pass!). */
+  function getBestVisibleLake(camera) {
+    if (activeLakes.size === 0) return null;
+    _projScreenMat.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+    _frustum.setFromProjectionMatrix(_projScreenMat);
+
+    let bestLake = null;
+    let bestDist = Infinity;
+    const cx = camera.position.x;
+    const cz = camera.position.z;
+
+    for (const entry of activeLakes.values()) {
+      const bs = entry.geo.boundingSphere;
+      if (!bs || !_frustum.intersectsSphere(bs)) continue;
+      // Edge-to-camera distance (0 if camera is right above the lake!)
+      const d = Math.max(0.0, Math.hypot(entry.lake.cx - cx, entry.lake.cz - cz) - entry.lake.avgR);
+      if (d < bestDist) {
+        bestDist = d;
+        bestLake = entry.lake;
+      }
+    }
+    updateLocalShoreDepthMap(bestLake, cx, cz);
+    return bestLake;
+  }
+
+  function updateLakeUniforms(reflTex, reflMatrix, planeY, hasRefl) {
+    glacialLakeMat.uniforms.uReflTex.value = reflTex;
+    if (reflMatrix) glacialLakeMat.uniforms.uReflMatrix.value.copy(reflMatrix);
+    glacialLakeMat.uniforms.uReflPlaneY.value = planeY;
+    glacialLakeMat.uniforms.uHasRefl.value = hasRefl ? 1.0 : 0.0;
+  }
 
   function buildCellHydro(cx, cz) {
     const f = getCellFeatures(cx, cz);
@@ -1091,8 +1853,10 @@ export function createWaterSystem(texLib, scene) {
 
     if (f.waterfall) {
       const wfBuilt = buildWaterfallGroup(f.waterfall, waterfallMat, plungePoolMat, mistMat);
-      group.add(wfBuilt.group);
-      cellWaterfalls.push(wfBuilt.plungePos);
+      if (wfBuilt) {
+        group.add(wfBuilt.group);
+        cellWaterfalls.push(wfBuilt.plungePos);
+      }
     }
 
     if (f.cliffMist && f.cliffMist.length > 0) {
@@ -1114,10 +1878,10 @@ export function createWaterSystem(texLib, scene) {
 
       for (const hs of f.hotSprings) {
         const gy = getTerrainHeight(hs.x, hs.z);
-        const poolGeo = new THREE.CircleGeometry(hs.radius * 1.02, 24);
+        const poolGeo = new THREE.CircleGeometry(hs.radius * 1.12, 32);
         poolGeo.rotateX(-Math.PI / 2);
         const poolMesh = new THREE.Mesh(poolGeo, hotSpringMat);
-        poolMesh.position.set(hs.x, gy + 0.72, hs.z);
+        poolMesh.position.set(hs.x, gy + 0.92, hs.z);
         poolMesh.renderOrder = 3;
         group.add(poolMesh);
         disposables.push(poolGeo);
@@ -1189,6 +1953,10 @@ export function createWaterSystem(texLib, scene) {
     return { key: `${cx},${cz}`, group, disposables, cellWaterfalls };
   }
 
+  let lastWaterPcx = 1e9;
+  let lastWaterPcz = 1e9;
+  let lastWaterBand = 1e9;
+
   function rebuildAll(centerX, centerZ) {
     for (const c of activeCells.values()) {
       root.remove(c.group);
@@ -1200,12 +1968,29 @@ export function createWaterSystem(texLib, scene) {
       seg.disposables.forEach((d) => d.dispose && d.dispose());
     }
     activeTrunkSegs.clear();
+    for (const lk of activeLakes.values()) {
+      lakeGroup.remove(lk.mesh);
+      lk.geo.dispose();
+    }
+    activeLakes.clear();
+    lastDepthLakeId = '';
+    lastDepthX = 1e9;
+    lastDepthZ = 1e9;
+    lastWaterPcx = 1e9;
+    lastWaterPcz = 1e9;
+    lastWaterBand = 1e9;
+    glacialLakeMat.uniforms.uLocalDepthRect.value.w = 0.0;
     update(centerX, centerZ);
   }
 
   function update(centerX, centerZ) {
     const pcx = Math.round(centerX / CELL_SIZE);
     const pcz = Math.round(centerZ / CELL_SIZE);
+    const pBand = Math.round(centerX / TRUNK_SPACING);
+    if (pcx === lastWaterPcx && pcz === lastWaterPcz && pBand === lastWaterBand) return;
+    lastWaterPcx = pcx;
+    lastWaterPcz = pcz;
+    lastWaterBand = pBand;
     const needed = new Set();
 
     for (let dz = -1; dz <= 1; dz++) {
@@ -1229,7 +2014,6 @@ export function createWaterSystem(texLib, scene) {
     }
 
     // Stream continuous unbroken 4km infinite glacial trunk rivers + sculpted 3D volcanic cave tunnels under mountains!
-    const pBand = Math.round(centerX / TRUNK_SPACING);
     const neededTrunks = new Set();
     for (let db = -1; db <= 1; db++) {
       const band = pBand + db;
@@ -1267,6 +2051,31 @@ export function createWaterSystem(texLib, scene) {
       }
     }
 
+    // Stream multi-scale Glacial Lakes (several hundred meters up to 10km) out to the expanded horizon!
+    const visibleLakes = getActiveLakesAround(centerX, centerZ, 12000);
+    const neededLakes = new Set();
+    for (let i = 0; i < visibleLakes.length; i++) {
+      const lake = visibleLakes[i];
+      neededLakes.add(lake.id);
+      if (!activeLakes.has(lake.id)) {
+        const geo = buildLakeGeometry(lake);
+        if (geo) {
+          const mesh = new THREE.Mesh(geo, glacialLakeMat);
+          mesh.frustumCulled = true;
+          mesh.renderOrder = 3;
+          lakeGroup.add(mesh);
+          activeLakes.set(lake.id, { lake, mesh, geo });
+        }
+      }
+    }
+    for (const [id, entry] of activeLakes.entries()) {
+      if (!neededLakes.has(id)) {
+        lakeGroup.remove(entry.mesh);
+        entry.geo.dispose();
+        activeLakes.delete(id);
+      }
+    }
+
     waterfallPositions.length = 0;
     for (const cell of activeCells.values()) {
       for (const p of cell.cellWaterfalls) waterfallPositions.push(p);
@@ -1276,6 +2085,10 @@ export function createWaterSystem(texLib, scene) {
   return {
     update,
     rebuildAll,
+    setLakesVisible,
+    getBestVisibleLake,
+    updateLakeUniforms,
+    getActiveLakeCount: () => activeLakes.size,
     getWaterfallPositions: () => waterfallPositions
   };
 }

@@ -1249,18 +1249,26 @@ export function createLandmarkSystem(texLib, scene) {
     return { key: `${cx},${cz}`, group, colliders, disposables };
   }
 
+  let lastLmPcx = 1e9;
+  let lastLmPcz = 1e9;
+
   function rebuildAll(centerX, centerZ) {
     for (const c of activeCells.values()) {
       root.remove(c.group);
       if (c.disposables) c.disposables.forEach((d) => d.dispose && d.dispose());
     }
     activeCells.clear();
+    lastLmPcx = 1e9;
+    lastLmPcz = 1e9;
     update(centerX, centerZ);
   }
 
   function update(centerX, centerZ) {
     const pcx = Math.round(centerX / CELL_SIZE);
     const pcz = Math.round(centerZ / CELL_SIZE);
+    if (pcx === lastLmPcx && pcz === lastLmPcz) return;
+    lastLmPcx = pcx;
+    lastLmPcz = pcz;
     const needed = new Set();
 
     for (let dz = -1; dz <= 1; dz++) {

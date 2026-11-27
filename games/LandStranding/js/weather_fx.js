@@ -124,10 +124,12 @@ export function createWeatherFX(scene) {
     `
   });
 
+  const group = new THREE.Group();
+  scene.add(group);
   const rainMesh = new THREE.InstancedMesh(dropGeo, rainMat, RAIN_COUNT);
   rainMesh.frustumCulled = false;
   rainMesh.renderOrder = 15;
-  scene.add(rainMesh);
+  group.add(rainMesh);
 
   // 2. Wave-After-Wave Flowing Volumetric Storm Cloud / Water-Stream Billboards!
   // 16 independent rolling gust waves x 10 overlapping ultra-soft cloud billboards per wave (160 puffs, 1 draw call!)
@@ -249,7 +251,7 @@ export function createWeatherFX(scene) {
   const waveMesh = new THREE.InstancedMesh(waveGeo, waveMat, TOTAL_WAVE_PUFFS);
   waveMesh.frustumCulled = false;
   waveMesh.renderOrder = 14;
-  scene.add(waveMesh);
+  group.add(waveMesh);
 
   // 4. Ultra-Thin Short-Range Wind-Blown Water-Stream Filaments Peeling Off the Player's Suit & Pack!
   const DROPLET_COUNT = 88;
@@ -347,7 +349,7 @@ export function createWeatherFX(scene) {
   const playerDropletMesh = new THREE.InstancedMesh(dropletGeo, playerDropletMat, DROPLET_COUNT);
   playerDropletMesh.frustumCulled = false;
   playerDropletMesh.renderOrder = 16;
-  scene.add(playerDropletMesh);
+  group.add(playerDropletMesh);
 
   const _dummy = new THREE.Object3D();
   const _clearOut = { baseY: 0, clearFade: 1 };
@@ -445,5 +447,9 @@ export function createWeatherFX(scene) {
     playerDropletMesh.visible = rainIntensity > 0.50;
   }
 
-  return { update };
+  function setVisible(v) {
+    group.visible = v;
+  }
+
+  return { update, setVisible };
 }

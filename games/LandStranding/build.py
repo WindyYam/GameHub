@@ -19,6 +19,7 @@ MODULE_ORDER = [
     'water.js',
     'landmarks.js',
     'character.js',
+    'motorcycle.js',
     'audio.js',
     'main.js',
 ]
@@ -125,7 +126,22 @@ def build():
 <body>
   <div id="canvas-container"></div>
 
-  <div id="hud">
+  <div id="title-screen">
+    <div class="title-top">
+      <div class="title-kicker"><span class="brand-dot"></span> BRIDGES // ICELANDIC EXPEDITION</div>
+      <h1 class="title-logo">LANDSTRANDING</h1>
+    </div>
+    <div class="title-bottom">
+      <div class="loading-wrap" id="loading-wrap">
+        <div class="loading-status" id="loading-status">Initializing Sector...</div>
+        <div class="loading-track"><div class="loading-fill" id="loading-fill"></div></div>
+      </div>
+      <button id="btn-start-game" class="start-btn hidden" type="button">Begin Expedition</button>
+      <div class="title-hint hidden" id="title-hint">Click or Press Enter to Start</div>
+    </div>
+  </div>
+
+  <div id="hud" class="hidden">
     <div class="hud-top-left">
       <div class="brand-pill">
         <span class="brand-dot"></span>
@@ -136,8 +152,9 @@ def build():
 
     <div class="hud-top-right">
       <div class="toolbar">
+        <button id="btn-print-bike" type="button">3D Print Bike (B)</button>
         <button id="btn-env" type="button">Env Controls</button>
-        <button id="btn-vista" type="button">Vista (V)</button>
+        <button id="btn-res" type="button">Res: Auto</button>
         <button id="btn-audio" type="button">Audio: Off</button>
         <button id="btn-hide-hud" type="button">Hide HUD (H)</button>
       </div>
@@ -180,15 +197,27 @@ def build():
           <div class="btn-group">
             <button id="btn-visit-village" type="button">Village</button>
             <button id="btn-visit-waterfall" type="button">Waterfall</button>
+            <button id="btn-visit-lake" type="button">Glacial Lake</button>
+            <button id="btn-visit-grand-lake" type="button">Grand Lake</button>
           </div>
         </div>
       </div>
     </div>
 
-    <div class="hud-bottom-left">
+    <div id="bike-banner" class="hidden" role="status">
+      <div class="bike-banner-title" id="bike-banner-title">RT-04 MOTORCYCLE</div>
+      <div class="bike-progress-track hidden" id="bike-progress-track">
+        <div class="bike-progress-fill" id="bike-progress-fill"></div>
+      </div>
+      <div class="bike-banner-sub" id="bike-banner-sub"></div>
+    </div>
+
+    <div class="hud-bottom-left" id="hud-key-hints">
       <div class="key-chip"><b>WASD</b> Walk</div>
       <div class="key-chip"><b>Shift</b> Sprint</div>
       <div class="key-chip"><b>Space</b> Jump</div>
+      <div class="key-chip"><b>B</b> 3D Print Bike</div>
+      <div class="key-chip"><b>E</b> Ride Bike</div>
       <div class="key-chip"><b>Q</b> Odradek Scan</div>
       <div class="key-chip"><b>Click / Mouse</b> Look</div>
       <div class="key-chip"><b>Scroll</b> Zoom</div>
@@ -208,6 +237,7 @@ def build():
         <div class="joy-knob" id="joy-knob"></div>
       </div>
       <div class="mobile-actions">
+        <button id="btn-m-bike" class="mobile-btn" type="button">Print</button>
         <button id="btn-m-scan" class="mobile-btn" type="button">Scan</button>
         <button id="btn-m-sprint" class="mobile-btn" type="button">Sprint</button>
         <button id="btn-m-jump" class="mobile-btn mobile-btn-lg" type="button">Jump</button>

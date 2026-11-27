@@ -4,7 +4,6 @@
  */
 import * as THREE from 'three';
 import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 
@@ -16,6 +15,10 @@ import {
   getCellFeatures,
   getTerrainHeight,
   getRiverCaveState,
+  sampleLake,
+  getActiveLakesAround,
+  getOriginLakes,
+  findLakeOverlook,
   findSpawnPosition
 } from './world.js';
 import { createTextureLibrary } from './textures.js';
@@ -25,6 +28,7 @@ import { createTerrainSystem } from './terrain.js';
 import { createWaterSystem } from './water.js';
 import { createLandmarkSystem } from './landmarks.js';
 import { createPorter } from './character.js';
+import { createMotorcycleSystem } from './motorcycle.js';
 import { createAudioSystem } from './audio.js';
 
 // 1. Renderer & Scene Setup
@@ -34,7 +38,7 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(44, window.innerWidth / window.innerHeight, 0.35, 16000);
 
 const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
-const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+let dpr = Math.min(window.devicePixelRatio || 1, 1.25);
 renderer.setPixelRatio(dpr);
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
@@ -43,27 +47,176 @@ renderer.toneMapping = THREE.NoToneMapping;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 container.appendChild(renderer.domElement);
 
-// 2. Optimized HalfFloat 2x MSAA HDR Post-Processing Composer + Half-Res Bloom
+// 2. Optimized Single-Pass 2x MSAA HDR Composer + Selective Low-Res Planar Lake Reflection (ZERO SSR Ghosting, High FPS!)
 const rtW = Math.max(1, Math.floor(window.innerWidth * dpr));
 const rtH = Math.max(1, Math.floor(window.innerHeight * dpr));
+
+const IS_MOBILE_PRIMARY = (
+  (window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches) ||
+  (/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '') && navigator.maxTouchPoints > 0)
+);
+
 const msaaTarget = new THREE.WebGLRenderTarget(rtW, rtH, {
   type: THREE.HalfFloatType,
-  samples: 2
+  samples: IS_MOBILE_PRIMARY ? 0 : 2
 });
 
+// Lightweight planar mirror reflection RT (scales with active render resolution -> fast even at 240p!)
+function calcReflSize(w, h) {
+  const aspect = w / Math.max(h, 1);
+  const rw = Math.min(512, Math.max(128, Math.round(w * 0.38)));
+  const rh = Math.max(72, Math.round(rw / Math.max(aspect, 0.5)));
+  return [rw, rh];
+}
+const [initReflW, initReflH] = calcReflSize(window.innerWidth, window.innerHeight);
+const reflRT = new THREE.WebGLRenderTarget(initReflW, initReflH, {
+  type: THREE.HalfFloatType,
+  minFilter: THREE.LinearFilter,
+  magFilter: THREE.LinearFilter,
+  depthBuffer: true,
+  samples: 0
+});
+
+const reflCam = new THREE.PerspectiveCamera(44, window.innerWidth / window.innerHeight, 0.35, 16000);
+const reflSkyScene = new THREE.Scene();
+let reflSkyMesh = null;
+
+const _BIAS_MAT = new THREE.Matrix4().set(
+  0.5, 0.0, 0.0, 0.5,
+  0.0, 0.5, 0.0, 0.5,
+  0.0, 0.0, 0.5, 0.5,
+  0.0, 0.0, 0.0, 1.0
+);
+const _reflMatrix = new THREE.Matrix4();
+const _camWorldPos = new THREE.Vector3();
+const _camFwd = new THREE.Vector3();
+const _camTargetW = new THREE.Vector3();
+const _reflTargetW = new THREE.Vector3();
+const _reflPlane = new THREE.Plane();
+const _reflPlaneNorm = new THREE.Vector3(0, 1, 0);
+const _clipVec = new THREE.Vector4();
+const _qVec = new THREE.Vector4();
+
+let lastSceneCalls = 0;
+let lastSceneTris = 0;
+let lastReflRendered = false;
+let shadowMapWarmed = false;
+
+const planarLakePass = {
+  enabled: true,
+  needsSwap: false,
+  clear: true,
+  renderToScreen: false,
+  setSize(w, h) {
+    const [rw, rh] = calcReflSize(w, h);
+    reflRT.setSize(rw, rh);
+  },
+  render(r, writeBuffer, readBuffer) {
+    camera.updateMatrixWorld();
+
+    // Step 1: Frustum-check visible lakes — skip planar reflection pass completely when no lake is in view (0.0ms!)
+    const visLake = waterSys ? waterSys.getBestVisibleLake(camera) : null;
+    if (visLake && camera.position.y > visLake.waterY + 0.15) {
+      const waterY = visLake.waterY;
+      _camWorldPos.setFromMatrixPosition(camera.matrixWorld);
+      _camFwd.set(0, 0, -1).applyQuaternion(camera.quaternion);
+      _camTargetW.copy(_camWorldPos).add(_camFwd);
+
+      // Exact mirrored reflection camera across horizontal plane y = waterY (right-handed, zero inverted culling!)
+      reflCam.fov = camera.fov;
+      reflCam.aspect = camera.aspect;
+      reflCam.near = camera.near;
+      reflCam.far = camera.far;
+      reflCam.position.set(_camWorldPos.x, 2.0 * waterY - _camWorldPos.y, _camWorldPos.z);
+      _reflTargetW.set(_camTargetW.x, 2.0 * waterY - _camTargetW.y, _camTargetW.z);
+      reflCam.up.set(0, 1, 0);
+      reflCam.lookAt(_reflTargetW);
+      reflCam.updateMatrixWorld();
+      reflCam.updateProjectionMatrix();
+
+      // Store non-oblique projection-view-bias matrix for exact pixel alignment in lake shader
+      _reflMatrix.copy(_BIAS_MAT).multiply(reflCam.projectionMatrix).multiply(reflCam.matrixWorldInverse);
+
+      // Step 1a: Render Sky Dome alone with normal non-oblique frustum (guaranteed zero far-plane sky clipping!)
+      r.setRenderTarget(reflRT);
+      r.autoClear = true;
+      r.clear(true, true, true);
+      if (reflSkyMesh) {
+        reflSkyMesh.position.copy(reflCam.position);
+        r.render(reflSkyScene, reflCam);
+      }
+
+      // Step 1b: Apply Lengyel's oblique near-plane clip (y >= waterY - 0.14) so underwater terrain never blocks the mirror camera!
+      _reflPlane.set(_reflPlaneNorm, -waterY + 0.14);
+      _reflPlane.applyMatrix4(reflCam.matrixWorldInverse);
+      if (_reflPlane.constant < -0.02) {
+        _clipVec.set(_reflPlane.normal.x, _reflPlane.normal.y, _reflPlane.normal.z, _reflPlane.constant);
+        const pe = reflCam.projectionMatrix.elements;
+        _qVec.set(
+          (Math.sign(_clipVec.x) + pe[8]) / pe[0],
+          (Math.sign(_clipVec.y) + pe[9]) / pe[5],
+          -1.0,
+          (1.0 + pe[10]) / pe[14]
+        );
+        const denom = _clipVec.dot(_qVec);
+        if (Math.abs(denom) > 1e-5) {
+          _clipVec.multiplyScalar(2.0 / denom);
+          pe[2] = _clipVec.x;
+          pe[6] = _clipVec.y;
+          pe[10] = _clipVec.z + 1.0;
+          pe[14] = _clipVec.w;
+        }
+      }
+
+      // Step 1c: Selective reflection render — skip lakes, tiny flora/cobbles, rain VFX & shadow-map rebuild (~<0.6ms!)
+      // Only skip shadowMap update once the shadow map has been initialized on frame 1 (prevents WebGL shadow sampler warning!)
+      const prevShadowAuto = r.shadowMap.autoUpdate;
+      if (shadowMapWarmed) r.shadowMap.autoUpdate = false;
+      skyDome.mesh.visible = false;
+      waterSys.setLakesVisible(false);
+      terrainSys.setReflectionMode(true);
+      weatherFX.setVisible(false);
+
+      r.autoClear = false;
+      r.render(scene, reflCam);
+
+      skyDome.mesh.visible = true;
+      waterSys.setLakesVisible(true);
+      terrainSys.setReflectionMode(false);
+      weatherFX.setVisible(true);
+      r.shadowMap.autoUpdate = prevShadowAuto;
+      shadowMapWarmed = true;
+
+      waterSys.updateLakeUniforms(reflRT.texture, _reflMatrix, waterY, true);
+      lastReflRendered = true;
+    } else {
+      if (waterSys) waterSys.updateLakeUniforms(null, null, 16.5, false);
+      lastReflRendered = false;
+    }
+
+    // Step 2: Single-pass main scene render directly into 2x MSAA HDR composer buffer (zero depth-copy overhead!)
+    r.setRenderTarget(this.renderToScreen ? null : readBuffer);
+    r.autoClear = true;
+    r.clear(true, true, true);
+    r.render(scene, camera);
+    lastSceneCalls = r.info.render.calls;
+    lastSceneTris = r.info.render.triangles;
+  }
+};
+
 const composer = new EffectComposer(renderer, msaaTarget);
-const renderPass = new RenderPass(scene, camera);
-composer.addPass(renderPass);
+composer.addPass(planarLakePass);
 
 const bloomPass = new UnrealBloomPass(
-  new THREE.Vector2(Math.max(1, Math.floor(window.innerWidth * 0.5)), Math.max(1, Math.floor(window.innerHeight * 0.5))),
-  0.22,
-  0.34,
-  1.15
+  new THREE.Vector2(Math.max(1, Math.floor(window.innerWidth * 0.35)), Math.max(1, Math.floor(window.innerHeight * 0.35))),
+  0.24,
+  0.36,
+  1.12
 );
+bloomPass.enabled = !IS_MOBILE_PRIMARY;
 composer.addPass(bloomPass);
 
-// Stephen Hill ACES Filmic Resolve + Nordic Photographic Grading + Vignette + IGN Dither + sRGB
+// Stephen Hill ACES Filmic Resolve + Nordic Photographic Grading + Vignette + IGN Dither + sRGB (single texture tap!)
 const resolvePass = new ShaderPass({
   uniforms: {
     tDiffuse: { value: null },
@@ -113,11 +266,11 @@ const resolvePass = new ShaderPass({
       vec3 c = texture2D(tDiffuse, vUv).rgb * uExposure;
       c = tmACES(c);
 
-      // Photographic Icelandic filmic contrast (rich deep volcanic blacks + crisp earthy olive moss + cool slate shadows)
+      // Photographic Icelandic filmic contrast (rich deep volcanic blacks + crisp earthy olive moss + luminous glacial blues)
       c = pow(max(c, vec3(0.0)), vec3(1.07));
       c = mix(c, c * c * (3.0 - 2.0 * c), 0.16);
       float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));
-      c = mix(vec3(luma), c, mix(1.04, 1.08, uNightFactor));
+      c = mix(vec3(luma), c, mix(1.05, 1.09, uNightFactor));
       c = mix(c * vec3(0.95, 0.98, 1.03), c, smoothstep(0.0, 0.42, luma));
 
       vec2 uvC = (vUv - 0.5) * vec2(uAspect, 1.0);
@@ -143,8 +296,14 @@ setWorldSeed(generateRandomSeed());
 const texLib = createTextureLibrary();
 const skyDome = createSkyDome();
 scene.add(skyDome.mesh);
+reflSkyMesh = new THREE.Mesh(skyDome.mesh.geometry, skyDome.material);
+reflSkyMesh.frustumCulled = false;
+reflSkyScene.add(reflSkyMesh);
 
 const envCtrl = createEnvironmentController(scene, renderer, skyDome);
+if (IS_MOBILE_PRIMARY && envCtrl.sunLight && envCtrl.sunLight.shadow) {
+  envCtrl.sunLight.shadow.mapSize.set(512, 512);
+}
 const weatherFX = createWeatherFX(scene);
 const terrainSys = createTerrainSystem(texLib, scene);
 const waterSys = createWaterSystem(texLib, scene);
@@ -154,6 +313,34 @@ const audioSys = createAudioSystem();
 const porter = createPorter(scene, (surface, sprint) => {
   audioSys.playFootstep(surface, sprint);
 });
+const bikeSys = createMotorcycleSystem(scene, audioSys);
+
+let lastCamManualTime = 0;
+
+function triggerPrintMotorcycle() {
+  ensureAudioStarted();
+  if (bikeSys.state.riding) {
+    bikeSys.dismount(porter, terrainSys, landmarkSys);
+  }
+  bikeSys.startPrint(porter);
+  refreshBikeHud();
+}
+
+function toggleMountMotorcycle() {
+  ensureAudioStarted();
+  if (bikeSys.state.riding) {
+    bikeSys.dismount(porter, terrainSys, landmarkSys);
+    refreshBikeHud();
+    return true;
+  }
+  if (bikeSys.canMount(porter.state.pos)) {
+    bikeSys.mount(porter);
+    camState.yaw = bikeSys.state.yaw + Math.PI;
+    refreshBikeHud();
+    return true;
+  }
+  return false;
+}
 
 // 4. Camera State & Gimbal-Stabilized Third-Person Over-Shoulder Framing
 const camState = {
@@ -170,6 +357,9 @@ const camState = {
 };
 
 function resetVista() {
+  if (bikeSys.state.riding) {
+    bikeSys.dismount(porter, terrainSys, landmarkSys);
+  }
   camState.customOverride = false;
   const sp = findSpawnPosition();
   // Porter faces forward into the valley vista; camera sits squarely aligned behind over right shoulder
@@ -178,6 +368,22 @@ function resetVista() {
   camState.pitch = 0.08;
   camState.distance = 7.4;
   syncCameraImmediate();
+}
+
+const TITLE_CAM_RADIUS = 100.0;
+const TITLE_CAM_HEIGHT = 50.0;
+
+function updateTitleCamera(yaw) {
+  const px = porter.state.pos.x;
+  const py = porter.state.pos.y;
+  const pz = porter.state.pos.z;
+  const camX = px + Math.sin(yaw) * TITLE_CAM_RADIUS;
+  const camZ = pz + Math.cos(yaw) * TITLE_CAM_RADIUS;
+  const camY = Math.max(py + TITLE_CAM_HEIGHT, getTerrainHeight(camX, camZ) + 2.0);
+  camState.pos.set(camX, camY, camZ);
+  camState.target.set(px, camY, pz);
+  camera.position.copy(camState.pos);
+  camera.lookAt(camState.target);
 }
 
 function syncCameraImmediate() {
@@ -213,13 +419,104 @@ function syncCameraImmediate() {
   camera.lookAt(lookX, lookY + 0.56 + camState.smoothFloorLift * 0.45, lookZ);
 }
 
-// Initial world build around procedural spawn
-resetVista();
-terrainSys.rebuildAll(porter.state.pos.x, porter.state.pos.z);
-waterSys.rebuildAll(porter.state.pos.x, porter.state.pos.z);
-landmarkSys.rebuildAll(porter.state.pos.x, porter.state.pos.z);
-porter.placeAt(porter.state.pos.x, porter.state.pos.z, porter.state.yaw);
-syncCameraImmediate();
+// Title Screen & Staged Async World Boot
+let gameState = 'loading'; // 'loading' | 'title' | 'playing'
+const elTitleScreen = document.getElementById('title-screen');
+const elLoadingWrap = document.getElementById('loading-wrap');
+const elLoadingStatus = document.getElementById('loading-status');
+const elLoadingFill = document.getElementById('loading-fill');
+const elBtnStart = document.getElementById('btn-start-game');
+const elTitleHint = document.getElementById('title-hint');
+const IDLE_INPUT = { forward: false, backward: false, left: false, right: false, sprint: false, jump: false, analogX: 0, analogY: 0 };
+
+function setLoadProgress(pct, label) {
+  if (elLoadingFill) elLoadingFill.style.width = `${pct}%`;
+  if (elLoadingStatus) elLoadingStatus.textContent = label;
+}
+
+function nextFrameTick() {
+  return new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0)));
+}
+
+// Strict mobile touch detection: desktop/laptop PCs with touchscreens (pointer: fine & hover: hover) NEVER show mobile UI!
+function isMobileTouchPrimary() {
+  const coarseNoHover = window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+  const fineDesktop = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+  if (fineDesktop) return false;
+  const uaMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
+  return coarseNoHover || (uaMobile && navigator.maxTouchPoints > 0);
+}
+
+function startGame() {
+  if (gameState !== 'title') return;
+  gameState = 'playing';
+  ensureAudioStarted();
+  camState.yaw = porter.state.yaw + Math.PI;
+  camState.distance = 7.4;
+  camState.pitch = 0.08;
+  camState.customOverride = false;
+  syncCameraImmediate();
+  if (elTitleScreen) {
+    elTitleScreen.classList.add('fade-out');
+    setTimeout(() => { elTitleScreen.style.display = 'none'; }, 700);
+  }
+  const hudEl = document.getElementById('hud');
+  if (hudEl) hudEl.classList.remove('hidden');
+
+  if (isMobileTouchPrimary()) {
+    document.body.classList.add('touch-active');
+    tryLockLandscape(false);
+  } else {
+    document.body.classList.remove('touch-active');
+    if (renderer.domElement.requestPointerLock) {
+      try {
+        const p = renderer.domElement.requestPointerLock();
+        if (p && p.catch) p.catch(() => {});
+      } catch (_) {}
+    }
+  }
+}
+
+if (elBtnStart) {
+  elBtnStart.addEventListener('click', startGame);
+}
+
+async function bootWorld() {
+  setLoadProgress(15, 'Generating Icelandic Sector...');
+  await nextFrameTick();
+  resetVista();
+
+  setLoadProgress(40, 'Sculpting Volcanic Terrain...');
+  await nextFrameTick();
+  terrainSys.rebuildAll(porter.state.pos.x, porter.state.pos.z);
+
+  setLoadProgress(65, 'Carving Glacial Rivers & Waterfalls...');
+  await nextFrameTick();
+  waterSys.rebuildAll(porter.state.pos.x, porter.state.pos.z);
+
+  setLoadProgress(85, 'Placing Bridges & Outposts...');
+  await nextFrameTick();
+  landmarkSys.rebuildAll(porter.state.pos.x, porter.state.pos.z);
+
+  setLoadProgress(98, 'Warming Shaders & Atmosphere...');
+  await nextFrameTick();
+  porter.placeAt(porter.state.pos.x, porter.state.pos.z, porter.state.yaw);
+  // Populate PMREM scene.environment IBL BEFORE shader warmup so bike PBR shaders compile with USE_ENVMAP active!
+  envCtrl.update(0.016, porter.state.pos);
+  updateTitleCamera(camState.yaw);
+  camera.updateMatrixWorld(true);
+  bikeSys.prewarmShaders(composer, camera);
+  composer.render();
+
+  setLoadProgress(100, 'Ready');
+  gameState = 'title';
+  if (elTitleScreen) elTitleScreen.classList.add('ready');
+  if (elLoadingWrap) elLoadingWrap.classList.add('hidden');
+  if (elBtnStart) elBtnStart.classList.remove('hidden');
+  if (elTitleHint) elTitleHint.classList.remove('hidden');
+  lastTimeMs = performance.now();
+  requestAnimationFrame(animate);
+}
 
 // 5. Input Handling (Keyboard, Mouse & Multi-Touch Mobile Controls)
 const input = { forward: false, backward: false, left: false, right: false, sprint: false, jump: false, analogX: 0, analogY: 0 };
@@ -231,8 +528,7 @@ let lastPinchDist = 0;
 let landscapeAttempted = false;
 
 function tryLockLandscape(withFullscreen = false) {
-  const isTouch = window.matchMedia('(hover: none) and (pointer: coarse)').matches || navigator.maxTouchPoints > 0;
-  if (!isTouch) return;
+  if (!isMobileTouchPrimary()) return;
   if (withFullscreen && !document.fullscreenElement && document.documentElement.requestFullscreen) {
     document.documentElement.requestFullscreen().catch(() => {});
   }
@@ -246,6 +542,15 @@ function ensureAudioStarted() {
 }
 
 window.addEventListener('keydown', (e) => {
+  if (gameState === 'title') {
+    if (e.key === 'Enter' || e.code === 'Space') {
+      e.preventDefault();
+      startGame();
+    }
+    return;
+  }
+  if (gameState !== 'playing') return;
+  document.body.classList.remove('touch-active');
   ensureAudioStarted();
   const k = e.key.toLowerCase();
   if (k === 'w' || e.key === 'ArrowUp') input.forward = true;
@@ -257,6 +562,14 @@ window.addEventListener('keydown', (e) => {
   if (k === 'q') {
     porter.triggerScan();
     audioSys.playOdradekChime();
+  }
+  if (k === 'b' && !e.repeat) {
+    if (!bikeSys.state.riding) {
+      triggerPrintMotorcycle();
+    }
+  }
+  if ((k === 'e' || k === 'f') && !e.repeat) {
+    toggleMountMotorcycle();
   }
   if (k === 'v') {
     resetVista();
@@ -282,17 +595,20 @@ window.addEventListener('keyup', (e) => {
 
 container.addEventListener('pointerdown', (e) => {
   ensureAudioStarted();
-  if (e.pointerType === 'touch') {
+  if (e.pointerType === 'touch' && isMobileTouchPrimary()) {
     document.body.classList.add('touch-active');
     if (!landscapeAttempted) {
       landscapeAttempted = true;
       tryLockLandscape(false);
     }
-  } else if (e.button === 0 && document.pointerLockElement !== renderer.domElement && renderer.domElement.requestPointerLock) {
-    try {
-      const p = renderer.domElement.requestPointerLock();
-      if (p && p.catch) p.catch(() => {});
-    } catch (_) {}
+  } else {
+    document.body.classList.remove('touch-active');
+    if (e.button === 0 && document.pointerLockElement !== renderer.domElement && renderer.domElement.requestPointerLock) {
+      try {
+        const p = renderer.domElement.requestPointerLock();
+        if (p && p.catch) p.catch(() => {});
+      } catch (_) {}
+    }
   }
   activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
   if (activePointers.size === 1) {
@@ -312,6 +628,7 @@ window.addEventListener('pointermove', (e) => {
     camState.yaw -= (e.movementX || 0) * 0.0028;
     camState.pitch = clamp(camState.pitch + (e.movementY || 0) * 0.0024, -0.35, 1.05);
     camState.customOverride = false;
+    lastCamManualTime = performance.now();
     return;
   }
   if (!activePointers.has(e.pointerId)) return;
@@ -332,6 +649,7 @@ window.addEventListener('pointermove', (e) => {
     const sens = e.pointerType === 'touch' ? 0.0068 : 0.0055;
     camState.yaw -= dx * sens;
     camState.pitch = clamp(camState.pitch + dy * (sens * 0.82), -0.35, 1.05);
+    lastCamManualTime = performance.now();
   }
 });
 
@@ -439,6 +757,19 @@ if (btnMScan) {
   });
 }
 
+const btnMBike = document.getElementById('btn-m-bike');
+if (btnMBike) {
+  btnMBike.addEventListener('pointerdown', (e) => {
+    e.stopPropagation();
+    ensureAudioStarted();
+    if (bikeSys.state.riding || bikeSys.canMount(porter.state.pos)) {
+      toggleMountMotorcycle();
+    } else if (!bikeSys.state.printing) {
+      triggerPrintMotorcycle();
+    }
+  });
+}
+
 const landscapePrompt = document.getElementById('landscape-prompt');
 const btnLockLandscape = document.getElementById('btn-lock-landscape');
 const btnDismissLandscape = document.getElementById('btn-dismiss-landscape');
@@ -472,8 +803,131 @@ const elSlTime = document.getElementById('sl-time');
 const elLblTime = document.getElementById('lbl-time');
 const elBtnCycle = document.getElementById('btn-cycle');
 const elBtnAurora = document.getElementById('btn-aurora');
+const elBtnRes = document.getElementById('btn-res');
 const elBtnAudio = document.getElementById('btn-audio');
+const elBtnPrintBike = document.getElementById('btn-print-bike');
+const elBikeBanner = document.getElementById('bike-banner');
+const elBikeBannerTitle = document.getElementById('bike-banner-title');
+const elBikeBannerSub = document.getElementById('bike-banner-sub');
+const elBikeProgTrack = document.getElementById('bike-progress-track');
+const elBikeProgFill = document.getElementById('bike-progress-fill');
+const elHudKeyHints = document.getElementById('hud-key-hints');
 const elNeedle = document.getElementById('compass-needle');
+
+let lastBikeHudMode = '';
+
+function refreshBikeHud() {
+  const bs = bikeSys.state;
+  const nearMount = bikeSys.canMount(porter.state.pos);
+
+  if (elBtnPrintBike) {
+    if (bs.printing) {
+      elBtnPrintBike.textContent = `Printing ${Math.round(bs.printProgress * 100)}%`;
+      elBtnPrintBike.classList.add('active');
+    } else if (bs.riding) {
+      elBtnPrintBike.textContent = 'Dismount Bike (E)';
+      elBtnPrintBike.classList.add('active');
+    } else if (bs.exists) {
+      elBtnPrintBike.textContent = 'Reprint Bike (B)';
+      elBtnPrintBike.classList.remove('active');
+    } else {
+      elBtnPrintBike.textContent = '3D Print Bike (B)';
+      elBtnPrintBike.classList.remove('active');
+    }
+  }
+
+  if (btnMBike) {
+    if (bs.printing) btnMBike.textContent = `${Math.round(bs.printProgress * 100)}%`;
+    else if (bs.riding) btnMBike.textContent = 'Exit';
+    else if (nearMount) btnMBike.textContent = 'Ride';
+    else btnMBike.textContent = 'Print';
+    btnMBike.classList.toggle('active', bs.printing || bs.riding || nearMount);
+  }
+
+  if (elBikeBanner) {
+    elBikeBanner.classList.add('hidden');
+  }
+
+  const mode = bs.riding ? 'riding' : 'foot';
+  if (elHudKeyHints && mode !== lastBikeHudMode) {
+    lastBikeHudMode = mode;
+    if (mode === 'riding') {
+      elHudKeyHints.innerHTML =
+        '<div class="key-chip"><b>W/S</b> Throttle / Brake</div>' +
+        '<div class="key-chip"><b>A/D</b> Steer</div>' +
+        '<div class="key-chip"><b>Shift</b> Chiral Boost</div>' +
+        '<div class="key-chip"><b>Space</b> Hop / Handbrake</div>' +
+        '<div class="key-chip"><b>E</b> Dismount</div>' +
+        '<div class="key-chip"><b>Q</b> Odradek Scan</div>' +
+        '<div class="key-chip"><b>V</b> Reset Vista</div>';
+    } else {
+      elHudKeyHints.innerHTML =
+        '<div class="key-chip"><b>WASD</b> Walk</div>' +
+        '<div class="key-chip"><b>Shift</b> Sprint</div>' +
+        '<div class="key-chip"><b>Space</b> Jump</div>' +
+        '<div class="key-chip"><b>B</b> 3D Print Bike</div>' +
+        '<div class="key-chip"><b>E</b> Ride Bike</div>' +
+        '<div class="key-chip"><b>Q</b> Odradek Scan</div>' +
+        '<div class="key-chip"><b>Click / Mouse</b> Look</div>' +
+        '<div class="key-chip"><b>Scroll</b> Zoom</div>' +
+        '<div class="key-chip"><b>V</b> Reset Vista</div>';
+    }
+  }
+}
+
+if (elBtnPrintBike) {
+  elBtnPrintBike.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (bikeSys.state.riding) {
+      toggleMountMotorcycle();
+    } else {
+      triggerPrintMotorcycle();
+    }
+  });
+}
+
+if (elBikeBanner) {
+  elBikeBanner.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!bikeSys.state.printing && !bikeSys.state.riding && bikeSys.canMount(porter.state.pos)) {
+      toggleMountMotorcycle();
+    }
+  });
+}
+
+const RES_PRESETS = [
+  { label: 'Auto', height: 0 },
+  { label: '240p', height: 240 },
+  { label: '360p', height: 360 },
+  { label: '480p', height: 480 },
+  { label: '720p', height: 720 },
+  { label: '1080p', height: 1080 },
+  { label: '2K', height: 1440 }
+];
+let resPresetIdx = 0;
+
+function applyRenderResolution() {
+  const w = window.innerWidth;
+  const h = Math.max(1, window.innerHeight);
+  const preset = RES_PRESETS[resPresetIdx];
+  dpr = preset && preset.height > 0
+    ? preset.height / Math.max(1, Math.min(w, h))
+    : Math.min(window.devicePixelRatio || 1, 1.25);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setPixelRatio(dpr);
+  renderer.setSize(w, h);
+  composer.setPixelRatio(dpr);
+  composer.setSize(w, h);
+  bloomPass.setSize(
+    Math.max(1, Math.floor(w * dpr * 0.35)),
+    Math.max(1, Math.floor(h * dpr * 0.35))
+  );
+  resolvePass.uniforms.uAspect.value = w / h;
+  if (elBtnRes) {
+    elBtnRes.textContent = `Res: ${RES_PRESETS[resPresetIdx].label}`;
+  }
+}
 
 function formatClock(hours) {
   const h = Math.floor(hours) % 24;
@@ -497,7 +951,12 @@ function refreshHudControls() {
 document.getElementById('btn-env').addEventListener('click', () => {
   elPanel.classList.toggle('collapsed');
 });
-document.getElementById('btn-vista').addEventListener('click', resetVista);
+if (elBtnRes) {
+  elBtnRes.addEventListener('click', () => {
+    resPresetIdx = (resPresetIdx + 1) % RES_PRESETS.length;
+    applyRenderResolution();
+  });
+}
 document.getElementById('btn-hide-hud').addEventListener('click', () => elHud.classList.toggle('hidden'));
 elBtnAudio.addEventListener('click', () => {
   ensureAudioStarted();
@@ -540,6 +999,10 @@ document.querySelectorAll('#wx-btns button').forEach((btn) => {
 });
 
 function switchWorldSeed(seedStr) {
+  if (bikeSys.state.riding) {
+    bikeSys.dismount(porter, terrainSys, landmarkSys);
+  }
+  bikeSys.clear();
   setWorldSeed(seedStr);
   resetVista();
   terrainSys.rebuildAll(porter.state.pos.x, porter.state.pos.z);
@@ -547,6 +1010,16 @@ function switchWorldSeed(seedStr) {
   landmarkSys.rebuildAll(porter.state.pos.x, porter.state.pos.z);
   porter.placeAt(porter.state.pos.x, porter.state.pos.z, porter.state.yaw);
   syncCameraImmediate();
+  refreshBikeHud();
+}
+
+function placePlayerOrBikeAt(x, z, yaw) {
+  if (bikeSys.state.riding) {
+    bikeSys.teleportWithRider(x, z, yaw);
+    bikeSys.update(0.016, IDLE_INPUT, porter, terrainSys, landmarkSys);
+  } else {
+    porter.placeAt(x, z, yaw);
+  }
 }
 
 function teleportToFeature(kind) {
@@ -556,13 +1029,13 @@ function teleportToFeature(kind) {
     const vz = f.village.z - Math.cos(f.village.yaw) * 44;
     const lookYaw = Math.atan2(f.village.x - vx, f.village.z - vz);
     camState.customOverride = false;
-    porter.placeAt(vx, vz, lookYaw);
+    placePlayerOrBikeAt(vx, vz, lookYaw);
     camState.yaw = lookYaw + Math.PI;
     camState.pitch = 0.14;
     terrainSys.update(vx, vz, true);
     waterSys.update(vx, vz);
     landmarkSys.update(vx, vz);
-    porter.placeAt(vx, vz, lookYaw);
+    placePlayerOrBikeAt(vx, vz, lookYaw);
     syncCameraImmediate();
   } else if (kind === 'waterfall' && f.waterfall) {
     const wf = f.waterfall;
@@ -570,14 +1043,33 @@ function teleportToFeature(kind) {
     const wz = wf.plungeZ + wf.nz * 78;
     const lookYaw = Math.atan2(wf.x - wx, wf.z - wz);
     camState.customOverride = false;
-    porter.placeAt(wx, wz, lookYaw);
+    placePlayerOrBikeAt(wx, wz, lookYaw);
     camState.yaw = lookYaw + Math.PI;
     camState.pitch = 0.08;
     terrainSys.update(wx, wz, true);
     waterSys.update(wx, wz);
     landmarkSys.update(wx, wz);
-    porter.placeAt(wx, wz, lookYaw);
+    placePlayerOrBikeAt(wx, wz, lookYaw);
     syncCameraImmediate();
+  } else if (kind === 'lake' || kind === 'grand_lake') {
+    const originLakes = getOriginLakes();
+    let targetLake = kind === 'grand_lake' ? originLakes.grand : originLakes.medium;
+    if (!targetLake) {
+      const nearby = getActiveLakesAround(porter.state.pos.x, porter.state.pos.z, 14000);
+      targetLake = nearby.find((l) => (kind === 'grand_lake' ? l.tier === 'macro' : l.tier === 'medium')) || nearby[0];
+    }
+    if (targetLake) {
+      const ov = findLakeOverlook(targetLake);
+      camState.customOverride = false;
+      placePlayerOrBikeAt(ov.x, ov.z, ov.yaw);
+      camState.yaw = ov.yaw + Math.PI;
+      camState.pitch = targetLake.tier === 'macro' ? 0.14 : 0.12;
+      terrainSys.update(ov.x, ov.z, true);
+      waterSys.update(ov.x, ov.z);
+      landmarkSys.update(ov.x, ov.z);
+      placePlayerOrBikeAt(ov.x, ov.z, ov.yaw);
+      syncCameraImmediate();
+    }
   }
 }
 
@@ -591,23 +1083,19 @@ const btnVisitVillage = document.getElementById('btn-visit-village');
 if (btnVisitVillage) btnVisitVillage.addEventListener('click', () => teleportToFeature('village'));
 const btnVisitWaterfall = document.getElementById('btn-visit-waterfall');
 if (btnVisitWaterfall) btnVisitWaterfall.addEventListener('click', () => teleportToFeature('waterfall'));
+const btnVisitLake = document.getElementById('btn-visit-lake');
+if (btnVisitLake) btnVisitLake.addEventListener('click', () => teleportToFeature('lake'));
+const btnVisitGrandLake = document.getElementById('btn-visit-grand-lake');
+if (btnVisitGrandLake) btnVisitGrandLake.addEventListener('click', () => teleportToFeature('grand_lake'));
 
 // 7. Resize Handler
-window.addEventListener('resize', () => {
-  const w = window.innerWidth;
-  const h = Math.max(1, window.innerHeight);
-  camera.aspect = w / h;
-  camera.updateProjectionMatrix();
-  renderer.setSize(w, h);
-  composer.setSize(w, h);
-  bloomPass.setSize(Math.max(1, Math.floor(w * 0.5)), Math.max(1, Math.floor(h * 0.5)));
-  resolvePass.uniforms.uAspect.value = w / h;
-});
+window.addEventListener('resize', applyRenderResolution);
 
 // 8. Main Animation Loop
 let lastTimeMs = performance.now();
 let telemetryTick = 0;
 let lastHudWeather = '';
+let titleShadowTick = 0;
 refreshHudControls();
 
 function animate() {
@@ -616,7 +1104,22 @@ function animate() {
   const dt = Math.min((nowMs - lastTimeMs) / 1000, 0.05);
   lastTimeMs = nowMs;
 
-  porter.update(dt, input, camState.yaw, terrainSys, landmarkSys);
+  if (gameState === 'title') {
+    // Slowly pan around the porter on the live title/loading screen (~100m away, 50m high, looking horizontally)
+    camState.yaw += dt * 0.14;
+    porter.update(dt, IDLE_INPUT, camState.yaw, terrainSys, landmarkSys);
+    titleShadowTick = (titleShadowTick + 1) & 3;
+    renderer.shadowMap.autoUpdate = !shadowMapWarmed || titleShadowTick === 0;
+  } else {
+    renderer.shadowMap.autoUpdate = true;
+    if (bikeSys.state.riding) {
+      bikeSys.update(dt, input, porter, terrainSys, landmarkSys);
+    } else {
+      porter.update(dt, input, camState.yaw, terrainSys, landmarkSys);
+      bikeSys.update(dt, IDLE_INPUT, porter, terrainSys, landmarkSys);
+    }
+    refreshBikeHud();
+  }
 
   const px = porter.state.pos.x;
   const pz = porter.state.pos.z;
@@ -634,7 +1137,27 @@ function animate() {
     ATMO_UNIFORMS.uAuroraStrength.value
   );
 
-  if (!camState.customOverride) {
+  if (gameState === 'title') {
+    updateTitleCamera(camState.yaw);
+  } else if (!camState.customOverride) {
+    // Gentle behind-bike auto-alignment while driving when user isn't actively orbiting camera
+    if (bikeSys.state.riding && Math.abs(bikeSys.state.speed) > 1.8 && (nowMs - lastCamManualTime) > 1100) {
+      const desiredYaw = bikeSys.state.yaw + Math.PI;
+      let diff = desiredYaw - camState.yaw;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      camState.yaw += diff * (1.0 - Math.exp(-3.2 * dt));
+    }
+
+    // Dynamic speed FOV while riding the RT-04 motorcycle (44° -> 52° during chiral boost!)
+    const targetFov = bikeSys.state.riding
+      ? mix(45.5, 52.5, clamp(Math.abs(bikeSys.state.speed) / 26.0, 0, 1))
+      : 44.0;
+    if (Math.abs(camera.fov - targetFov) > 0.02) {
+      camera.fov = mix(camera.fov, targetFov, 1.0 - Math.exp(-6.0 * dt));
+      camera.updateProjectionMatrix();
+    }
+
     // Exponential frame-rate-independent gimbal smoothing (prevents horizon bobbing over moss hummocks & uneven slopes!)
     const rotAlpha = 1.0 - Math.exp(-16.0 * dt);
     camState.smoothYaw = mix(camState.smoothYaw, camState.yaw, rotAlpha);
@@ -642,12 +1165,13 @@ function animate() {
 
     const rightX = Math.cos(camState.smoothYaw);
     const rightZ = -Math.sin(camState.smoothYaw);
-    const targetLookX = px + rightX * 0.42;
-    const targetLookY = (porter.state.smoothBodyY !== undefined ? porter.state.smoothBodyY : porter.state.pos.y) + 1.56;
-    const targetLookZ = pz + rightZ * 0.42;
+    const shoulderOff = bikeSys.state.riding ? 0.14 : 0.42;
+    const targetLookX = px + rightX * shoulderOff;
+    const targetLookY = (porter.state.smoothBodyY !== undefined ? porter.state.smoothBodyY : porter.state.pos.y) + (bikeSys.state.riding ? 1.48 : 1.56);
+    const targetLookZ = pz + rightZ * shoulderOff;
 
     // Responsive XZ follow + heavily damped gimbal vertical Y follow (filters out high-frequency moss pillow bumps!)
-    const fXZ = 1.0 - Math.exp(-11.0 * dt);
+    const fXZ = 1.0 - Math.exp(-(bikeSys.state.riding ? 16.0 : 11.0) * dt);
     const yDelta = Math.abs(targetLookY - camState.target.y);
     // Stay silky slow on small ±0.6m moss bumps, accelerate smoothly only on large climbs/jumps (>1.4m)
     const yRate = porter.state.grounded ? mix(2.4, 6.0, clamp((yDelta - 0.35) / 1.4, 0, 1)) : 5.2;
@@ -663,7 +1187,10 @@ function animate() {
     const rayZ = Math.cos(camState.smoothYaw) * cp;
 
     // Spring-arm terrain clearance: check along the camera boom so uphill terrain smoothly shortens boom instead of pitching horizon down!
-    let targetDist = camState.distance;
+    const rideDistBoost = bikeSys.state.riding
+      ? mix(0.85, 1.85, clamp(Math.abs(bikeSys.state.speed) / 26.0, 0, 1))
+      : 0.0;
+    let targetDist = camState.distance + rideDistBoost;
     const caveCheck = getRiverCaveState(
       camState.target.x + rayX * targetDist,
       camState.target.z + rayZ * targetDist,
@@ -698,7 +1225,12 @@ function animate() {
       const clampedY = clamp(desiredY, caveCam.floorY + 1.0, caveCam.ceilingY - 1.1);
       neededLift = clampedY - desiredY;
     } else {
-      const floorY = getTerrainHeight(desiredX, desiredZ) + 0.78;
+      let floorY = getTerrainHeight(desiredX, desiredZ) + 0.78;
+      // Keep camera smoothly above glacial lake water surface so it never dips underwater!
+      const camLk = sampleLake(desiredX, desiredZ, _camLakeTmp);
+      if (camLk.lake && camLk.shoreMeters > -3.0) {
+        floorY = Math.max(floorY, camLk.waterY + 0.65);
+      }
       if (floorY > desiredY) neededLift = floorY - desiredY;
     }
 
@@ -731,18 +1263,11 @@ function animate() {
     }
   }
 
-  // Capture main scene render stats BEFORE post-processing passes reset renderer.info
+  // Capture main scene render stats inside lakeScenePass
   composer.render();
 }
-let lastSceneCalls = 0;
-let lastSceneTris = 0;
-const _origRenderPassRender = renderPass.render.bind(renderPass);
-renderPass.render = function (r, writeBuf, readBuf, deltaTime, maskActive) {
-  _origRenderPassRender(r, writeBuf, readBuf, deltaTime, maskActive);
-  lastSceneCalls = r.info.render.calls;
-  lastSceneTris = r.info.render.triangles;
-};
-animate();
+const _camLakeTmp = { lake: null, shoreMeters: -9999, bedDepth: 0, waterY: 16, shoreGrade: 60, isletBoost: 0 };
+bootWorld();
 
 // 9. Verification & Debug Hook
 window.__LANDSTRANDING__ = {
@@ -786,6 +1311,25 @@ window.__LANDSTRANDING__ = {
     teleportToFeature('waterfall');
     composer.render();
   },
+  teleportToLake(kind = 'medium') {
+    teleportToFeature(kind === 'grand' ? 'grand_lake' : 'lake');
+    composer.render();
+  },
+  getLakes() {
+    const px = porter.state.pos.x;
+    const pz = porter.state.pos.z;
+    return getActiveLakesAround(px, pz, 12000).map((l) => ({
+      id: l.id,
+      tier: l.tier,
+      cx: Math.round(l.cx),
+      cz: Math.round(l.cz),
+      diameterM: Math.round(l.rx * 2),
+      widthM: Math.round(l.rz * 2),
+      waterY: Number(l.waterY.toFixed(2)),
+      maxDepthM: Math.round(l.maxDepth),
+      distM: Math.round(Math.hypot(l.cx - px, l.cz - pz))
+    }));
+  },
   teleport(x, z) {
     camState.customOverride = false;
     porter.placeAt(x, z, Math.PI);
@@ -802,6 +1346,51 @@ window.__LANDSTRANDING__ = {
   },
   triggerScan() {
     porter.triggerScan();
+  },
+  printMotorcycle() {
+    triggerPrintMotorcycle();
+    composer.render();
+  },
+  setBikePrintProgress(p) {
+    bikeSys.setPrintProgressForDebug(p, porter);
+    porter.update(0.016, IDLE_INPUT, camState.yaw, terrainSys, landmarkSys);
+    bikeSys.setPrintProgressForDebug(p, porter);
+    refreshBikeHud();
+    composer.render();
+  },
+  mountMotorcycle() {
+    if (!bikeSys.state.exists || bikeSys.state.printing) {
+      bikeSys.setPrintProgressForDebug(1.0, porter);
+    }
+    bikeSys.mount(porter);
+    bikeSys.update(0.016, IDLE_INPUT, porter, terrainSys, landmarkSys);
+    camState.yaw = bikeSys.state.yaw + Math.PI;
+    syncCameraImmediate();
+    refreshBikeHud();
+    composer.render();
+  },
+  dismountMotorcycle() {
+    bikeSys.dismount(porter, terrainSys, landmarkSys);
+    refreshBikeHud();
+    composer.render();
+  },
+  getBikeState() {
+    return {
+      exists: bikeSys.state.exists,
+      printing: bikeSys.state.printing,
+      printProgress: Number(bikeSys.state.printProgress.toFixed(3)),
+      riding: bikeSys.state.riding,
+      pos: bikeSys.state.pos.toArray(),
+      groundY: Number(bikeSys.state.lastGroundY.toFixed(3)),
+      speed: Number(bikeSys.state.speed.toFixed(2)),
+      steerAngle: Number(bikeSys.state.steerAngle.toFixed(3)),
+      frontTravel: Number(bikeSys.state.frontWheelTravel.toFixed(3)),
+      rearTravel: Number(bikeSys.state.rearWheelTravel.toFixed(3)),
+      terrainPitch: Number(bikeSys.state.terrainPitch.toFixed(3)),
+      onRock: bikeSys.state.onRock,
+      grounded: bikeSys.state.grounded,
+      canMount: bikeSys.canMount(porter.state.pos)
+    };
   },
   getCellSummary() {
     const f = getCellFeatures(0, 0);
@@ -832,7 +1421,8 @@ window.__LANDSTRANDING__ = {
       auroraStrength: ATMO_UNIFORMS.uAuroraStrength.value,
       nightFactor: ATMO_UNIFORMS.uNightFactor.value,
       calls: lastSceneCalls || renderer.info.render.calls,
-      triangles: lastSceneTris || renderer.info.render.triangles
+      triangles: lastSceneTris || renderer.info.render.triangles,
+      planarReflActive: lastReflRendered
     };
   }
 };

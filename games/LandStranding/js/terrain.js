@@ -23,16 +23,27 @@ import {
 import { ATMO_UNIFORMS, ATMO_GLSL_PARS, enhanceMaterialWithAtmo } from './atmosphere.js';
 
 export const CHUNK_SIZE = 160;
-const GRID_RADIUS = 6; // 13 x 13 live chunks = 2080m x 2080m high-detail terrain before far horizon ring!
-const LOD_SEGS = [72, 48, 32, 20]; // Crisp silhouette geometry even 1km+ away (zero low-poly pyramids!)
+const GRID_RADIUS = 9; // 19 x 19 live chunks = 3040m x 3040m high-detail terrain before far horizon ring!
+const LOD_SEGS = [64, 40, 24, 14]; // Crisp foreground geometry with balanced mid/far tessellation
 const SKIRT_DROP = 18.0;
-const MAX_BUILDS_PER_FRAME = 2;
+const IS_MOBILE_DEVICE = typeof window !== 'undefined' && (
+  /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '') ||
+  (window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches)
+);
+const MAX_BUILDS_PER_FRAME = IS_MOBILE_DEVICE ? 1 : 3;
 
 function getLodForRing(ringDist) {
-  if (ringDist <= 1) return 0; // 0..240m: 72x72 (2.2m grid)
-  if (ringDist <= 2) return 1; // 240..400m: 48x48 (3.3m grid)
-  if (ringDist <= 4) return 2; // 400..720m: 32x32 (5.0m grid)
-  return 3;                    // 720..1040m: 20x20 (8.0m grid)
+  if (ringDist <= 1) return 0; // 0..240m:   64x64 (2.5m grid)
+  if (ringDist <= 3) return 1; // 240..560m: 40x40 (4.0m grid)
+  if (ringDist <= 6) return 2; // 560..1040m: 24x24 (6.6m grid)
+  return 3;                    // 1040..1520m: 14x14 (11.4m grid)
+}
+
+function getDetailLodForRing(ringDist) {
+  if (ringDist <= 1) return 0; // 0..240m: full foreground flora, grass, cobbles & boulders
+  if (ringDist <= 3) return 1; // 240..560m: mid-range lupin colonies, bushes, cushions & outcrops
+  if (ringDist <= 6) return 2; // 560..1040m: hero basalt outcrops & volcanic spires
+  return 3;                    // 1040..1520m: pure terrain mesh (aligned with geoLod -> zero extra rebuilds!)
 }
 
 /**
@@ -787,12 +798,14 @@ function createCottonGrassGeo() {
   return geo;
 }
 
-/** Build high-detail radial Far Horizon Ring geometry covering 960m -> 7200m seamlessly (1 draw call, crisp far peaks!). */
+/** Build high-detail radial Far Horizon Ring geometry covering 1400m -> 12800m seamlessly (1 draw call, razor-smooth far peaks!). */
+const FAR_RAD_SEGS = 144;
+const FAR_RING_SEGS = 40;
 function createFarHorizonRingGeo() {
-  const radSegs = 192;
-  const ringSegs = 48;
-  const innerR = 960;
-  const outerR = 7200;
+  const radSegs = FAR_RAD_SEGS;
+  const ringSegs = FAR_RING_SEGS;
+  const innerR = 1400;
+  const outerR = 12800;
   const vertCount = (radSegs + 1) * (ringSegs + 1);
   const pos = new Float32Array(vertCount * 3);
   const norm = new Float32Array(vertCount * 3);
@@ -803,7 +816,7 @@ function createFarHorizonRingGeo() {
 
   for (let r = 0; r <= ringSegs; r++) {
     const t = r / ringSegs;
-    const radius = mix(innerR, outerR, Math.pow(t, 1.55));
+    const radius = mix(innerR, outerR, Math.pow(t, 1.48));
     for (let a = 0; a <= radSegs; a++) {
       const ang = (a / radSegs) * Math.PI * 2;
       const vi = r * (radSegs + 1) + a;
@@ -992,8 +1005,9 @@ export function createTerrainSystem(texLib, scene) {
           vec3 wp = vWPos;
           vec3 wn = normalize(vWNorm);
           float camDist = length(cameraPosition - wp);
-          // Keep crisp fine grass/tuft micro-texture sharp out to 105m (kills dull muddy mid-ground look!)
-          float closeFade = 1.0 - smoothstep(22.0, 105.0, camDist);
+          // Extended texture & micro-detail LOD distances: keep high-res turf/rock/scree razor-sharp far into the vista!
+          float closeFade = 1.0 - smoothstep(85.0, 340.0, camDist);
+          float midFade = 1.0 - smoothstep(260.0, 1100.0, camDist);
           float slope = 1.0 - clamp(wn.y, 0.0, 1.0);
 
           float macroN = atmoNoise(wp.xz * 0.016) * 0.62 + atmoNoise(wp.xz * 0.044 + vec2(3.1, -5.2)) * 0.38;
@@ -1007,13 +1021,17 @@ export function createTerrainSystem(texLib, scene) {
           float screeRaw = clamp(vSurf.w * (1.0 - cliffRaw * 0.55), 0.0, 1.0);
           float pathRaw  = clamp(vSurf.z * (1.0 - cliffRaw), 0.0, 1.0);
 
-          // 1) Rich, Earthy, High-Contrast Olive-Gold Grassy Meadow & Icelandic Moss (no neon-lime washout!)
+          // 1) Rich, Earthy, High-Contrast Olive-Gold Grassy Meadow & Icelandic Moss (sharp detail out to 340m+!)
           vec4 mossMid  = texture2D(uMossMap, wp.xz * 0.42);
           vec2 rotFar   = mat2(0.80, -0.60, 0.60, 0.80) * wp.xz * 0.092 + vec2(0.31, 0.73);
           vec4 mossFar  = texture2D(uMossMap, rotFar);
           vec4 mossFine = closeFade > 0.02 ? texture2D(uMossMap, wp.xz * 1.55 + vec2(0.19, 0.53)) : mossMid;
-          vec4 mossSample = mix(mix(mossMid, mossFar, 0.28), mossFine, closeFade * 0.56);
-          vec3 mossN = normalize(mix(dualSampleNorm(uMossNorm, wp.xz, 0.46, 0.11), texture2D(uMossNorm, wp.xz * 1.55 + vec2(0.19, 0.53)).xyz * 2.0 - 1.0, closeFade * 0.50));
+          float mossFarBlend = mix(0.42, 0.18, midFade);
+          vec4 mossSample = mix(mix(mossMid, mossFar, mossFarBlend), mossFine, closeFade * 0.58);
+          vec3 mossNBase = dualSampleNorm(uMossNorm, wp.xz, 0.46, 0.11);
+          vec3 mossN = closeFade > 0.02
+            ? normalize(mix(mossNBase, texture2D(uMossNorm, wp.xz * 1.55 + vec2(0.19, 0.53)).xyz * 2.0 - 1.0, closeFade * 0.52))
+            : mossNBase;
           float mossH = mossSample.a;
 
           float cushionAO = smoothstep(0.06, 0.86, vHydro.z * 0.50 + mossH * 0.62);
@@ -1064,10 +1082,10 @@ export function createTerrainSystem(texLib, scene) {
             float w2 = (atmoNoise(vec2(wp.z * 0.023 - wp.y * 0.019, wp.x * 0.023 + wp.y * 0.017)) - 0.5) * 8.0;
             vec3 wpRock = wp + vec3(w1 + w2, w1 * 0.55 - w2 * 0.7, -w1 * 0.8 + w2 * 0.6);
 
-            // Two rotated, non-harmonic isotropic triplanar rock scales -> completely eliminates repeating/parallel bands!
+            // Two rotated, non-harmonic isotropic triplanar rock scales -> keep crisp high-res cliff rock sharp out to 1km+!
             vec4 cliffNear = triplanarCliffRGBA(uCliffMap, wpRock, wn, 0.088, 0.38);
             vec4 cliffFar  = triplanarCliffRGBA(uCliffMap, wpRock, wn, 0.024, 1.73);
-            float farW = clamp(smoothstep(32.0, 320.0, camDist) * 0.52 + (1.0 - macroN) * 0.24, 0.20, 0.72);
+            float farW = clamp(smoothstep(140.0, 1050.0, camDist) * 0.48 + (1.0 - macroN) * 0.22, 0.16, 0.66);
             vec4 cliffMix = mix(cliffNear, cliffFar, farW);
             float cliffH = cliffMix.a;
 
@@ -1208,9 +1226,12 @@ export function createTerrainSystem(texLib, scene) {
           lsRough = mix(0.95, 0.78, cliffMask * 0.75 + screeMask * 0.48);
           lsRough = mix(lsRough, 0.64, snowMask * 0.85);
           lsRough = mix(lsRough, 0.24, iceGloss * 0.90);
-          lsRough = mix(lsRough, 0.48, clamp(rockWet * 0.68, 0.0, 0.78));
-          lsRough = mix(lsRough, 0.18, puddle * 0.80);
-          float minRough = mix(0.28, 0.58, smoothstep(0.25, 0.60, slope));
+          lsRough = mix(lsRough, 0.44, clamp(rockWet * 0.72, 0.0, 0.82));
+          // Glistening wave-washed wet volcanic pebble shore right on gentle beaches (strictly flat slope -> zero cliff fireflies!)
+          float shoreGlaze = smoothstep(0.68, 0.96, vHydro.x) * screeMask * (1.0 - smoothstep(0.14, 0.34, slope));
+          lsRough = mix(lsRough, 0.40, shoreGlaze * 0.72);
+          lsRough = mix(lsRough, 0.22, puddle * 0.75 * (1.0 - smoothstep(0.16, 0.36, slope)));
+          float minRough = mix(0.36, 0.68, smoothstep(0.20, 0.55, slope));
           lsRough = clamp(sqrt(lsRough * lsRough + normVar), minRough, 0.97);
 
           diffuseColor.rgb = col;
@@ -1245,7 +1266,8 @@ export function createTerrainSystem(texLib, scene) {
   const TERRAIN_BLEND_GLSL = /* glsl */`
     vec3 evalTerrainMossColor(sampler2D mossMap, vec3 wp, vec3 groundUp, out vec4 outMossS) {
       float camDist = length(cameraPosition - wp);
-      float closeFade = 1.0 - smoothstep(22.0, 105.0, camDist);
+      float closeFade = 1.0 - smoothstep(85.0, 340.0, camDist);
+      float midFade = 1.0 - smoothstep(260.0, 1100.0, camDist);
       float macroN = atmoNoise(wp.xz * 0.016) * 0.62 + atmoNoise(wp.xz * 0.044 + vec2(3.1, -5.2)) * 0.38;
       float midN   = atmoNoise(wp.xz * 0.092 + vec2(4.1, -6.7));
       float patchN = atmoNoise(wp.xz * 0.026 - vec2(7.4, 2.8)) * 0.62 + midN * 0.38;
@@ -1255,7 +1277,7 @@ export function createTerrainSystem(texLib, scene) {
       vec2 rotFar   = mat2(0.80, -0.60, 0.60, 0.80) * wp.xz * 0.092 + vec2(0.31, 0.73);
       vec4 mossFar  = texture2D(mossMap, rotFar);
       vec4 mossFine = closeFade > 0.02 ? texture2D(mossMap, wp.xz * 1.55 + vec2(0.19, 0.53)) : mossMid;
-      vec4 mossSample = mix(mix(mossMid, mossFar, 0.28), mossFine, closeFade * 0.56);
+      vec4 mossSample = mix(mix(mossMid, mossFar, mix(0.42, 0.18, midFade)), mossFine, closeFade * 0.58);
       outMossS = mossSample;
 
       float cushionAO = smoothstep(0.06, 0.86, 0.28 + mossSample.a * 0.62);
@@ -1823,8 +1845,9 @@ export function createTerrainSystem(texLib, scene) {
     new THREE.Color().setHex(0x626e56)  // Mossy grey-olive fieldstone
   ];
 
-  // Far horizon continuous ring mesh
-  const farGeo = createFarHorizonRingGeo();
+  // Double-buffered Far Horizon continuous ring mesh (zero-hitch time-sliced background updates!)
+  let farGeo = createFarHorizonRingGeo();
+  let farStagingGeo = createFarHorizonRingGeo();
   const farMesh = new THREE.Mesh(farGeo, terrainMat);
   farMesh.frustumCulled = false;
   farMesh.receiveShadow = true;
@@ -1832,45 +1855,110 @@ export function createTerrainSystem(texLib, scene) {
 
   let lastFarCenterX = 1e9;
   let lastFarCenterZ = 1e9;
-  function updateFarRing(px, pz) {
-    const sx = Math.round(px / CHUNK_SIZE) * CHUNK_SIZE;
-    const sz = Math.round(pz / CHUNK_SIZE) * CHUNK_SIZE;
-    if (sx === lastFarCenterX && sz === lastFarCenterZ) return;
-    lastFarCenterX = sx;
-    lastFarCenterZ = sz;
-    farMesh.position.set(sx, 0, sz);
+  let farJob = null;
+  const _farTmpSample = {
+    height: 0, moss: 0, cliff: 0, path: 0, scree: 0,
+    riverDepth: 0, riverMask: 0, lakeDepth: 0, lakeMask: 0, lakeWaterY: 16, lakeShoreDist: -9999,
+    flowX: 0, flowZ: 1, snow: 0, glacier: 0, wetness: 0, hummockAO: 0.5,
+    caveSignedD: 99, caveWaterY: 16, caveOverburden: 0
+  };
 
-    const pos = farGeo.attributes.position;
-    const norm = farGeo.attributes.normal;
-    const surf = farGeo.attributes.aSurf;
-    const hydro = farGeo.attributes.aHydro;
-    const cave = farGeo.attributes.aCave;
-    const tmpSample = {
-      height: 0, moss: 0, cliff: 0, path: 0, scree: 0,
-      riverDepth: 0, riverMask: 0, flowX: 0, flowZ: 1, snow: 0, glacier: 0, wetness: 0, hummockAO: 0.5,
-      caveSignedD: 99, caveWaterY: 16, caveOverburden: 0
-    };
-    const tmpN = new THREE.Vector3();
+  function finalizeFarRing(geo, sx, sz) {
+    const pos = geo.attributes.position;
+    const norm = geo.attributes.normal;
+    const stride = FAR_RAD_SEGS + 1;
 
-    for (let i = 0; i < pos.count; i++) {
-      const lx = pos.getX(i);
-      const lz = pos.getZ(i);
-      const wx = sx + lx;
-      const wz = sz + lz;
-      sampleWorld(wx, wz, tmpSample);
-      getTerrainNormal(wx, wz, tmpN, 6.0);
+    // Fast analytical central-difference grid normals directly from polar ring heights (5x faster than 4x sampleWorld!)
+    for (let r = 0; r <= FAR_RING_SEGS; r++) {
+      const rPrev = r > 0 ? r - 1 : 0;
+      const rNext = r < FAR_RING_SEGS ? r + 1 : FAR_RING_SEGS;
+      for (let a = 0; a <= FAR_RAD_SEGS; a++) {
+        const aPrev = a > 0 ? a - 1 : FAR_RAD_SEGS - 1;
+        const aNext = a < FAR_RAD_SEGS ? a + 1 : 1;
+        const vi = r * stride + a;
+        const iRp = rPrev * stride + a;
+        const iRn = rNext * stride + a;
+        const iAp = r * stride + aPrev;
+        const iAn = r * stride + aNext;
 
-      pos.setY(i, tmpSample.height - 2.0);
-      norm.setXYZ(i, tmpN.x, tmpN.y, tmpN.z);
-      surf.setXYZW(i, tmpSample.glacier || 0, tmpSample.cliff, tmpSample.path, tmpSample.scree);
-      hydro.setXYZW(i, tmpSample.wetness, tmpSample.riverMask, tmpSample.hummockAO, tmpSample.snow);
-      cave.setXYZ(i, tmpSample.caveSignedD, tmpSample.caveWaterY, tmpSample.caveOverburden);
+        const rdx = pos.getX(iRn) - pos.getX(iRp);
+        const rdy = pos.getY(iRn) - pos.getY(iRp);
+        const rdz = pos.getZ(iRn) - pos.getZ(iRp);
+        const adx = pos.getX(iAn) - pos.getX(iAp);
+        const ady = pos.getY(iAn) - pos.getY(iAp);
+        const adz = pos.getZ(iAn) - pos.getZ(iAp);
+
+        // tR x tA yields upward (+Y) normal on clockwise (cos a, sin a) polar ring
+        let nx = rdy * adz - rdz * ady;
+        let ny = rdz * adx - rdx * adz;
+        let nz = rdx * ady - rdy * adx;
+        if (ny < 0.0) { nx = -nx; ny = -ny; nz = -nz; }
+        const invL = 1.0 / (Math.hypot(nx, ny, nz) || 1.0);
+        norm.setXYZ(vi, nx * invL, ny * invL, nz * invL);
+      }
     }
     pos.needsUpdate = true;
     norm.needsUpdate = true;
-    surf.needsUpdate = true;
-    hydro.needsUpdate = true;
-    cave.needsUpdate = true;
+    geo.attributes.aSurf.needsUpdate = true;
+    geo.attributes.aHydro.needsUpdate = true;
+    geo.attributes.aCave.needsUpdate = true;
+    farMesh.position.set(sx, 0, sz);
+    farMesh.geometry = geo;
+    farStagingGeo = farGeo;
+    farGeo = geo;
+  }
+
+  function updateFarRing(px, pz, syncAll = false) {
+    const farSnap = CHUNK_SIZE;
+    if (
+      !farJob &&
+      lastFarCenterX < 1e8 &&
+      Math.abs(px - lastFarCenterX) <= farSnap * 0.62 &&
+      Math.abs(pz - lastFarCenterZ) <= farSnap * 0.62
+    ) {
+      return;
+    }
+
+    if (!farJob || syncAll) {
+      const sx = Math.round(px / farSnap) * farSnap;
+      const sz = Math.round(pz / farSnap) * farSnap;
+      if (sx !== lastFarCenterX || sz !== lastFarCenterZ || syncAll) {
+        lastFarCenterX = sx;
+        lastFarCenterZ = sz;
+        farJob = { sx, sz, r: 0 };
+      }
+    }
+    if (!farJob) return;
+
+    const geo = farStagingGeo;
+    const pos = geo.attributes.position;
+    const surf = geo.attributes.aSurf;
+    const hydro = geo.attributes.aHydro;
+    const cave = geo.attributes.aCave;
+    const stride = FAR_RAD_SEGS + 1;
+    const rowsBudget = syncAll ? (FAR_RING_SEGS + 1) : (IS_MOBILE_DEVICE ? 4 : 10);
+    const endR = Math.min(FAR_RING_SEGS, farJob.r + rowsBudget - 1);
+
+    for (let r = farJob.r; r <= endR; r++) {
+      const rowBase = r * stride;
+      for (let a = 0; a <= FAR_RAD_SEGS; a++) {
+        const i = rowBase + a;
+        const wx = farJob.sx + pos.getX(i);
+        const wz = farJob.sz + pos.getZ(i);
+        sampleWorld(wx, wz, _farTmpSample);
+
+        pos.setY(i, _farTmpSample.height - 2.0);
+        surf.setXYZW(i, _farTmpSample.glacier || 0, _farTmpSample.cliff, _farTmpSample.path, _farTmpSample.scree);
+        hydro.setXYZW(i, _farTmpSample.wetness, _farTmpSample.riverMask, _farTmpSample.hummockAO, _farTmpSample.snow);
+        cave.setXYZ(i, _farTmpSample.caveSignedD, _farTmpSample.caveWaterY, _farTmpSample.caveOverburden);
+      }
+    }
+
+    farJob.r = endR + 1;
+    if (farJob.r > FAR_RING_SEGS) {
+      finalizeFarRing(geo, farJob.sx, farJob.sz);
+      farJob = null;
+    }
   }
 
   const chunks = new Map();
@@ -1899,7 +1987,8 @@ export function createTerrainSystem(texLib, scene) {
     const oz = cz * CHUNK_SIZE;
     const tmpSample = {
       height: 0, moss: 0, cliff: 0, path: 0, scree: 0,
-      riverDepth: 0, riverMask: 0, flowX: 0, flowZ: 1, snow: 0, wetness: 0, hummockAO: 0.5
+      riverDepth: 0, riverMask: 0, lakeDepth: 0, lakeMask: 0, lakeWaterY: 16, lakeShoreDist: -9999,
+      flowX: 0, flowZ: 1, snow: 0, glacier: 0, wetness: 0, hummockAO: 0.5
     };
     const norm = new THREE.Vector3();
     const tmpColor = new THREE.Color();
@@ -2015,16 +2104,17 @@ export function createTerrainSystem(texLib, scene) {
       if (isInsideSettlementOrSpring(wx0, wz0)) continue;
       sampleWorld(wx0, wz0, tmpSample);
       if (Math.abs(tmpSample.caveSignedD) < 18.0 && tmpSample.caveOverburden > 6.0 && tmpSample.caveOverburden < 30.0) continue;
-      if (tmpSample.path > 0.22) continue;
+      if (tmpSample.path > 0.22 || tmpSample.lakeDepth > 0.85) continue;
       getTerrainNormal(wx0, wz0, norm, 1.0);
 
-      const slopeLimit = tmpSample.riverMask > 0.12 ? 0.62 : 0.74;
+      const onLakeShore = tmpSample.lakeShoreDist > -9.0 && tmpSample.lakeDepth <= 0.85;
+      const slopeLimit = (tmpSample.riverMask > 0.12 || onLakeShore) ? 0.62 : 0.74;
       if (norm.y < slopeLimit) continue;
 
       const rockField = fbm2(wx0 * 0.022 + 2.1, wz0 * 0.022 - 4.7, 2, 419);
       const hRand = hash2i(i, cx * 19 + cz * 31, 419);
 
-      const inRiver = tmpSample.riverMask > 0.12 && hRand > 0.24;
+      const inRiver = (tmpSample.riverMask > 0.12 || onLakeShore) && hRand > 0.26;
       const inOutcrop = (tmpSample.scree > 0.26 && hRand > 0.30) || (rockField > 0.44 && hRand > 0.30);
       if (!inRiver && !inOutcrop) continue;
 
@@ -2036,7 +2126,7 @@ export function createTerrainSystem(texLib, scene) {
         dummy.scale.set(spSc * 1.08, spSc * 1.15, spSc * 0.96);
         dummy.updateMatrix();
         spireMats.push(dummy.matrix.clone());
-        colliders.push({ x: wx0, z: wz0, r: spSc * 0.92 });
+        colliders.push({ x: wx0, z: wz0, r: spSc * 0.92, h: spSc * 1.9, baseY: tmpSample.height, kind: 'spire' });
       }
 
       // Elongated geological outcrop orientation (lava flows & fractures along natural strike lines!)
@@ -2065,7 +2155,7 @@ export function createTerrainSystem(texLib, scene) {
         if (b > 0) {
           if (isInsideSettlementOrSpring(wx, wz)) continue;
           sampleWorld(wx, wz, tmpSample);
-          if (tmpSample.path > 0.24) continue;
+          if (tmpSample.path > 0.24 || tmpSample.lakeDepth > 0.90) continue;
           if (Math.abs(tmpSample.caveSignedD) < 17.0 && tmpSample.caveOverburden > 6.0 && tmpSample.caveOverburden < 28.0) continue;
         }
 
@@ -2089,7 +2179,17 @@ export function createTerrainSystem(texLib, scene) {
           boulderMatsA.push(dummy.matrix.clone());
           boulderColorsA.push(rockTag);
         }
-        if (sc > 1.25) colliders.push({ x: wx, z: wz, r: sc * 0.82 });
+        if (sc > 0.72) {
+          colliders.push({
+            x: wx,
+            z: wz,
+            r: sc * 0.88,
+            h: sc * (isCrag ? 0.54 : 0.38),
+            baseY: tmpSample.height,
+            kind: 'rock',
+            rideOnly: sc <= 1.25
+          });
+        }
       }
 
       // Surround every Eldhraun lava outcrop with smooth, slope-hugging mossy pillow mounds!
@@ -2108,7 +2208,7 @@ export function createTerrainSystem(texLib, scene) {
           const cwz = oz + clz;
           if (isInsideSettlementOrSpring(cwx, cwz)) continue;
           sampleWorld(cwx, cwz, tmpSample);
-          if (tmpSample.path > 0.24 || tmpSample.riverMask > 0.14 || tmpSample.cliff > 0.42 || tmpSample.snow > 0.18) continue;
+          if (tmpSample.path > 0.24 || tmpSample.riverMask > 0.14 || tmpSample.lakeDepth > 0.02 || tmpSample.lakeShoreDist > -2.0 || tmpSample.cliff > 0.42 || tmpSample.snow > 0.18) continue;
           const csc = (0.80 + hash2i(i + k, 73, 557) * 0.92) * mix(1.16, 0.72, cDist / 11.6);
           dummy.position.set(clx, tmpSample.height - csc * 0.10, clz);
           alignToSlope(cwx, cwz, hash2i(i, k, 563) * 6.28, 0.96);
@@ -2120,8 +2220,8 @@ export function createTerrainSystem(texLib, scene) {
 
       // Natural frost-heaved talus apron of smooth terrain-blended cobbles & pebbles spilling around every LOD0 outcrop!
       if (lod === 0) {
-        const satCobbles = 5 + Math.floor(hash2i(i, cx + cz * 7, 561) * 5);
-        for (let k = 0; k < satCobbles && cobbleMats.length < 340; k++) {
+        const satCobbles = 4 + Math.floor(hash2i(i, cx + cz * 7, 561) * 4);
+        for (let k = 0; k < satCobbles && cobbleMats.length < 220; k++) {
           const ang = hash2i(i * 13 + k, cx * 7 + cz, 563) * Math.PI * 2;
           const dist = 1.4 + Math.pow(hash2i(k * 7, i * 3, 569), 0.78) * 7.2;
           const ux = Math.cos(ang) * dist * stretch;
@@ -2142,8 +2242,8 @@ export function createTerrainSystem(texLib, scene) {
           cobbleColors.push(pickStoneColor(i * 11 + k, cx * 17 + cz));
         }
 
-        const satStones = 4 + Math.floor(hash2i(i, cz + cx * 11, 603) * 4);
-        for (let k = 0; k < satStones && stoneMats.length < 360; k++) {
+        const satStones = 3 + Math.floor(hash2i(i, cz + cx * 11, 603) * 3);
+        for (let k = 0; k < satStones && stoneMats.length < 220; k++) {
           const pang = hash2i(i * 7 + k, cx + 19, 601) * Math.PI * 2;
           const pdist = 1.6 + Math.pow(hash2i(k * 5, i * 11, 605), 0.75) * 7.8;
           const plx = cx0 + Math.cos(pang) * pdist;
@@ -2174,7 +2274,7 @@ export function createTerrainSystem(texLib, scene) {
         const wz0 = oz + cz0;
         if (isInsideBuildingFootprint(wx0, wz0)) continue;
         sampleWorld(wx0, wz0, tmpSample);
-        if (tmpSample.cliff > 0.56) continue;
+        if (tmpSample.cliff > 0.56 || tmpSample.lakeDepth > 0.45) continue;
 
         const rC = hash2i(i, cx * 37 + cz * 13, 479);
         const nearFeature = tmpSample.scree > 0.16 || tmpSample.riverMask > 0.06 || tmpSample.path > 0.08;
@@ -2227,8 +2327,8 @@ export function createTerrainSystem(texLib, scene) {
     const halfChunk = CHUNK_SIZE * 0.49;
 
     // 4a) Lush Sweeping Icelandic Nootka Lupin Flower Colonies (dense drifts of 6..12 rich violet-blue spires!)
-    const lupinCenters = lod === 0 ? 96 : lod === 1 ? 26 : 0;
-    const maxLupins = lod === 0 ? 440 : 80;
+    const lupinCenters = lod === 0 ? 78 : lod === 1 ? 20 : 0;
+    const maxLupins = lod === 0 ? 320 : 60;
     for (let i = 0; i < lupinCenters && lupinMats.length < maxLupins; i++) {
       const cx0 = (hash2i(cx * 131 + i, cz * 79, 613) - 0.5) * CHUNK_SIZE;
       const cz0 = (hash2i(cx * 61, cz * 113 + i, 619) - 0.5) * CHUNK_SIZE;
@@ -2237,7 +2337,7 @@ export function createTerrainSystem(texLib, scene) {
       if (isInsideBuildingFootprint(wx0, wz0)) continue;
 
       sampleWorld(wx0, wz0, tmpSample);
-      if (tmpSample.moss < 0.20 || tmpSample.height > 78 || tmpSample.path > 0.28 || tmpSample.riverMask > 0.20 || tmpSample.cliff > 0.40 || tmpSample.snow > 0.18 || tmpSample.glacier > 0.10) continue;
+      if (tmpSample.moss < 0.20 || tmpSample.height > 78 || tmpSample.path > 0.28 || tmpSample.riverMask > 0.20 || tmpSample.lakeDepth > 0.01 || tmpSample.lakeShoreDist > -2.5 || tmpSample.cliff > 0.40 || tmpSample.snow > 0.18 || tmpSample.glacier > 0.10) continue;
       getTerrainNormal(wx0, wz0, norm, 0.9);
       if (norm.y < 0.70) continue;
 
@@ -2270,7 +2370,7 @@ export function createTerrainSystem(texLib, scene) {
         if (c > 0) {
           if (isInsideBuildingFootprint(wxC, wzC)) continue;
           sampleWorld(wxC, wzC, tmpSample);
-          if (tmpSample.path > 0.30 || tmpSample.riverMask > 0.22 || tmpSample.cliff > 0.44 || tmpSample.snow > 0.20) continue;
+          if (tmpSample.path > 0.30 || tmpSample.riverMask > 0.22 || tmpSample.lakeDepth > 0.01 || tmpSample.lakeShoreDist > -2.0 || tmpSample.cliff > 0.44 || tmpSample.snow > 0.20) continue;
         }
 
         // Tall, lush full blooms in colony core -> smaller buds around feathered rim
@@ -2305,8 +2405,8 @@ export function createTerrainSystem(texLib, scene) {
     }
 
     // 4b) Clustered Silvery-Sage Icelandic Dwarf Willow & Crowberry Thickets (natural companion shrubs beside lupins & rocks!)
-    const bushCenters = lod === 0 ? 86 : lod === 1 ? 22 : 0;
-    const maxBushes = lod === 0 ? 280 : 54;
+    const bushCenters = lod === 0 ? 72 : lod === 1 ? 18 : 0;
+    const maxBushes = lod === 0 ? 210 : 42;
     for (let i = 0; i < bushCenters && bushMats.length < maxBushes; i++) {
       const cx0 = (hash2i(cx * 149 + i, cz * 83, 653) - 0.5) * CHUNK_SIZE;
       const cz0 = (hash2i(cx * 71, cz * 127 + i, 659) - 0.5) * CHUNK_SIZE;
@@ -2315,7 +2415,7 @@ export function createTerrainSystem(texLib, scene) {
       if (isInsideBuildingFootprint(wx0, wz0)) continue;
 
       sampleWorld(wx0, wz0, tmpSample);
-      if (tmpSample.moss < 0.20 || tmpSample.path > 0.30 || tmpSample.riverMask > 0.22 || tmpSample.cliff > 0.44 || tmpSample.snow > 0.20 || tmpSample.glacier > 0.12) continue;
+      if (tmpSample.moss < 0.20 || tmpSample.path > 0.30 || tmpSample.riverMask > 0.22 || tmpSample.lakeDepth > 0.01 || tmpSample.lakeShoreDist > -2.5 || tmpSample.cliff > 0.44 || tmpSample.snow > 0.20 || tmpSample.glacier > 0.12) continue;
       getTerrainNormal(wx0, wz0, norm, 0.9);
       if (norm.y < 0.68) continue;
 
@@ -2338,7 +2438,7 @@ export function createTerrainSystem(texLib, scene) {
         if (c > 0) {
           if (isInsideBuildingFootprint(wxC, wzC)) continue;
           sampleWorld(wxC, wzC, tmpSample);
-          if (tmpSample.path > 0.32 || tmpSample.riverMask > 0.22 || tmpSample.cliff > 0.45 || tmpSample.snow > 0.20) continue;
+          if (tmpSample.path > 0.32 || tmpSample.riverMask > 0.22 || tmpSample.lakeDepth > 0.01 || tmpSample.lakeShoreDist > -2.0 || tmpSample.cliff > 0.45 || tmpSample.snow > 0.20) continue;
         }
 
         const coreScale = c === 0 ? 1.22 : mix(1.04, 0.70, rFrac);
@@ -2368,8 +2468,8 @@ export function createTerrainSystem(texLib, scene) {
 
     if (lod === 0) {
       // 4c) Dense Sparkling White Arctic Cotton Grass Carpets (Eriophorum grouped in damp marsh hollows & meadow swales!)
-      const cottonCenters = 68;
-      const maxCotton = 320;
+      const cottonCenters = 54;
+      const maxCotton = 220;
       for (let i = 0; i < cottonCenters && cottonMats.length < maxCotton; i++) {
         const cx0 = (hash2i(cx * 167 + i, cz * 97, 701) - 0.5) * CHUNK_SIZE;
         const cz0 = (hash2i(cx * 89, cz * 151 + i, 703) - 0.5) * CHUNK_SIZE;
@@ -2377,7 +2477,7 @@ export function createTerrainSystem(texLib, scene) {
         const wz0 = oz + cz0;
         if (isInsideBuildingFootprint(wx0, wz0)) continue;
         sampleWorld(wx0, wz0, tmpSample);
-        if (tmpSample.path > 0.28 || tmpSample.riverMask > 0.24 || tmpSample.cliff > 0.42 || tmpSample.snow > 0.18 || tmpSample.height > 54) continue;
+        if (tmpSample.path > 0.28 || tmpSample.riverMask > 0.24 || tmpSample.lakeDepth > 0.01 || tmpSample.lakeShoreDist > -1.5 || tmpSample.cliff > 0.42 || tmpSample.snow > 0.18 || tmpSample.height > 54) continue;
         getTerrainNormal(wx0, wz0, norm, 0.9);
         if (norm.y < 0.82) continue;
         const wetSpot = tmpSample.wetness > 0.12 || tmpSample.riverMask > 0.02 || fbm2(wx0 * 0.036, wz0 * 0.036, 2, 707) > 0.46;
@@ -2401,8 +2501,8 @@ export function createTerrainSystem(texLib, scene) {
       }
 
       // 4d) Clustered Sunlit Wild Meadow Grass Swards & Swales (organic overlapping grass drifts + clean mossy pillow clearings!)
-      const grassClusters = 240;
-      const maxGrass = 880;
+      const grassClusters = 185;
+      const maxGrass = 620;
       for (let i = 0; i < grassClusters && grassMats.length < maxGrass; i++) {
         const cx0 = (hash2i(cx * 173 + i, cz * 103, 671) - 0.5) * CHUNK_SIZE;
         const cz0 = (hash2i(cx * 97, cz * 157 + i, 673) - 0.5) * CHUNK_SIZE;
@@ -2411,7 +2511,7 @@ export function createTerrainSystem(texLib, scene) {
         if (isInsideBuildingFootprint(wx0, wz0)) continue;
 
         sampleWorld(wx0, wz0, tmpSample);
-        if (tmpSample.moss < 0.16 || tmpSample.path > 0.32 || tmpSample.riverMask > 0.22 || tmpSample.cliff > 0.44 || tmpSample.snow > 0.20 || tmpSample.glacier > 0.12) continue;
+        if (tmpSample.moss < 0.16 || tmpSample.path > 0.32 || tmpSample.riverMask > 0.22 || tmpSample.lakeDepth > 0.01 || tmpSample.lakeShoreDist > -2.0 || tmpSample.cliff > 0.44 || tmpSample.snow > 0.20 || tmpSample.glacier > 0.12) continue;
         getTerrainNormal(wx0, wz0, norm, 0.8);
         if (norm.y < 0.68) continue;
 
@@ -2443,7 +2543,7 @@ export function createTerrainSystem(texLib, scene) {
           if (c > 0) {
             if (isInsideBuildingFootprint(wxC, wzC)) continue;
             sampleWorld(wxC, wzC, tmpSample);
-            if (tmpSample.path > 0.34 || tmpSample.riverMask > 0.24 || tmpSample.cliff > 0.45 || tmpSample.snow > 0.22) continue;
+            if (tmpSample.path > 0.34 || tmpSample.riverMask > 0.24 || tmpSample.lakeDepth > 0.01 || tmpSample.lakeShoreDist > -2.0 || tmpSample.cliff > 0.45 || tmpSample.snow > 0.22) continue;
           }
 
           // Fuller, taller grass in drift core -> softer shorter tufts at cluster edge
@@ -2458,7 +2558,10 @@ export function createTerrainSystem(texLib, scene) {
       }
     }
 
-    const addInstanced = (geo, mat, mats, castShadow, colorsArr = null) => {
+    const clutterGroup = new THREE.Group();
+    group.add(clutterGroup);
+
+    const addInstanced = (geo, mat, mats, castShadow, colorsArr = null, targetParent = group) => {
       if (mats.length === 0) return;
       const im = new THREE.InstancedMesh(geo, mat, mats.length);
       for (let i = 0; i < mats.length; i++) {
@@ -2471,30 +2574,30 @@ export function createTerrainSystem(texLib, scene) {
       im.frustumCulled = true;
       im.castShadow = castShadow;
       im.receiveShadow = true;
-      group.add(im);
+      targetParent.add(im);
       disposables.push(im);
     };
 
-    // Only main boulders & crag spires cast directional shadows (saves millions of shadow-map triangles!)
-    addInstanced(boulderGeoA, boulderMat, boulderMatsA, true, boulderColorsA);
-    addInstanced(boulderGeoB, boulderMat, boulderMatsB, true, boulderColorsB);
-    addInstanced(spireGeo, boulderMat, spireMats, true);
-    addInstanced(cobbleGeo, cobbleMat, cobbleMats, false, cobbleColors);
-    addInstanced(stoneClusterGeo, smallStoneMat, stoneMats, false, stoneColors);
-    addInstanced(cushionGeo, cushionMat, cushionMats, false);
-    addInstanced(grassGeo, grassMat, grassMats, false);
-    addInstanced(lupinGeo, lupinMat, lupinMats, false, lupinColors);
-    addInstanced(bushGeo, bushMat, bushMats, false);
-    addInstanced(cottonGeo, cottonMat, cottonMats, false);
+    // Hero boulders & volcanic spires stay visible in lake reflections; small flora/cobbles go in clutterGroup (hidden in reflection pass!)
+    const rockCastShadow = lod <= 1;
+    addInstanced(boulderGeoA, boulderMat, boulderMatsA, rockCastShadow, boulderColorsA, group);
+    addInstanced(boulderGeoB, boulderMat, boulderMatsB, rockCastShadow, boulderColorsB, group);
+    addInstanced(spireGeo, boulderMat, spireMats, rockCastShadow, null, group);
+    addInstanced(cobbleGeo, cobbleMat, cobbleMats, false, cobbleColors, clutterGroup);
+    addInstanced(stoneClusterGeo, smallStoneMat, stoneMats, false, stoneColors, clutterGroup);
+    addInstanced(cushionGeo, cushionMat, cushionMats, false, null, clutterGroup);
+    addInstanced(grassGeo, grassMat, grassMats, false, null, clutterGroup);
+    addInstanced(lupinGeo, lupinMat, lupinMats, false, lupinColors, clutterGroup);
+    addInstanced(bushGeo, bushMat, bushMats, false, null, clutterGroup);
+    addInstanced(cottonGeo, cottonMat, cottonMats, false, null, clutterGroup);
 
-    return { disposables, colliders };
+    return { disposables, colliders, clutterGroup };
   }
 
-  function createChunk(cx, cz, lod) {
-    const segs = LOD_SEGS[lod];
+  function createChunk(cx, cz, geoLod, detailLod) {
+    const segs = LOD_SEGS[geoLod];
     const geo = buildChunkGeometry(cx, cz, segs);
     const mesh = new THREE.Mesh(geo, terrainMat);
-    // Terrain receives shadows from porter, villages & boulders without re-rendering 121 terrain meshes into shadow map!
     mesh.castShadow = false;
     mesh.receiveShadow = true;
 
@@ -2502,15 +2605,17 @@ export function createTerrainSystem(texLib, scene) {
     group.position.set(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE);
     group.add(mesh);
 
-    const { disposables, colliders } = populateChunkDetails(cx, cz, lod, group);
+    const { disposables, colliders, clutterGroup } = populateChunkDetails(cx, cz, detailLod, group);
     root.add(group);
 
     return {
       key: `${cx},${cz}`,
       cx,
       cz,
-      lod,
+      geoLod,
+      detailLod,
       group,
+      clutterGroup,
       mesh,
       geo,
       disposables,
@@ -2526,19 +2631,40 @@ export function createTerrainSystem(texLib, scene) {
     }
   }
 
+  let lastUpdatePcx = 1e9;
+  let lastUpdatePcz = 1e9;
+  let hasPendingChunks = true;
+
   function rebuildAll(centerX, centerZ) {
     for (const c of chunks.values()) disposeChunk(c);
     chunks.clear();
     lastFarCenterX = 1e9;
     lastFarCenterZ = 1e9;
+    farJob = null;
+    lastUpdatePcx = 1e9;
+    lastUpdatePcz = 1e9;
+    hasPendingChunks = true;
     update(centerX, centerZ, true);
   }
 
   function update(centerX, centerZ, syncAll = false) {
-    const pcx = Math.round(centerX / CHUNK_SIZE);
-    const pcz = Math.round(centerZ / CHUNK_SIZE);
+    // Hysteresis deadzone (0.62 * CHUNK_SIZE = ~99m) prevents chunk/LOD jitter when walking near boundaries!
+    const needGridUpdate =
+      syncAll ||
+      lastUpdatePcx > 1e8 ||
+      Math.abs(centerX - lastUpdatePcx * CHUNK_SIZE) > CHUNK_SIZE * 0.62 ||
+      Math.abs(centerZ - lastUpdatePcz * CHUNK_SIZE) > CHUNK_SIZE * 0.62;
 
-    updateFarRing(centerX, centerZ);
+    const pcx = needGridUpdate ? Math.round(centerX / CHUNK_SIZE) : lastUpdatePcx;
+    const pcz = needGridUpdate ? Math.round(centerZ / CHUNK_SIZE) : lastUpdatePcz;
+
+    updateFarRing(centerX, centerZ, syncAll);
+
+    if (!syncAll && !hasPendingChunks && !needGridUpdate) {
+      return;
+    }
+    lastUpdatePcx = pcx;
+    lastUpdatePcz = pcz;
 
     const needed = new Map();
     for (let dz = -GRID_RADIUS; dz <= GRID_RADIUS; dz++) {
@@ -2546,7 +2672,13 @@ export function createTerrainSystem(texLib, scene) {
         const cx = pcx + dx;
         const cz = pcz + dz;
         const ring = Math.max(Math.abs(dx), Math.abs(dz));
-        needed.set(`${cx},${cz}`, { cx, cz, lod: getLodForRing(ring), ring });
+        needed.set(`${cx},${cz}`, {
+          cx,
+          cz,
+          geoLod: getLodForRing(ring),
+          detailLod: getDetailLodForRing(ring),
+          ring
+        });
       }
     }
 
@@ -2560,18 +2692,20 @@ export function createTerrainSystem(texLib, scene) {
     const queue = [];
     for (const [key, spec] of needed.entries()) {
       const existing = chunks.get(key);
-      if (!existing || existing.lod !== spec.lod) {
+      if (!existing || existing.geoLod !== spec.geoLod || existing.detailLod !== spec.detailLod) {
         queue.push({ key, spec, existing });
       }
     }
     queue.sort((a, b) => a.spec.ring - b.spec.ring);
 
     const budget = syncAll ? queue.length : MAX_BUILDS_PER_FRAME;
-    for (let i = 0; i < Math.min(budget, queue.length); i++) {
+    const builtCount = Math.min(budget, queue.length);
+    for (let i = 0; i < builtCount; i++) {
       const { key, spec, existing } = queue[i];
       if (existing) disposeChunk(existing);
-      chunks.set(key, createChunk(spec.cx, spec.cz, spec.lod));
+      chunks.set(key, createChunk(spec.cx, spec.cz, spec.geoLod, spec.detailLod));
     }
+    hasPendingChunks = queue.length > builtCount;
   }
 
   function getCollidersNear(x, z, radius = 6) {
@@ -2592,9 +2726,17 @@ export function createTerrainSystem(texLib, scene) {
     return out;
   }
 
+  function setReflectionMode(enabled) {
+    const showClutter = !enabled;
+    for (const c of chunks.values()) {
+      if (c.clutterGroup) c.clutterGroup.visible = showClutter;
+    }
+  }
+
   return {
     update,
     rebuildAll,
-    getCollidersNear
+    getCollidersNear,
+    setReflectionMode
   };
 }

@@ -13,6 +13,14 @@ export function createAudioSystem() {
   let wfGain = null;
   let rainGain = null;
   let auroraGain = null;
+  let laserOsc = null;
+  let laserGain = null;
+  let laserNoiseGain = null;
+  let laserNoiseFilter = null;
+  let bikeOsc1 = null;
+  let bikeOsc2 = null;
+  let bikeGain = null;
+  let bikeRumbleGain = null;
   let noiseBuf = null;
   let muted = false;
   let started = false;
@@ -92,6 +100,52 @@ export function createAudioSystem() {
       osc.start();
     });
 
+    // 3D Laser Printer continuous harmonic hum + crisp sintering crackle
+    laserGain = ctx.createGain();
+    laserGain.gain.value = 0;
+    laserGain.connect(masterGain);
+    laserOsc = ctx.createOscillator();
+    laserOsc.type = 'sawtooth';
+    laserOsc.frequency.value = 180;
+    const laserFilter = ctx.createBiquadFilter();
+    laserFilter.type = 'bandpass';
+    laserFilter.frequency.value = 880;
+    laserFilter.Q.value = 3.2;
+    laserOsc.connect(laserFilter);
+    laserFilter.connect(laserGain);
+    laserOsc.start();
+
+    const laserNoise = startLoopNode('bandpass', 2400, 4.0);
+    laserNoiseFilter = laserNoise.filter;
+    laserNoiseGain = laserNoise.gain;
+
+    // Electric Bridges RT-04 Motorcycle futuristic turbine drive + tire gravel rumble
+    bikeGain = ctx.createGain();
+    bikeGain.gain.value = 0;
+    bikeGain.connect(masterGain);
+    const bikeFilter = ctx.createBiquadFilter();
+    bikeFilter.type = 'lowpass';
+    bikeFilter.frequency.value = 720;
+    bikeFilter.connect(bikeGain);
+
+    bikeOsc1 = ctx.createOscillator();
+    bikeOsc1.type = 'triangle';
+    bikeOsc1.frequency.value = 68;
+    bikeOsc1.connect(bikeFilter);
+    bikeOsc1.start();
+
+    bikeOsc2 = ctx.createOscillator();
+    bikeOsc2.type = 'sine';
+    bikeOsc2.frequency.value = 136;
+    const bikeOsc2G = ctx.createGain();
+    bikeOsc2G.gain.value = 0.35;
+    bikeOsc2.connect(bikeOsc2G);
+    bikeOsc2G.connect(bikeFilter);
+    bikeOsc2.start();
+
+    const bikeRumble = startLoopNode('lowpass', 260, 0.9);
+    bikeRumbleGain = bikeRumble.gain;
+
     started = true;
   }
 
@@ -152,6 +206,55 @@ export function createAudioSystem() {
     osc.stop(now + 0.46);
   }
 
+  function playPrintCompleteChime() {
+    if (!started || muted || !ctx) return;
+    const now = ctx.currentTime;
+    [523.25, 659.25, 1046.5].forEach((hz, idx) => {
+      const osc = ctx.createOscillator();
+      const g = ctx.createGain();
+      osc.type = 'triangle';
+      const t0 = now + idx * 0.065;
+      osc.frequency.setValueAtTime(hz, t0);
+      g.gain.setValueAtTime(0.085, t0);
+      g.gain.exponentialRampToValueAtTime(0.0005, t0 + 0.55);
+      osc.connect(g);
+      g.connect(masterGain);
+      osc.start(t0);
+      osc.stop(t0 + 0.58);
+    });
+  }
+
+  function setLaserPrintAudio(active, progress) {
+    if (!started || !ctx || !laserGain) return;
+    const now = ctx.currentTime;
+    if (active && !muted) {
+      const freq = 175 + progress * 240 + Math.sin(now * 28.0) * 26;
+      laserOsc.frequency.setTargetAtTime(freq, now, 0.03);
+      laserGain.gain.setTargetAtTime(0.11, now, 0.05);
+      laserNoiseFilter.frequency.setTargetAtTime(1900 + progress * 1400 + Math.sin(now * 42.0) * 350, now, 0.03);
+      laserNoiseGain.gain.setTargetAtTime(0.075, now, 0.05);
+    } else {
+      laserGain.gain.setTargetAtTime(0.0, now, 0.06);
+      laserNoiseGain.gain.setTargetAtTime(0.0, now, 0.06);
+    }
+  }
+
+  function setBikeAudio(riding, speedAbs, boosting) {
+    if (!started || !ctx || !bikeGain) return;
+    const now = ctx.currentTime;
+    if (riding && !muted) {
+      const spNorm = clamp(speedAbs / 24.0, 0, 1.2);
+      const baseHz = 62 + spNorm * 145 + (boosting ? 42 : 0);
+      bikeOsc1.frequency.setTargetAtTime(baseHz, now, 0.06);
+      bikeOsc2.frequency.setTargetAtTime(baseHz * (boosting ? 2.5 : 2.02), now, 0.06);
+      bikeGain.gain.setTargetAtTime(0.065 + spNorm * 0.13 + (boosting ? 0.04 : 0), now, 0.08);
+      bikeRumbleGain.gain.setTargetAtTime(clamp(spNorm * 0.15, 0, 0.18), now, 0.08);
+    } else {
+      bikeGain.gain.setTargetAtTime(0.0, now, 0.12);
+      bikeRumbleGain.gain.setTargetAtTime(0.0, now, 0.12);
+    }
+  }
+
   function update(playerPos, waterfallPositions, windStrength, rainIntensity, auroraStrength) {
     if (!started || !ctx || ctx.state !== 'running') return;
     const now = ctx.currentTime;
@@ -180,6 +283,9 @@ export function createAudioSystem() {
     isMuted: () => muted,
     playFootstep,
     playOdradekChime,
+    playPrintCompleteChime,
+    setLaserPrintAudio,
+    setBikeAudio,
     update
   };
 }
