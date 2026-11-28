@@ -720,7 +720,7 @@ export function createWaterSystem(texLib, scene) {
         vec3 halfSun = normalize(viewDir + normalize(vec3(uSunDir.x, max(uSunDir.y, 0.38), uSunDir.z)));
         float sunSpec = pow(max(dot(n, halfSun), 0.0), 64.0) * 0.22 * dayFactor * rTerrainShadow;
         vec3 halfMoon = normalize(viewDir + normalize(vec3(uMoonDir.x, max(uMoonDir.y, 0.25), uMoonDir.z)));
-        float moonSpec = pow(max(dot(n, halfMoon), 0.0), 96.0) * 0.14 * uNightFactor * (1.0 - uCloudCoverage * 0.65) * mix(0.35, 1.0, rTerrainShadow);
+        float moonSpec = pow(max(dot(n, halfMoon), 0.0), 96.0) * 0.14 * uNightFactor * (1.0 - uCloudCoverage * 0.65) * rTerrainShadow;
 
         vec3 col = mix(waterCol, reflSky, clamp(fresnel * 0.85, 0.10, 0.76)) + uSunColor * sunSpec + vec3(0.55, 0.70, 0.92) * moonSpec;
 
@@ -1730,8 +1730,8 @@ export function createWaterSystem(texLib, scene) {
           col += sunSpecTint * min(totalSunSpec, 12.0);
         }
 
-        // Cool silvery Moon Reflection Path at Night!
-        float moonVis = uNightFactor * (1.0 - uCloudCoverage * 0.68) * smoothstep(0.02, 0.20, uMoonDir.y);
+        // Cool silvery Moon Reflection Path at Night (occluded by mountain terrain shadows)!
+        float moonVis = uNightFactor * (1.0 - uCloudCoverage * 0.68) * smoothstep(0.02, 0.20, uMoonDir.y) * terrainShadow;
         if (moonVis > 0.01) {
           vec3 Lmoon = normalize(uMoonDir);
           vec3 Hmoon = normalize(viewDir + Lmoon);

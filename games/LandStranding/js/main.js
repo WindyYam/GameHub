@@ -1259,10 +1259,15 @@ function animate() {
       camState.yaw += diff * (1.0 - Math.exp(-3.2 * dt));
     }
 
-    // Dynamic speed FOV while riding the RT-04 motorcycle (44° -> 52° during chiral boost!)
+    const isIndoor = !!(shelter && shelter.inside);
+    if (camState.indoorBlend === undefined) camState.indoorBlend = 0.0;
+    camState.indoorBlend = mix(camState.indoorBlend, isIndoor ? 1.0 : 0.0, 1.0 - Math.exp(-7.0 * dt));
+    const inB = camState.indoorBlend;
+
+    // Dynamic speed FOV while riding the RT-04 motorcycle (44° -> 52° during chiral boost!) or wider indoor view (54°)
     const targetFov = bikeSys.state.riding
       ? mix(45.5, 52.5, clamp(Math.abs(bikeSys.state.speed) / 26.0, 0, 1))
-      : 44.0;
+      : mix(44.0, 54.0, inB);
     if (Math.abs(camera.fov - targetFov) > 0.02) {
       camera.fov = mix(camera.fov, targetFov, 1.0 - Math.exp(-6.0 * dt));
       camera.updateProjectionMatrix();
@@ -1275,9 +1280,10 @@ function animate() {
 
     const rightX = Math.cos(camState.smoothYaw);
     const rightZ = -Math.sin(camState.smoothYaw);
-    const shoulderOff = bikeSys.state.riding ? 0.14 : 0.42;
+    const shoulderOff = bikeSys.state.riding ? 0.14 : mix(0.42, 0.34, inB);
     const targetLookX = px + rightX * shoulderOff;
-    const targetLookY = (porter.state.smoothBodyY !== undefined ? porter.state.smoothBodyY : porter.state.pos.y) + (bikeSys.state.riding ? 1.48 : 1.56);
+    const baseEyeH = bikeSys.state.riding ? 1.48 : mix(1.56, 1.24, inB);
+    const targetLookY = (porter.state.smoothBodyY !== undefined ? porter.state.smoothBodyY : porter.state.pos.y) + baseEyeH;
     const targetLookZ = pz + rightZ * shoulderOff;
 
     // Responsive XZ follow + heavily damped gimbal vertical Y follow (filters out high-frequency moss pillow bumps!)
@@ -1300,7 +1306,7 @@ function animate() {
     const rideDistBoost = bikeSys.state.riding
       ? mix(0.85, 1.85, clamp(Math.abs(bikeSys.state.speed) / 26.0, 0, 1))
       : 0.0;
-    let targetDist = camState.distance + rideDistBoost;
+    let targetDist = mix(camState.distance + rideDistBoost, Math.min(camState.distance, 2.75), inB);
     const caveCheck = getRiverCaveState(
       camState.target.x + rayX * targetDist,
       camState.target.z + rayZ * targetDist,
@@ -1326,7 +1332,7 @@ function animate() {
     camState.smoothDist = mix(camState.smoothDist, targetDist, distAlpha);
 
     const desiredX = camState.target.x + rayX * camState.smoothDist;
-    const desiredY = camState.target.y + sp * camState.smoothDist + 0.24;
+    const desiredY = camState.target.y + sp * camState.smoothDist + mix(0.24, 0.02, inB);
     const desiredZ = camState.target.z + rayZ * camState.smoothDist;
 
     let neededLift = 0.0;
@@ -1352,7 +1358,7 @@ function animate() {
     camState.pos.set(desiredX, desiredY + camState.smoothFloorLift, desiredZ);
     landmarkSys.clampCameraPos(camState.target, camState.pos);
     camera.position.copy(camState.pos);
-    camera.lookAt(camState.target.x, camState.target.y + 0.56 + camState.smoothFloorLift * 0.65, camState.target.z);
+    camera.lookAt(camState.target.x, camState.target.y + mix(0.56, 0.16, inB) + camState.smoothFloorLift * 0.65, camState.target.z);
   }
 
   const elDoorPrompt = document.getElementById('door-prompt');

@@ -330,7 +330,7 @@ export function createMotorcycleSystem(scene, audioSys) {
   }), printUniforms);
 
   // 2. Permanent Scene-Level Lights (ALWAYS visible=true so Three.js NEVER recompiles shaders on print start/stop!)
-  const headlightSpot = new THREE.SpotLight(0xdff5ff, 0.0, 56, Math.PI * 0.28, 0.58, 1.35);
+  const headlightSpot = new THREE.SpotLight(0xdff5ff, 0.0, 125, Math.PI * 0.30, 0.56, 1.05);
   const headlightTarget = new THREE.Object3D();
   headlightSpot.position.set(0, -200, 0);
   headlightTarget.position.set(0, -200, 10);
@@ -1878,7 +1878,7 @@ export function createMotorcycleSystem(scene, audioSys) {
     headlightAimAnchor.getWorldPosition(_hlAimW);
     headlightSpot.position.copy(_hlOriginW);
     headlightTarget.position.copy(_hlAimW);
-    headlightSpot.intensity = state.riding ? (2.2 + darkNeed * 10.5) : darkNeed * 1.8;
+    headlightSpot.intensity = state.riding ? (6.5 + darkNeed * 28.0) : darkNeed * 5.0;
 
     tailLedMat.emissiveIntensity = state.braking ? 3.2 : (state.riding ? 1.35 : 0.55);
     cyanLedMat.emissiveIntensity = (state.boosting ? 2.8 : 1.75) * activeGlow + state.completeFlash * 2.0;

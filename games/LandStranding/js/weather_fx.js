@@ -171,9 +171,9 @@ export function createWeatherFX(scene) {
       puffs.push({
         latOff: latFrac * (26.0 + Math.random() * 14.0) + (Math.random() - 0.5) * 4.5,
         alongOff: -Math.abs(latFrac) * 6.0 + (Math.random() - 0.5) * 9.0,
-        yLift: 0.25 + Math.random() * 1.6,
+        yLift: 0.0,
         w: 13.0 + Math.random() * 12.0,
-        h: 4.8 + Math.random() * 4.5,
+        h: 3.0 + Math.random() * 2.8,
         seed: Math.random() * 90.0,
         phaseOff: (Math.random() - 0.5) * 0.14
       });
@@ -214,8 +214,8 @@ export function createWeatherFX(scene) {
         vec3 camRight = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
         vec3 camUp = vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]);
         // Bottom-anchored upright-biased cloud billboard (0..h cleanly above ground -> soft fluffy mist, zero sharp cuts!)
-        vec3 upAxis = normalize(mix(vec3(0.0, 1.0, 0.0), camUp, 0.34));
-        vec3 wp = center + camRight * (position.x * aWave.z) + upAxis * ((position.y + 0.5) * aWave.w);
+        vec3 upAxis = normalize(mix(vec3(0.0, 1.0, 0.0), camUp, 0.24));
+        vec3 wp = center + camRight * (position.x * aWave.z) + upAxis * ((position.y + 0.42) * aWave.w);
         vWorldPos = wp;
 
         float d = length(center - cameraPosition);
@@ -251,7 +251,7 @@ export function createWeatherFX(scene) {
         float r2 = dot(c, c);
         if (r2 >= 0.95) discard;
         float radial = exp(-r2 * 2.95) * (1.0 - smoothstep(0.28, 0.95, r2));
-        float baseSoft = smoothstep(0.0, 0.40, vUv.y);
+        float baseSoft = smoothstep(0.0, 0.14, vUv.y);
 
         // Domain-warped flowing volumetric cloud billows + rapid wind-sheared mist wisps
         vec2 streamFlow = vec2(-uWindTime * 1.15, -uTime * 0.08);
@@ -406,7 +406,7 @@ export function createWeatherFX(scene) {
     const minH = Math.min(cH, hE, hW, hN, hS);
     const relief = maxH - minH;
     const t = Math.min(1, Math.max(0, (relief - puffH * 0.55) / Math.max(puffH * 0.95, 2.2)));
-    _clearOut.baseY = maxH + 0.12;
+    _clearOut.baseY = cH;
     _clearOut.clearFade = 1.0 - t * t * (3.0 - 2.0 * t);
     return _clearOut;
   }

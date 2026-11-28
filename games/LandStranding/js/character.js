@@ -607,7 +607,7 @@ export function createPorter(scene, onFootstep) {
   upperTorsoGroup.add(lampLens);
 
   // Night & subterranean cave chest headlamp SpotLight
-  const chestLamp = new THREE.SpotLight(0xdff4ff, 0.0, 28, Math.PI * 0.25, 0.62, 1.55);
+  const chestLamp = new THREE.SpotLight(0xdff4ff, 0.0, 64, Math.PI * 0.28, 0.58, 1.15);
   chestLamp.position.set(-0.115, 0.34, 0.20);
   const lampTarget = new THREE.Object3D();
   lampTarget.position.set(0, -0.25, 8.0);
@@ -1671,7 +1671,7 @@ export function createPorter(scene, onFootstep) {
 
     // Automatic night & subterranean cave chest-lamp activation!
     const lampNeed = Math.max(smoothstep(0.35, 0.85, ATMO_UNIFORMS.uNightFactor.value), caveInfo.darkness || 0);
-    chestLamp.intensity = lampNeed * 4.2;
+    chestLamp.intensity = lampNeed * 14.0;
 
     root.position.copy(state.pos);
     root.rotation.y = state.yaw;

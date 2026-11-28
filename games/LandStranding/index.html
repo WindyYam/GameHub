@@ -4681,7 +4681,8 @@ function createEnvironmentController(scene, renderer, skyDome) {
     const isInit = lastShadowX > 1e8;
     const dirDot = keyDir.x * lastShadowDir.x + keyDir.y * lastShadowDir.y + keyDir.z * lastShadowDir.z;
 
-    if (!shadowJob && (isInit || Math.hypot(playerPos.x - lastShadowX, playerPos.z - lastShadowZ) > 320.0 || dirDot < 0.996)) {
+    const isSwitch = isInit || dirDot < 0.5;
+    if (!shadowJob && (isSwitch || Math.hypot(playerPos.x - lastShadowX, playerPos.z - lastShadowZ) > 320.0 || dirDot < 0.996)) {
       lastShadowX = sx;
       lastShadowZ = sz;
       lastShadowDir.copy(keyDir);
@@ -4689,11 +4690,11 @@ function createEnvironmentController(scene, renderer, skyDome) {
       const dx = horizLen > 1e-4 ? keyDir.x / horizLen : 0.0;
       const dz = horizLen > 1e-4 ? keyDir.z / horizLen : 0.0;
       const tanElev = Math.max(keyDir.y, 0.045) / Math.max(horizLen, 0.045);
-      shadowJob = { sx, sz, dx, dz, tanElev, iz: 0 };
+      shadowJob = { sx, sz, dx, dz, tanElev, iz: 0, sync: isSwitch };
     }
     if (!shadowJob) return;
 
-    const rowsBudget = isInit ? res : 10;
+    const rowsBudget = shadowJob.sync ? res : 10;
     const endIz = Math.min(res - 1, shadowJob.iz + rowsBudget - 1);
     const stepSize = (half * 2.0) / res;
     const minX = shadowJob.sx - half;
@@ -5205,9 +5206,9 @@ function createWeatherFX(scene) {
       puffs.push({
         latOff: latFrac * (26.0 + Math.random() * 14.0) + (Math.random() - 0.5) * 4.5,
         alongOff: -Math.abs(latFrac) * 6.0 + (Math.random() - 0.5) * 9.0,
-        yLift: 0.25 + Math.random() * 1.6,
+        yLift: 0.0,
         w: 13.0 + Math.random() * 12.0,
-        h: 4.8 + Math.random() * 4.5,
+        h: 3.0 + Math.random() * 2.8,
         seed: Math.random() * 90.0,
         phaseOff: (Math.random() - 0.5) * 0.14
       });
@@ -5248,8 +5249,8 @@ function createWeatherFX(scene) {
         vec3 camRight = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
         vec3 camUp = vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]);
         // Bottom-anchored upright-biased cloud billboard (0..h cleanly above ground -> soft fluffy mist, zero sharp cuts!)
-        vec3 upAxis = normalize(mix(vec3(0.0, 1.0, 0.0), camUp, 0.34));
-        vec3 wp = center + camRight * (position.x * aWave.z) + upAxis * ((position.y + 0.5) * aWave.w);
+        vec3 upAxis = normalize(mix(vec3(0.0, 1.0, 0.0), camUp, 0.24));
+        vec3 wp = center + camRight * (position.x * aWave.z) + upAxis * ((position.y + 0.42) * aWave.w);
         vWorldPos = wp;
 
         float d = length(center - cameraPosition);
@@ -5285,7 +5286,7 @@ function createWeatherFX(scene) {
         float r2 = dot(c, c);
         if (r2 >= 0.95) discard;
         float radial = exp(-r2 * 2.95) * (1.0 - smoothstep(0.28, 0.95, r2));
-        float baseSoft = smoothstep(0.0, 0.40, vUv.y);
+        float baseSoft = smoothstep(0.0, 0.14, vUv.y);
 
         // Domain-warped flowing volumetric cloud billows + rapid wind-sheared mist wisps
         vec2 streamFlow = vec2(-uWindTime * 1.15, -uTime * 0.08);
@@ -5440,7 +5441,7 @@ function createWeatherFX(scene) {
     const minH = Math.min(cH, hE, hW, hN, hS);
     const relief = maxH - minH;
     const t = Math.min(1, Math.max(0, (relief - puffH * 0.55) / Math.max(puffH * 0.95, 2.2)));
-    _clearOut.baseY = maxH + 0.12;
+    _clearOut.baseY = cH;
     _clearOut.clearFade = 1.0 - t * t * (3.0 - 2.0 * t);
     return _clearOut;
   }
@@ -9410,7 +9411,7 @@ function createWaterSystem(texLib, scene) {
         vec3 halfSun = normalize(viewDir + normalize(vec3(uSunDir.x, max(uSunDir.y, 0.38), uSunDir.z)));
         float sunSpec = pow(max(dot(n, halfSun), 0.0), 64.0) * 0.22 * dayFactor * rTerrainShadow;
         vec3 halfMoon = normalize(viewDir + normalize(vec3(uMoonDir.x, max(uMoonDir.y, 0.25), uMoonDir.z)));
-        float moonSpec = pow(max(dot(n, halfMoon), 0.0), 96.0) * 0.14 * uNightFactor * (1.0 - uCloudCoverage * 0.65) * mix(0.35, 1.0, rTerrainShadow);
+        float moonSpec = pow(max(dot(n, halfMoon), 0.0), 96.0) * 0.14 * uNightFactor * (1.0 - uCloudCoverage * 0.65) * rTerrainShadow;
 
         vec3 col = mix(waterCol, reflSky, clamp(fresnel * 0.85, 0.10, 0.76)) + uSunColor * sunSpec + vec3(0.55, 0.70, 0.92) * moonSpec;
 
@@ -10420,8 +10421,8 @@ function createWaterSystem(texLib, scene) {
           col += sunSpecTint * min(totalSunSpec, 12.0);
         }
 
-        // Cool silvery Moon Reflection Path at Night!
-        float moonVis = uNightFactor * (1.0 - uCloudCoverage * 0.68) * smoothstep(0.02, 0.20, uMoonDir.y);
+        // Cool silvery Moon Reflection Path at Night (occluded by mountain terrain shadows)!
+        float moonVis = uNightFactor * (1.0 - uCloudCoverage * 0.68) * smoothstep(0.02, 0.20, uMoonDir.y) * terrainShadow;
         if (moonVis > 0.01) {
           vec3 Lmoon = normalize(uMoonDir);
           vec3 Hmoon = normalize(viewDir + Lmoon);
@@ -14431,7 +14432,7 @@ function createPorter(scene, onFootstep) {
   upperTorsoGroup.add(lampLens);
 
   // Night & subterranean cave chest headlamp SpotLight
-  const chestLamp = new THREE.SpotLight(0xdff4ff, 0.0, 28, Math.PI * 0.25, 0.62, 1.55);
+  const chestLamp = new THREE.SpotLight(0xdff4ff, 0.0, 64, Math.PI * 0.28, 0.58, 1.15);
   chestLamp.position.set(-0.115, 0.34, 0.20);
   const lampTarget = new THREE.Object3D();
   lampTarget.position.set(0, -0.25, 8.0);
@@ -15495,7 +15496,7 @@ function createPorter(scene, onFootstep) {
 
     // Automatic night & subterranean cave chest-lamp activation!
     const lampNeed = Math.max(smoothstep(0.35, 0.85, ATMO_UNIFORMS.uNightFactor.value), caveInfo.darkness || 0);
-    chestLamp.intensity = lampNeed * 4.2;
+    chestLamp.intensity = lampNeed * 14.0;
 
     root.position.copy(state.pos);
     root.rotation.y = state.yaw;
@@ -15999,7 +16000,7 @@ function createMotorcycleSystem(scene, audioSys) {
   }), printUniforms);
 
   // 2. Permanent Scene-Level Lights (ALWAYS visible=true so Three.js NEVER recompiles shaders on print start/stop!)
-  const headlightSpot = new THREE.SpotLight(0xdff5ff, 0.0, 56, Math.PI * 0.28, 0.58, 1.35);
+  const headlightSpot = new THREE.SpotLight(0xdff5ff, 0.0, 125, Math.PI * 0.30, 0.56, 1.05);
   const headlightTarget = new THREE.Object3D();
   headlightSpot.position.set(0, -200, 0);
   headlightTarget.position.set(0, -200, 10);
@@ -17547,7 +17548,7 @@ function createMotorcycleSystem(scene, audioSys) {
     headlightAimAnchor.getWorldPosition(_hlAimW);
     headlightSpot.position.copy(_hlOriginW);
     headlightTarget.position.copy(_hlAimW);
-    headlightSpot.intensity = state.riding ? (2.2 + darkNeed * 10.5) : darkNeed * 1.8;
+    headlightSpot.intensity = state.riding ? (6.5 + darkNeed * 28.0) : darkNeed * 5.0;
 
     tailLedMat.emissiveIntensity = state.braking ? 3.2 : (state.riding ? 1.35 : 0.55);
     cyanLedMat.emissiveIntensity = (state.boosting ? 2.8 : 1.75) * activeGlow + state.completeFlash * 2.0;
@@ -17847,12 +17848,12 @@ function createAudioSystem() {
     if (!started || !ctx || !bikeGain) return;
     const now = ctx.currentTime;
     if (riding && !muted) {
-      const spNorm = clamp(speedAbs / 24.0, 0, 1.2);
-      const baseHz = 62 + spNorm * 145 + (boosting ? 42 : 0);
+      const spNorm = clamp(speedAbs / 24.0, 0, 1.0);
+      const baseHz = 62 + spNorm * 145 + (boosting ? 28 : 0);
       bikeOsc1.frequency.setTargetAtTime(baseHz, now, 0.06);
-      bikeOsc2.frequency.setTargetAtTime(baseHz * (boosting ? 2.5 : 2.02), now, 0.06);
-      bikeGain.gain.setTargetAtTime(0.065 + spNorm * 0.13 + (boosting ? 0.04 : 0), now, 0.08);
-      bikeRumbleGain.gain.setTargetAtTime(clamp(spNorm * 0.15, 0, 0.18), now, 0.08);
+      bikeOsc2.frequency.setTargetAtTime(baseHz * (boosting ? 2.25 : 2.02), now, 0.06);
+      bikeGain.gain.setTargetAtTime((0.065 + spNorm * 0.13) * (boosting ? 0.88 : 1.0), now, 0.08);
+      bikeRumbleGain.gain.setTargetAtTime(clamp(spNorm * 0.15, 0, 0.15), now, 0.08);
     } else {
       bikeGain.gain.setTargetAtTime(0.0, now, 0.12);
       bikeRumbleGain.gain.setTargetAtTime(0.0, now, 0.12);
@@ -19164,10 +19165,15 @@ function animate() {
       camState.yaw += diff * (1.0 - Math.exp(-3.2 * dt));
     }
 
-    // Dynamic speed FOV while riding the RT-04 motorcycle (44° -> 52° during chiral boost!)
+    const isIndoor = !!(shelter && shelter.inside);
+    if (camState.indoorBlend === undefined) camState.indoorBlend = 0.0;
+    camState.indoorBlend = mix(camState.indoorBlend, isIndoor ? 1.0 : 0.0, 1.0 - Math.exp(-7.0 * dt));
+    const inB = camState.indoorBlend;
+
+    // Dynamic speed FOV while riding the RT-04 motorcycle (44° -> 52° during chiral boost!) or wider indoor view (54°)
     const targetFov = bikeSys.state.riding
       ? mix(45.5, 52.5, clamp(Math.abs(bikeSys.state.speed) / 26.0, 0, 1))
-      : 44.0;
+      : mix(44.0, 54.0, inB);
     if (Math.abs(camera.fov - targetFov) > 0.02) {
       camera.fov = mix(camera.fov, targetFov, 1.0 - Math.exp(-6.0 * dt));
       camera.updateProjectionMatrix();
@@ -19180,9 +19186,10 @@ function animate() {
 
     const rightX = Math.cos(camState.smoothYaw);
     const rightZ = -Math.sin(camState.smoothYaw);
-    const shoulderOff = bikeSys.state.riding ? 0.14 : 0.42;
+    const shoulderOff = bikeSys.state.riding ? 0.14 : mix(0.42, 0.34, inB);
     const targetLookX = px + rightX * shoulderOff;
-    const targetLookY = (porter.state.smoothBodyY !== undefined ? porter.state.smoothBodyY : porter.state.pos.y) + (bikeSys.state.riding ? 1.48 : 1.56);
+    const baseEyeH = bikeSys.state.riding ? 1.48 : mix(1.56, 1.24, inB);
+    const targetLookY = (porter.state.smoothBodyY !== undefined ? porter.state.smoothBodyY : porter.state.pos.y) + baseEyeH;
     const targetLookZ = pz + rightZ * shoulderOff;
 
     // Responsive XZ follow + heavily damped gimbal vertical Y follow (filters out high-frequency moss pillow bumps!)
@@ -19205,7 +19212,7 @@ function animate() {
     const rideDistBoost = bikeSys.state.riding
       ? mix(0.85, 1.85, clamp(Math.abs(bikeSys.state.speed) / 26.0, 0, 1))
       : 0.0;
-    let targetDist = camState.distance + rideDistBoost;
+    let targetDist = mix(camState.distance + rideDistBoost, Math.min(camState.distance, 2.75), inB);
     const caveCheck = getRiverCaveState(
       camState.target.x + rayX * targetDist,
       camState.target.z + rayZ * targetDist,
@@ -19231,7 +19238,7 @@ function animate() {
     camState.smoothDist = mix(camState.smoothDist, targetDist, distAlpha);
 
     const desiredX = camState.target.x + rayX * camState.smoothDist;
-    const desiredY = camState.target.y + sp * camState.smoothDist + 0.24;
+    const desiredY = camState.target.y + sp * camState.smoothDist + mix(0.24, 0.02, inB);
     const desiredZ = camState.target.z + rayZ * camState.smoothDist;
 
     let neededLift = 0.0;
@@ -19257,7 +19264,7 @@ function animate() {
     camState.pos.set(desiredX, desiredY + camState.smoothFloorLift, desiredZ);
     landmarkSys.clampCameraPos(camState.target, camState.pos);
     camera.position.copy(camState.pos);
-    camera.lookAt(camState.target.x, camState.target.y + 0.56 + camState.smoothFloorLift * 0.65, camState.target.z);
+    camera.lookAt(camState.target.x, camState.target.y + mix(0.56, 0.16, inB) + camState.smoothFloorLift * 0.65, camState.target.z);
   }
 
   const elDoorPrompt = document.getElementById('door-prompt');

@@ -243,12 +243,12 @@ export function createAudioSystem() {
     if (!started || !ctx || !bikeGain) return;
     const now = ctx.currentTime;
     if (riding && !muted) {
-      const spNorm = clamp(speedAbs / 24.0, 0, 1.2);
-      const baseHz = 62 + spNorm * 145 + (boosting ? 42 : 0);
+      const spNorm = clamp(speedAbs / 24.0, 0, 1.0);
+      const baseHz = 62 + spNorm * 145 + (boosting ? 28 : 0);
       bikeOsc1.frequency.setTargetAtTime(baseHz, now, 0.06);
-      bikeOsc2.frequency.setTargetAtTime(baseHz * (boosting ? 2.5 : 2.02), now, 0.06);
-      bikeGain.gain.setTargetAtTime(0.065 + spNorm * 0.13 + (boosting ? 0.04 : 0), now, 0.08);
-      bikeRumbleGain.gain.setTargetAtTime(clamp(spNorm * 0.15, 0, 0.18), now, 0.08);
+      bikeOsc2.frequency.setTargetAtTime(baseHz * (boosting ? 2.25 : 2.02), now, 0.06);
+      bikeGain.gain.setTargetAtTime((0.065 + spNorm * 0.13) * (boosting ? 0.88 : 1.0), now, 0.08);
+      bikeRumbleGain.gain.setTargetAtTime(clamp(spNorm * 0.15, 0, 0.15), now, 0.08);
     } else {
       bikeGain.gain.setTargetAtTime(0.0, now, 0.12);
       bikeRumbleGain.gain.setTargetAtTime(0.0, now, 0.12);

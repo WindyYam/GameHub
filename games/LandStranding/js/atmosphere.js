@@ -848,7 +848,8 @@ export function createEnvironmentController(scene, renderer, skyDome) {
     const isInit = lastShadowX > 1e8;
     const dirDot = keyDir.x * lastShadowDir.x + keyDir.y * lastShadowDir.y + keyDir.z * lastShadowDir.z;
 
-    if (!shadowJob && (isInit || Math.hypot(playerPos.x - lastShadowX, playerPos.z - lastShadowZ) > 320.0 || dirDot < 0.996)) {
+    const isSwitch = isInit || dirDot < 0.5;
+    if (!shadowJob && (isSwitch || Math.hypot(playerPos.x - lastShadowX, playerPos.z - lastShadowZ) > 320.0 || dirDot < 0.996)) {
       lastShadowX = sx;
       lastShadowZ = sz;
       lastShadowDir.copy(keyDir);
@@ -856,11 +857,11 @@ export function createEnvironmentController(scene, renderer, skyDome) {
       const dx = horizLen > 1e-4 ? keyDir.x / horizLen : 0.0;
       const dz = horizLen > 1e-4 ? keyDir.z / horizLen : 0.0;
       const tanElev = Math.max(keyDir.y, 0.045) / Math.max(horizLen, 0.045);
-      shadowJob = { sx, sz, dx, dz, tanElev, iz: 0 };
+      shadowJob = { sx, sz, dx, dz, tanElev, iz: 0, sync: isSwitch };
     }
     if (!shadowJob) return;
 
-    const rowsBudget = isInit ? res : 10;
+    const rowsBudget = shadowJob.sync ? res : 10;
     const endIz = Math.min(res - 1, shadowJob.iz + rowsBudget - 1);
     const stepSize = (half * 2.0) / res;
     const minX = shadowJob.sx - half;
