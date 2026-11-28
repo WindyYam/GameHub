@@ -180,12 +180,15 @@ def build():
           </div>
         </div>
         <div class="row">
-          <label>Effects</label>
+          <label>Effects & Detail</label>
           <div class="btn-group">
             <button id="btn-q-bloom" type="button">Bloom: On</button>
             <button id="btn-q-msaa" type="button">MSAA: 2x</button>
             <button id="btn-q-refl" type="button">Refl: On</button>
             <button id="btn-q-shadow" type="button">Shadow: High</button>
+            <button id="btn-q-terrain" type="button">Terrain: High</button>
+            <button id="btn-q-clouds" type="button">Clouds: 4-Step</button>
+            <button id="btn-q-detail" type="button">Detail: High</button>
           </div>
         </div>
         <div class="row">

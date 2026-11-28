@@ -24,13 +24,9 @@ import { ATMO_UNIFORMS, ATMO_GLSL_PARS, enhanceMaterialWithAtmo } from './atmosp
 
 export const CHUNK_SIZE = 160;
 const SKIRT_DROP = 18.0;
-const IS_MOBILE_DEVICE = typeof window !== 'undefined' && (
-  /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '') ||
-  (window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches)
-);
 const GRID_RADIUS = 9; // 19x19 live chunks (1520m radius, overlaps farMesh innerR=1400 with zero gap)
-const LOD_SEGS = IS_MOBILE_DEVICE ? [44, 28, 18, 12] : [48, 32, 20, 14];
-const MAX_BUILDS_PER_FRAME = IS_MOBILE_DEVICE ? 4 : 6;
+const LOD_SEGS = [48, 32, 20, 14];
+const MAX_BUILDS_PER_FRAME = 6;
 
 function getLodForRing(ringDist) {
   if (ringDist <= 1) return 0; // 0..240m
@@ -857,6 +853,9 @@ export function createTerrainSystem(texLib, scene) {
   const root = new THREE.Group();
   scene.add(root);
 
+  let terrainShaderFast = false;
+  let detailTier = 'high'; // 'high' | 'med' | 'low'
+
   // High-Performance Branched AAA Terrain PBR Shader (skips cliff/scree/path texture fetches where unused!)
   const terrainMat = new THREE.MeshStandardMaterial({
     color: 0xffffff,
@@ -864,7 +863,7 @@ export function createTerrainSystem(texLib, scene) {
     metalness: 0.02
   });
   terrainMat.fog = false;
-  terrainMat.customProgramCacheKey = () => 'ls_iceland_terrain_v14';
+  terrainMat.customProgramCacheKey = () => (terrainShaderFast ? 'ls_iceland_terrain_v15_fast' : 'ls_iceland_terrain_v15_high');
 
   terrainMat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, ATMO_UNIFORMS);
@@ -1274,6 +1273,15 @@ export function createTerrainSystem(texLib, scene) {
           vec2 wpBio = wp.xz + bioWarp;
 
           // Smooth C2 multi-octave gradient FBM for seamless non-repetitive macro/meso variation & subtle distant hill relief
+          #ifdef IS_MOBILE_TERRAIN
+          float macroN = clamp((terrainFbm2(wpBio * 0.014) - 0.5) * 2.1 + 0.5, 0.0, 1.0);
+          float midN   = clamp((terrainFbm2(wpBio * 0.056 + vec2(4.1, -6.7)) - 0.5) * 2.1 + 0.5, 0.0, 1.0);
+          vec3 hillGrad = vec3(macroN, 0.0, 0.0);
+          vec3 mesoGrad = vec3(midN, 0.0, 0.0);
+          float patchN = clamp((terrainFbm2(wpBio * 0.024 - vec2(7.4, 2.8)) - 0.5) * 2.2 + 0.5, 0.0, 1.0);
+          float biomeN = clamp((atmoGNoise(wpBio * 0.0052 + vec2(11.3, -8.4)) - 0.5) * 2.3 + 0.5, 0.0, 1.0);
+          float microDetail = 0.5;
+          #else
           vec3 hillGrad = fbmGrad3(wpBio * 0.014);
           vec3 mesoGrad = fbmGrad3(wpBio * 0.056 + vec2(4.1, -6.7));
           float macroN = clamp((hillGrad.x - 0.5) * 2.1 + 0.5, 0.0, 1.0);
@@ -1281,6 +1289,7 @@ export function createTerrainSystem(texLib, scene) {
           float patchN = clamp(((camDist < 320.0 ? terrainFbm3(wpBio * 0.024 - vec2(7.4, 2.8)) : terrainFbm2(wpBio * 0.024 - vec2(7.4, 2.8))) - 0.5) * 2.2 + 0.5, 0.0, 1.0);
           float biomeN = clamp(((camDist < 320.0 ? terrainFbm3(wpBio * 0.0052 + vec2(11.3, -8.4)) : terrainFbm2(wpBio * 0.0052 + vec2(11.3, -8.4))) - 0.5) * 2.3 + 0.5, 0.0, 1.0);
           float microDetail = closeFade > 0.01 ? (atmoGNoise(wp.xz * 6.5) * 0.58 + atmoGNoise(wp.xz * 15.0 + vec2(3.7, -1.9)) * 0.42) : 0.5;
+          #endif
 
           // Preserve exact original lush moss-to-cliff balance on hills & escarpments
           float rockRib = smoothstep(0.50, 0.78, patchN) * smoothstep(0.16, 0.36, slope);
@@ -1296,7 +1305,14 @@ export function createTerrainSystem(texLib, scene) {
           if (uInReflection > 0.5) {
             mossSample = texture2D(uMossMap, wp.xz * 0.078);
             mossN = vec3(0.0, 0.0, 1.0);
-          } else if (camDist > 360.0) {
+          } else {
+            #ifdef IS_MOBILE_TERRAIN
+            float mScale = camDist < 85.0 ? 0.34 : (camDist < 240.0 ? 0.078 : 0.019);
+            vec2 mUv = wp.xz * mScale + bioWarp * (0.015 * mScale);
+            mossSample = textureGrad(uMossMap, mUv, wpXZ_dx * mScale, wpXZ_dy * mScale);
+            mossN = normalize(vec3((textureGrad(uMossNorm, mUv, wpXZ_dx * mScale, wpXZ_dy * mScale).xy * 2.0 - 1.0), 1.0));
+            #else
+            if (camDist > 360.0) {
             vec2 mUv = wp.xz * 0.019 + vec2(0.73, 0.29);
             mossSample = textureGrad(uMossMap, mUv, wpXZ_dx * 0.019, wpXZ_dy * 0.019);
             mossN = normalize(vec3((textureGrad(uMossNorm, mUv, wpXZ_dx * 0.019, wpXZ_dy * 0.019).xy * 2.0 - 1.0), 1.0));
@@ -1336,6 +1352,8 @@ export function createTerrainSystem(texLib, scene) {
               mossSample = mix(s2, s3, w3);
               mossN = normalize(mix(n2, n3, w3));
             }
+          }
+          #endif
           }
           float mossH = mossSample.a;
 
@@ -1378,7 +1396,14 @@ export function createTerrainSystem(texLib, scene) {
             if (uInReflection > 0.5) {
               screeSample = texture2D(uScreeMap, wp.xz * 0.115);
               screeN = vec3(0.0, 0.0, 1.0);
-            } else if (camDist > 340.0) {
+            } else {
+              #ifdef IS_MOBILE_TERRAIN
+              float sScale = camDist < 120.0 ? 0.34 : 0.075;
+              vec2 sUv = wp.xz * sScale + bioWarp * (0.015 * sScale);
+              screeSample = textureGrad(uScreeMap, sUv, wpXZ_dx * sScale, wpXZ_dy * sScale);
+              screeN = normalize(vec3((textureGrad(uScreeNorm, sUv, wpXZ_dx * sScale, wpXZ_dy * sScale).xy * 2.0 - 1.0), 1.0));
+              #else
+              if (camDist > 340.0) {
               vec2 sUv = wp.xz * 0.028 + vec2(0.63, 0.19);
               screeSample = textureGrad(uScreeMap, sUv, wpXZ_dx * 0.028, wpXZ_dy * 0.028);
               screeN = normalize(vec3((textureGrad(uScreeNorm, sUv, wpXZ_dx * 0.028, wpXZ_dy * 0.028).xy * 2.0 - 1.0), 1.0));
@@ -1405,6 +1430,8 @@ export function createTerrainSystem(texLib, scene) {
                 screeSample = mix(sc1, sc2, sw2);
                 screeN = normalize(mix(sn1, sn2, sw2));
               }
+            }
+            #endif
             }
             if (screeRaw > 0.01) {
               vec3 gravelTone = mix(vec3(0.68, 0.72, 0.76), vec3(1.06, 1.09, 1.12), smoothstep(0.26, 0.78, screeSample.a));
@@ -1439,7 +1466,18 @@ export function createTerrainSystem(texLib, scene) {
             if (uInReflection > 0.5) {
               cliffMix = texture2D(uCliffMap, wpRock.xz * 0.028);
               cliffTexNorm = vec3(0.0, 0.0, 1.0);
-            } else if (camDist > 360.0) {
+            } else {
+              #ifdef IS_MOBILE_TERRAIN
+              float cScale = camDist < 160.0 ? 0.065 : 0.020;
+              vec2 cUv = (abs(wn.x) > abs(wn.z) ? wpRock.zy : wpRock.xy) * cScale;
+              vec2 cDx = (abs(wn.x) > abs(wn.z) ? wpDx.zy : wpDx.xy) * cScale;
+              vec2 cDy = (abs(wn.x) > abs(wn.z) ? wpDy.zy : wpDy.xy) * cScale;
+              if (abs(wn.y) > 0.65) { cUv = wpRock.xz * cScale; cDx = wpXZ_dx * cScale; cDy = wpXZ_dy * cScale; }
+              cliffMix = textureGrad(uCliffMap, cUv, cDx, cDy);
+              vec2 cn = textureGrad(uCliffNorm, cUv, cDx, cDy).xy * 2.0 - 1.0;
+              cliffTexNorm = vec3(cn.x, 0.0, cn.y);
+              #else
+              if (camDist > 360.0) {
               triplanarCliffPair(uCliffMap, uCliffNorm, wpRock + vec3(-31.7, 9.3, 23.1), wpDx, wpDy, wn, 0.014, cliffMix, cliffTexNorm);
             } else if (cliffLod < 1.0) {
               vec4 cNear, cMid; vec3 nNear, nMid;
@@ -1459,6 +1497,8 @@ export function createTerrainSystem(texLib, scene) {
                 cliffMix = mix(cMid, cFar, wFar);
                 cliffTexNorm = nMid * (1.0 - wFar * 0.52) + nFar * (0.44 + wFar * 0.60);
               }
+            }
+            #endif
             }
             float cliffH = cliffMix.a;
 
@@ -2492,7 +2532,7 @@ export function createTerrainSystem(texLib, scene) {
     const hydro = geo.attributes.aHydro;
     const cave = geo.attributes.aCave;
     const stride = FAR_RAD_SEGS + 1;
-    const rowsBudget = syncAll ? (FAR_RING_SEGS + 1) : (IS_MOBILE_DEVICE ? 4 : 10);
+    const rowsBudget = syncAll ? (FAR_RING_SEGS + 1) : (detailTier === 'high' ? 10 : 5);
     const endR = Math.min(FAR_RING_SEGS, farJob.r + rowsBudget - 1);
 
     for (let r = farJob.r; r <= endR; r++) {
@@ -2536,7 +2576,9 @@ export function createTerrainSystem(texLib, scene) {
   /** Build per-chunk boulders, cobbles, small volcanic stone clusters & lush Icelandic flora (now extending hero rock outcrops out to LOD2 / 720m!). */
   function populateChunkDetails(cx, cz, lod) {
     const colliders = [];
-    if (lod > 2) return { colliders, batchedRefs: [] };
+    if (lod > 2 || (detailTier === 'med' && lod > 1) || (detailTier === 'low' && lod > 0)) {
+      return { colliders, batchedRefs: [] };
+    }
 
     const ox = cx * CHUNK_SIZE;
     const oz = cz * CHUNK_SIZE;
@@ -2749,7 +2791,7 @@ export function createTerrainSystem(texLib, scene) {
 
       // Surround every Eldhraun lava outcrop with smooth, slope-hugging mossy pillow mounds!
       if (!inRiver && lod <= 1) {
-        const maxCushions = lod === 0 ? (IS_MOBILE_DEVICE ? 210 : 280) : 48;
+        const maxCushions = lod === 0 ? (detailTier === 'high' ? 280 : detailTier === 'med' ? 180 : 90) : 48;
         const cushCount = lod === 0 ? (4 + Math.floor(hash2i(i, cx * 31 + cz, 541) * 5)) : 2;
         for (let k = 0; k < cushCount && cushionMats.length < maxCushions; k++) {
           const cAng = hash2i(i * 19 + k, cz * 13 + cx, 543) * Math.PI * 2;
@@ -2882,8 +2924,12 @@ export function createTerrainSystem(texLib, scene) {
     const halfChunk = CHUNK_SIZE * 0.49;
 
     // 4a) Lush Sweeping Icelandic Nootka Lupin Flower Colonies (dense drifts of 6..12 rich violet-blue spires!)
-    const lupinCenters = lod === 0 ? (IS_MOBILE_DEVICE ? 82 : 108) : lod === 1 ? 20 : 0;
-    const maxLupins = lod === 0 ? (IS_MOBILE_DEVICE ? 330 : 450) : 60;
+    const lupinCenters = lod === 0
+      ? (detailTier === 'high' ? 108 : detailTier === 'med' ? 52 : 26)
+      : (lod === 1 ? (detailTier === 'high' ? 20 : 12) : 0);
+    const maxLupins = lod === 0
+      ? (detailTier === 'high' ? 450 : detailTier === 'med' ? 170 : 75)
+      : (detailTier === 'high' ? 60 : 30);
     for (let i = 0; i < lupinCenters && lupinMats.length < maxLupins; i++) {
       const cx0 = (hash2i(cx * 131 + i, cz * 79, 613) - 0.5) * CHUNK_SIZE;
       const cz0 = (hash2i(cx * 61, cz * 113 + i, 619) - 0.5) * CHUNK_SIZE;
@@ -2960,8 +3006,12 @@ export function createTerrainSystem(texLib, scene) {
     }
 
     // 4b) Clustered Silvery-Sage Icelandic Dwarf Willow & Crowberry Thickets (natural companion shrubs beside lupins & rocks!)
-    const bushCenters = lod === 0 ? (IS_MOBILE_DEVICE ? 76 : 96) : lod === 1 ? 18 : 0;
-    const maxBushes = lod === 0 ? (IS_MOBILE_DEVICE ? 220 : 290) : 42;
+    const bushCenters = lod === 0
+      ? (detailTier === 'high' ? 96 : detailTier === 'med' ? 46 : 24)
+      : (lod === 1 ? (detailTier === 'high' ? 18 : 10) : 0);
+    const maxBushes = lod === 0
+      ? (detailTier === 'high' ? 290 : detailTier === 'med' ? 115 : 55)
+      : (detailTier === 'high' ? 42 : 24);
     for (let i = 0; i < bushCenters && bushMats.length < maxBushes; i++) {
       const cx0 = (hash2i(cx * 149 + i, cz * 83, 653) - 0.5) * CHUNK_SIZE;
       const cz0 = (hash2i(cx * 71, cz * 127 + i, 659) - 0.5) * CHUNK_SIZE;
@@ -3025,8 +3075,8 @@ export function createTerrainSystem(texLib, scene) {
 
     if (lod === 0) {
       // 4c) Dense Sparkling White Arctic Cotton Grass Carpets (Eriophorum grouped in damp marsh hollows & meadow swales!)
-      const cottonCenters = IS_MOBILE_DEVICE ? 56 : 78;
-      const maxCotton = IS_MOBILE_DEVICE ? 220 : 310;
+      const cottonCenters = detailTier === 'high' ? 78 : detailTier === 'med' ? 32 : 16;
+      const maxCotton = detailTier === 'high' ? 310 : detailTier === 'med' ? 110 : 50;
       for (let i = 0; i < cottonCenters && cottonMats.length < maxCotton; i++) {
         const cx0 = (hash2i(cx * 167 + i, cz * 97, 701) - 0.5) * CHUNK_SIZE;
         const cz0 = (hash2i(cx * 89, cz * 151 + i, 703) - 0.5) * CHUNK_SIZE;
@@ -3058,8 +3108,8 @@ export function createTerrainSystem(texLib, scene) {
       }
 
       // 4d) Clustered Sunlit Wild Meadow Grass Swards & Swales (dense close-range grass carpet + mossy pillow clearings!)
-      const grassClusters = IS_MOBILE_DEVICE ? 230 : 340;
-      const maxGrass = IS_MOBILE_DEVICE ? 840 : 1280;
+      const grassClusters = detailTier === 'high' ? 340 : detailTier === 'med' ? 120 : 60;
+      const maxGrass = detailTier === 'high' ? 1280 : detailTier === 'med' ? 380 : 160;
       for (let i = 0; i < grassClusters && grassMats.length < maxGrass; i++) {
         const cx0 = (hash2i(cx * 173 + i, cz * 103, 671) - 0.5) * CHUNK_SIZE;
         const cz0 = (hash2i(cx * 97, cz * 157 + i, 673) - 0.5) * CHUNK_SIZE;
@@ -3265,7 +3315,7 @@ export function createTerrainSystem(texLib, scene) {
     queue.sort((a, b) => a.spec.ring - b.spec.ring);
 
     const budget = syncAll ? queue.length : MAX_BUILDS_PER_FRAME;
-    const maxHeavy = syncAll ? queue.length : (IS_MOBILE_DEVICE ? 1 : 2);
+    const maxHeavy = syncAll ? queue.length : (detailTier === 'high' ? 2 : 1);
     const buildStart = syncAll ? 0 : performance.now();
     let builtCount = 0;
     let heavyCount = 0;
@@ -3316,10 +3366,29 @@ export function createTerrainSystem(texLib, scene) {
     cottonBatch.bm.visible = showClutter;
   }
 
+  function setTerrainShaderFast(fast) {
+    const next = Boolean(fast);
+    if (terrainShaderFast === next) return;
+    terrainShaderFast = next;
+    terrainMat.defines = next ? { IS_MOBILE_TERRAIN: 1 } : undefined;
+    terrainMat.needsUpdate = true;
+  }
+
+  function setDetailTier(tier, centerX, centerZ) {
+    const next = tier === 'low' || tier === 'med' ? tier : 'high';
+    if (detailTier === next) return;
+    detailTier = next;
+    if (typeof centerX === 'number' && typeof centerZ === 'number') {
+      rebuildAll(centerX, centerZ);
+    }
+  }
+
   return {
     update,
     rebuildAll,
     getCollidersNear,
-    setReflectionMode
+    setReflectionMode,
+    setTerrainShaderFast,
+    setDetailTier
   };
 }

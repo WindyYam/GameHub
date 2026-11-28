@@ -269,6 +269,20 @@ const planarLakePass = {
   }
 };
 
+function renderSceneFrame() {
+  if (!qualityState.bloom && !qualityState.msaa) {
+    // Direct-to-screen fast path: skips HalfFloatType offscreen FBO + resolvePass (huge Mali/mobile bandwidth win!)
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = mix(1.06, 1.38, ATMO_UNIFORMS.uNightFactor.value) * 0.92;
+    planarLakePass.renderToScreen = true;
+    planarLakePass.render(renderer, null, null);
+    planarLakePass.renderToScreen = false;
+    return;
+  }
+  renderer.toneMapping = THREE.NoToneMapping;
+  composer.render();
+}
+
 const composer = new EffectComposer(renderer, msaaTarget);
 composer.addPass(planarLakePass);
 
@@ -303,7 +317,7 @@ const resolvePass = new ShaderPass({
     uniform float uAspect;
     varying vec2 vUv;
 
-    vec3 RRTAndODTFit(vec3 v) {
+    vec3 lsRRTAndODTFit(vec3 v) {
       vec3 a = v * (v + 0.0245786) - 0.000090537;
       vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081;
       return a / b;
@@ -320,7 +334,7 @@ const resolvePass = new ShaderPass({
         vec3(-0.53108, 1.10813, -0.07276),
         vec3(-0.07367, -0.00605, 1.07602)
       );
-      return clamp(ACES_OUT * RRTAndODTFit(ACES_IN * (color / 0.6)), 0.0, 1.0);
+      return clamp(ACES_OUT * lsRRTAndODTFit(ACES_IN * (color / 0.6)), 0.0, 1.0);
     }
 
     float ignDither(vec2 p) {
@@ -918,6 +932,9 @@ const elBtnQBloom = document.getElementById('btn-q-bloom');
 const elBtnQMsaa = document.getElementById('btn-q-msaa');
 const elBtnQRefl = document.getElementById('btn-q-refl');
 const elBtnQShadow = document.getElementById('btn-q-shadow');
+const elBtnQTerrain = document.getElementById('btn-q-terrain');
+const elBtnQClouds = document.getElementById('btn-q-clouds');
+const elBtnQDetail = document.getElementById('btn-q-detail');
 const elBtnQBench = document.getElementById('btn-q-bench');
 const elBtnQBenchCopy = document.getElementById('btn-q-bench-copy');
 const elBenchOutput = document.getElementById('bench-output');
@@ -1040,16 +1057,32 @@ const qualityState = {
   bloom: !IS_MOBILE_PRIMARY,
   msaa: !IS_MOBILE_PRIMARY,
   reflections: true,
-  shadow: IS_MOBILE_PRIMARY ? 'med' : 'high' // 'high' (1024) | 'med' (512) | 'off'
+  shadow: IS_MOBILE_PRIMARY ? 'med' : 'high', // 'high' (1024) | 'med' (512) | 'off'
+  terrainFast: IS_MOBILE_PRIMARY,
+  cloudSteps: IS_MOBILE_PRIMARY ? 2 : 4,
+  detailTier: IS_MOBILE_PRIMARY ? 'med' : 'high' // 'high' | 'med' | 'low'
 };
 
-function applyQualitySettings() {
+function applyQualitySettings(rebuildDetail = true) {
   bloomPass.enabled = qualityState.bloom;
 
   const targetSamples = qualityState.msaa ? 2 : 0;
   if (msaaTarget.samples !== targetSamples) {
     msaaTarget.samples = targetSamples;
     msaaTarget.dispose();
+  }
+
+  ATMO_UNIFORMS.uCloudSteps.value = qualityState.cloudSteps;
+  if (terrainSys) {
+    terrainSys.setTerrainShaderFast(qualityState.terrainFast);
+    terrainSys.setDetailTier(
+      qualityState.detailTier,
+      rebuildDetail ? porter.state.pos.x : undefined,
+      rebuildDetail ? porter.state.pos.z : undefined
+    );
+  }
+  if (waterSys) {
+    waterSys.setReflMaxDist(qualityState.preset === 'high' ? 1200.0 : 420.0);
   }
 
   if (envCtrl.sunLight) {
@@ -1081,20 +1114,29 @@ function applyQualityPreset(name) {
     qualityState.msaa = !IS_MOBILE_PRIMARY;
     qualityState.reflections = true;
     qualityState.shadow = 'high';
+    qualityState.terrainFast = false;
+    qualityState.cloudSteps = 4;
+    qualityState.detailTier = 'high';
   } else if (name === 'balanced') {
     resPresetIdx = 0; // Auto (540p cap on mobile)
-    qualityState.bloom = !IS_MOBILE_PRIMARY;
+    qualityState.bloom = false;
     qualityState.msaa = false;
     qualityState.reflections = true;
     qualityState.shadow = 'med';
+    qualityState.terrainFast = true;
+    qualityState.cloudSteps = 2;
+    qualityState.detailTier = 'med';
   } else if (name === 'performance') {
     resPresetIdx = IS_MOBILE_PRIMARY ? 2 : 3; // 360p mobile / 480p desktop
     qualityState.bloom = false;
     qualityState.msaa = false;
     qualityState.reflections = false;
     qualityState.shadow = 'off';
+    qualityState.terrainFast = true;
+    qualityState.cloudSteps = 2;
+    qualityState.detailTier = 'low';
   }
-  applyQualitySettings();
+  applyQualitySettings(true);
 }
 
 function refreshQualityControls() {
@@ -1124,6 +1166,19 @@ function refreshQualityControls() {
     const shMap = { high: 'High', med: 'Med', off: 'Off' };
     elBtnQShadow.textContent = `Shadow: ${shMap[qualityState.shadow] || 'High'}`;
     elBtnQShadow.classList.toggle('active', qualityState.shadow !== 'off');
+  }
+  if (elBtnQTerrain) {
+    elBtnQTerrain.textContent = `Terrain: ${qualityState.terrainFast ? 'Fast' : 'High'}`;
+    elBtnQTerrain.classList.toggle('active', !qualityState.terrainFast);
+  }
+  if (elBtnQClouds) {
+    elBtnQClouds.textContent = `Clouds: ${qualityState.cloudSteps}-Step`;
+    elBtnQClouds.classList.toggle('active', qualityState.cloudSteps === 4);
+  }
+  if (elBtnQDetail) {
+    const dMap = { high: 'High', med: 'Med', low: 'Low' };
+    elBtnQDetail.textContent = `Detail: ${dMap[qualityState.detailTier] || 'High'}`;
+    elBtnQDetail.classList.toggle('active', qualityState.detailTier !== 'low');
   }
 }
 
@@ -1232,9 +1287,32 @@ if (elBtnQShadow) {
     const order = ['high', 'med', 'off'];
     qualityState.shadow = order[(order.indexOf(qualityState.shadow) + 1) % order.length];
     qualityState.preset = 'custom';
-    applyQualitySettings();
+    applyQualitySettings(false);
   });
 }
+if (elBtnQTerrain) {
+  elBtnQTerrain.addEventListener('click', () => {
+    qualityState.terrainFast = !qualityState.terrainFast;
+    qualityState.preset = 'custom';
+    applyQualitySettings(false);
+  });
+}
+if (elBtnQClouds) {
+  elBtnQClouds.addEventListener('click', () => {
+    qualityState.cloudSteps = qualityState.cloudSteps === 4 ? 2 : 4;
+    qualityState.preset = 'custom';
+    applyQualitySettings(false);
+  });
+}
+if (elBtnQDetail) {
+  elBtnQDetail.addEventListener('click', () => {
+    const order = ['high', 'med', 'low'];
+    qualityState.detailTier = order[(order.indexOf(qualityState.detailTier) + 1) % order.length];
+    qualityState.preset = 'custom';
+    applyQualitySettings(true);
+  });
+}
+applyQualitySettings(false);
 
 const benchState = {
   active: false,
@@ -1705,7 +1783,7 @@ function animate() {
 
   // Capture main scene render stats inside lakeScenePass
   const t4 = bOn ? performance.now() : 0;
-  composer.render();
+  renderSceneFrame();
   if (bOn) {
     const t5 = performance.now();
     benchState.frameDts.push(rawDtMs);

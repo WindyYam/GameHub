@@ -102,6 +102,7 @@ export const ATMO_UNIFORMS = {
   uFogHeightFalloff: { value: 0.022 },
   uCloudCoverage: { value: 0.86 },
   uCloudDarkness: { value: 0.88 },
+  uCloudSteps: { value: 4.0 },
   uRainWetness: { value: 0.42 },
   uNightFactor: { value: 0.0 },
   uAuroraStrength: { value: 0.0 },
@@ -441,7 +442,7 @@ export function enhanceMaterialWithAtmo(mat, { cacheKey, windSway = 0.0, wetness
  * Twinkling Starfield, Lunar Halo, and 3D Ray-Marched Aurora Borealis.
  */
 export function createSkyDome() {
-  const skyGeo = new THREE.SphereGeometry(12000, 64, 40);
+  const skyGeo = new THREE.SphereGeometry(12000, 48, 32);
   const skyMat = new THREE.ShaderMaterial({
     side: THREE.BackSide,
     depthWrite: false,
@@ -460,6 +461,7 @@ export function createSkyDome() {
     fragmentShader: /* glsl */`
       ${ATMO_GLSL_PARS}
       uniform float uSiderealAngle;
+      uniform float uCloudSteps;
       varying vec3 vDir;
 
       vec2 hash22(vec2 p) {
@@ -1048,8 +1050,10 @@ export function createSkyDome() {
             (cloudFbm(baseUv * 0.68 + vec2(4.7, 3.2) + drift * 0.7) - 0.5) * 1.55
           );
 
+          int cloudSteps = uCloudSteps < 2.5 ? 2 : 4;
           for (int i = 0; i < 4; i++) {
-            float fi = float(i) / 3.0;
+            if (i >= cloudSteps) break;
+            float fi = cloudSteps == 2 ? float(i) : float(i) / 3.0;
             float hSlab = mix(0.68, 1.55, fi);
             vec2 pUv = baseUv * hSlab + drift * mix(1.4, 0.6, fi);
             vec2 w = sharedWarp * mix(1.0, 0.72, fi);

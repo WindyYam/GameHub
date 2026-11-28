@@ -11,12 +11,8 @@ import { ATMO_UNIFORMS, ATMO_GLSL_PARS } from './atmosphere.js';
 import { getTerrainHeight } from './world.js';
 
 export function createWeatherFX(scene) {
-  const IS_MOBILE_WEATHER = typeof window !== 'undefined' && (
-    /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '') ||
-    (window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches)
-  );
   // 1. Ultra-Thin, Dense, Soft-Blurred Slanted Rain & Heavy Storm Curtains (GPU-instanced, 1 draw call!)
-  const RAIN_COUNT = IS_MOBILE_WEATHER ? 6500 : 11000;
+  const RAIN_COUNT = 10000;
   const BOX_W = 46;
   const BOX_H = 26;
 
@@ -157,8 +153,8 @@ export function createWeatherFX(scene) {
   // 2. Wave-After-Wave Flowing Volumetric Storm Cloud / Water-Stream Billboards!
   // 16 independent rolling gust waves x 10 overlapping ultra-soft cloud billboards per wave (160 puffs, 1 draw call!)
   // Bottom-anchored cleanly above 5-point local terrain footprint -> lush billowing clouds with ZERO low-poly shapes & ZERO hard cuts!
-  const WAVE_COUNT = IS_MOBILE_WEATHER ? 16 : 22;
-  const PUFFS_PER_WAVE = IS_MOBILE_WEATHER ? 8 : 9;
+  const WAVE_COUNT = 20;
+  const PUFFS_PER_WAVE = 8;
   const TOTAL_WAVE_PUFFS = WAVE_COUNT * PUFFS_PER_WAVE;
 
   const waveGeo = new THREE.PlaneGeometry(1, 1);

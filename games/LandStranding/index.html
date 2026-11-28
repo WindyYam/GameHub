@@ -764,12 +764,15 @@ body.touch-active .hud-bottom-left {
           </div>
         </div>
         <div class="row">
-          <label>Effects</label>
+          <label>Effects & Detail</label>
           <div class="btn-group">
             <button id="btn-q-bloom" type="button">Bloom: On</button>
             <button id="btn-q-msaa" type="button">MSAA: 2x</button>
             <button id="btn-q-refl" type="button">Refl: On</button>
             <button id="btn-q-shadow" type="button">Shadow: High</button>
+            <button id="btn-q-terrain" type="button">Terrain: High</button>
+            <button id="btn-q-clouds" type="button">Clouds: 4-Step</button>
+            <button id="btn-q-detail" type="button">Detail: High</button>
           </div>
         </div>
         <div class="row">
@@ -4007,6 +4010,7 @@ const ATMO_UNIFORMS = {
   uFogHeightFalloff: { value: 0.022 },
   uCloudCoverage: { value: 0.86 },
   uCloudDarkness: { value: 0.88 },
+  uCloudSteps: { value: 4.0 },
   uRainWetness: { value: 0.42 },
   uNightFactor: { value: 0.0 },
   uAuroraStrength: { value: 0.0 },
@@ -4346,7 +4350,7 @@ function enhanceMaterialWithAtmo(mat, { cacheKey, windSway = 0.0, wetnessBoost =
  * Twinkling Starfield, Lunar Halo, and 3D Ray-Marched Aurora Borealis.
  */
 function createSkyDome() {
-  const skyGeo = new THREE.SphereGeometry(12000, 64, 40);
+  const skyGeo = new THREE.SphereGeometry(12000, 48, 32);
   const skyMat = new THREE.ShaderMaterial({
     side: THREE.BackSide,
     depthWrite: false,
@@ -4365,6 +4369,7 @@ function createSkyDome() {
     fragmentShader: /* glsl */`
       ${ATMO_GLSL_PARS}
       uniform float uSiderealAngle;
+      uniform float uCloudSteps;
       varying vec3 vDir;
 
       vec2 hash22(vec2 p) {
@@ -4953,8 +4958,10 @@ function createSkyDome() {
             (cloudFbm(baseUv * 0.68 + vec2(4.7, 3.2) + drift * 0.7) - 0.5) * 1.55
           );
 
+          int cloudSteps = uCloudSteps < 2.5 ? 2 : 4;
           for (int i = 0; i < 4; i++) {
-            float fi = float(i) / 3.0;
+            if (i >= cloudSteps) break;
+            float fi = cloudSteps == 2 ? float(i) : float(i) / 3.0;
             float hSlab = mix(0.68, 1.55, fi);
             vec2 pUv = baseUv * hSlab + drift * mix(1.4, 0.6, fi);
             vec2 w = sharedWarp * mix(1.0, 0.72, fi);
@@ -5596,12 +5603,8 @@ const {getTerrainHeight} = __mod_world;
 
 
 function createWeatherFX(scene) {
-  const IS_MOBILE_WEATHER = typeof window !== 'undefined' && (
-    /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '') ||
-    (window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches)
-  );
   // 1. Ultra-Thin, Dense, Soft-Blurred Slanted Rain & Heavy Storm Curtains (GPU-instanced, 1 draw call!)
-  const RAIN_COUNT = IS_MOBILE_WEATHER ? 6500 : 11000;
+  const RAIN_COUNT = 10000;
   const BOX_W = 46;
   const BOX_H = 26;
 
@@ -5742,8 +5745,8 @@ function createWeatherFX(scene) {
   // 2. Wave-After-Wave Flowing Volumetric Storm Cloud / Water-Stream Billboards!
   // 16 independent rolling gust waves x 10 overlapping ultra-soft cloud billboards per wave (160 puffs, 1 draw call!)
   // Bottom-anchored cleanly above 5-point local terrain footprint -> lush billowing clouds with ZERO low-poly shapes & ZERO hard cuts!
-  const WAVE_COUNT = IS_MOBILE_WEATHER ? 16 : 22;
-  const PUFFS_PER_WAVE = IS_MOBILE_WEATHER ? 8 : 9;
+  const WAVE_COUNT = 20;
+  const PUFFS_PER_WAVE = 8;
   const TOTAL_WAVE_PUFFS = WAVE_COUNT * PUFFS_PER_WAVE;
 
   const waveGeo = new THREE.PlaneGeometry(1, 1);
@@ -6117,13 +6120,9 @@ const {ATMO_UNIFORMS, ATMO_GLSL_PARS, enhanceMaterialWithAtmo} = __mod_atmospher
 
 const CHUNK_SIZE = 160;
 const SKIRT_DROP = 18.0;
-const IS_MOBILE_DEVICE = typeof window !== 'undefined' && (
-  /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '') ||
-  (window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches)
-);
 const GRID_RADIUS = 9; // 19x19 live chunks (1520m radius, overlaps farMesh innerR=1400 with zero gap)
-const LOD_SEGS = IS_MOBILE_DEVICE ? [44, 28, 18, 12] : [48, 32, 20, 14];
-const MAX_BUILDS_PER_FRAME = IS_MOBILE_DEVICE ? 4 : 6;
+const LOD_SEGS = [48, 32, 20, 14];
+const MAX_BUILDS_PER_FRAME = 6;
 
 function getLodForRing(ringDist) {
   if (ringDist <= 1) return 0; // 0..240m
@@ -6950,6 +6949,9 @@ function createTerrainSystem(texLib, scene) {
   const root = new THREE.Group();
   scene.add(root);
 
+  let terrainShaderFast = false;
+  let detailTier = 'high'; // 'high' | 'med' | 'low'
+
   // High-Performance Branched AAA Terrain PBR Shader (skips cliff/scree/path texture fetches where unused!)
   const terrainMat = new THREE.MeshStandardMaterial({
     color: 0xffffff,
@@ -6957,7 +6959,7 @@ function createTerrainSystem(texLib, scene) {
     metalness: 0.02
   });
   terrainMat.fog = false;
-  terrainMat.customProgramCacheKey = () => 'ls_iceland_terrain_v14';
+  terrainMat.customProgramCacheKey = () => (terrainShaderFast ? 'ls_iceland_terrain_v15_fast' : 'ls_iceland_terrain_v15_high');
 
   terrainMat.onBeforeCompile = (shader) => {
     Object.assign(shader.uniforms, ATMO_UNIFORMS);
@@ -7367,6 +7369,15 @@ function createTerrainSystem(texLib, scene) {
           vec2 wpBio = wp.xz + bioWarp;
 
           // Smooth C2 multi-octave gradient FBM for seamless non-repetitive macro/meso variation & subtle distant hill relief
+          #ifdef IS_MOBILE_TERRAIN
+          float macroN = clamp((terrainFbm2(wpBio * 0.014) - 0.5) * 2.1 + 0.5, 0.0, 1.0);
+          float midN   = clamp((terrainFbm2(wpBio * 0.056 + vec2(4.1, -6.7)) - 0.5) * 2.1 + 0.5, 0.0, 1.0);
+          vec3 hillGrad = vec3(macroN, 0.0, 0.0);
+          vec3 mesoGrad = vec3(midN, 0.0, 0.0);
+          float patchN = clamp((terrainFbm2(wpBio * 0.024 - vec2(7.4, 2.8)) - 0.5) * 2.2 + 0.5, 0.0, 1.0);
+          float biomeN = clamp((atmoGNoise(wpBio * 0.0052 + vec2(11.3, -8.4)) - 0.5) * 2.3 + 0.5, 0.0, 1.0);
+          float microDetail = 0.5;
+          #else
           vec3 hillGrad = fbmGrad3(wpBio * 0.014);
           vec3 mesoGrad = fbmGrad3(wpBio * 0.056 + vec2(4.1, -6.7));
           float macroN = clamp((hillGrad.x - 0.5) * 2.1 + 0.5, 0.0, 1.0);
@@ -7374,6 +7385,7 @@ function createTerrainSystem(texLib, scene) {
           float patchN = clamp(((camDist < 320.0 ? terrainFbm3(wpBio * 0.024 - vec2(7.4, 2.8)) : terrainFbm2(wpBio * 0.024 - vec2(7.4, 2.8))) - 0.5) * 2.2 + 0.5, 0.0, 1.0);
           float biomeN = clamp(((camDist < 320.0 ? terrainFbm3(wpBio * 0.0052 + vec2(11.3, -8.4)) : terrainFbm2(wpBio * 0.0052 + vec2(11.3, -8.4))) - 0.5) * 2.3 + 0.5, 0.0, 1.0);
           float microDetail = closeFade > 0.01 ? (atmoGNoise(wp.xz * 6.5) * 0.58 + atmoGNoise(wp.xz * 15.0 + vec2(3.7, -1.9)) * 0.42) : 0.5;
+          #endif
 
           // Preserve exact original lush moss-to-cliff balance on hills & escarpments
           float rockRib = smoothstep(0.50, 0.78, patchN) * smoothstep(0.16, 0.36, slope);
@@ -7389,7 +7401,14 @@ function createTerrainSystem(texLib, scene) {
           if (uInReflection > 0.5) {
             mossSample = texture2D(uMossMap, wp.xz * 0.078);
             mossN = vec3(0.0, 0.0, 1.0);
-          } else if (camDist > 360.0) {
+          } else {
+            #ifdef IS_MOBILE_TERRAIN
+            float mScale = camDist < 85.0 ? 0.34 : (camDist < 240.0 ? 0.078 : 0.019);
+            vec2 mUv = wp.xz * mScale + bioWarp * (0.015 * mScale);
+            mossSample = textureGrad(uMossMap, mUv, wpXZ_dx * mScale, wpXZ_dy * mScale);
+            mossN = normalize(vec3((textureGrad(uMossNorm, mUv, wpXZ_dx * mScale, wpXZ_dy * mScale).xy * 2.0 - 1.0), 1.0));
+            #else
+            if (camDist > 360.0) {
             vec2 mUv = wp.xz * 0.019 + vec2(0.73, 0.29);
             mossSample = textureGrad(uMossMap, mUv, wpXZ_dx * 0.019, wpXZ_dy * 0.019);
             mossN = normalize(vec3((textureGrad(uMossNorm, mUv, wpXZ_dx * 0.019, wpXZ_dy * 0.019).xy * 2.0 - 1.0), 1.0));
@@ -7429,6 +7448,8 @@ function createTerrainSystem(texLib, scene) {
               mossSample = mix(s2, s3, w3);
               mossN = normalize(mix(n2, n3, w3));
             }
+          }
+          #endif
           }
           float mossH = mossSample.a;
 
@@ -7471,7 +7492,14 @@ function createTerrainSystem(texLib, scene) {
             if (uInReflection > 0.5) {
               screeSample = texture2D(uScreeMap, wp.xz * 0.115);
               screeN = vec3(0.0, 0.0, 1.0);
-            } else if (camDist > 340.0) {
+            } else {
+              #ifdef IS_MOBILE_TERRAIN
+              float sScale = camDist < 120.0 ? 0.34 : 0.075;
+              vec2 sUv = wp.xz * sScale + bioWarp * (0.015 * sScale);
+              screeSample = textureGrad(uScreeMap, sUv, wpXZ_dx * sScale, wpXZ_dy * sScale);
+              screeN = normalize(vec3((textureGrad(uScreeNorm, sUv, wpXZ_dx * sScale, wpXZ_dy * sScale).xy * 2.0 - 1.0), 1.0));
+              #else
+              if (camDist > 340.0) {
               vec2 sUv = wp.xz * 0.028 + vec2(0.63, 0.19);
               screeSample = textureGrad(uScreeMap, sUv, wpXZ_dx * 0.028, wpXZ_dy * 0.028);
               screeN = normalize(vec3((textureGrad(uScreeNorm, sUv, wpXZ_dx * 0.028, wpXZ_dy * 0.028).xy * 2.0 - 1.0), 1.0));
@@ -7498,6 +7526,8 @@ function createTerrainSystem(texLib, scene) {
                 screeSample = mix(sc1, sc2, sw2);
                 screeN = normalize(mix(sn1, sn2, sw2));
               }
+            }
+            #endif
             }
             if (screeRaw > 0.01) {
               vec3 gravelTone = mix(vec3(0.68, 0.72, 0.76), vec3(1.06, 1.09, 1.12), smoothstep(0.26, 0.78, screeSample.a));
@@ -7532,7 +7562,18 @@ function createTerrainSystem(texLib, scene) {
             if (uInReflection > 0.5) {
               cliffMix = texture2D(uCliffMap, wpRock.xz * 0.028);
               cliffTexNorm = vec3(0.0, 0.0, 1.0);
-            } else if (camDist > 360.0) {
+            } else {
+              #ifdef IS_MOBILE_TERRAIN
+              float cScale = camDist < 160.0 ? 0.065 : 0.020;
+              vec2 cUv = (abs(wn.x) > abs(wn.z) ? wpRock.zy : wpRock.xy) * cScale;
+              vec2 cDx = (abs(wn.x) > abs(wn.z) ? wpDx.zy : wpDx.xy) * cScale;
+              vec2 cDy = (abs(wn.x) > abs(wn.z) ? wpDy.zy : wpDy.xy) * cScale;
+              if (abs(wn.y) > 0.65) { cUv = wpRock.xz * cScale; cDx = wpXZ_dx * cScale; cDy = wpXZ_dy * cScale; }
+              cliffMix = textureGrad(uCliffMap, cUv, cDx, cDy);
+              vec2 cn = textureGrad(uCliffNorm, cUv, cDx, cDy).xy * 2.0 - 1.0;
+              cliffTexNorm = vec3(cn.x, 0.0, cn.y);
+              #else
+              if (camDist > 360.0) {
               triplanarCliffPair(uCliffMap, uCliffNorm, wpRock + vec3(-31.7, 9.3, 23.1), wpDx, wpDy, wn, 0.014, cliffMix, cliffTexNorm);
             } else if (cliffLod < 1.0) {
               vec4 cNear, cMid; vec3 nNear, nMid;
@@ -7552,6 +7593,8 @@ function createTerrainSystem(texLib, scene) {
                 cliffMix = mix(cMid, cFar, wFar);
                 cliffTexNorm = nMid * (1.0 - wFar * 0.52) + nFar * (0.44 + wFar * 0.60);
               }
+            }
+            #endif
             }
             float cliffH = cliffMix.a;
 
@@ -8585,7 +8628,7 @@ function createTerrainSystem(texLib, scene) {
     const hydro = geo.attributes.aHydro;
     const cave = geo.attributes.aCave;
     const stride = FAR_RAD_SEGS + 1;
-    const rowsBudget = syncAll ? (FAR_RING_SEGS + 1) : (IS_MOBILE_DEVICE ? 4 : 10);
+    const rowsBudget = syncAll ? (FAR_RING_SEGS + 1) : (detailTier === 'high' ? 10 : 5);
     const endR = Math.min(FAR_RING_SEGS, farJob.r + rowsBudget - 1);
 
     for (let r = farJob.r; r <= endR; r++) {
@@ -8629,7 +8672,9 @@ function createTerrainSystem(texLib, scene) {
   /** Build per-chunk boulders, cobbles, small volcanic stone clusters & lush Icelandic flora (now extending hero rock outcrops out to LOD2 / 720m!). */
   function populateChunkDetails(cx, cz, lod) {
     const colliders = [];
-    if (lod > 2) return { colliders, batchedRefs: [] };
+    if (lod > 2 || (detailTier === 'med' && lod > 1) || (detailTier === 'low' && lod > 0)) {
+      return { colliders, batchedRefs: [] };
+    }
 
     const ox = cx * CHUNK_SIZE;
     const oz = cz * CHUNK_SIZE;
@@ -8842,7 +8887,7 @@ function createTerrainSystem(texLib, scene) {
 
       // Surround every Eldhraun lava outcrop with smooth, slope-hugging mossy pillow mounds!
       if (!inRiver && lod <= 1) {
-        const maxCushions = lod === 0 ? (IS_MOBILE_DEVICE ? 210 : 280) : 48;
+        const maxCushions = lod === 0 ? (detailTier === 'high' ? 280 : detailTier === 'med' ? 180 : 90) : 48;
         const cushCount = lod === 0 ? (4 + Math.floor(hash2i(i, cx * 31 + cz, 541) * 5)) : 2;
         for (let k = 0; k < cushCount && cushionMats.length < maxCushions; k++) {
           const cAng = hash2i(i * 19 + k, cz * 13 + cx, 543) * Math.PI * 2;
@@ -8975,8 +9020,12 @@ function createTerrainSystem(texLib, scene) {
     const halfChunk = CHUNK_SIZE * 0.49;
 
     // 4a) Lush Sweeping Icelandic Nootka Lupin Flower Colonies (dense drifts of 6..12 rich violet-blue spires!)
-    const lupinCenters = lod === 0 ? (IS_MOBILE_DEVICE ? 82 : 108) : lod === 1 ? 20 : 0;
-    const maxLupins = lod === 0 ? (IS_MOBILE_DEVICE ? 330 : 450) : 60;
+    const lupinCenters = lod === 0
+      ? (detailTier === 'high' ? 108 : detailTier === 'med' ? 52 : 26)
+      : (lod === 1 ? (detailTier === 'high' ? 20 : 12) : 0);
+    const maxLupins = lod === 0
+      ? (detailTier === 'high' ? 450 : detailTier === 'med' ? 170 : 75)
+      : (detailTier === 'high' ? 60 : 30);
     for (let i = 0; i < lupinCenters && lupinMats.length < maxLupins; i++) {
       const cx0 = (hash2i(cx * 131 + i, cz * 79, 613) - 0.5) * CHUNK_SIZE;
       const cz0 = (hash2i(cx * 61, cz * 113 + i, 619) - 0.5) * CHUNK_SIZE;
@@ -9053,8 +9102,12 @@ function createTerrainSystem(texLib, scene) {
     }
 
     // 4b) Clustered Silvery-Sage Icelandic Dwarf Willow & Crowberry Thickets (natural companion shrubs beside lupins & rocks!)
-    const bushCenters = lod === 0 ? (IS_MOBILE_DEVICE ? 76 : 96) : lod === 1 ? 18 : 0;
-    const maxBushes = lod === 0 ? (IS_MOBILE_DEVICE ? 220 : 290) : 42;
+    const bushCenters = lod === 0
+      ? (detailTier === 'high' ? 96 : detailTier === 'med' ? 46 : 24)
+      : (lod === 1 ? (detailTier === 'high' ? 18 : 10) : 0);
+    const maxBushes = lod === 0
+      ? (detailTier === 'high' ? 290 : detailTier === 'med' ? 115 : 55)
+      : (detailTier === 'high' ? 42 : 24);
     for (let i = 0; i < bushCenters && bushMats.length < maxBushes; i++) {
       const cx0 = (hash2i(cx * 149 + i, cz * 83, 653) - 0.5) * CHUNK_SIZE;
       const cz0 = (hash2i(cx * 71, cz * 127 + i, 659) - 0.5) * CHUNK_SIZE;
@@ -9118,8 +9171,8 @@ function createTerrainSystem(texLib, scene) {
 
     if (lod === 0) {
       // 4c) Dense Sparkling White Arctic Cotton Grass Carpets (Eriophorum grouped in damp marsh hollows & meadow swales!)
-      const cottonCenters = IS_MOBILE_DEVICE ? 56 : 78;
-      const maxCotton = IS_MOBILE_DEVICE ? 220 : 310;
+      const cottonCenters = detailTier === 'high' ? 78 : detailTier === 'med' ? 32 : 16;
+      const maxCotton = detailTier === 'high' ? 310 : detailTier === 'med' ? 110 : 50;
       for (let i = 0; i < cottonCenters && cottonMats.length < maxCotton; i++) {
         const cx0 = (hash2i(cx * 167 + i, cz * 97, 701) - 0.5) * CHUNK_SIZE;
         const cz0 = (hash2i(cx * 89, cz * 151 + i, 703) - 0.5) * CHUNK_SIZE;
@@ -9151,8 +9204,8 @@ function createTerrainSystem(texLib, scene) {
       }
 
       // 4d) Clustered Sunlit Wild Meadow Grass Swards & Swales (dense close-range grass carpet + mossy pillow clearings!)
-      const grassClusters = IS_MOBILE_DEVICE ? 230 : 340;
-      const maxGrass = IS_MOBILE_DEVICE ? 840 : 1280;
+      const grassClusters = detailTier === 'high' ? 340 : detailTier === 'med' ? 120 : 60;
+      const maxGrass = detailTier === 'high' ? 1280 : detailTier === 'med' ? 380 : 160;
       for (let i = 0; i < grassClusters && grassMats.length < maxGrass; i++) {
         const cx0 = (hash2i(cx * 173 + i, cz * 103, 671) - 0.5) * CHUNK_SIZE;
         const cz0 = (hash2i(cx * 97, cz * 157 + i, 673) - 0.5) * CHUNK_SIZE;
@@ -9358,7 +9411,7 @@ function createTerrainSystem(texLib, scene) {
     queue.sort((a, b) => a.spec.ring - b.spec.ring);
 
     const budget = syncAll ? queue.length : MAX_BUILDS_PER_FRAME;
-    const maxHeavy = syncAll ? queue.length : (IS_MOBILE_DEVICE ? 1 : 2);
+    const maxHeavy = syncAll ? queue.length : (detailTier === 'high' ? 2 : 1);
     const buildStart = syncAll ? 0 : performance.now();
     let builtCount = 0;
     let heavyCount = 0;
@@ -9409,11 +9462,30 @@ function createTerrainSystem(texLib, scene) {
     cottonBatch.bm.visible = showClutter;
   }
 
+  function setTerrainShaderFast(fast) {
+    const next = Boolean(fast);
+    if (terrainShaderFast === next) return;
+    terrainShaderFast = next;
+    terrainMat.defines = next ? { IS_MOBILE_TERRAIN: 1 } : undefined;
+    terrainMat.needsUpdate = true;
+  }
+
+  function setDetailTier(tier, centerX, centerZ) {
+    const next = tier === 'low' || tier === 'med' ? tier : 'high';
+    if (detailTier === next) return;
+    detailTier = next;
+    if (typeof centerX === 'number' && typeof centerZ === 'number') {
+      rebuildAll(centerX, centerZ);
+    }
+  }
+
   return {
     update,
     rebuildAll,
     getCollidersNear,
-    setReflectionMode
+    setReflectionMode,
+    setTerrainShaderFast,
+    setDetailTier
   };
 }
 
@@ -10050,6 +10122,7 @@ function buildLakeGeometry(lake) {
 }
 
 function createWaterSystem(texLib, scene) {
+  let reflMaxDist = 1200.0;
   const root = new THREE.Group();
   scene.add(root);
 
@@ -11272,7 +11345,11 @@ function createWaterSystem(texLib, scene) {
       }
     }
     updateLocalShoreDepthMap(bestLake, cx, cz);
-    return bestLake && bestDist <= 2200.0 ? bestLake : null;
+    return bestLake && bestDist <= reflMaxDist ? bestLake : null;
+  }
+
+  function setReflMaxDist(dist) {
+    reflMaxDist = dist;
   }
 
   function updateLakeUniforms(reflTex, reflMatrix, planeY, hasRefl) {
@@ -11538,6 +11615,7 @@ function createWaterSystem(texLib, scene) {
     rebuildAll,
     setLakesVisible,
     getBestVisibleLake,
+    setReflMaxDist,
     updateLakeUniforms,
     getActiveLakeCount: () => activeLakes.size,
     getWaterfallPositions: () => waterfallPositions
@@ -18919,6 +18997,20 @@ const planarLakePass = {
   }
 };
 
+function renderSceneFrame() {
+  if (!qualityState.bloom && !qualityState.msaa) {
+    // Direct-to-screen fast path: skips HalfFloatType offscreen FBO + resolvePass (huge Mali/mobile bandwidth win!)
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = mix(1.06, 1.38, ATMO_UNIFORMS.uNightFactor.value) * 0.92;
+    planarLakePass.renderToScreen = true;
+    planarLakePass.render(renderer, null, null);
+    planarLakePass.renderToScreen = false;
+    return;
+  }
+  renderer.toneMapping = THREE.NoToneMapping;
+  composer.render();
+}
+
 const composer = new EffectComposer(renderer, msaaTarget);
 composer.addPass(planarLakePass);
 
@@ -18953,7 +19045,7 @@ const resolvePass = new ShaderPass({
     uniform float uAspect;
     varying vec2 vUv;
 
-    vec3 RRTAndODTFit(vec3 v) {
+    vec3 lsRRTAndODTFit(vec3 v) {
       vec3 a = v * (v + 0.0245786) - 0.000090537;
       vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081;
       return a / b;
@@ -18970,7 +19062,7 @@ const resolvePass = new ShaderPass({
         vec3(-0.53108, 1.10813, -0.07276),
         vec3(-0.07367, -0.00605, 1.07602)
       );
-      return clamp(ACES_OUT * RRTAndODTFit(ACES_IN * (color / 0.6)), 0.0, 1.0);
+      return clamp(ACES_OUT * lsRRTAndODTFit(ACES_IN * (color / 0.6)), 0.0, 1.0);
     }
 
     float ignDither(vec2 p) {
@@ -19568,6 +19660,9 @@ const elBtnQBloom = document.getElementById('btn-q-bloom');
 const elBtnQMsaa = document.getElementById('btn-q-msaa');
 const elBtnQRefl = document.getElementById('btn-q-refl');
 const elBtnQShadow = document.getElementById('btn-q-shadow');
+const elBtnQTerrain = document.getElementById('btn-q-terrain');
+const elBtnQClouds = document.getElementById('btn-q-clouds');
+const elBtnQDetail = document.getElementById('btn-q-detail');
 const elBtnQBench = document.getElementById('btn-q-bench');
 const elBtnQBenchCopy = document.getElementById('btn-q-bench-copy');
 const elBenchOutput = document.getElementById('bench-output');
@@ -19690,16 +19785,32 @@ const qualityState = {
   bloom: !IS_MOBILE_PRIMARY,
   msaa: !IS_MOBILE_PRIMARY,
   reflections: true,
-  shadow: IS_MOBILE_PRIMARY ? 'med' : 'high' // 'high' (1024) | 'med' (512) | 'off'
+  shadow: IS_MOBILE_PRIMARY ? 'med' : 'high', // 'high' (1024) | 'med' (512) | 'off'
+  terrainFast: IS_MOBILE_PRIMARY,
+  cloudSteps: IS_MOBILE_PRIMARY ? 2 : 4,
+  detailTier: IS_MOBILE_PRIMARY ? 'med' : 'high' // 'high' | 'med' | 'low'
 };
 
-function applyQualitySettings() {
+function applyQualitySettings(rebuildDetail = true) {
   bloomPass.enabled = qualityState.bloom;
 
   const targetSamples = qualityState.msaa ? 2 : 0;
   if (msaaTarget.samples !== targetSamples) {
     msaaTarget.samples = targetSamples;
     msaaTarget.dispose();
+  }
+
+  ATMO_UNIFORMS.uCloudSteps.value = qualityState.cloudSteps;
+  if (terrainSys) {
+    terrainSys.setTerrainShaderFast(qualityState.terrainFast);
+    terrainSys.setDetailTier(
+      qualityState.detailTier,
+      rebuildDetail ? porter.state.pos.x : undefined,
+      rebuildDetail ? porter.state.pos.z : undefined
+    );
+  }
+  if (waterSys) {
+    waterSys.setReflMaxDist(qualityState.preset === 'high' ? 1200.0 : 420.0);
   }
 
   if (envCtrl.sunLight) {
@@ -19731,20 +19842,29 @@ function applyQualityPreset(name) {
     qualityState.msaa = !IS_MOBILE_PRIMARY;
     qualityState.reflections = true;
     qualityState.shadow = 'high';
+    qualityState.terrainFast = false;
+    qualityState.cloudSteps = 4;
+    qualityState.detailTier = 'high';
   } else if (name === 'balanced') {
     resPresetIdx = 0; // Auto (540p cap on mobile)
-    qualityState.bloom = !IS_MOBILE_PRIMARY;
+    qualityState.bloom = false;
     qualityState.msaa = false;
     qualityState.reflections = true;
     qualityState.shadow = 'med';
+    qualityState.terrainFast = true;
+    qualityState.cloudSteps = 2;
+    qualityState.detailTier = 'med';
   } else if (name === 'performance') {
     resPresetIdx = IS_MOBILE_PRIMARY ? 2 : 3; // 360p mobile / 480p desktop
     qualityState.bloom = false;
     qualityState.msaa = false;
     qualityState.reflections = false;
     qualityState.shadow = 'off';
+    qualityState.terrainFast = true;
+    qualityState.cloudSteps = 2;
+    qualityState.detailTier = 'low';
   }
-  applyQualitySettings();
+  applyQualitySettings(true);
 }
 
 function refreshQualityControls() {
@@ -19774,6 +19894,19 @@ function refreshQualityControls() {
     const shMap = { high: 'High', med: 'Med', off: 'Off' };
     elBtnQShadow.textContent = `Shadow: ${shMap[qualityState.shadow] || 'High'}`;
     elBtnQShadow.classList.toggle('active', qualityState.shadow !== 'off');
+  }
+  if (elBtnQTerrain) {
+    elBtnQTerrain.textContent = `Terrain: ${qualityState.terrainFast ? 'Fast' : 'High'}`;
+    elBtnQTerrain.classList.toggle('active', !qualityState.terrainFast);
+  }
+  if (elBtnQClouds) {
+    elBtnQClouds.textContent = `Clouds: ${qualityState.cloudSteps}-Step`;
+    elBtnQClouds.classList.toggle('active', qualityState.cloudSteps === 4);
+  }
+  if (elBtnQDetail) {
+    const dMap = { high: 'High', med: 'Med', low: 'Low' };
+    elBtnQDetail.textContent = `Detail: ${dMap[qualityState.detailTier] || 'High'}`;
+    elBtnQDetail.classList.toggle('active', qualityState.detailTier !== 'low');
   }
 }
 
@@ -19882,9 +20015,32 @@ if (elBtnQShadow) {
     const order = ['high', 'med', 'off'];
     qualityState.shadow = order[(order.indexOf(qualityState.shadow) + 1) % order.length];
     qualityState.preset = 'custom';
-    applyQualitySettings();
+    applyQualitySettings(false);
   });
 }
+if (elBtnQTerrain) {
+  elBtnQTerrain.addEventListener('click', () => {
+    qualityState.terrainFast = !qualityState.terrainFast;
+    qualityState.preset = 'custom';
+    applyQualitySettings(false);
+  });
+}
+if (elBtnQClouds) {
+  elBtnQClouds.addEventListener('click', () => {
+    qualityState.cloudSteps = qualityState.cloudSteps === 4 ? 2 : 4;
+    qualityState.preset = 'custom';
+    applyQualitySettings(false);
+  });
+}
+if (elBtnQDetail) {
+  elBtnQDetail.addEventListener('click', () => {
+    const order = ['high', 'med', 'low'];
+    qualityState.detailTier = order[(order.indexOf(qualityState.detailTier) + 1) % order.length];
+    qualityState.preset = 'custom';
+    applyQualitySettings(true);
+  });
+}
+applyQualitySettings(false);
 
 const benchState = {
   active: false,
@@ -20355,7 +20511,7 @@ function animate() {
 
   // Capture main scene render stats inside lakeScenePass
   const t4 = bOn ? performance.now() : 0;
-  composer.render();
+  renderSceneFrame();
   if (bOn) {
     const t5 = performance.now();
     benchState.frameDts.push(rawDtMs);

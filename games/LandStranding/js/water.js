@@ -626,6 +626,7 @@ function buildLakeGeometry(lake) {
 }
 
 export function createWaterSystem(texLib, scene) {
+  let reflMaxDist = 1200.0;
   const root = new THREE.Group();
   scene.add(root);
 
@@ -1848,7 +1849,11 @@ export function createWaterSystem(texLib, scene) {
       }
     }
     updateLocalShoreDepthMap(bestLake, cx, cz);
-    return bestLake && bestDist <= 2200.0 ? bestLake : null;
+    return bestLake && bestDist <= reflMaxDist ? bestLake : null;
+  }
+
+  function setReflMaxDist(dist) {
+    reflMaxDist = dist;
   }
 
   function updateLakeUniforms(reflTex, reflMatrix, planeY, hasRefl) {
@@ -2114,6 +2119,7 @@ export function createWaterSystem(texLib, scene) {
     rebuildAll,
     setLakesVisible,
     getBestVisibleLake,
+    setReflMaxDist,
     updateLakeUniforms,
     getActiveLakeCount: () => activeLakes.size,
     getWaterfallPositions: () => waterfallPositions
