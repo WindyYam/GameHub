@@ -252,9 +252,19 @@ button.active {
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
   z-index: 20;
   backdrop-filter: blur(6px);
+  transition: border-color 0.18s, background 0.18s;
+}
+
+#door-prompt:hover,
+#door-prompt:active {
+  border-color: var(--cyan);
+  background: rgba(18, 36, 48, 0.88);
 }
 
 #bike-banner.readonly {

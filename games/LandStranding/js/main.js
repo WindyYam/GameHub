@@ -1009,6 +1009,18 @@ if (elBikeBanner) {
   });
 }
 
+const elDoorPrompt = document.getElementById('door-prompt');
+if (elDoorPrompt) {
+  elDoorPrompt.addEventListener('pointerdown', (e) => e.stopPropagation());
+  elDoorPrompt.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
+  elDoorPrompt.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!bikeSys.state.riding) {
+      landmarkSys.toggleNearestDoor(porter.state.pos.x, porter.state.pos.y, porter.state.pos.z);
+    }
+  });
+}
+
 const RES_PRESETS = [
   { label: 'Auto', height: 0 },
   { label: '240p', height: 240 },
@@ -1538,13 +1550,15 @@ function animate() {
     camera.lookAt(camState.target.x, camState.target.y + mix(0.56, 0.16, inB) + camState.smoothFloorLift * 0.65, camState.target.z);
   }
 
-  const elDoorPrompt = document.getElementById('door-prompt');
   if (elDoorPrompt) {
     const nearDoor = !bikeSys.state.riding
       ? landmarkSys.getNearestDoor(porter.state.pos.x, porter.state.pos.y, porter.state.pos.z)
       : null;
     if (nearDoor) {
-      elDoorPrompt.textContent = `[E] ${nearDoor.isOpen ? 'Close' : 'Open'} ${nearDoor.label} Door`;
+      const actionVerb = nearDoor.isOpen ? 'Close' : 'Open';
+      elDoorPrompt.textContent = IS_MOBILE_PRIMARY
+        ? `Tap to ${actionVerb} ${nearDoor.label} Door`
+        : `[E] ${actionVerb} ${nearDoor.label} Door`;
       elDoorPrompt.classList.remove('hidden');
     } else {
       elDoorPrompt.classList.add('hidden');

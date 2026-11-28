@@ -260,9 +260,19 @@ button.active {
   font-weight: 600;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  pointer-events: none;
+  pointer-events: auto;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
   z-index: 20;
   backdrop-filter: blur(6px);
+  transition: border-color 0.18s, background 0.18s;
+}
+
+#door-prompt:hover,
+#door-prompt:active {
+  border-color: var(--cyan);
+  background: rgba(18, 36, 48, 0.88);
 }
 
 #bike-banner.readonly {
@@ -794,7 +804,7 @@ body.touch-active .hud-bottom-left {
       <div class="bike-banner-sub" id="bike-banner-sub"></div>
     </div>
 
-    <div id="door-prompt" class="hidden" role="status"></div>
+    <button id="door-prompt" class="hidden" type="button"></button>
 
     <div class="hud-bottom-left" id="hud-key-hints">
       <div class="key-chip"><b>WASD</b> Walk</div>
@@ -19523,6 +19533,18 @@ if (elBikeBanner) {
   });
 }
 
+const elDoorPrompt = document.getElementById('door-prompt');
+if (elDoorPrompt) {
+  elDoorPrompt.addEventListener('pointerdown', (e) => e.stopPropagation());
+  elDoorPrompt.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
+  elDoorPrompt.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (!bikeSys.state.riding) {
+      landmarkSys.toggleNearestDoor(porter.state.pos.x, porter.state.pos.y, porter.state.pos.z);
+    }
+  });
+}
+
 const RES_PRESETS = [
   { label: 'Auto', height: 0 },
   { label: '240p', height: 240 },
@@ -20052,13 +20074,15 @@ function animate() {
     camera.lookAt(camState.target.x, camState.target.y + mix(0.56, 0.16, inB) + camState.smoothFloorLift * 0.65, camState.target.z);
   }
 
-  const elDoorPrompt = document.getElementById('door-prompt');
   if (elDoorPrompt) {
     const nearDoor = !bikeSys.state.riding
       ? landmarkSys.getNearestDoor(porter.state.pos.x, porter.state.pos.y, porter.state.pos.z)
       : null;
     if (nearDoor) {
-      elDoorPrompt.textContent = `[E] ${nearDoor.isOpen ? 'Close' : 'Open'} ${nearDoor.label} Door`;
+      const actionVerb = nearDoor.isOpen ? 'Close' : 'Open';
+      elDoorPrompt.textContent = IS_MOBILE_PRIMARY
+        ? `Tap to ${actionVerb} ${nearDoor.label} Door`
+        : `[E] ${actionVerb} ${nearDoor.label} Door`;
       elDoorPrompt.classList.remove('hidden');
     } else {
       elDoorPrompt.classList.add('hidden');
