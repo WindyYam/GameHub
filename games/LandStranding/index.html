@@ -6034,15 +6034,15 @@ const IS_MOBILE_DEVICE = typeof window !== 'undefined' && (
   /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '') ||
   (window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches)
 );
-const GRID_RADIUS = IS_MOBILE_DEVICE ? 7 : 9; // 15x15 on mobile, 19x19 on desktop before far horizon ring
-const LOD_SEGS = IS_MOBILE_DEVICE ? [40, 22, 12, 8] : [48, 28, 16, 10];
-const MAX_BUILDS_PER_FRAME = IS_MOBILE_DEVICE ? 1 : 3;
+const GRID_RADIUS = 9; // 19x19 live chunks (1520m radius, overlaps farMesh innerR=1400 with zero gap)
+const LOD_SEGS = IS_MOBILE_DEVICE ? [44, 28, 18, 12] : [48, 32, 20, 14];
+const MAX_BUILDS_PER_FRAME = IS_MOBILE_DEVICE ? 4 : 6;
 
 function getLodForRing(ringDist) {
-  if (ringDist <= 1) return 0; // 0..240m:   48x48 (40x40 mobile)
-  if (ringDist <= 3) return 1; // 240..560m: 28x28 (22x22 mobile)
-  if (ringDist <= (IS_MOBILE_DEVICE ? 5 : 6)) return 2;
-  return 3;
+  if (ringDist <= 1) return 0; // 0..240m
+  if (ringDist <= 3) return 1; // 240..560m
+  if (ringDist <= 6) return 2; // 560..1040m
+  return 3;                    // 1040..1520m
 }
 
 function getDetailLodForRing(ringDist) {
@@ -9178,19 +9178,22 @@ function createTerrainSystem(texLib, scene) {
     queue.sort((a, b) => a.spec.ring - b.spec.ring);
 
     const budget = syncAll ? queue.length : MAX_BUILDS_PER_FRAME;
+    const maxHeavy = syncAll ? queue.length : (IS_MOBILE_DEVICE ? 1 : 2);
     const buildStart = syncAll ? 0 : performance.now();
     let builtCount = 0;
-    let builtHeavy = false;
+    let heavyCount = 0;
     for (let i = 0; i < queue.length && builtCount < budget; i++) {
-      if (!syncAll && builtCount > 0 && (performance.now() - buildStart) > 4.5) break;
       const { key, spec, existing } = queue[i];
+      const isHeavy = spec.detailLod <= 1;
+      if (!syncAll && isHeavy && heavyCount >= maxHeavy) continue;
+      if (!syncAll && builtCount > 0 && (performance.now() - buildStart) > 4.5) break;
       if (existing) disposeChunk(existing);
       chunks.set(key, createChunk(spec.cx, spec.cz, spec.geoLod, spec.detailLod));
       builtCount++;
-      if (spec.geoLod <= 1) builtHeavy = true;
+      if (isHeavy) heavyCount++;
     }
     hasPendingChunks = queue.length > builtCount;
-    if (syncAll || !builtHeavy) {
+    if (syncAll || heavyCount === 0) {
       updateFarRing(centerX, centerZ, syncAll);
     }
   }
