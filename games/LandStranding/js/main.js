@@ -64,8 +64,9 @@ const msaaTarget = new THREE.WebGLRenderTarget(rtW, rtH, {
 // Lightweight planar mirror reflection RT (scales with active render resolution -> fast even at 240p!)
 function calcReflSize(w, h) {
   const aspect = w / Math.max(h, 1);
-  const rw = Math.min(960, Math.max(256, Math.round(w * 0.60)));
-  const rh = Math.max(144, Math.round(rw / Math.max(aspect, 0.5)));
+  const maxW = IS_MOBILE_PRIMARY ? 360 : 640;
+  const rw = Math.min(maxW, Math.max(200, Math.round(w * 0.42)));
+  const rh = Math.max(112, Math.round(rw / Math.max(aspect, 0.5)));
   return [rw, rh];
 }
 const [initReflW, initReflH] = calcReflSize(window.innerWidth, window.innerHeight);
@@ -1017,10 +1018,13 @@ let resPresetIdx = 0;
 function applyRenderResolution() {
   const w = window.innerWidth;
   const h = Math.max(1, window.innerHeight);
+  const minDim = Math.max(1, Math.min(w, h));
   const preset = RES_PRESETS[resPresetIdx];
   dpr = preset && preset.height > 0
-    ? preset.height / Math.max(1, Math.min(w, h))
-    : Math.min(window.devicePixelRatio || 1, 1.0);
+    ? preset.height / minDim
+    : (IS_MOBILE_PRIMARY
+      ? Math.min(window.devicePixelRatio || 1, 1.0, 540 / minDim)
+      : Math.min(window.devicePixelRatio || 1, 1.0));
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   renderer.setPixelRatio(dpr);
@@ -1220,6 +1224,9 @@ let lastTimeMs = performance.now();
 let telemetryTick = 0;
 let lastHudWeather = '';
 let titleShadowTick = 0;
+let lastShadowX = 1e9;
+let lastShadowZ = 1e9;
+let lastShadowSunY = 1e9;
 refreshHudControls();
 
 function animate() {
@@ -1235,8 +1242,20 @@ function animate() {
     titleShadowTick = (titleShadowTick + 1) & 3;
     renderer.shadowMap.autoUpdate = !shadowMapWarmed || titleShadowTick === 0;
   } else {
-    titleShadowTick = (titleShadowTick + 1) & 1;
-    renderer.shadowMap.autoUpdate = !shadowMapWarmed || titleShadowTick === 0;
+    titleShadowTick = (titleShadowTick + 1) & 3;
+    const sunY = ATMO_UNIFORMS.uSunDir.value.y;
+    const movedForShadow =
+      Math.abs(porter.state.pos.x - lastShadowX) > 0.25 ||
+      Math.abs(porter.state.pos.z - lastShadowZ) > 0.25 ||
+      Math.abs(sunY - lastShadowSunY) > 0.002 ||
+      bikeSys.state.printing;
+    const shouldShadow = !shadowMapWarmed || (titleShadowTick === 0 && (movedForShadow || porter.state.speed > 0.08 || bikeSys.state.riding));
+    renderer.shadowMap.autoUpdate = shouldShadow;
+    if (shouldShadow) {
+      lastShadowX = porter.state.pos.x;
+      lastShadowZ = porter.state.pos.z;
+      lastShadowSunY = sunY;
+    }
     if (bikeSys.state.riding) {
       bikeSys.update(dt, input, porter, terrainSys, landmarkSys);
     } else {

@@ -11,8 +11,12 @@ import { ATMO_UNIFORMS, ATMO_GLSL_PARS } from './atmosphere.js';
 import { getTerrainHeight } from './world.js';
 
 export function createWeatherFX(scene) {
-  // 1. Ultra-Thin, Dense, Soft-Blurred Slanted Rain & Heavy Storm Curtains (16,000 GPU-instanced drops, 1 draw call!)
-  const RAIN_COUNT = 16000;
+  const IS_MOBILE_WEATHER = typeof window !== 'undefined' && (
+    /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '') ||
+    (window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches)
+  );
+  // 1. Ultra-Thin, Dense, Soft-Blurred Slanted Rain & Heavy Storm Curtains (GPU-instanced, 1 draw call!)
+  const RAIN_COUNT = IS_MOBILE_WEATHER ? 6500 : 11000;
   const BOX_W = 46;
   const BOX_H = 26;
 
@@ -153,8 +157,8 @@ export function createWeatherFX(scene) {
   // 2. Wave-After-Wave Flowing Volumetric Storm Cloud / Water-Stream Billboards!
   // 16 independent rolling gust waves x 10 overlapping ultra-soft cloud billboards per wave (160 puffs, 1 draw call!)
   // Bottom-anchored cleanly above 5-point local terrain footprint -> lush billowing clouds with ZERO low-poly shapes & ZERO hard cuts!
-  const WAVE_COUNT = 28;
-  const PUFFS_PER_WAVE = 10;
+  const WAVE_COUNT = IS_MOBILE_WEATHER ? 16 : 22;
+  const PUFFS_PER_WAVE = IS_MOBILE_WEATHER ? 8 : 9;
   const TOTAL_WAVE_PUFFS = WAVE_COUNT * PUFFS_PER_WAVE;
 
   const waveGeo = new THREE.PlaneGeometry(1, 1);
@@ -435,6 +439,9 @@ export function createWeatherFX(scene) {
     rainMat.uniforms.uCamPos.value.copy(camera.position);
     rainMat.uniforms.uRainIntensity.value = rainIntensity;
     rainMesh.visible = rainIntensity > 0.02;
+    if (rainMesh.visible) {
+      rainMesh.count = Math.max(1200, Math.floor(RAIN_COUNT * Math.min(1.0, 0.30 + rainIntensity * 0.70)));
+    }
 
     // Update Wave-After-Wave Flowing Storm Cloud Billboards
     waveMat.uniforms.uRainIntensity.value = rainIntensity;

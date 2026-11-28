@@ -23,20 +23,20 @@ import {
 import { ATMO_UNIFORMS, ATMO_GLSL_PARS, enhanceMaterialWithAtmo } from './atmosphere.js';
 
 export const CHUNK_SIZE = 160;
-const GRID_RADIUS = 9; // 19 x 19 live chunks = 3040m x 3040m high-detail terrain before far horizon ring!
-const LOD_SEGS = [48, 28, 16, 10]; // Balanced foreground & mid/far tessellation
 const SKIRT_DROP = 18.0;
 const IS_MOBILE_DEVICE = typeof window !== 'undefined' && (
   /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '') ||
   (window.matchMedia && window.matchMedia('(hover: none) and (pointer: coarse)').matches)
 );
+const GRID_RADIUS = IS_MOBILE_DEVICE ? 7 : 9; // 15x15 on mobile, 19x19 on desktop before far horizon ring
+const LOD_SEGS = IS_MOBILE_DEVICE ? [40, 22, 12, 8] : [48, 28, 16, 10];
 const MAX_BUILDS_PER_FRAME = IS_MOBILE_DEVICE ? 1 : 3;
 
 function getLodForRing(ringDist) {
-  if (ringDist <= 1) return 0; // 0..240m:   48x48
-  if (ringDist <= 3) return 1; // 240..560m: 28x28
-  if (ringDist <= 6) return 2; // 560..1040m: 16x16
-  return 3;                    // 1040..1520m: 10x10
+  if (ringDist <= 1) return 0; // 0..240m:   48x48 (40x40 mobile)
+  if (ringDist <= 3) return 1; // 240..560m: 28x28 (22x22 mobile)
+  if (ringDist <= (IS_MOBILE_DEVICE ? 5 : 6)) return 2;
+  return 3;
 }
 
 function getDetailLodForRing(ringDist) {
@@ -498,7 +498,7 @@ function createMossCushionGeo() {
  * mapped to `grassMap` (each card renders 14 overlapping blades & seed panicles -> 224+ blades per patch!).
  */
 function createTussockGrassGeo() {
-  const cards = 16;
+  const cards = 10;
   const pos = [];
   const norm = [];
   const uvs = [];
@@ -508,10 +508,10 @@ function createTussockGrassGeo() {
 
   for (let i = 0; i < cards; i++) {
     const ang = (i / cards) * Math.PI * 2 + hash2i(i, 11, 801) * 0.65;
-    const rad = i < 4 ? (0.08 + i * 0.08) : (0.22 + Math.sqrt(hash2i(i, 13, 801)) * 0.72);
+    const rad = i < 3 ? (0.08 + i * 0.09) : (0.22 + Math.sqrt(hash2i(i, 13, 801)) * 0.72);
     const yaw = ang + (hash2i(i, 15, 801) - 0.5) * 1.4;
     const h = 0.24 + hash2i(i, 17, 801) * 0.16;
-    const w = 0.24 + hash2i(i, 23, 801) * 0.14;
+    const w = 0.28 + hash2i(i, 23, 801) * 0.16;
     const lean = 0.05 + hash2i(i, 19, 801) * 0.09;
 
     const cx = Math.cos(ang) * rad;
@@ -998,6 +998,15 @@ export function createTerrainSystem(texLib, scene) {
           return v / 0.875;
         }
 
+        // Fast 2-octave smooth C2 gradient FBM for mid/far terrain
+        float terrainFbm2(vec2 p) {
+          const mat2 rot = mat2(0.80, -0.60, 0.60, 0.80);
+          float v = 0.5 * atmoGNoise(p);
+          p = rot * p * 2.04 + vec2(11.3, -19.7);
+          v += 0.25 * atmoGNoise(p);
+          return v / 0.75;
+        }
+
         // Smooth C2 3-octave non-periodic ridged multifractal for basalt fissures & hillside erosion gullies
         float rockRidged(vec2 p) {
           float v = 0.0;
@@ -1029,7 +1038,7 @@ export function createTerrainSystem(texLib, scene) {
         }
 
         // Shared-simplex stochastic albedo+normal pair with uniform-flow gradients & height-modulated blending
-        // (eliminates 100% of grid tiling & saves ALU by sharing simplex hashes/rotations between albedo and normal!)
+        // (skips negligible <1.5% simplex taps to save texture bandwidth while preserving 100% zero-tiling quality!)
         void sampleNoTilePairGrad(
           sampler2D albedoTex,
           sampler2D normTex,
@@ -1043,47 +1052,62 @@ export function createTerrainSystem(texLib, scene) {
           vec3 w;
           simplexGrid(uv, i0, i1, i2, w);
 
-          float h0 = atmoHash(i0);
-          float h1 = atmoHash(i1);
-          float h2 = atmoHash(i2);
+          vec4 accCol = vec4(0.0);
+          vec2 accN = vec2(0.0);
+          float accW = 0.0;
 
-          float a0 = h0 * 6.2831853;
-          float a1 = h1 * 6.2831853;
-          float a2 = h2 * 6.2831853;
-          float c0 = cos(a0), sn0 = sin(a0);
-          float c1 = cos(a1), sn1 = sin(a1);
-          float c2 = cos(a2), sn2 = sin(a2);
-          mat2 r0 = mat2(c0, -sn0, sn0, c0);
-          mat2 r1 = mat2(c1, -sn1, sn1, c1);
-          mat2 r2 = mat2(c2, -sn2, sn2, c2);
+          if (w.x > 0.015) {
+            float h0 = atmoHash(i0);
+            float a0 = h0 * 6.2831853;
+            float c0 = cos(a0), sn0 = sin(a0);
+            mat2 r0 = mat2(c0, -sn0, sn0, c0);
+            vec2 uv0 = r0 * uv + vec2(h0, fract(h0 * 17.31));
+            vec2 dx0 = r0 * dx, dy0 = r0 * dy;
+            vec4 s0 = textureGrad(albedoTex, uv0, dx0, dy0);
+            vec2 n0 = textureGrad(normTex, uv0, dx0, dy0).xy * 2.0 - 1.0;
+            n0 = mat2(c0, sn0, -sn0, c0) * n0;
+            float hw0 = w.x * (0.28 + s0.a * 1.44);
+            accCol += s0 * hw0;
+            accN += n0 * hw0;
+            accW += hw0;
+          }
+          if (w.y > 0.015) {
+            float h1 = atmoHash(i1);
+            float a1 = h1 * 6.2831853;
+            float c1 = cos(a1), sn1 = sin(a1);
+            mat2 r1 = mat2(c1, -sn1, sn1, c1);
+            vec2 uv1 = r1 * uv + vec2(h1, fract(h1 * 17.31));
+            vec2 dx1 = r1 * dx, dy1 = r1 * dy;
+            vec4 s1 = textureGrad(albedoTex, uv1, dx1, dy1);
+            vec2 n1 = textureGrad(normTex, uv1, dx1, dy1).xy * 2.0 - 1.0;
+            n1 = mat2(c1, sn1, -sn1, c1) * n1;
+            float hw1 = w.y * (0.28 + s1.a * 1.44);
+            accCol += s1 * hw1;
+            accN += n1 * hw1;
+            accW += hw1;
+          }
+          if (w.z > 0.015) {
+            float h2 = atmoHash(i2);
+            float a2 = h2 * 6.2831853;
+            float c2 = cos(a2), sn2 = sin(a2);
+            mat2 r2 = mat2(c2, -sn2, sn2, c2);
+            vec2 uv2 = r2 * uv + vec2(h2, fract(h2 * 17.31));
+            vec2 dx2 = r2 * dx, dy2 = r2 * dy;
+            vec4 s2 = textureGrad(albedoTex, uv2, dx2, dy2);
+            vec2 n2 = textureGrad(normTex, uv2, dx2, dy2).xy * 2.0 - 1.0;
+            n2 = mat2(c2, sn2, -sn2, c2) * n2;
+            float hw2 = w.z * (0.28 + s2.a * 1.44);
+            accCol += s2 * hw2;
+            accN += n2 * hw2;
+            accW += hw2;
+          }
 
-          vec2 uv0 = r0 * uv + vec2(h0, fract(h0 * 17.31));
-          vec2 uv1 = r1 * uv + vec2(h1, fract(h1 * 17.31));
-          vec2 uv2 = r2 * uv + vec2(h2, fract(h2 * 17.31));
-          vec2 dx0 = r0 * dx, dy0 = r0 * dy;
-          vec2 dx1 = r1 * dx, dy1 = r1 * dy;
-          vec2 dx2 = r2 * dx, dy2 = r2 * dy;
-
-          vec4 s0 = textureGrad(albedoTex, uv0, dx0, dy0);
-          vec4 s1 = textureGrad(albedoTex, uv1, dx1, dy1);
-          vec4 s2 = textureGrad(albedoTex, uv2, dx2, dy2);
-
-          vec3 n0 = textureGrad(normTex, uv0, dx0, dy0).xyz * 2.0 - 1.0;
-          vec3 n1 = textureGrad(normTex, uv1, dx1, dy1).xyz * 2.0 - 1.0;
-          vec3 n2 = textureGrad(normTex, uv2, dx2, dy2).xyz * 2.0 - 1.0;
-
-          n0.xy = mat2(c0, sn0, -sn0, c0) * n0.xy;
-          n1.xy = mat2(c1, sn1, -sn1, c1) * n1.xy;
-          n2.xy = mat2(c2, sn2, -sn2, c2) * n2.xy;
-
-          vec3 hw = w * (0.28 + vec3(s0.a, s1.a, s2.a) * 1.44);
-          hw /= max(hw.x + hw.y + hw.z, 0.0001);
-          outAlbedo = s0 * hw.x + s1 * hw.y + s2 * hw.z;
-          outNorm = normalize(vec3(n0.xy * hw.x + n1.xy * hw.y + n2.xy * hw.z, 1.0));
+          float invW = 1.0 / max(accW, 0.0001);
+          outAlbedo = accCol * invW;
+          outNorm = normalize(vec3(accN * invW, 1.0));
         }
 
-        // Non-repeating stochastic cliff sampler: full random rotation, flip, scale jitter & UV offset
-        // (100% kills cliff wall tiling while keeping the original clean weathered isotropic basalt style!)
+        // Non-repeating stochastic cliff sampler: full random rotation, scale jitter & UV offset
         void sampleCliffNoTilePairGrad(
           sampler2D albedoTex,
           sampler2D normTex,
@@ -1097,47 +1121,62 @@ export function createTerrainSystem(texLib, scene) {
           vec3 w;
           simplexGrid(uv, i0, i1, i2, w);
 
-          float h0 = atmoHash(i0);
-          float h1 = atmoHash(i1);
-          float h2 = atmoHash(i2);
+          vec4 accCol = vec4(0.0);
+          vec2 accN = vec2(0.0);
+          float accW = 0.0;
 
-          float a0 = h0 * 6.2831853;
-          float a1 = h1 * 6.2831853;
-          float a2 = h2 * 6.2831853;
-          float c0 = cos(a0), sn0 = sin(a0);
-          float c1 = cos(a1), sn1 = sin(a1);
-          float c2 = cos(a2), sn2 = sin(a2);
-          float sc0 = 0.86 + fract(h0 * 7.3) * 0.30;
-          float sc1 = 0.86 + fract(h1 * 7.3) * 0.30;
-          float sc2 = 0.86 + fract(h2 * 7.3) * 0.30;
+          if (w.x > 0.02) {
+            float h0 = atmoHash(i0);
+            float a0 = h0 * 6.2831853;
+            float c0 = cos(a0), sn0 = sin(a0);
+            float sc0 = 0.86 + fract(h0 * 7.3) * 0.30;
+            mat2 r0 = mat2(c0, -sn0, sn0, c0);
+            vec2 u0 = (r0 * uv) * sc0 + vec2(h0, fract(h0 * 19.31));
+            vec2 dx0 = (r0 * dx) * sc0, dy0 = (r0 * dy) * sc0;
+            vec4 s0 = textureGrad(albedoTex, u0, dx0, dy0);
+            vec2 n0 = textureGrad(normTex, u0, dx0, dy0).xy * 2.0 - 1.0;
+            n0 = mat2(c0, sn0, -sn0, c0) * n0;
+            float hw0 = w.x * (0.28 + s0.a * 1.44);
+            accCol += s0 * hw0;
+            accN += n0 * hw0;
+            accW += hw0;
+          }
+          if (w.y > 0.02) {
+            float h1 = atmoHash(i1);
+            float a1 = h1 * 6.2831853;
+            float c1 = cos(a1), sn1 = sin(a1);
+            float sc1 = 0.86 + fract(h1 * 7.3) * 0.30;
+            mat2 r1 = mat2(c1, -sn1, sn1, c1);
+            vec2 u1 = (r1 * uv) * sc1 + vec2(h1, fract(h1 * 19.31));
+            vec2 dx1 = (r1 * dx) * sc1, dy1 = (r1 * dy) * sc1;
+            vec4 s1 = textureGrad(albedoTex, u1, dx1, dy1);
+            vec2 n1 = textureGrad(normTex, u1, dx1, dy1).xy * 2.0 - 1.0;
+            n1 = mat2(c1, sn1, -sn1, c1) * n1;
+            float hw1 = w.y * (0.28 + s1.a * 1.44);
+            accCol += s1 * hw1;
+            accN += n1 * hw1;
+            accW += hw1;
+          }
+          if (w.z > 0.02) {
+            float h2 = atmoHash(i2);
+            float a2 = h2 * 6.2831853;
+            float c2 = cos(a2), sn2 = sin(a2);
+            float sc2 = 0.86 + fract(h2 * 7.3) * 0.30;
+            mat2 r2 = mat2(c2, -sn2, sn2, c2);
+            vec2 u2 = (r2 * uv) * sc2 + vec2(h2, fract(h2 * 19.31));
+            vec2 dx2 = (r2 * dx) * sc2, dy2 = (r2 * dy) * sc2;
+            vec4 s2 = textureGrad(albedoTex, u2, dx2, dy2);
+            vec2 n2 = textureGrad(normTex, u2, dx2, dy2).xy * 2.0 - 1.0;
+            n2 = mat2(c2, sn2, -sn2, c2) * n2;
+            float hw2 = w.z * (0.28 + s2.a * 1.44);
+            accCol += s2 * hw2;
+            accN += n2 * hw2;
+            accW += hw2;
+          }
 
-          mat2 r0 = mat2(c0, -sn0, sn0, c0);
-          mat2 r1 = mat2(c1, -sn1, sn1, c1);
-          mat2 r2 = mat2(c2, -sn2, sn2, c2);
-
-          vec2 u0 = (r0 * uv) * sc0 + vec2(h0, fract(h0 * 19.31));
-          vec2 u1 = (r1 * uv) * sc1 + vec2(h1, fract(h1 * 19.31));
-          vec2 u2 = (r2 * uv) * sc2 + vec2(h2, fract(h2 * 19.31));
-          vec2 dx0 = (r0 * dx) * sc0, dy0 = (r0 * dy) * sc0;
-          vec2 dx1 = (r1 * dx) * sc1, dy1 = (r1 * dy) * sc1;
-          vec2 dx2 = (r2 * dx) * sc2, dy2 = (r2 * dy) * sc2;
-
-          vec4 s0 = textureGrad(albedoTex, u0, dx0, dy0);
-          vec4 s1 = textureGrad(albedoTex, u1, dx1, dy1);
-          vec4 s2 = textureGrad(albedoTex, u2, dx2, dy2);
-
-          vec3 n0 = textureGrad(normTex, u0, dx0, dy0).xyz * 2.0 - 1.0;
-          vec3 n1 = textureGrad(normTex, u1, dx1, dy1).xyz * 2.0 - 1.0;
-          vec3 n2 = textureGrad(normTex, u2, dx2, dy2).xyz * 2.0 - 1.0;
-
-          n0.xy = mat2(c0, sn0, -sn0, c0) * n0.xy;
-          n1.xy = mat2(c1, sn1, -sn1, c1) * n1.xy;
-          n2.xy = mat2(c2, sn2, -sn2, c2) * n2.xy;
-
-          vec3 hw = w * (0.28 + vec3(s0.a, s1.a, s2.a) * 1.44);
-          hw /= max(hw.x + hw.y + hw.z, 0.0001);
-          outAlbedo = s0 * hw.x + s1 * hw.y + s2 * hw.z;
-          outNorm = normalize(vec3(n0.xy * hw.x + n1.xy * hw.y + n2.xy * hw.z, 1.0));
+          float invW = 1.0 / max(accW, 0.0001);
+          outAlbedo = accCol * invW;
+          outNorm = normalize(vec3(accN * invW, 1.0));
         }
 
         // Active-axis stochastic triplanar cliff sampler (skips negligible axes -> fast AND zero tiling!)
@@ -1159,21 +1198,21 @@ export function createTerrainSystem(texLib, scene) {
           vec3 accNorm = vec3(0.0);
           float accW = 0.0;
 
-          if (bw.x > 0.025) {
+          if (bw.x > 0.06) {
             vec4 cX; vec3 nX;
             sampleCliffNoTilePairGrad(albedoTex, normTex, vec2(wp.z, wp.y) * sc, vec2(wpDx.z, wpDx.y) * sc, vec2(wpDy.z, wpDy.y) * sc, cX, nX);
             accCol += cX * bw.x;
             accNorm += vec3(0.0, nX.y, nX.x * sgn.x) * bw.x;
             accW += bw.x;
           }
-          if (bw.y > 0.025) {
+          if (bw.y > 0.06) {
             vec4 cY; vec3 nY;
             sampleCliffNoTilePairGrad(albedoTex, normTex, wp.xz * sc, wpDx.xz * sc, wpDy.xz * sc, cY, nY);
             accCol += cY * bw.y;
             accNorm += vec3(nY.x, 0.0, nY.y * sgn.y) * bw.y;
             accW += bw.y;
           }
-          if (bw.z > 0.025) {
+          if (bw.z > 0.06) {
             vec4 cZ; vec3 nZ;
             sampleCliffNoTilePairGrad(albedoTex, normTex, vec2(wp.x, wp.y) * sc, vec2(wpDx.x, wpDx.y) * sc, vec2(wpDy.x, wpDy.y) * sc, cZ, nZ);
             accCol += cZ * bw.z;
@@ -1233,8 +1272,8 @@ export function createTerrainSystem(texLib, scene) {
           vec3 mesoGrad = fbmGrad3(wpBio * 0.056 + vec2(4.1, -6.7));
           float macroN = clamp((hillGrad.x - 0.5) * 2.1 + 0.5, 0.0, 1.0);
           float midN   = clamp((mesoGrad.x - 0.5) * 2.1 + 0.5, 0.0, 1.0);
-          float patchN = clamp((terrainFbm3(wpBio * 0.024 - vec2(7.4, 2.8)) - 0.5) * 2.2 + 0.5, 0.0, 1.0);
-          float biomeN = clamp((terrainFbm3(wpBio * 0.0052 + vec2(11.3, -8.4)) - 0.5) * 2.3 + 0.5, 0.0, 1.0);
+          float patchN = clamp(((camDist < 320.0 ? terrainFbm3(wpBio * 0.024 - vec2(7.4, 2.8)) : terrainFbm2(wpBio * 0.024 - vec2(7.4, 2.8))) - 0.5) * 2.2 + 0.5, 0.0, 1.0);
+          float biomeN = clamp(((camDist < 320.0 ? terrainFbm3(wpBio * 0.0052 + vec2(11.3, -8.4)) : terrainFbm2(wpBio * 0.0052 + vec2(11.3, -8.4))) - 0.5) * 2.3 + 0.5, 0.0, 1.0);
           float microDetail = closeFade > 0.01 ? (atmoGNoise(wp.xz * 6.5) * 0.58 + atmoGNoise(wp.xz * 15.0 + vec2(3.7, -1.9)) * 0.42) : 0.5;
 
           // Preserve exact original lush moss-to-cliff balance on hills & escarpments
@@ -1251,11 +1290,15 @@ export function createTerrainSystem(texLib, scene) {
           if (uInReflection > 0.5) {
             mossSample = texture2D(uMossMap, wp.xz * 0.078);
             mossN = vec3(0.0, 0.0, 1.0);
+          } else if (camDist > 360.0) {
+            vec2 mUv = wp.xz * 0.019 + vec2(0.73, 0.29);
+            mossSample = textureGrad(uMossMap, mUv, wpXZ_dx * 0.019, wpXZ_dy * 0.019);
+            mossN = normalize(vec3((textureGrad(uMossNorm, mUv, wpXZ_dx * 0.019, wpXZ_dy * 0.019).xy * 2.0 - 1.0), 1.0));
           } else if (mossLod < 1.0) {
             vec4 s0, s1; vec3 n0, n1;
             sampleNoTilePairGrad(uMossMap, uMossNorm, wp.xz * 0.34, wpXZ_dx * 0.34, wpXZ_dy * 0.34, s1, n1);
             float w0 = (1.0 - smoothstep(0.0, 1.0, mossLod)) * 0.44;
-            if (w0 > 0.01) {
+            if (w0 > 0.03) {
               sampleNoTilePairGrad(uMossMap, uMossNorm, wp.xz * 1.15 + vec2(0.19, 0.53), wpXZ_dx * 1.15, wpXZ_dy * 1.15, s0, n0);
               mossSample = mix(s1, s0, w0);
               mossN = normalize(mix(n1, n0, w0));
@@ -1264,19 +1307,29 @@ export function createTerrainSystem(texLib, scene) {
               mossN = n1;
             }
           } else if (mossLod < 2.0) {
-            vec4 s1, s2; vec3 n1, n2;
-            sampleNoTilePairGrad(uMossMap, uMossNorm, wp.xz * 0.34, wpXZ_dx * 0.34, wpXZ_dy * 0.34, s1, n1);
-            sampleNoTilePairGrad(uMossMap, uMossNorm, wp.xz * 0.078 + vec2(0.41, 0.17), wpXZ_dx * 0.078, wpXZ_dy * 0.078, s2, n2);
             float w2 = smoothstep(0.0, 1.0, mossLod - 1.0);
-            mossSample = mix(s1, s2, w2);
-            mossN = normalize(mix(n1, n2, w2));
+            if (w2 < 0.04) {
+              sampleNoTilePairGrad(uMossMap, uMossNorm, wp.xz * 0.34, wpXZ_dx * 0.34, wpXZ_dy * 0.34, mossSample, mossN);
+            } else if (w2 > 0.96) {
+              sampleNoTilePairGrad(uMossMap, uMossNorm, wp.xz * 0.078 + vec2(0.41, 0.17), wpXZ_dx * 0.078, wpXZ_dy * 0.078, mossSample, mossN);
+            } else {
+              vec4 s1, s2; vec3 n1, n2;
+              sampleNoTilePairGrad(uMossMap, uMossNorm, wp.xz * 0.34, wpXZ_dx * 0.34, wpXZ_dy * 0.34, s1, n1);
+              sampleNoTilePairGrad(uMossMap, uMossNorm, wp.xz * 0.078 + vec2(0.41, 0.17), wpXZ_dx * 0.078, wpXZ_dy * 0.078, s2, n2);
+              mossSample = mix(s1, s2, w2);
+              mossN = normalize(mix(n1, n2, w2));
+            }
           } else {
-            vec4 s2, s3; vec3 n2, n3;
-            sampleNoTilePairGrad(uMossMap, uMossNorm, wp.xz * 0.078 + vec2(0.41, 0.17), wpXZ_dx * 0.078, wpXZ_dy * 0.078, s2, n2);
-            sampleNoTilePairGrad(uMossMap, uMossNorm, wp.xz * 0.019 + vec2(0.73, 0.29), wpXZ_dx * 0.019, wpXZ_dy * 0.019, s3, n3);
             float w3 = smoothstep(0.0, 1.0, mossLod - 2.0) * 0.72;
-            mossSample = mix(s2, s3, w3);
-            mossN = normalize(mix(n2, n3, w3));
+            if (w3 < 0.04) {
+              sampleNoTilePairGrad(uMossMap, uMossNorm, wp.xz * 0.078 + vec2(0.41, 0.17), wpXZ_dx * 0.078, wpXZ_dy * 0.078, mossSample, mossN);
+            } else {
+              vec4 s2, s3; vec3 n2, n3;
+              sampleNoTilePairGrad(uMossMap, uMossNorm, wp.xz * 0.078 + vec2(0.41, 0.17), wpXZ_dx * 0.078, wpXZ_dy * 0.078, s2, n2);
+              sampleNoTilePairGrad(uMossMap, uMossNorm, wp.xz * 0.019 + vec2(0.73, 0.29), wpXZ_dx * 0.019, wpXZ_dy * 0.019, s3, n3);
+              mossSample = mix(s2, s3, w3);
+              mossN = normalize(mix(n2, n3, w3));
+            }
           }
           float mossH = mossSample.a;
 
@@ -1319,11 +1372,15 @@ export function createTerrainSystem(texLib, scene) {
             if (uInReflection > 0.5) {
               screeSample = texture2D(uScreeMap, wp.xz * 0.115);
               screeN = vec3(0.0, 0.0, 1.0);
+            } else if (camDist > 340.0) {
+              vec2 sUv = wp.xz * 0.028 + vec2(0.63, 0.19);
+              screeSample = textureGrad(uScreeMap, sUv, wpXZ_dx * 0.028, wpXZ_dy * 0.028);
+              screeN = normalize(vec3((textureGrad(uScreeNorm, sUv, wpXZ_dx * 0.028, wpXZ_dy * 0.028).xy * 2.0 - 1.0), 1.0));
             } else if (screeLod < 1.0) {
               vec4 sc0, sc1; vec3 sn0, sn1;
               sampleNoTilePairGrad(uScreeMap, uScreeNorm, wp.xz * 0.48, wpXZ_dx * 0.48, wpXZ_dy * 0.48, sc0, sn0);
               float sw1 = smoothstep(0.15, 1.0, screeLod);
-              if (sw1 > 0.01) {
+              if (sw1 > 0.04) {
                 sampleNoTilePairGrad(uScreeMap, uScreeNorm, wp.xz * 0.115 + vec2(0.27, 0.61), wpXZ_dx * 0.115, wpXZ_dy * 0.115, sc1, sn1);
                 screeSample = mix(sc0, sc1, sw1);
                 screeN = normalize(mix(sn0, sn1, sw1));
@@ -1332,12 +1389,16 @@ export function createTerrainSystem(texLib, scene) {
                 screeN = sn0;
               }
             } else {
-              vec4 sc1, sc2; vec3 sn1, sn2;
-              sampleNoTilePairGrad(uScreeMap, uScreeNorm, wp.xz * 0.115 + vec2(0.27, 0.61), wpXZ_dx * 0.115, wpXZ_dy * 0.115, sc1, sn1);
-              sampleNoTilePairGrad(uScreeMap, uScreeNorm, wp.xz * 0.028 + vec2(0.63, 0.19), wpXZ_dx * 0.028, wpXZ_dy * 0.028, sc2, sn2);
               float sw2 = smoothstep(0.0, 1.0, screeLod - 1.0) * 0.72;
-              screeSample = mix(sc1, sc2, sw2);
-              screeN = normalize(mix(sn1, sn2, sw2));
+              if (sw2 < 0.04) {
+                sampleNoTilePairGrad(uScreeMap, uScreeNorm, wp.xz * 0.115 + vec2(0.27, 0.61), wpXZ_dx * 0.115, wpXZ_dy * 0.115, screeSample, screeN);
+              } else {
+                vec4 sc1, sc2; vec3 sn1, sn2;
+                sampleNoTilePairGrad(uScreeMap, uScreeNorm, wp.xz * 0.115 + vec2(0.27, 0.61), wpXZ_dx * 0.115, wpXZ_dy * 0.115, sc1, sn1);
+                sampleNoTilePairGrad(uScreeMap, uScreeNorm, wp.xz * 0.028 + vec2(0.63, 0.19), wpXZ_dx * 0.028, wpXZ_dy * 0.028, sc2, sn2);
+                screeSample = mix(sc1, sc2, sw2);
+                screeN = normalize(mix(sn1, sn2, sw2));
+              }
             }
             if (screeRaw > 0.01) {
               vec3 gravelTone = mix(vec3(0.68, 0.72, 0.76), vec3(1.06, 1.09, 1.12), smoothstep(0.26, 0.78, screeSample.a));
@@ -1360,9 +1421,9 @@ export function createTerrainSystem(texLib, scene) {
           }
 
           // 4) Non-Repeating Volcanic Dust / Ash Mountain Slopes with Subtle Weathered Basalt & Green Moss
-          if (cliffRaw > 0.01) {
+          if (cliffRaw > 0.02) {
             float w1 = (atmoGNoise(wp.xz * 0.011 + vec2(wp.y * 0.013)) - 0.5) * 18.0;
-            float w2 = (atmoGNoise(vec2(wp.z * 0.023 - wp.y * 0.019, wp.x * 0.023 + wp.y * 0.017)) - 0.5) * 8.0;
+            float w2 = camDist < 420.0 ? (atmoGNoise(vec2(wp.z * 0.023 - wp.y * 0.019, wp.x * 0.023 + wp.y * 0.017)) - 0.5) * 8.0 : 0.0;
             vec3 wpRock = wp + vec3(w1 + w2, w1 * 0.55 - w2 * 0.7, -w1 * 0.8 + w2 * 0.6);
 
             // Distance-adaptive stochastic triplanar rock (eliminates visible tiling at all ranges!)
@@ -1372,6 +1433,8 @@ export function createTerrainSystem(texLib, scene) {
             if (uInReflection > 0.5) {
               cliffMix = texture2D(uCliffMap, wpRock.xz * 0.028);
               cliffTexNorm = vec3(0.0, 0.0, 1.0);
+            } else if (camDist > 360.0) {
+              triplanarCliffPair(uCliffMap, uCliffNorm, wpRock + vec3(-31.7, 9.3, 23.1), wpDx, wpDy, wn, 0.014, cliffMix, cliffTexNorm);
             } else if (cliffLod < 1.0) {
               vec4 cNear, cMid; vec3 nNear, nMid;
               triplanarCliffPair(uCliffMap, uCliffNorm, wpRock, wpDx, wpDy, wn, 0.088, cNear, nNear);
@@ -1380,28 +1443,34 @@ export function createTerrainSystem(texLib, scene) {
               cliffMix = mix(cNear, cMid, wMid);
               cliffTexNorm = nNear * (1.0 - wMid * 0.58) + nMid * (0.44 + wMid * 0.52);
             } else {
-              vec4 cMid, cFar; vec3 nMid, nFar;
-              triplanarCliffPair(uCliffMap, uCliffNorm, wpRock + vec3(17.3, 4.1, -11.7), wpDx, wpDy, wn, 0.028, cMid, nMid);
-              triplanarCliffPair(uCliffMap, uCliffNorm, wpRock + vec3(-31.7, 9.3, 23.1), wpDx, wpDy, wn, 0.010, cFar, nFar);
               float wFar = clamp(smoothstep(0.0, 1.0, cliffLod - 1.0) * 0.74, 0.0, 0.74);
-              cliffMix = mix(cMid, cFar, wFar);
-              cliffTexNorm = nMid * (1.0 - wFar * 0.52) + nFar * (0.44 + wFar * 0.60);
+              if (wFar < 0.05) {
+                triplanarCliffPair(uCliffMap, uCliffNorm, wpRock + vec3(17.3, 4.1, -11.7), wpDx, wpDy, wn, 0.028, cliffMix, cliffTexNorm);
+              } else {
+                vec4 cMid, cFar; vec3 nMid, nFar;
+                triplanarCliffPair(uCliffMap, uCliffNorm, wpRock + vec3(17.3, 4.1, -11.7), wpDx, wpDy, wn, 0.028, cMid, nMid);
+                triplanarCliffPair(uCliffMap, uCliffNorm, wpRock + vec3(-31.7, 9.3, 23.1), wpDx, wpDy, wn, 0.010, cFar, nFar);
+                cliffMix = mix(cMid, cFar, wFar);
+                cliffTexNorm = nMid * (1.0 - wFar * 0.52) + nFar * (0.44 + wFar * 0.60);
+              }
             }
             float cliffH = cliffMix.a;
 
             // Subtle weathered volcanic rock peeking beneath a rich matte blanket of dark Icelandic volcanic dust / tephra ash
             vec2 cragA = vec2(wpRock.x * 0.022 + wpRock.y * 0.016, wpRock.z * 0.022 - wpRock.y * 0.015);
             vec2 cragB = vec2((wpRock.x - wpRock.z) * 0.013 + wpRock.y * 0.010, wpRock.y * 0.024 + (wpRock.x + wpRock.z) * 0.009);
-            float fissureMacro = rockRidged(cragA) * 0.55 + rockRidged(cragB) * 0.45;
-            float mineralPatch = terrainFbm3(vec2((wpRock.x + wpRock.z) * 0.008, wpRock.y * 0.014)) * 0.65 + macroN * 0.35;
-            float dustDrift    = terrainFbm3(vec2(wpRock.x * 0.022 - wpRock.z * 0.015, wp.y * 0.011 + wpRock.z * 0.018));
+            float fissureMacro = rockRidged(cragA) * 0.55 + (camDist < 360.0 ? rockRidged(cragB) * 0.45 : 0.22);
+            float mineralPatch = terrainFbm2(vec2((wpRock.x + wpRock.z) * 0.008, wpRock.y * 0.014)) * 0.65 + macroN * 0.35;
+            float dustDrift    = terrainFbm2(vec2(wpRock.x * 0.022 - wpRock.z * 0.015, wp.y * 0.011 + wpRock.z * 0.018));
             // Fine granular volcanic ash & tephra grit (multi-scale so it stays tactile at both mid & far range without chunky rock blocks!)
-            float dustGritCoarse = terrainFbm3(vec2(wp.x * 0.085 + wp.z * 0.045, wp.y * 0.040 + wp.z * 0.065));
-            float dustGritFine   = atmoGNoise(wp.xz * 0.42 + vec2(wp.y * 0.36)) * 0.58 + atmoGNoise(wp.xz * 1.15 - vec2(wp.y * 0.85)) * 0.42;
+            float dustGritCoarse = terrainFbm2(vec2(wp.x * 0.085 + wp.z * 0.045, wp.y * 0.040 + wp.z * 0.065));
+            float dustGritFine   = camDist < 180.0
+              ? (atmoGNoise(wp.xz * 0.42 + vec2(wp.y * 0.36)) * 0.58 + atmoGNoise(wp.xz * 1.15 - vec2(wp.y * 0.85)) * 0.42)
+              : 0.5;
             float dustGrit       = dustGritCoarse * 0.54 + dustGritFine * 0.46;
             // Subtle downslope volcanic sand/ash slide streaks (soft gravity wash, never blocky cracks!)
             float ashWash = atmoGNoise(vec2((wp.x * 0.72 + wp.z * 0.69) * 0.055 + dustDrift * 1.4, wp.y * 0.012)) * 0.55
-                          + atmoGNoise(vec2((wp.z * 0.72 - wp.x * 0.69) * 0.095 - dustDrift * 1.1, wp.y * 0.018)) * 0.45;
+                          + (camDist < 280.0 ? atmoGNoise(vec2((wp.z * 0.72 - wp.x * 0.69) * 0.095 - dustDrift * 1.1, wp.y * 0.018)) * 0.45 : 0.22);
 
             // Subtle dark weathered basalt rock ribs peeking out gently on hardest steep ridges
             float softCrev = smoothstep(0.10, 0.80, fissureMacro);
@@ -1429,8 +1498,8 @@ export function createTerrainSystem(texLib, scene) {
             // Lush green Icelandic moss draping over shoulders/ledges PLUS crisp organic moss patches clinging to the volcanic dust!
             float altGrassFade = 1.0 - smoothstep(180.0, 278.0, wp.y + (macroN - 0.5) * 76.0 + (patchN - 0.5) * 34.0);
             float ledgeMoss = smoothstep(0.24, 0.66, wn.y + (midN - 0.5) * 0.28) * smoothstep(0.14, 0.62, macroN) * altGrassFade;
-            float slopeMossField  = terrainFbm3(vec2(wpRock.x * 0.022 + wp.y * 0.011, wpRock.z * 0.022 - wp.y * 0.009));
-            float slopeMossDetail = atmoGNoise(wp.xz * 0.095 + vec2(wp.y * 0.065, -wp.y * 0.055));
+            float slopeMossField  = terrainFbm2(vec2(wpRock.x * 0.022 + wp.y * 0.011, wpRock.z * 0.022 - wp.y * 0.009));
+            float slopeMossDetail = camDist < 220.0 ? atmoGNoise(wp.xz * 0.095 + vec2(wp.y * 0.065, -wp.y * 0.055)) : 0.5;
             float mossSignal = slopeMossField * 0.56 + patchN * 0.22 + slopeMossDetail * 0.28 + (mossH - 0.5) * 0.22;
             float dustSlopeMoss = smoothstep(0.44, 0.72, mossSignal) * smoothstep(0.08, 0.48, wn.y + 0.16) * altGrassFade;
             cliffMossMask = clamp(max(ledgeMoss * 0.92, dustSlopeMoss * 0.78), 0.0, 0.92);
@@ -3063,9 +3132,8 @@ export function createTerrainSystem(texLib, scene) {
     const pcx = needGridUpdate ? Math.round(centerX / CHUNK_SIZE) : lastUpdatePcx;
     const pcz = needGridUpdate ? Math.round(centerZ / CHUNK_SIZE) : lastUpdatePcz;
 
-    updateFarRing(centerX, centerZ, syncAll);
-
     if (!syncAll && !hasPendingChunks && !needGridUpdate) {
+      updateFarRing(centerX, centerZ, false);
       return;
     }
     lastUpdatePcx = pcx;
@@ -3104,13 +3172,21 @@ export function createTerrainSystem(texLib, scene) {
     queue.sort((a, b) => a.spec.ring - b.spec.ring);
 
     const budget = syncAll ? queue.length : MAX_BUILDS_PER_FRAME;
-    const builtCount = Math.min(budget, queue.length);
-    for (let i = 0; i < builtCount; i++) {
+    const buildStart = syncAll ? 0 : performance.now();
+    let builtCount = 0;
+    let builtHeavy = false;
+    for (let i = 0; i < queue.length && builtCount < budget; i++) {
+      if (!syncAll && builtCount > 0 && (performance.now() - buildStart) > 4.5) break;
       const { key, spec, existing } = queue[i];
       if (existing) disposeChunk(existing);
       chunks.set(key, createChunk(spec.cx, spec.cz, spec.geoLod, spec.detailLod));
+      builtCount++;
+      if (spec.geoLod <= 1) builtHeavy = true;
     }
     hasPendingChunks = queue.length > builtCount;
+    if (syncAll || !builtHeavy) {
+      updateFarRing(centerX, centerZ, syncAll);
+    }
   }
 
   function getCollidersNear(x, z, radius = 6) {
