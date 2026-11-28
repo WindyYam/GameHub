@@ -4260,25 +4260,33 @@ function enhanceMaterialWithAtmo(mat, { cacheKey, windSway = 0.0, wetnessBoost =
         {
           vec2 wOrigin = (modelMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xz;
           float instSeed = position.x * 0.7 + position.z * 0.5;
+          vec2 localWind = uWindDir;
           #ifdef USE_INSTANCING
             vec4 instCol = instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
             wOrigin = (modelMatrix * instCol).xz;
             instSeed += instCol.x * 0.37 + instCol.z * 0.41;
+            vec3 lwI = transpose(mat3(instanceMatrix)) * vec3(uWindDir.x, 0.0, uWindDir.y);
+            float lwILen = length(lwI.xz);
+            if (lwILen > 0.0001) localWind = lwI.xz / lwILen;
           #endif
           #ifdef USE_BATCHING
             vec4 batchCol = batchingMatrix * vec4(0.0, 0.0, 0.0, 1.0);
             wOrigin = (modelMatrix * batchCol).xz;
             instSeed += batchCol.x * 0.37 + batchCol.z * 0.41;
+            vec3 lwB = transpose(mat3(batchingMatrix)) * vec3(uWindDir.x, 0.0, uWindDir.y);
+            float lwBLen = length(lwB.xz);
+            if (lwBLen > 0.0001) localWind = lwB.xz / lwBLen;
           #endif
-          // Sustained directional wind bend + long-lasting rolling gust waves (8-14s fronts!) + natural blade flutter
-          float gustFront = 0.54 + 0.46 * sin(uTime * 0.46 - dot(wOrigin, uWindDir) * 0.042);
-          float longSurge = 0.72 + 0.28 * sin(uTime * 0.21 - dot(wOrigin, uWindDir) * 0.016 + 1.4);
-          float sustained = (0.30 + 0.44 * gustFront * longSurge) * uWindStrength;
-          float flutter = sin(uWindTime * 2.0 + instSeed) * (0.20 + 0.10 * gustFront);
+          // Sustained directional wind bend + rolling gust waves + wind-strength-scaled flutter
+          float windAmp = max(uWindStrength, 0.05);
+          float gustFront = 0.50 + 0.50 * sin(uTime * (0.45 + windAmp * 0.35) - dot(wOrigin, uWindDir) * 0.045);
+          float longSurge = 0.70 + 0.30 * sin(uTime * 0.22 - dot(wOrigin, uWindDir) * 0.018 + 1.4);
+          float sustained = (0.26 + 0.46 * gustFront * longSurge) * windAmp;
+          float flutter = sin(uWindTime * (1.8 + windAmp * 0.85) + instSeed) * (0.14 + 0.16 * gustFront) * windAmp;
           float bend = clamp(position.y, 0.0, 1.5) * ${windSway.toFixed(4)} * (sustained + flutter);
-          transformed.x += bend * uWindDir.x;
-          transformed.z += bend * uWindDir.y;
-          transformed.y -= abs(bend) * 0.12;
+          transformed.x += bend * localWind.x;
+          transformed.z += bend * localWind.y;
+          transformed.y -= min(abs(bend) * 0.16, clamp(position.y, 0.0, 1.5) * 0.45);
         }` : ''}
         `
       )
@@ -8379,25 +8387,33 @@ function createTerrainSystem(texLib, scene) {
         {
           vec2 wOrigin = (modelMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xz;
           float instSeed = position.x * 0.7 + position.z * 0.5;
+          vec2 localWind = uWindDir;
           #ifdef USE_INSTANCING
             vec4 instCol = instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
             wOrigin = (modelMatrix * instCol).xz;
             instSeed += instCol.x * 0.37 + instCol.z * 0.41;
+            vec3 lwI = transpose(mat3(instanceMatrix)) * vec3(uWindDir.x, 0.0, uWindDir.y);
+            float lwILen = length(lwI.xz);
+            if (lwILen > 0.0001) localWind = lwI.xz / lwILen;
           #endif
           #ifdef USE_BATCHING
             vec4 batchCol = batchingMatrix * vec4(0.0, 0.0, 0.0, 1.0);
             wOrigin = (modelMatrix * batchCol).xz;
             instSeed += batchCol.x * 0.37 + batchCol.z * 0.41;
+            vec3 lwB = transpose(mat3(batchingMatrix)) * vec3(uWindDir.x, 0.0, uWindDir.y);
+            float lwBLen = length(lwB.xz);
+            if (lwBLen > 0.0001) localWind = lwB.xz / lwBLen;
           #endif
-          // Long-lasting directional wind gusts sweeping smoothly across lupin colonies + subtle flower-spike flutter
-          float gustFront = 0.54 + 0.46 * sin(uTime * 0.46 - dot(wOrigin, uWindDir) * 0.042);
-          float longSurge = 0.72 + 0.28 * sin(uTime * 0.21 - dot(wOrigin, uWindDir) * 0.016 + 1.4);
-          float sustained = (0.30 + 0.44 * gustFront * longSurge) * uWindStrength;
-          float flutter = sin(uWindTime * 1.9 + instSeed) * (0.18 + 0.10 * gustFront);
-          float bend = clamp(position.y, 0.0, 1.2) * 0.26 * (sustained + flutter);
-          transformed.x += bend * uWindDir.x;
-          transformed.z += bend * uWindDir.y;
-          transformed.y -= abs(bend) * 0.12;
+          // Sustained directional wind bend + rolling gust waves + wind-strength-scaled flutter
+          float windAmp = max(uWindStrength, 0.05);
+          float gustFront = 0.50 + 0.50 * sin(uTime * (0.45 + windAmp * 0.35) - dot(wOrigin, uWindDir) * 0.045);
+          float longSurge = 0.70 + 0.30 * sin(uTime * 0.22 - dot(wOrigin, uWindDir) * 0.018 + 1.4);
+          float sustained = (0.26 + 0.46 * gustFront * longSurge) * windAmp;
+          float flutter = sin(uWindTime * (1.8 + windAmp * 0.85) + instSeed) * (0.14 + 0.16 * gustFront) * windAmp;
+          float bend = clamp(position.y, 0.0, 1.2) * 0.28 * (sustained + flutter);
+          transformed.x += bend * localWind.x;
+          transformed.z += bend * localWind.y;
+          transformed.y -= min(abs(bend) * 0.16, clamp(position.y, 0.0, 1.2) * 0.45);
         }
         `
       )
