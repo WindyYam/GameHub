@@ -383,6 +383,12 @@ export function createLandmarkSystem(texLib, scene) {
     metalness: 0.72
   }, 'ls_dark_steel_v2', 0.6);
 
+  const outpostFloorMat = makeMat({
+    color: 0x343a40,
+    roughness: 0.92,
+    metalness: 0.06
+  }, 'ls_outpost_floor', 0.6);
+
   // Icelandic grazing sheep wool (warm textured creamy-oatmeal fleece + charcoal face/legs)
   const sheepWoolMat = makeMat({
     color: 0xc2bdb0,
@@ -510,7 +516,8 @@ export function createLandmarkSystem(texLib, scene) {
     `
   });
 
-  const cyanGlowMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.25, 1.9, 2.35) });
+  const cyanGlowMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.22, 1.15, 1.38) });
+  const cyanSoftMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(0.14, 0.68, 0.86) });
   const amberGlowMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(2.1, 1.35, 0.38) });
 
   const haloCanvas = document.createElement('canvas');
@@ -1992,25 +1999,59 @@ export function createLandmarkSystem(texLib, scene) {
     return grp;
   }
 
-  /** 6. Bridges Geothermal Research Geodesic Dome Outpost */
-  function buildOutpostDome(spec, colliders) {
+  /** 6. Bridges Geothermal Research Geodesic Dome Outpost (Enterable Base + Blast Gate + Interior) */
+  function buildOutpostDome(spec, colliders, buildingsList, doorsList) {
     const grp = new THREE.Group();
     const gy = getTerrainHeight(spec.x, spec.z);
+    const yaw = spec.yaw || 0;
     grp.position.set(spec.x, gy - 0.35, spec.z);
-    grp.rotation.y = spec.yaw;
+    grp.rotation.y = yaw;
 
-    const pad = new THREE.Mesh(new THREE.CylinderGeometry(17.5, 19.0, 2.2, 24), concreteMat);
-    pad.position.y = 0.2;
+    const floorLocalY = 0.90;
+    const pad = new THREE.Mesh(new THREE.CylinderGeometry(16.8, 18.2, 1.4, 24), concreteMat);
+    pad.position.y = 0.20;
     pad.receiveShadow = true;
     grp.add(pad);
 
-    const shellGeo = new THREE.SphereGeometry(14.5, 28, 14, 0, Math.PI * 2, 0, Math.PI * 0.52);
+    // Concrete entry ramp leading up to airlock gate (z = 14.3..17.3)
+    const ramp = new THREE.Mesh(new THREE.BoxGeometry(5.2, 0.90, 3.2), concreteMat);
+    ramp.position.set(0, 0.25, 15.8);
+    ramp.rotation.x = 0.14;
+    ramp.receiveShadow = true;
+    grp.add(ramp);
+
+    // Hollow geodesic dome shell with front airlock doorway cutout (so shell never blocks the airlock!)
+    const shellGeo = new THREE.SphereGeometry(14.5, 36, 18, 0, Math.PI * 2, 0, Math.PI * 0.52);
     shellGeo.scale(1.18, 0.44, 0.85);
+    if (shellGeo.index) {
+      const sPos = shellGeo.attributes.position;
+      const oldIdx = shellGeo.index.array;
+      const newIdx = [];
+      for (let t = 0; t < oldIdx.length; t += 3) {
+        const a = oldIdx[t], b = oldIdx[t + 1], c = oldIdx[t + 2];
+        const cx = (sPos.getX(a) + sPos.getX(b) + sPos.getX(c)) / 3;
+        const cy = (sPos.getY(a) + sPos.getY(b) + sPos.getY(c)) / 3 + 0.9;
+        const cz = (sPos.getZ(a) + sPos.getZ(b) + sPos.getZ(c)) / 3;
+        if (cz > 8.5 && Math.abs(cx) < 2.35 && cy < floorLocalY + 3.55) continue;
+        newIdx.push(a, b, c);
+      }
+      shellGeo.setIndex(newIdx);
+    }
     const shell = new THREE.Mesh(shellGeo, outpostMat);
     shell.position.y = 0.9;
     shell.castShadow = true;
     shell.receiveShadow = true;
     grp.add(shell);
+
+    const innerShellMat = outpostMat.clone();
+    innerShellMat.side = THREE.BackSide;
+    innerShellMat.color.setHex(0x6e7d8c);
+    innerShellMat.roughness = 0.88;
+    innerShellMat.metalness = 0.08;
+    const innerShell = new THREE.Mesh(shellGeo, innerShellMat);
+    innerShell.position.y = 0.9;
+    innerShell.scale.setScalar(0.985);
+    grp.add(innerShell);
 
     for (let i = -2; i <= 2; i++) {
       const rib = new THREE.Mesh(new THREE.TorusGeometry(14.55, 0.34, 6, 24, Math.PI), darkSteelMat);
@@ -2020,14 +2061,80 @@ export function createLandmarkSystem(texLib, scene) {
       grp.add(rib);
     }
 
-    const entry = new THREE.Mesh(new THREE.BoxGeometry(6.8, 3.8, 5.5), concreteMat);
-    entry.position.set(0, 2.2, 11.5);
-    entry.castShadow = true;
-    grp.add(entry);
+    // Hollow Airlock Entry Tunnel (left wall, right wall, ceiling, lintel — open doorway in center!)
+    const airLeft = new THREE.Mesh(new THREE.BoxGeometry(1.1, 3.5, 5.6), concreteMat);
+    airLeft.position.set(-2.75, floorLocalY + 1.75, 11.7);
+    airLeft.castShadow = true;
+    airLeft.receiveShadow = true;
+    grp.add(airLeft);
 
-    const doorLight = new THREE.Mesh(new THREE.BoxGeometry(4.4, 0.25, 0.35), cyanGlowMat);
-    doorLight.position.set(0, 3.6, 14.3);
+    const airRight = new THREE.Mesh(new THREE.BoxGeometry(1.1, 3.5, 5.6), concreteMat);
+    airRight.position.set(2.75, floorLocalY + 1.75, 11.7);
+    airRight.castShadow = true;
+    airRight.receiveShadow = true;
+    grp.add(airRight);
+
+    const airRoof = new THREE.Mesh(new THREE.BoxGeometry(6.6, 0.55, 5.8), concreteMat);
+    airRoof.position.set(0, floorLocalY + 3.65, 11.7);
+    airRoof.castShadow = true;
+    airRoof.receiveShadow = true;
+    grp.add(airRoof);
+
+    const doorLight = new THREE.Mesh(new THREE.BoxGeometry(4.4, 0.25, 0.35), cyanSoftMat);
+    doorLight.position.set(0, floorLocalY + 3.25, 14.62);
     grp.add(doorLight);
+
+    // Dual-Leaf Sliding Blast Gate at airlock mouth (z = 14.2) inside keepDynamic mount
+    const gateZ = 14.2;
+    const gateMount = new THREE.Group();
+    gateMount.position.set(0, floorLocalY + 1.62, gateZ);
+    gateMount.userData.keepDynamic = true;
+    grp.add(gateMount);
+
+    const leftLeaf = new THREE.Mesh(new THREE.BoxGeometry(2.15, 3.25, 0.22), darkSteelMat);
+    leftLeaf.position.set(-1.08, 0, 0);
+    leftLeaf.castShadow = true;
+    gateMount.add(leftLeaf);
+
+    const leftStrip = new THREE.Mesh(new THREE.BoxGeometry(0.14, 2.4, 0.26), cyanSoftMat);
+    leftStrip.position.set(0.95, 0, 0);
+    leftLeaf.add(leftStrip);
+
+    const rightLeaf = new THREE.Mesh(new THREE.BoxGeometry(2.15, 3.25, 0.22), darkSteelMat);
+    rightLeaf.position.set(1.08, 0, 0);
+    rightLeaf.castShadow = true;
+    gateMount.add(rightLeaf);
+
+    const rightStrip = new THREE.Mesh(new THREE.BoxGeometry(0.14, 2.4, 0.26), cyanSoftMat);
+    rightStrip.position.set(-0.95, 0, 0);
+    rightLeaf.add(rightStrip);
+
+    // Gate collider (blocks entry while closed; character/bike skip when doorRef.openProgress > 0.65)
+    const cosY = Math.cos(yaw);
+    const sinY = Math.sin(yaw);
+    const gateWorldX = spec.x + gateZ * sinY;
+    const gateWorldZ = spec.z + gateZ * cosY;
+    const gateDoor = {
+      id: `outpost_gate_${Math.round(spec.x)}_${Math.round(spec.z)}`,
+      label: 'Outpost Gate',
+      isSliding: true,
+      leftPivot: leftLeaf,
+      rightPivot: rightLeaf,
+      leftBaseX: -1.08,
+      rightBaseX: 1.08,
+      slideDist: 1.95,
+      isOpen: false,
+      openProgress: 0.0,
+      worldX: gateWorldX,
+      worldY: gy + floorLocalY + 1.2,
+      worldZ: gateWorldZ,
+      collider: null
+    };
+    gateDoor.collider = addBoxCollider(colliders, spec, 0, gateZ, 2.2, 0.45, 1.0, {
+      doorRef: gateDoor,
+      isDoor: true
+    });
+    doorsList.push(gateDoor);
 
     const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.32, 13.5, 8), darkSteelMat);
     mast.position.set(-7.5, 7.2, -5.0);
@@ -2038,7 +2145,52 @@ export function createLandmarkSystem(texLib, scene) {
     mastLight.position.set(-7.5, 14.0, -5.0);
     grp.add(mastLight);
 
-    colliders.push({ x: spec.x, z: spec.z, r: 15.5 });
+    // Accurate elliptical dome perimeter wall colliders (tangent-aligned, zero gaps, leaving front airlock x=-2.8..2.8 clear!)
+    const segCount = 24;
+    const rx = 16.9;
+    const rz = 12.1;
+    for (let i = 0; i < segCount; i++) {
+      const a0 = (i / segCount) * Math.PI * 2;
+      const a1 = ((i + 1) / segCount) * Math.PI * 2;
+      const am = (a0 + a1) * 0.5;
+      const mx = Math.sin(am) * rx;
+      const mz = Math.cos(am) * rz;
+      // Leave front doorway opening around +Z (am near 0)
+      if (mz > 8.0 && Math.abs(mx) < 2.9) continue;
+      // Align box local +X (hx) with ellipse tangent (cos(am)*rx, -sin(am)*rz)
+      const segAng = Math.atan2(Math.sin(am) * rz, Math.cos(am) * rx);
+      const wx = spec.x + (mx * cosY + mz * sinY);
+      const wz = spec.z + (-mx * sinY + mz * cosY);
+      addBoxCollider(colliders, { x: wx, z: wz, yaw: yaw + segAng }, 0, 0, 2.6, 0.85, 1.0);
+    }
+    // Airlock tunnel side walls
+    addBoxCollider(colliders, spec, -2.75, 11.7, 0.7, 2.9, 1.0);
+    addBoxCollider(colliders, spec, 2.75, 11.7, 0.7, 2.9, 1.0);
+
+    buildingsList.push({
+      id: `outpost_${Math.round(spec.x)}_${Math.round(spec.z)}`,
+      kind: 'outpost',
+      spec,
+      gy,
+      sc: 1.0,
+      cosY,
+      sinY,
+      w: 30.0,
+      len: 25.0,
+      h: 5.8,
+      roofH: 1.4,
+      wt: 0.9,
+      floorWorldY: gy - 0.35 + floorLocalY,
+      interiorBuilt: false,
+      interiorGroup: null,
+      interiorDisposables: [],
+      interiorColliders: [],
+      interiorLights: [],
+      interiorLightLocal: new THREE.Vector3(0, floorLocalY + 4.8, 0.2),
+      interiorLightColor: 0xb8f2ff,
+      interiorLightBase: 28.0
+    });
+
     return grp;
   }
 
@@ -2698,6 +2850,90 @@ export function createLandmarkSystem(texLib, scene) {
     b.interiorLightColor = 0xffb45a;
   }
 
+  function buildOutpostInterior(b, rawInt, intCols) {
+    const baseY = 0.90;
+
+    // Grated steel walkway deck + glowing cyan airlock guide strips
+    const deck = new THREE.Mesh(new THREE.CylinderGeometry(11.8, 12.0, 0.08, 24), outpostFloorMat);
+    deck.position.set(0, baseY + 0.04, 0);
+    deck.scale.set(1.22, 1.0, 0.86);
+    deck.receiveShadow = true;
+    rawInt.add(deck);
+
+    for (const sx of [-1.45, 1.45]) {
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.04, 7.5), cyanSoftMat);
+      strip.position.set(sx, baseY + 0.09, 7.5);
+      rawInt.add(strip);
+    }
+
+    // Central Bridges Chiral Holo-Map Table
+    const holoBase = new THREE.Mesh(new THREE.CylinderGeometry(1.65, 1.95, 0.92, 12), darkSteelMat);
+    holoBase.position.set(0, baseY + 0.46, 0.2);
+    holoBase.castShadow = true;
+    holoBase.receiveShadow = true;
+    rawInt.add(holoBase);
+
+    const holoTop = new THREE.Mesh(new THREE.CylinderGeometry(1.78, 1.78, 0.10, 16), concreteMat);
+    holoTop.position.set(0, baseY + 0.95, 0.2);
+    rawInt.add(holoTop);
+
+    const holoRing = new THREE.Mesh(new THREE.TorusGeometry(1.25, 0.045, 6, 24), cyanSoftMat);
+    holoRing.rotation.x = Math.PI * 0.5;
+    holoRing.position.set(0, baseY + 1.18, 0.2);
+    rawInt.add(holoRing);
+
+    const holoPeak = new THREE.Mesh(new THREE.ConeGeometry(0.65, 0.52, 8), cyanSoftMat);
+    holoPeak.position.set(0, baseY + 1.32, 0.2);
+    rawInt.add(holoPeak);
+
+    // Central overhead ceiling LED light hub
+    const hubRing = new THREE.Mesh(new THREE.TorusGeometry(2.1, 0.10, 6, 24), cyanSoftMat);
+    hubRing.rotation.x = Math.PI * 0.5;
+    hubRing.position.set(0, baseY + 5.1, 0.2);
+    rawInt.add(hubRing);
+
+    intCols.push(addBoxCollider([], b.spec, 0, 0.2, 1.9, 1.9, 1.0, { isInterior: true }));
+
+    // Back-wall Geothermal Telemetry Console Bank (3 angled stations)
+    for (let i = -1; i <= 1; i++) {
+      const cx = i * 3.6;
+      const cz = -6.8 + Math.abs(i) * 0.65;
+      const desk = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.95, 1.1), darkSteelMat);
+      desk.position.set(cx, baseY + 0.48, cz);
+      desk.rotation.y = i * -0.22;
+      rawInt.add(desk);
+
+      const screen = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.85, 0.12), cyanSoftMat);
+      screen.position.set(cx, baseY + 1.48, cz - 0.35);
+      screen.rotation.y = i * -0.22;
+      rawInt.add(screen);
+      intCols.push(addBoxCollider([], b.spec, cx, cz, 1.5, 0.7, 1.0, { isInterior: true }));
+    }
+
+    // Left Wing: Bridges Expedition Supply & Cargo Racks
+    const rack = new THREE.Mesh(new THREE.BoxGeometry(1.6, 2.3, 4.8), darkSteelMat);
+    rack.position.set(-9.8, baseY + 1.15, -1.2);
+    rawInt.add(rack);
+    for (let c = 0; c < 3; c++) {
+      const crate = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.68, 1.25), concreteMat);
+      crate.position.set(-9.75, baseY + 0.45 + (c % 2) * 0.82, -2.6 + c * 1.45);
+      rawInt.add(crate);
+    }
+    intCols.push(addBoxCollider([], b.spec, -9.8, -1.2, 0.95, 2.5, 1.0, { isInterior: true }));
+
+    // Right Wing: Crew Recovery Bunk & Gear Locker
+    const bunk = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.62, 3.6), concreteMat);
+    bunk.position.set(9.6, baseY + 0.31, -1.2);
+    rawInt.add(bunk);
+    const bunkPad = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.22, 3.2), darkSteelMat);
+    bunkPad.position.set(9.6, baseY + 0.72, -1.2);
+    rawInt.add(bunkPad);
+    const locker = new THREE.Mesh(new THREE.BoxGeometry(1.3, 2.2, 1.8), darkSteelMat);
+    locker.position.set(9.8, baseY + 1.1, 2.2);
+    rawInt.add(locker);
+    intCols.push(addBoxCollider([], b.spec, 9.6, -0.4, 1.2, 3.2, 1.0, { isInterior: true }));
+  }
+
   function ensureBuildingInterior(b, cell) {
     if (b.interiorBuilt) return;
     b.interiorBuilt = true;
@@ -2712,6 +2948,7 @@ export function createLandmarkSystem(texLib, scene) {
     else if (b.kind === 'nordic_house') buildNordicHouseInterior(b, rawInt, intCols);
     else if (b.kind === 'smithy') buildSmithyInterior(b, rawInt, intCols);
     else if (b.kind === 'storehouse') buildStorehouseInterior(b, rawInt, intCols);
+    else if (b.kind === 'outpost') buildOutpostInterior(b, rawInt, intCols);
     else buildBarnInterior(b, rawInt, intCols);
 
     const batched = batchStaticCellGroup(rawInt, b.interiorDisposables);
@@ -2749,7 +2986,7 @@ export function createLandmarkSystem(texLib, scene) {
     const doorsList = [];
 
     if (f.village) rawGroup.add(buildIcelandicVillage(f.village, colliders, disposables, buildingsList, doorsList));
-    for (const o of f.outposts) rawGroup.add(buildOutpostDome(o, colliders));
+    for (const o of f.outposts) rawGroup.add(buildOutpostDome(o, colliders, buildingsList, doorsList));
     for (const r of f.relays) rawGroup.add(buildRustedRelayTower(r, colliders));
     for (const b of f.beacons) rawGroup.add(buildBeaconPost(b));
     for (const bc of f.basaltColumns) rawGroup.add(buildBasaltColumnCluster(bc, colliders));
@@ -2821,14 +3058,21 @@ export function createLandmarkSystem(texLib, scene) {
           d.openProgress += (target - d.openProgress) * step;
           if (Math.abs(d.openProgress - target) < 0.005) d.openProgress = target;
           const ease = d.openProgress * d.openProgress * (3.0 - 2.0 * d.openProgress);
-          if (d.leftPivot) d.leftPivot.rotation.y = ease * d.swingAngle;
-          if (d.rightPivot) d.rightPivot.rotation.y = -ease * d.swingAngle;
+          if (d.isSliding) {
+            if (d.leftPivot) d.leftPivot.position.x = d.leftBaseX - ease * d.slideDist;
+            if (d.rightPivot) d.rightPivot.position.x = d.rightBaseX + ease * d.slideDist;
+            if (d.collider) d.collider.disabled = d.openProgress > 0.65;
+          } else {
+            if (d.leftPivot) d.leftPivot.rotation.y = ease * d.swingAngle;
+            if (d.rightPivot) d.rightPivot.rotation.y = -ease * d.swingAngle;
+          }
         }
       }
 
       for (const b of cell.buildings) {
+        const maxRange = b.kind === 'outpost' ? 28.0 : 20.0;
         const dist = Math.hypot(b.spec.x - centerX, b.spec.z - centerZ);
-        if (dist < activeDist) {
+        if (dist < maxRange && dist < activeDist) {
           activeDist = dist;
           activeB = b;
           activeCell = cell;
@@ -2841,8 +3085,9 @@ export function createLandmarkSystem(texLib, scene) {
         if (b === activeB) {
           ensureBuildingInterior(b, activeCell);
         } else if (b.interiorBuilt) {
+          const disposeRange = b.kind === 'outpost' ? 32.0 : 24.0;
           const dist = Math.hypot(b.spec.x - centerX, b.spec.z - centerZ);
-          if (dist > 24.0) {
+          if (dist > disposeRange) {
             disposeBuildingInterior(b, cell);
           }
         }
@@ -2857,7 +3102,12 @@ export function createLandmarkSystem(texLib, scene) {
         activeB.spec.z + (-lp.x * activeB.sinY + lp.z * activeB.cosY) * activeB.sc
       );
       interiorLight.color.setHex(activeB.interiorLightColor);
-      const flicker = 1.0 + 0.08 * Math.sin(nowT * 7.3) + 0.04 * Math.sin(nowT * 13.7);
+      const isOutpost = activeB.kind === 'outpost';
+      interiorLight.distance = isOutpost ? 45 : 20;
+      interiorLight.decay = isOutpost ? 0.75 : 1.5;
+      const flicker = isOutpost
+        ? (0.98 + 0.02 * Math.sin(nowT * 4.0))
+        : (1.0 + 0.08 * Math.sin(nowT * 7.3) + 0.04 * Math.sin(nowT * 13.7));
       interiorLight.intensity = activeB.interiorLightBase * flicker;
     } else {
       interiorLight.intensity = 0.0001;
@@ -2895,6 +3145,23 @@ export function createLandmarkSystem(texLib, scene) {
         const dz = z - b.spec.z;
         const lx = (dx * b.cosY - dz * b.sinY) / b.sc;
         const lz = (dx * b.sinY + dz * b.cosY) / b.sc;
+
+        if (b.kind === 'outpost') {
+          const inEllipse = (lx * lx) / (15.8 * 15.8) + (lz * lz) / (11.5 * 11.5) <= 1.0;
+          const inAirlock = Math.abs(lx) <= 2.6 && lz >= 9.0 && lz <= 14.5;
+          if (inEllipse || inAirlock) {
+            if (y >= b.floorWorldY - 1.2) {
+              bestY = Math.max(bestY, b.floorWorldY);
+            }
+          } else if (lz > 14.5 && lz <= 17.5 && Math.abs(lx) <= 2.6) {
+            const t = Math.max(0, Math.min(1, 1.0 - (lz - 14.5) / 3.0));
+            const stepY = b.floorWorldY - 0.75 * (1.0 - t);
+            if (y >= stepY - 1.0) {
+              bestY = Math.max(bestY, stepY);
+            }
+          }
+          continue;
+        }
 
         // Inside building footprint (including doorway threshold)
         if (Math.abs(lx) <= b.w * 0.5 + 0.15 && Math.abs(lz) <= b.len * 0.5 + 0.25) {
@@ -2951,6 +3218,7 @@ export function createLandmarkSystem(texLib, scene) {
     const out = [];
     for (const cell of activeCells.values()) {
       for (const col of cell.colliders) {
+        if (col.disabled) continue;
         if (Math.hypot(col.x - x, col.z - z) < radius + col.r) {
           out.push(col);
         }
@@ -2960,8 +3228,9 @@ export function createLandmarkSystem(texLib, scene) {
   }
 
   const _shelterTmp = { cx: 0, cz: 0, roofY: 0, cosY: 1, sinY: 0, halfW: 0, halfL: 0, inside: false };
-  function getNearestShelterBox(x, y, z, maxDist = 28) {
+  function getNearestShelterBox(x, y, z, maxDist = 34) {
     let bestB = null;
+    let bestCell = null;
     let bestD = maxDist;
     for (const cell of activeCells.values()) {
       for (const b of cell.buildings) {
@@ -2969,13 +3238,25 @@ export function createLandmarkSystem(texLib, scene) {
         if (d < bestD) {
           bestD = d;
           bestB = b;
+          bestCell = cell;
         }
       }
     }
     if (!bestB) return null;
+    let doorOpen = 0.0;
+    if (bestCell && bestCell.doors) {
+      let bestDoorD = bestB.len * 0.85 + 6.0;
+      for (const dr of bestCell.doors) {
+        const dd = Math.hypot(dr.worldX - bestB.spec.x, dr.worldZ - bestB.spec.z);
+        if (dd < bestDoorD) {
+          bestDoorD = dd;
+          doorOpen = dr.openProgress;
+        }
+      }
+    }
     const hw = bestB.w * 0.52 * bestB.sc;
     const hl = bestB.len * 0.52 * bestB.sc;
-    const roofY = bestB.floorWorldY + (bestB.h + bestB.roofH * 0.85) * bestB.sc;
+    const roofY = bestB.floorWorldY + (bestB.h + (bestB.roofH || 0) * 0.85) * bestB.sc;
     const dx = x - bestB.spec.x;
     const dz = z - bestB.spec.z;
     const lx = dx * bestB.cosY - dz * bestB.sinY;
@@ -2987,6 +3268,7 @@ export function createLandmarkSystem(texLib, scene) {
     _shelterTmp.sinY = bestB.sinY;
     _shelterTmp.halfW = hw;
     _shelterTmp.halfL = hl;
+    _shelterTmp.doorOpen = doorOpen;
     _shelterTmp.inside = Math.abs(lx) < hw && Math.abs(lz) < hl && y < roofY;
     return _shelterTmp;
   }

@@ -1624,13 +1624,13 @@ function animate() {
   landmarkSys.update(px, pz, dt);
   const t2 = bOn ? performance.now() : 0;
 
-  envCtrl.update(dt, porter.state.pos);
+  const shelter = landmarkSys.getNearestShelterBox(px, porter.state.pos.y, pz);
+  envCtrl.update(dt, porter.state.pos, shelter);
   const strike = envCtrl.consumeLightningStrike();
   if (strike) {
     const distM = weatherFX.triggerLightning(camera, porter.state.pos, strike.strength);
     audioSys.playThunder(distM, strike.strength);
   }
-  const shelter = landmarkSys.getNearestShelterBox(px, porter.state.pos.y, pz);
   weatherFX.update(camera, envCtrl.curWx.rainIntensity, porter.state.pos, dt, shelter);
   audioSys.update(
     porter.state.pos,

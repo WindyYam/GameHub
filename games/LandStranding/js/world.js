@@ -972,10 +972,10 @@ export function getCellFeatures(cx, cz) {
     }
   }
 
-  // 4. Bridges Research Outpost Dome + Trail Guide Beacons (~45% of cells, well separated from village)
+  // 4. Bridges Research Outpost Dome + Trail Guide Beacons (always present in origin cell, ~48% of other cells)
   const outposts = [];
   const beacons = [];
-  if (h0 > 0.52 || (isOriginCell && h4 > 0.35)) {
+  if (h0 > 0.52 || isOriginCell) {
     const oSide = h6 > 0.5 ? 1 : -1;
     let ox = originX - nx * (190 + h4 * 75) + tx * (oSide * (125 + h2 * 65));
     let oz = originZ - nz * (190 + h4 * 75) + tz * (oSide * (125 + h2 * 65));
@@ -983,7 +983,18 @@ export function getCellFeatures(cx, cz) {
       ox += tx * oSide * 90;
       oz += tz * oSide * 90;
     }
-    if (riverDistAt(ox, oz) > 26 && getNearestTrunkDist(ox, oz) > 26 && !isWetInLake(ox, oz, 30.0)) {
+    if (isOriginCell && (riverDistAt(ox, oz) <= 26 || getNearestTrunkDist(ox, oz) <= 26 || isWetInLake(ox, oz, 30.0))) {
+      for (let step = 1; step <= 6; step++) {
+        const candX = originX - nx * (160 + step * 32) + tx * (oSide * (110 + step * 25));
+        const candZ = originZ - nz * (160 + step * 32) + tz * (oSide * (110 + step * 25));
+        if (riverDistAt(candX, candZ) > 26 && getNearestTrunkDist(candX, candZ) > 26 && !isWetInLake(candX, candZ, 30.0)) {
+          ox = candX;
+          oz = candZ;
+          break;
+        }
+      }
+    }
+    if (isOriginCell || (riverDistAt(ox, oz) > 26 && getNearestTrunkDist(ox, oz) > 26 && !isWetInLake(ox, oz, 30.0))) {
       outposts.push({ x: ox, z: oz, yaw: h1 * Math.PI * 2 });
       for (let b = 1; b <= 5; b++) {
         const bx = ox - tx * oSide * b * 28 + nx * Math.sin(b * 0.7) * 10;
@@ -1699,6 +1710,14 @@ export function getRiverSurfaceY(x, z) {
  */
 export function findSpawnPosition() {
   const f = getCellFeatures(0, 0);
+  if (f.outposts && f.outposts.length > 0) {
+    const op = f.outposts[0];
+    const gateDist = 17.8;
+    const sx = op.x + Math.sin(op.yaw) * gateDist;
+    const sz = op.z + Math.cos(op.yaw) * gateDist;
+    const sy = getTerrainHeight(sx, sz);
+    return { x: sx, y: sy, z: sz, yaw: op.yaw + Math.PI };
+  }
   const n = new THREE.Vector3();
 
   // Aim toward the midpoint of waterfall/cliff & village for an unforgettable initial vista

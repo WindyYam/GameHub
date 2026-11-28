@@ -1669,8 +1669,13 @@ export function createPorter(scene, onFootstep) {
     leftArm.shoulder.rotation.y = mix(leftArm.shoulder.rotation.y, 0, armLerp);
     rightArm.shoulder.rotation.y = mix(rightArm.shoulder.rotation.y, 0, armLerp);
 
-    // Automatic night & subterranean cave chest-lamp activation!
-    const lampNeed = Math.max(smoothstep(0.35, 0.85, ATMO_UNIFORMS.uNightFactor.value), caveInfo.darkness || 0);
+    // Automatic night, subterranean cave & indoor building chest-lamp activation!
+    const lampNeed = Math.max(
+      smoothstep(0.35, 0.85, ATMO_UNIFORMS.uNightFactor.value),
+      caveInfo.darkness || 0,
+      ATMO_UNIFORMS.uInsideBuilding.value * 0.85,
+      ATMO_UNIFORMS.uIndoorDarkness.value
+    );
     chestLamp.intensity = lampNeed * 14.0;
 
     root.position.copy(state.pos);

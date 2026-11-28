@@ -105,6 +105,8 @@ export const ATMO_UNIFORMS = {
   uCloudSteps: { value: 4.0 },
   uRainWetness: { value: 0.42 },
   uNightFactor: { value: 0.0 },
+  uIndoorDarkness: { value: 0.0 },
+  uInsideBuilding: { value: 0.0 },
   uAuroraStrength: { value: 0.0 },
   uAuroraTime: { value: 0.0 },
   uAuroraProfile: { value: new THREE.Vector4(0.72, 0.34, 0.58, 0.46) },
@@ -1403,7 +1405,7 @@ export function createEnvironmentController(scene, renderer, skyDome) {
     pickRandomAuroraProfile();
   }
 
-  function update(dt, playerPos) {
+  function update(dt, playerPos, shelter = null) {
     ATMO_UNIFORMS.uTime.value += dt;
     ATMO_UNIFORMS.uPlayerPos.value.copy(playerPos);
 
@@ -1640,19 +1642,27 @@ export function createEnvironmentController(scene, renderer, skyDome) {
     );
     sunLight.color.copy(_sunCol);
 
+    const targetInside = shelter && shelter.inside ? 1.0 : 0.0;
+    const targetEnclosed = shelter && shelter.inside ? (1.0 - clamp(shelter.doorOpen || 0.0, 0.0, 1.0)) : 0.0;
+    const inLerp = 1.0 - Math.exp(-8.5 * Math.min(dt || 0.016, 0.05));
+    ATMO_UNIFORMS.uInsideBuilding.value = mix(ATMO_UNIFORMS.uInsideBuilding.value, targetInside, inLerp);
+    ATMO_UNIFORMS.uIndoorDarkness.value = mix(ATMO_UNIFORMS.uIndoorDarkness.value, targetEnclosed, inLerp);
+    const indoorDark = ATMO_UNIFORMS.uIndoorDarkness.value;
+    const extMask = 1.0 - indoorDark;
+
     const dayKeyInt = (2.35 - overcastFrac * 0.82) * curWx.sunGain * (1.0 - nightFactor * 0.92);
     const nightKeyInt = 0.26 * nightFactor;
-    sunLight.intensity = dayKeyInt + nightKeyInt + state.lightningFlash * 1.6;
+    sunLight.intensity = (dayKeyInt + nightKeyInt + state.lightningFlash * 1.6) * extMask;
 
     // Soft overcast Nordic sky fill + natural warm-olive ground bounce (eliminates harsh pitch-black shadow spots!)
     _hemiSky.copy(_horizonCol).lerp(new THREE.Color(0.88, 0.92, 0.96), (1.0 - nightFactor) * 0.48);
     _hemiGnd.setRGB(0.16, 0.19, 0.10).lerp(new THREE.Color(0.022, 0.028, 0.036), nightFactor);
     hemiLight.color.copy(_hemiSky);
     hemiLight.groundColor.copy(_hemiGnd);
-    hemiLight.intensity = mix(1.12 * curWx.ambientGain, 0.30, nightFactor) + state.lightningFlash * 0.8;
+    hemiLight.intensity = (mix(1.12 * curWx.ambientGain, 0.30, nightFactor) + state.lightningFlash * 0.8) * (1.0 - indoorDark * 0.94);
 
     auroraBounceLight.color.copy(ATMO_UNIFORMS.uAuroraTint.value);
-    auroraBounceLight.intensity = auroraIntensity * 0.24;
+    auroraBounceLight.intensity = auroraIntensity * 0.24 * extMask;
 
     skyDome.mesh.position.copy(playerPos);
 
@@ -1673,8 +1683,8 @@ export function createEnvironmentController(scene, renderer, skyDome) {
       if (currentEnvRT) currentEnvRT.dispose();
       currentEnvRT = nextRT;
       scene.environment = currentEnvRT.texture;
-      scene.environmentIntensity = mix(0.62, 0.42, nightFactor);
     }
+    scene.environmentIntensity = mix(0.62, 0.42, nightFactor) * (1.0 - indoorDark * 0.92);
   }
 
   return {
