@@ -265,7 +265,6 @@ def build():
       <div class="key-chip"><b>Q</b> Odradek Scan</div>
       <div class="key-chip"><b>Click / Mouse</b> Look</div>
       <div class="key-chip"><b>Scroll</b> Zoom</div>
-      <div class="key-chip"><b>V</b> Reset Vista</div>
     </div>
 
     <div class="hud-bottom-right">

@@ -849,7 +849,6 @@ body.touch-active .hud-bottom-left {
       <div class="key-chip"><b>Q</b> Odradek Scan</div>
       <div class="key-chip"><b>Click / Mouse</b> Look</div>
       <div class="key-chip"><b>Scroll</b> Zoom</div>
-      <div class="key-chip"><b>V</b> Reset Vista</div>
     </div>
 
     <div class="hud-bottom-right">
@@ -14998,21 +14997,67 @@ function createLandmarkSystem(texLib, scene) {
   function clampCameraPos(targetPos, desiredPos) {
     for (const cell of activeCells.values()) {
       for (const b of cell.buildings) {
-        if (Math.hypot(b.spec.x - targetPos.x, b.spec.z - targetPos.z) > b.len * 0.7 * b.sc) continue;
+        const maxRange = b.kind === 'outpost' ? 22.0 : b.len * 0.7 * b.sc;
+        if (Math.hypot(b.spec.x - targetPos.x, b.spec.z - targetPos.z) > maxRange) continue;
         const dx = targetPos.x - b.spec.x;
         const dz = targetPos.z - b.spec.z;
         const tlx = (dx * b.cosY - dz * b.sinY) / b.sc;
         const tlz = (dx * b.sinY + dz * b.cosY) / b.sc;
+
+        let doorOpen = 0.0;
+        if (cell.doors) {
+          let bestDoorD = b.len * 0.85 + 6.0;
+          for (const dr of cell.doors) {
+            const dd = Math.hypot(dr.worldX - b.spec.x, dr.worldZ - b.spec.z);
+            if (dd < bestDoorD) {
+              bestDoorD = dd;
+              doorOpen = dr.openProgress;
+            }
+          }
+        }
+
+        if (b.kind === 'outpost') {
+          const inDome = (tlx * tlx) / (15.4 * 15.4) + (tlz * tlz) / (11.0 * 11.0) <= 1.0 && targetPos.y >= b.floorWorldY - 0.5;
+          if (!inDome) continue;
+          const cdx = desiredPos.x - b.spec.x;
+          const cdz = desiredPos.z - b.spec.z;
+          let clx = (cdx * b.cosY - cdz * b.sinY) / b.sc;
+          let clz = (cdx * b.sinY + cdz * b.cosY) / b.sc;
+          const inOpenAirlock = doorOpen > 0.5 && Math.abs(clx) < 2.0 && clz > 8.5 && clz < 17.0;
+          if (inOpenAirlock) {
+            clx = Math.max(-1.85, Math.min(1.85, clx));
+            const airCeil = b.floorWorldY + 3.1;
+            if (desiredPos.y > airCeil) desiredPos.y = airCeil;
+            if (desiredPos.y < b.floorWorldY + 0.55) desiredPos.y = b.floorWorldY + 0.55;
+          } else {
+            const ell = Math.hypot(clx / 15.0, clz / 10.6);
+            if (ell > 1.0) {
+              clx /= ell;
+              clz /= ell;
+            }
+            const ceilY = b.floorWorldY + (b.h - 0.45);
+            if (desiredPos.y > ceilY) desiredPos.y = ceilY;
+            if (desiredPos.y < b.floorWorldY + 0.55) desiredPos.y = b.floorWorldY + 0.55;
+          }
+          desiredPos.x = b.spec.x + (clx * b.cosY + clz * b.sinY) * b.sc;
+          desiredPos.z = b.spec.z + (-clx * b.sinY + clz * b.cosY) * b.sc;
+          return true;
+        }
+
         if (Math.abs(tlx) < b.w * 0.5 - b.wt * 0.5 && Math.abs(tlz) < b.len * 0.5 - b.wt * 0.5 && targetPos.y >= b.floorWorldY - 0.5) {
-          // Player is inside this building: keep camera inside the interior room & below ceiling!
+          // Player is inside this building: keep camera inside the interior room & below ceiling (unless looking through open doorway!)
           const cdx = desiredPos.x - b.spec.x;
           const cdz = desiredPos.z - b.spec.z;
           let clx = (cdx * b.cosY - cdz * b.sinY) / b.sc;
           let clz = (cdx * b.sinY + cdz * b.cosY) / b.sc;
           const maxLx = b.w * 0.5 - b.wt - 0.25;
           const maxLz = b.len * 0.5 - b.wt - 0.25;
+          const doorCx = b.kind === 'turf_cottage' ? -1.15 : 0;
+          const inOpenDoorway = doorOpen > 0.5 && Math.abs(clx - doorCx) < 1.25 && clz > maxLz && clz < maxLz + 3.2;
           clx = Math.max(-maxLx, Math.min(maxLx, clx));
-          clz = Math.max(-maxLz, Math.min(maxLz, clz));
+          if (!inOpenDoorway) {
+            clz = Math.max(-maxLz, Math.min(maxLz, clz));
+          }
           desiredPos.x = b.spec.x + (clx * b.cosY + clz * b.sinY) * b.sc;
           desiredPos.z = b.spec.z + (-clx * b.sinY + clz * b.cosY) * b.sc;
           const ceilY = b.floorWorldY + (b.h - 0.35) * b.sc;
@@ -19782,13 +19827,12 @@ const camState = {
   customOverride: false
 };
 
-function resetVista() {
+function placeAtSpawn() {
   if (bikeSys.state.riding) {
     bikeSys.dismount(porter, terrainSys, landmarkSys);
   }
   camState.customOverride = false;
   const sp = findSpawnPosition();
-  // Porter faces forward into the valley vista; camera sits squarely aligned behind over right shoulder
   porter.placeAt(sp.x, sp.z, sp.yaw);
   camState.yaw = sp.yaw + Math.PI;
   camState.pitch = 0.08;
@@ -19910,7 +19954,7 @@ if (elBtnStart) {
 async function bootWorld() {
   setLoadProgress(15, 'Generating Icelandic Sector...');
   await nextFrameTick();
-  resetVista();
+  placeAtSpawn();
 
   setLoadProgress(40, 'Sculpting Volcanic Terrain...');
   await nextFrameTick();
@@ -20019,9 +20063,6 @@ window.addEventListener('keydown', (e) => {
       return;
     }
     toggleMountMotorcycle();
-  }
-  if (k === 'v') {
-    resetVista();
   }
   if (k === 'h') {
     document.getElementById('hud').classList.toggle('hidden');
@@ -20339,8 +20380,7 @@ function refreshBikeHud() {
         '<div class="key-chip"><b>Shift</b> Chiral Boost</div>' +
         '<div class="key-chip"><b>Space</b> Hop / Handbrake</div>' +
         '<div class="key-chip"><b>E</b> Dismount</div>' +
-        '<div class="key-chip"><b>Q</b> Odradek Scan</div>' +
-        '<div class="key-chip"><b>V</b> Reset Vista</div>';
+        '<div class="key-chip"><b>Q</b> Odradek Scan</div>';
     } else {
       elHudKeyHints.innerHTML =
         '<div class="key-chip"><b>WASD</b> Walk</div>' +
@@ -20350,8 +20390,7 @@ function refreshBikeHud() {
         '<div class="key-chip"><b>E</b> Ride Bike</div>' +
         '<div class="key-chip"><b>Q</b> Odradek Scan</div>' +
         '<div class="key-chip"><b>Click / Mouse</b> Look</div>' +
-        '<div class="key-chip"><b>Scroll</b> Zoom</div>' +
-        '<div class="key-chip"><b>V</b> Reset Vista</div>';
+        '<div class="key-chip"><b>Scroll</b> Zoom</div>';
     }
   }
 }
@@ -20823,7 +20862,7 @@ function switchWorldSeed(seedStr) {
   }
   bikeSys.clear();
   setWorldSeed(seedStr);
-  resetVista();
+  placeAtSpawn();
   terrainSys.rebuildAll(porter.state.pos.x, porter.state.pos.z);
   waterSys.rebuildAll(porter.state.pos.x, porter.state.pos.z);
   landmarkSys.rebuildAll(porter.state.pos.x, porter.state.pos.z);
@@ -21186,10 +21225,6 @@ window.__LANDSTRANDING__ = {
     camState.customOverride = true;
     camera.position.set(pos[0], pos[1], pos[2]);
     camera.lookAt(lookAt[0], lookAt[1], lookAt[2]);
-    composer.render();
-  },
-  resetHeroVista() {
-    resetVista();
     composer.render();
   },
   teleportToVillage() {

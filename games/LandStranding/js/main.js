@@ -438,13 +438,12 @@ const camState = {
   customOverride: false
 };
 
-function resetVista() {
+function placeAtSpawn() {
   if (bikeSys.state.riding) {
     bikeSys.dismount(porter, terrainSys, landmarkSys);
   }
   camState.customOverride = false;
   const sp = findSpawnPosition();
-  // Porter faces forward into the valley vista; camera sits squarely aligned behind over right shoulder
   porter.placeAt(sp.x, sp.z, sp.yaw);
   camState.yaw = sp.yaw + Math.PI;
   camState.pitch = 0.08;
@@ -566,7 +565,7 @@ if (elBtnStart) {
 async function bootWorld() {
   setLoadProgress(15, 'Generating Icelandic Sector...');
   await nextFrameTick();
-  resetVista();
+  placeAtSpawn();
 
   setLoadProgress(40, 'Sculpting Volcanic Terrain...');
   await nextFrameTick();
@@ -675,9 +674,6 @@ window.addEventListener('keydown', (e) => {
       return;
     }
     toggleMountMotorcycle();
-  }
-  if (k === 'v') {
-    resetVista();
   }
   if (k === 'h') {
     document.getElementById('hud').classList.toggle('hidden');
@@ -995,8 +991,7 @@ function refreshBikeHud() {
         '<div class="key-chip"><b>Shift</b> Chiral Boost</div>' +
         '<div class="key-chip"><b>Space</b> Hop / Handbrake</div>' +
         '<div class="key-chip"><b>E</b> Dismount</div>' +
-        '<div class="key-chip"><b>Q</b> Odradek Scan</div>' +
-        '<div class="key-chip"><b>V</b> Reset Vista</div>';
+        '<div class="key-chip"><b>Q</b> Odradek Scan</div>';
     } else {
       elHudKeyHints.innerHTML =
         '<div class="key-chip"><b>WASD</b> Walk</div>' +
@@ -1006,8 +1001,7 @@ function refreshBikeHud() {
         '<div class="key-chip"><b>E</b> Ride Bike</div>' +
         '<div class="key-chip"><b>Q</b> Odradek Scan</div>' +
         '<div class="key-chip"><b>Click / Mouse</b> Look</div>' +
-        '<div class="key-chip"><b>Scroll</b> Zoom</div>' +
-        '<div class="key-chip"><b>V</b> Reset Vista</div>';
+        '<div class="key-chip"><b>Scroll</b> Zoom</div>';
     }
   }
 }
@@ -1479,7 +1473,7 @@ function switchWorldSeed(seedStr) {
   }
   bikeSys.clear();
   setWorldSeed(seedStr);
-  resetVista();
+  placeAtSpawn();
   terrainSys.rebuildAll(porter.state.pos.x, porter.state.pos.z);
   waterSys.rebuildAll(porter.state.pos.x, porter.state.pos.z);
   landmarkSys.rebuildAll(porter.state.pos.x, porter.state.pos.z);
@@ -1842,10 +1836,6 @@ window.__LANDSTRANDING__ = {
     camState.customOverride = true;
     camera.position.set(pos[0], pos[1], pos[2]);
     camera.lookAt(lookAt[0], lookAt[1], lookAt[2]);
-    composer.render();
-  },
-  resetHeroVista() {
-    resetVista();
     composer.render();
   },
   teleportToVillage() {
