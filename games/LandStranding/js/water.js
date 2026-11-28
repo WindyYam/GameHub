@@ -329,13 +329,12 @@ function buildRiverGeometry(pts) {
       spanWaterY[i] = spanWaterY[i - 1] * 0.25 + spanWaterY[i] * 0.5 + spanWaterY[i + 1] * 0.25;
     }
   }
-  // Enforce strict gravity-consistent downhill profile (water surface never climbs uphill toward confluence)
-  spanWaterY[samples.length - 1] = confWaterY + 0.02;
-  for (let i = samples.length - 2; i >= 0; i--) {
-    if (spanWaterY[i] < spanWaterY[i + 1]) {
-      spanWaterY[i] = spanWaterY[i + 1];
-    }
+  // Enforce strict gravity-consistent downhill profile anchored at plunge pool (never climbs uphill or floats in mid-air)
+  spanWaterY[0] = Math.max(spanWaterY[0], confWaterY + 0.02);
+  for (let i = 1; i < samples.length; i++) {
+    spanWaterY[i] = Math.max(confWaterY + 0.02, Math.min(spanWaterY[i], spanWaterY[i - 1]));
   }
+  spanWaterY[samples.length - 1] = confWaterY + 0.02;
 
   for (let i = 0; i < samples.length; i++) {
     const sp = samples[i];
@@ -1651,8 +1650,8 @@ export function createWaterSystem(texLib, scene) {
           vec2 sampleUv = clamp(baseUv + waveDistort, vec2(0.003), vec2(0.997));
 
           vec3 planarCol = texture2D(uReflTex, sampleUv).rgb;
-          float inBounds = smoothstep(0.0, 0.025, baseUv.x) * (1.0 - smoothstep(0.975, 1.0, baseUv.x))
-                         * smoothstep(0.0, 0.025, baseUv.y) * (1.0 - smoothstep(0.975, 1.0, baseUv.y));
+          float inBounds = smoothstep(0.0, 0.008, baseUv.x) * (1.0 - smoothstep(0.992, 1.0, baseUv.x))
+                         * smoothstep(0.0, 0.008, baseUv.y) * (1.0 - smoothstep(0.992, 1.0, baseUv.y));
           reflCol = mix(reflCol, planarCol, clamp(inBounds * planeMatch, 0.0, 1.0));
         }
 
@@ -1844,7 +1843,7 @@ export function createWaterSystem(texLib, scene) {
       }
     }
     updateLocalShoreDepthMap(bestLake, cx, cz);
-    return bestLake;
+    return bestLake && bestDist <= 2200.0 ? bestLake : null;
   }
 
   function updateLakeUniforms(reflTex, reflMatrix, planeY, hasRefl) {

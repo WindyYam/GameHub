@@ -2417,7 +2417,7 @@ function sampleWorld(x, z, out = null) {
             if (bankF > 0.001) {
               const chanC = 1.0 - smoothstep(0, halfW * 0.84, _polyTmp.dist);
               const bedProf = mix(targetWaterY + 0.35, targetWaterY - 1.15, chanC);
-              h = mix(h, bedProf, bankF * 0.99);
+              h = mix(h, bedProf, bankF);
 
               const braid = smoothstep(0.54, 0.78, fbm2(x * 0.12 + 4.1, z * 0.09 - 2.3, 3, _seedInt + 433));
               const bar = braid * (1.0 - chanC * 0.55) * smoothstep(0.10, 0.85, _polyTmp.t);
@@ -3901,6 +3901,7 @@ const ATMO_UNIFORMS = {
   uScanRadius: { value: -10.0 },
   uScanStrength: { value: 0.0 },
   uPlayerPos: { value: new THREE.Vector3(-7.5, 22, 12.8) },
+  uInReflection: { value: 0.0 },
   uTerrainShadowTex: { value: _terrainShadowTex },
   uTerrainShadowRect: { value: new THREE.Vector4(0, 0, 1.0 / SHADOW_MAP_HALF, 0.0) }
 };
@@ -3929,6 +3930,7 @@ uniform float uWindStrength;
 uniform vec3 uScanOrigin;
 uniform float uScanRadius;
 uniform float uScanStrength;
+uniform float uInReflection;
 uniform sampler2D uTerrainShadowTex;
 uniform vec4 uTerrainShadowRect;
 
@@ -4037,13 +4039,13 @@ vec3 applyIcelandAtmo(vec3 col, vec3 worldPos) {
     return mix(col, clearAir, clamp(baseAir * 1.18, 0.0, 0.72));
   }
 
-  // Optimized 5-step smooth C2 ray-marched flowing volumetric cloud-fog (~3x faster than 10-step, identical drifting billows!)
+  // Optimized 3-step smooth C2 ray-marched flowing volumetric cloud-fog
   float marchLen = min(dist, 1650.0);
   vec3 rayDir = toFrag / max(dist, 0.001);
   float cloudAccum = 0.0;
   float litAccum = 0.0;
-  float stepLen = marchLen * 0.20;
-  for (int i = 0; i < 5; i++) {
+  float stepLen = marchLen / 3.0;
+  for (int i = 0; i < 3; i++) {
     float t = (float(i) + 0.5) * stepLen;
     vec3 p = cameraPosition + rayDir * t;
     float dCloud = sampleFlowingCloudFog(p);
@@ -4051,7 +4053,7 @@ vec3 applyIcelandAtmo(vec3 col, vec3 worldPos) {
     cloudAccum += dCloud;
     litAccum += dCloud * hLit;
   }
-  float avgCloud = cloudAccum * 0.20;
+  float avgCloud = cloudAccum / 3.0;
   float avgLit = litAccum / max(cloudAccum, 0.001);
 
   // Dominant non-uniform flowing volumetric cloud-mist optical thickness!
@@ -4518,20 +4520,38 @@ function createSkyDome() {
         float horizonBand = 1.0 - smoothstep(-0.02, 0.075, rd.y);
         sky = mix(sky, uSkyHorizon, horizonBand);
 
-        // Subtle ethereal inverted Death Stranding chiral rainbow arc high in misty overcast daytime sky
-        float bowVis = smoothstep(0.38, 0.85, uCloudCoverage) * (1.0 - uNightFactor);
-        if (bowVis > 0.02 && rd.y > 0.06 && rd.y < 0.44) {
-          vec3 bowCenter = normalize(vec3(0.25, 0.62, -0.74));
-          float ang = acos(clamp(dot(rd, bowCenter), -1.0, 1.0));
-          float bowT = (ang - 0.34) / 0.055;
-          float bowD = (bowT - 0.5) * 3.1;
-          float bowMask = exp(-(bowD * bowD)) * smoothstep(0.06, 0.16, rd.y) * (1.0 - smoothstep(0.22, 0.42, rd.y));
-          vec3 spectrum = vec3(
-            smoothstep(0.0, 0.45, bowT) * (1.0 - smoothstep(0.55, 0.95, bowT)),
-            smoothstep(0.18, 0.55, bowT) * (1.0 - smoothstep(0.65, 1.0, bowT)),
-            smoothstep(0.45, 0.88, bowT)
+        // Physically accurate antisolar primary (~42 deg) & subtle secondary (~51 deg) rainbow when sun & moisture align
+        float sunBowVis = smoothstep(0.01, 0.09, uSunDir.y) * (1.0 - smoothstep(0.58, 0.72, uSunDir.y));
+        float moistVis = smoothstep(0.10, 0.30, uRainWetness + uCloudCoverage * 0.45) * (1.0 - smoothstep(0.88, 0.99, uCloudDarkness));
+        float bowVis = sunBowVis * moistVis * (1.0 - uNightFactor);
+        if (bowVis > 0.02 && rd.y > 0.0) {
+          vec3 antiSun = normalize(-uSunDir);
+          float ang = acos(clamp(dot(rd, antiSun), -1.0, 1.0));
+          float horizFade = smoothstep(0.0, 0.055, rd.y);
+
+          // Primary bow (40.1 deg inner violet -> 42.5 deg outer red)
+          float bowT1 = (ang - 0.700) / 0.042;
+          float bowD1 = (bowT1 - 0.5) * 2.85;
+          float bowMask1 = exp(-(bowD1 * bowD1));
+          vec3 spec1 = vec3(
+            smoothstep(0.42, 0.85, bowT1) * (1.0 - smoothstep(0.88, 1.08, bowT1)),
+            smoothstep(0.20, 0.50, bowT1) * (1.0 - smoothstep(0.58, 0.88, bowT1)),
+            smoothstep(-0.04, 0.22, bowT1) * (1.0 - smoothstep(0.30, 0.58, bowT1))
           );
-          sky += spectrum * bowMask * bowVis * 0.13;
+          spec1 += vec3(0.22, 0.05, 0.32) * exp(-pow((bowT1 - 0.08) * 5.0, 2.0)); // Inner violet
+
+          // Faint secondary bow (50.5 deg outer red -> 53.5 deg inner violet, reversed order)
+          float bowT2 = 1.0 - (ang - 0.881) / 0.052;
+          float bowD2 = (bowT2 - 0.5) * 2.85;
+          float bowMask2 = exp(-(bowD2 * bowD2)) * 0.32;
+          vec3 spec2 = vec3(
+            smoothstep(0.42, 0.85, bowT2) * (1.0 - smoothstep(0.88, 1.08, bowT2)),
+            smoothstep(0.20, 0.50, bowT2) * (1.0 - smoothstep(0.58, 0.88, bowT2)),
+            smoothstep(-0.04, 0.22, bowT2) * (1.0 - smoothstep(0.30, 0.58, bowT2))
+          );
+
+          vec3 rainbowCol = (spec1 * bowMask1 + spec2 * bowMask2) * mix(vec3(1.0), uSunColor, 0.45);
+          sky += rainbowCol * bowVis * horizFade * 0.26;
         }
 
         // Apply the EXACT SAME flowing 3D volumetric atmospheric cloud-fog to the sky dome
@@ -5442,7 +5462,7 @@ const {ATMO_UNIFORMS, ATMO_GLSL_PARS, enhanceMaterialWithAtmo} = __mod_atmospher
 
 const CHUNK_SIZE = 160;
 const GRID_RADIUS = 9; // 19 x 19 live chunks = 3040m x 3040m high-detail terrain before far horizon ring!
-const LOD_SEGS = [64, 40, 24, 14]; // Crisp foreground geometry with balanced mid/far tessellation
+const LOD_SEGS = [48, 28, 16, 10]; // Balanced foreground & mid/far tessellation
 const SKIRT_DROP = 18.0;
 const IS_MOBILE_DEVICE = typeof window !== 'undefined' && (
   /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '') ||
@@ -5451,17 +5471,17 @@ const IS_MOBILE_DEVICE = typeof window !== 'undefined' && (
 const MAX_BUILDS_PER_FRAME = IS_MOBILE_DEVICE ? 1 : 3;
 
 function getLodForRing(ringDist) {
-  if (ringDist <= 1) return 0; // 0..240m:   64x64 (2.5m grid)
-  if (ringDist <= 3) return 1; // 240..560m: 40x40 (4.0m grid)
-  if (ringDist <= 6) return 2; // 560..1040m: 24x24 (6.6m grid)
-  return 3;                    // 1040..1520m: 14x14 (11.4m grid)
+  if (ringDist <= 1) return 0; // 0..240m:   48x48
+  if (ringDist <= 3) return 1; // 240..560m: 28x28
+  if (ringDist <= 6) return 2; // 560..1040m: 16x16
+  return 3;                    // 1040..1520m: 10x10
 }
 
 function getDetailLodForRing(ringDist) {
   if (ringDist <= 1) return 0; // 0..240m: full foreground flora, grass, cobbles & boulders
-  if (ringDist <= 3) return 1; // 240..560m: mid-range lupin colonies, bushes, cushions & outcrops
-  if (ringDist <= 6) return 2; // 560..1040m: hero basalt outcrops & volcanic spires
-  return 3;                    // 1040..1520m: pure terrain mesh (aligned with geoLod -> zero extra rebuilds!)
+  if (ringDist <= 2) return 1; // 240..400m: mid-range lupin colonies, bushes, cushions & outcrops
+  if (ringDist <= 4) return 2; // 400..720m: hero basalt outcrops & volcanic spires
+  return 3;                    // 720..1520m: pure terrain mesh
 }
 
 /**
@@ -6666,7 +6686,10 @@ function createTerrainSystem(texLib, scene) {
           float mossLod = clamp(log2(max(camDist, 16.0) / 16.0) * 0.42, 0.0, 3.0);
           vec4 mossSample;
           vec3 mossN;
-          if (mossLod < 1.0) {
+          if (uInReflection > 0.5) {
+            mossSample = texture2D(uMossMap, wp.xz * 0.078);
+            mossN = vec3(0.0, 0.0, 1.0);
+          } else if (mossLod < 1.0) {
             vec4 s0, s1; vec3 n0, n1;
             sampleNoTilePairGrad(uMossMap, uMossNorm, wp.xz * 0.34, wpXZ_dx * 0.34, wpXZ_dy * 0.34, s1, n1);
             float w0 = (1.0 - smoothstep(0.0, 1.0, mossLod)) * 0.44;
@@ -6731,7 +6754,10 @@ function createTerrainSystem(texLib, scene) {
           if (screeRaw > 0.01 || pathRaw > 0.01) {
             vec3 screeN;
             float screeLod = clamp(log2(max(camDist, 18.0) / 18.0) * 0.45, 0.0, 2.0);
-            if (screeLod < 1.0) {
+            if (uInReflection > 0.5) {
+              screeSample = texture2D(uScreeMap, wp.xz * 0.115);
+              screeN = vec3(0.0, 0.0, 1.0);
+            } else if (screeLod < 1.0) {
               vec4 sc0, sc1; vec3 sn0, sn1;
               sampleNoTilePairGrad(uScreeMap, uScreeNorm, wp.xz * 0.48, wpXZ_dx * 0.48, wpXZ_dy * 0.48, sc0, sn0);
               float sw1 = smoothstep(0.15, 1.0, screeLod);
@@ -6781,7 +6807,10 @@ function createTerrainSystem(texLib, scene) {
             float cliffLod = clamp(log2(max(camDist, 24.0) / 24.0) * 0.44, 0.0, 2.0);
             vec4 cliffMix;
             vec3 cliffTexNorm;
-            if (cliffLod < 1.0) {
+            if (uInReflection > 0.5) {
+              cliffMix = texture2D(uCliffMap, wpRock.xz * 0.028);
+              cliffTexNorm = vec3(0.0, 0.0, 1.0);
+            } else if (cliffLod < 1.0) {
               vec4 cNear, cMid; vec3 nNear, nMid;
               triplanarCliffPair(uCliffMap, uCliffNorm, wpRock, wpDx, wpDy, wn, 0.088, cNear, nNear);
               triplanarCliffPair(uCliffMap, uCliffNorm, wpRock + vec3(17.3, 4.1, -11.7), wpDx, wpDy, wn, 0.028, cMid, nMid);
@@ -8369,7 +8398,9 @@ function createTerrainSystem(texLib, scene) {
     }
 
     const clutterGroup = new THREE.Group();
+    const rockGroup = new THREE.Group();
     group.add(clutterGroup);
+    group.add(rockGroup);
 
     const addInstanced = (geo, mat, mats, castShadow, colorsArr = null, targetParent = group) => {
       if (mats.length === 0) return;
@@ -8388,11 +8419,11 @@ function createTerrainSystem(texLib, scene) {
       disposables.push(im);
     };
 
-    // Hero boulders & volcanic spires stay visible in lake reflections; small flora/cobbles go in clutterGroup (hidden in reflection pass!)
+    // Hero boulders & volcanic spires stay visible in close lake reflections; small flora/cobbles go in clutterGroup (hidden in reflection pass!)
     const rockCastShadow = lod <= 1;
-    addInstanced(boulderGeoA, boulderMat, boulderMatsA, rockCastShadow, boulderColorsA, group);
-    addInstanced(boulderGeoB, boulderMat, boulderMatsB, rockCastShadow, boulderColorsB, group);
-    addInstanced(spireGeo, boulderMat, spireMats, rockCastShadow, null, group);
+    addInstanced(boulderGeoA, boulderMat, boulderMatsA, rockCastShadow, boulderColorsA, rockGroup);
+    addInstanced(boulderGeoB, boulderMat, boulderMatsB, rockCastShadow, boulderColorsB, rockGroup);
+    addInstanced(spireGeo, boulderMat, spireMats, rockCastShadow, null, rockGroup);
     addInstanced(cobbleGeo, cobbleMat, cobbleMats, false, cobbleColors, clutterGroup);
     addInstanced(stoneClusterGeo, smallStoneMat, stoneMats, false, stoneColors, clutterGroup);
     addInstanced(cushionGeo, cushionMat, cushionMats, false, null, clutterGroup);
@@ -8401,7 +8432,7 @@ function createTerrainSystem(texLib, scene) {
     addInstanced(bushGeo, bushMat, bushMats, false, null, clutterGroup);
     addInstanced(cottonGeo, cottonMat, cottonMats, false, null, clutterGroup);
 
-    return { disposables, colliders, clutterGroup };
+    return { disposables, colliders, clutterGroup, rockGroup };
   }
 
   function createChunk(cx, cz, geoLod, detailLod) {
@@ -8415,7 +8446,7 @@ function createTerrainSystem(texLib, scene) {
     group.position.set(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE);
     group.add(mesh);
 
-    const { disposables, colliders, clutterGroup } = populateChunkDetails(cx, cz, detailLod, group);
+    const { disposables, colliders, clutterGroup, rockGroup } = populateChunkDetails(cx, cz, detailLod, group);
     root.add(group);
 
     return {
@@ -8426,6 +8457,7 @@ function createTerrainSystem(texLib, scene) {
       detailLod,
       group,
       clutterGroup,
+      rockGroup,
       mesh,
       geo,
       disposables,
@@ -8537,9 +8569,11 @@ function createTerrainSystem(texLib, scene) {
   }
 
   function setReflectionMode(enabled) {
+    ATMO_UNIFORMS.uInReflection.value = enabled ? 1.0 : 0.0;
     const showClutter = !enabled;
     for (const c of chunks.values()) {
       if (c.clutterGroup) c.clutterGroup.visible = showClutter;
+      if (c.rockGroup) c.rockGroup.visible = !enabled || c.detailLod === 0;
     }
   }
 
@@ -8887,13 +8921,12 @@ function buildRiverGeometry(pts) {
       spanWaterY[i] = spanWaterY[i - 1] * 0.25 + spanWaterY[i] * 0.5 + spanWaterY[i + 1] * 0.25;
     }
   }
-  // Enforce strict gravity-consistent downhill profile (water surface never climbs uphill toward confluence)
-  spanWaterY[samples.length - 1] = confWaterY + 0.02;
-  for (let i = samples.length - 2; i >= 0; i--) {
-    if (spanWaterY[i] < spanWaterY[i + 1]) {
-      spanWaterY[i] = spanWaterY[i + 1];
-    }
+  // Enforce strict gravity-consistent downhill profile anchored at plunge pool (never climbs uphill or floats in mid-air)
+  spanWaterY[0] = Math.max(spanWaterY[0], confWaterY + 0.02);
+  for (let i = 1; i < samples.length; i++) {
+    spanWaterY[i] = Math.max(confWaterY + 0.02, Math.min(spanWaterY[i], spanWaterY[i - 1]));
   }
+  spanWaterY[samples.length - 1] = confWaterY + 0.02;
 
   for (let i = 0; i < samples.length; i++) {
     const sp = samples[i];
@@ -10209,8 +10242,8 @@ function createWaterSystem(texLib, scene) {
           vec2 sampleUv = clamp(baseUv + waveDistort, vec2(0.003), vec2(0.997));
 
           vec3 planarCol = texture2D(uReflTex, sampleUv).rgb;
-          float inBounds = smoothstep(0.0, 0.025, baseUv.x) * (1.0 - smoothstep(0.975, 1.0, baseUv.x))
-                         * smoothstep(0.0, 0.025, baseUv.y) * (1.0 - smoothstep(0.975, 1.0, baseUv.y));
+          float inBounds = smoothstep(0.0, 0.008, baseUv.x) * (1.0 - smoothstep(0.992, 1.0, baseUv.x))
+                         * smoothstep(0.0, 0.008, baseUv.y) * (1.0 - smoothstep(0.992, 1.0, baseUv.y));
           reflCol = mix(reflCol, planarCol, clamp(inBounds * planeMatch, 0.0, 1.0));
         }
 
@@ -10402,7 +10435,7 @@ function createWaterSystem(texLib, scene) {
       }
     }
     updateLocalShoreDepthMap(bestLake, cx, cz);
-    return bestLake;
+    return bestLake && bestDist <= 2200.0 ? bestLake : null;
   }
 
   function updateLakeUniforms(reflTex, reflMatrix, planeY, hasRefl) {
@@ -17037,7 +17070,7 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(44, window.innerWidth / window.innerHeight, 0.35, 16000);
 
 const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
-let dpr = Math.min(window.devicePixelRatio || 1, 1.25);
+let dpr = Math.min(window.devicePixelRatio || 1, 1.0);
 renderer.setPixelRatio(dpr);
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
@@ -17063,7 +17096,7 @@ const msaaTarget = new THREE.WebGLRenderTarget(rtW, rtH, {
 // Lightweight planar mirror reflection RT (scales with active render resolution -> fast even at 240p!)
 function calcReflSize(w, h) {
   const aspect = w / Math.max(h, 1);
-  const rw = Math.min(512, Math.max(128, Math.round(w * 0.38)));
+  const rw = Math.min(384, Math.max(128, Math.round(w * 0.30)));
   const rh = Math.max(72, Math.round(rw / Math.max(aspect, 0.5)));
   return [rw, rh];
 }
@@ -17101,6 +17134,8 @@ let lastSceneTris = 0;
 let lastReflRendered = false;
 let shadowMapWarmed = false;
 
+const _reflProjPt = new THREE.Vector3();
+
 const planarLakePass = {
   enabled: true,
   needsSwap: false,
@@ -17117,77 +17152,139 @@ const planarLakePass = {
     const visLake = waterSys ? waterSys.getBestVisibleLake(camera) : null;
     if (visLake && camera.position.y > visLake.waterY + 0.15) {
       const waterY = visLake.waterY;
-      _camWorldPos.setFromMatrixPosition(camera.matrixWorld);
-      _camFwd.set(0, 0, -1).applyQuaternion(camera.quaternion);
-      _camTargetW.copy(_camWorldPos).add(_camFwd);
 
-      // Exact mirrored reflection camera across horizontal plane y = waterY (right-handed, zero inverted culling!)
-      reflCam.fov = camera.fov;
-      reflCam.aspect = camera.aspect;
-      reflCam.near = camera.near;
-      reflCam.far = camera.far;
-      reflCam.position.set(_camWorldPos.x, 2.0 * waterY - _camWorldPos.y, _camWorldPos.z);
-      _reflTargetW.set(_camTargetW.x, 2.0 * waterY - _camTargetW.y, _camTargetW.z);
-      reflCam.up.set(0, 1, 0);
-      reflCam.lookAt(_reflTargetW);
-      reflCam.updateMatrixWorld();
-      reflCam.updateProjectionMatrix();
-
-      // Store non-oblique projection-view-bias matrix for exact pixel alignment in lake shader
-      _reflMatrix.copy(_BIAS_MAT).multiply(reflCam.projectionMatrix).multiply(reflCam.matrixWorldInverse);
-
-      // Step 1a: Render Sky Dome alone with normal non-oblique frustum (guaranteed zero far-plane sky clipping!)
-      r.setRenderTarget(reflRT);
-      r.autoClear = true;
-      r.clear(true, true, true);
-      if (reflSkyMesh) {
-        reflSkyMesh.position.copy(reflCam.position);
-        r.render(reflSkyScene, reflCam);
-      }
-
-      // Step 1b: Apply Lengyel's oblique near-plane clip (y >= waterY - 0.14) so underwater terrain never blocks the mirror camera!
-      _reflPlane.set(_reflPlaneNorm, -waterY + 0.14);
-      _reflPlane.applyMatrix4(reflCam.matrixWorldInverse);
-      if (_reflPlane.constant < -0.02) {
-        _clipVec.set(_reflPlane.normal.x, _reflPlane.normal.y, _reflPlane.normal.z, _reflPlane.constant);
-        const pe = reflCam.projectionMatrix.elements;
-        _qVec.set(
-          (Math.sign(_clipVec.x) + pe[8]) / pe[0],
-          (Math.sign(_clipVec.y) + pe[9]) / pe[5],
-          -1.0,
-          (1.0 + pe[10]) / pe[14]
-        );
-        const denom = _clipVec.dot(_qVec);
-        if (Math.abs(denom) > 1e-5) {
-          _clipVec.multiplyScalar(2.0 / denom);
-          pe[2] = _clipVec.x;
-          pe[6] = _clipVec.y;
-          pe[10] = _clipVec.z + 1.0;
-          pe[14] = _clipVec.w;
+      // Compute exact screen-space NDC bounds of the lake when all perimeter points are in front of the near plane
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      let allInFront = true;
+      let anyInFront = false;
+      const extRx = visLake.rx * 1.60;
+      const extRz = visLake.rz * 1.60;
+      for (let si = -1; si <= 1; si++) {
+        for (let sj = -1; sj <= 1; sj++) {
+          if (si === 0 && sj === 0) continue;
+          const lx = si * extRx;
+          const lz = sj * extRz;
+          _reflProjPt.set(
+            visLake.cx + lx * visLake.cosR - lz * visLake.sinR,
+            waterY,
+            visLake.cz + lx * visLake.sinR + lz * visLake.cosR
+          );
+          const viewZ = _reflProjPt.clone().applyMatrix4(camera.matrixWorldInverse).z;
+          if (viewZ >= -camera.near) {
+            allInFront = false;
+          } else {
+            anyInFront = true;
+            _reflProjPt.project(camera);
+            if (_reflProjPt.x < minX) minX = _reflProjPt.x;
+            if (_reflProjPt.x > maxX) maxX = _reflProjPt.x;
+            if (_reflProjPt.y < minY) minY = _reflProjPt.y;
+            if (_reflProjPt.y > maxY) maxY = _reflProjPt.y;
+          }
         }
       }
 
-      // Step 1c: Selective reflection render — skip lakes, tiny flora/cobbles, rain VFX & shadow-map rebuild (~<0.6ms!)
-      // Only skip shadowMap update once the shadow map has been initialized on frame 1 (prevents WebGL shadow sampler warning!)
-      const prevShadowAuto = r.shadowMap.autoUpdate;
-      if (shadowMapWarmed) r.shadowMap.autoUpdate = false;
-      skyDome.mesh.visible = false;
-      waterSys.setLakesVisible(false);
-      terrainSys.setReflectionMode(true);
-      weatherFX.setVisible(false);
+      if (!anyInFront || (allInFront && (maxX < -1.0 || minX > 1.0 || maxY < -1.0 || minY > 1.0))) {
+        if (waterSys) waterSys.updateLakeUniforms(null, null, 16.5, false);
+        lastReflRendered = false;
+      } else {
+        const rw = reflRT.width;
+        const rh = reflRT.height;
+        let sx = 0, sy = 0, sw = rw, sh = rh;
+        if (allInFront) {
+          const padNdc = 0.18;
+          const rMinX = clamp(minX - padNdc, -1.0, 1.0);
+          const rMaxX = clamp(maxX + padNdc, -1.0, 1.0);
+          const rMinY = clamp(-maxY - padNdc, -1.0, 1.0);
+          const rMaxY = clamp(-minY + padNdc, -1.0, 1.0);
+          sx = Math.max(0, Math.floor((rMinX * 0.5 + 0.5) * rw));
+          sy = Math.max(0, Math.floor((rMinY * 0.5 + 0.5) * rh));
+          const ex = Math.min(rw, Math.ceil((rMaxX * 0.5 + 0.5) * rw));
+          const ey = Math.min(rh, Math.ceil((rMaxY * 0.5 + 0.5) * rh));
+          sw = Math.max(1, ex - sx);
+          sh = Math.max(1, ey - sy);
+        }
 
-      r.autoClear = false;
-      r.render(scene, reflCam);
+        _camWorldPos.setFromMatrixPosition(camera.matrixWorld);
+        _camFwd.set(0, 0, -1).applyQuaternion(camera.quaternion);
+        _camTargetW.copy(_camWorldPos).add(_camFwd);
 
-      skyDome.mesh.visible = true;
-      waterSys.setLakesVisible(true);
-      terrainSys.setReflectionMode(false);
-      weatherFX.setVisible(true);
-      r.shadowMap.autoUpdate = prevShadowAuto;
-      shadowMapWarmed = true;
+        // Exact mirrored reflection camera across horizontal plane y = waterY (right-handed, zero inverted culling!)
+        reflCam.fov = camera.fov;
+        reflCam.aspect = camera.aspect;
+        reflCam.near = camera.near;
+        reflCam.far = camera.far;
+        reflCam.position.set(_camWorldPos.x, 2.0 * waterY - _camWorldPos.y, _camWorldPos.z);
+        _reflTargetW.set(_camTargetW.x, 2.0 * waterY - _camTargetW.y, _camTargetW.z);
+        reflCam.up.set(0, 1, 0);
+        reflCam.lookAt(_reflTargetW);
+        reflCam.updateMatrixWorld();
+        reflCam.updateProjectionMatrix();
 
-      waterSys.updateLakeUniforms(reflRT.texture, _reflMatrix, waterY, true);
-      lastReflRendered = true;
+        // Store non-oblique projection-view-bias matrix for exact pixel alignment in lake shader
+        _reflMatrix.copy(_BIAS_MAT).multiply(reflCam.projectionMatrix).multiply(reflCam.matrixWorldInverse);
+
+        // Step 1a: Clear full reflRT first, then scissor to lake reflection footprint & render Sky Dome with full far plane
+        r.setRenderTarget(reflRT);
+        r.setScissorTest(false);
+        r.autoClear = true;
+        r.clear(true, true, true);
+        if (allInFront) {
+          r.setScissorTest(true);
+          r.setScissor(sx, sy, sw, sh);
+        }
+        if (reflSkyMesh) {
+          reflSkyMesh.position.copy(reflCam.position);
+          r.render(reflSkyScene, reflCam);
+        }
+
+        // Tighten far plane for terrain/object reflection pass after sky dome is rendered
+        reflCam.far = Math.min(camera.far, Math.max(2600.0, visLake.boundR * 2.4 + 1800.0));
+        reflCam.updateProjectionMatrix();
+
+        // Step 1b: Apply Lengyel's oblique near-plane clip (y >= waterY - 0.14) so underwater terrain never blocks the mirror camera!
+        _reflPlane.set(_reflPlaneNorm, -waterY + 0.14);
+        _reflPlane.applyMatrix4(reflCam.matrixWorldInverse);
+        if (_reflPlane.constant < -0.02) {
+          _clipVec.set(_reflPlane.normal.x, _reflPlane.normal.y, _reflPlane.normal.z, _reflPlane.constant);
+          const pe = reflCam.projectionMatrix.elements;
+          _qVec.set(
+            (Math.sign(_clipVec.x) + pe[8]) / pe[0],
+            (Math.sign(_clipVec.y) + pe[9]) / pe[5],
+            -1.0,
+            (1.0 + pe[10]) / pe[14]
+          );
+          const denom = _clipVec.dot(_qVec);
+          if (Math.abs(denom) > 1e-5) {
+            _clipVec.multiplyScalar(2.0 / denom);
+            pe[2] = _clipVec.x;
+            pe[6] = _clipVec.y;
+            pe[10] = _clipVec.z + 1.0;
+            pe[14] = _clipVec.w;
+          }
+        }
+
+        // Step 1c: Selective low-LOD reflection render — skip lakes, clutter, distant boulders, rain VFX & shadow-map rebuild
+        const prevShadowAuto = r.shadowMap.autoUpdate;
+        if (shadowMapWarmed) r.shadowMap.autoUpdate = false;
+        skyDome.mesh.visible = false;
+        waterSys.setLakesVisible(false);
+        terrainSys.setReflectionMode(true);
+        weatherFX.setVisible(false);
+
+        r.autoClear = false;
+        r.render(scene, reflCam);
+
+        r.setScissorTest(false);
+        skyDome.mesh.visible = true;
+        waterSys.setLakesVisible(true);
+        terrainSys.setReflectionMode(false);
+        weatherFX.setVisible(true);
+        r.shadowMap.autoUpdate = prevShadowAuto;
+        shadowMapWarmed = true;
+
+        waterSys.updateLakeUniforms(reflRT.texture, _reflMatrix, waterY, true);
+        lastReflRendered = true;
+      }
     } else {
       if (waterSys) waterSys.updateLakeUniforms(null, null, 16.5, false);
       lastReflRendered = false;
@@ -17955,7 +18052,7 @@ function applyRenderResolution() {
   const preset = RES_PRESETS[resPresetIdx];
   dpr = preset && preset.height > 0
     ? preset.height / Math.max(1, Math.min(w, h))
-    : Math.min(window.devicePixelRatio || 1, 1.25);
+    : Math.min(window.devicePixelRatio || 1, 1.0);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   renderer.setPixelRatio(dpr);
@@ -18154,7 +18251,8 @@ function animate() {
     titleShadowTick = (titleShadowTick + 1) & 3;
     renderer.shadowMap.autoUpdate = !shadowMapWarmed || titleShadowTick === 0;
   } else {
-    renderer.shadowMap.autoUpdate = true;
+    titleShadowTick = (titleShadowTick + 1) & 1;
+    renderer.shadowMap.autoUpdate = !shadowMapWarmed || titleShadowTick === 0;
     if (bikeSys.state.riding) {
       bikeSys.update(dt, input, porter, terrainSys, landmarkSys);
     } else {

@@ -38,7 +38,7 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(44, window.innerWidth / window.innerHeight, 0.35, 16000);
 
 const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
-let dpr = Math.min(window.devicePixelRatio || 1, 1.25);
+let dpr = Math.min(window.devicePixelRatio || 1, 1.0);
 renderer.setPixelRatio(dpr);
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
@@ -64,7 +64,7 @@ const msaaTarget = new THREE.WebGLRenderTarget(rtW, rtH, {
 // Lightweight planar mirror reflection RT (scales with active render resolution -> fast even at 240p!)
 function calcReflSize(w, h) {
   const aspect = w / Math.max(h, 1);
-  const rw = Math.min(512, Math.max(128, Math.round(w * 0.38)));
+  const rw = Math.min(384, Math.max(128, Math.round(w * 0.30)));
   const rh = Math.max(72, Math.round(rw / Math.max(aspect, 0.5)));
   return [rw, rh];
 }
@@ -102,6 +102,8 @@ let lastSceneTris = 0;
 let lastReflRendered = false;
 let shadowMapWarmed = false;
 
+const _reflProjPt = new THREE.Vector3();
+
 const planarLakePass = {
   enabled: true,
   needsSwap: false,
@@ -118,77 +120,139 @@ const planarLakePass = {
     const visLake = waterSys ? waterSys.getBestVisibleLake(camera) : null;
     if (visLake && camera.position.y > visLake.waterY + 0.15) {
       const waterY = visLake.waterY;
-      _camWorldPos.setFromMatrixPosition(camera.matrixWorld);
-      _camFwd.set(0, 0, -1).applyQuaternion(camera.quaternion);
-      _camTargetW.copy(_camWorldPos).add(_camFwd);
 
-      // Exact mirrored reflection camera across horizontal plane y = waterY (right-handed, zero inverted culling!)
-      reflCam.fov = camera.fov;
-      reflCam.aspect = camera.aspect;
-      reflCam.near = camera.near;
-      reflCam.far = camera.far;
-      reflCam.position.set(_camWorldPos.x, 2.0 * waterY - _camWorldPos.y, _camWorldPos.z);
-      _reflTargetW.set(_camTargetW.x, 2.0 * waterY - _camTargetW.y, _camTargetW.z);
-      reflCam.up.set(0, 1, 0);
-      reflCam.lookAt(_reflTargetW);
-      reflCam.updateMatrixWorld();
-      reflCam.updateProjectionMatrix();
-
-      // Store non-oblique projection-view-bias matrix for exact pixel alignment in lake shader
-      _reflMatrix.copy(_BIAS_MAT).multiply(reflCam.projectionMatrix).multiply(reflCam.matrixWorldInverse);
-
-      // Step 1a: Render Sky Dome alone with normal non-oblique frustum (guaranteed zero far-plane sky clipping!)
-      r.setRenderTarget(reflRT);
-      r.autoClear = true;
-      r.clear(true, true, true);
-      if (reflSkyMesh) {
-        reflSkyMesh.position.copy(reflCam.position);
-        r.render(reflSkyScene, reflCam);
-      }
-
-      // Step 1b: Apply Lengyel's oblique near-plane clip (y >= waterY - 0.14) so underwater terrain never blocks the mirror camera!
-      _reflPlane.set(_reflPlaneNorm, -waterY + 0.14);
-      _reflPlane.applyMatrix4(reflCam.matrixWorldInverse);
-      if (_reflPlane.constant < -0.02) {
-        _clipVec.set(_reflPlane.normal.x, _reflPlane.normal.y, _reflPlane.normal.z, _reflPlane.constant);
-        const pe = reflCam.projectionMatrix.elements;
-        _qVec.set(
-          (Math.sign(_clipVec.x) + pe[8]) / pe[0],
-          (Math.sign(_clipVec.y) + pe[9]) / pe[5],
-          -1.0,
-          (1.0 + pe[10]) / pe[14]
-        );
-        const denom = _clipVec.dot(_qVec);
-        if (Math.abs(denom) > 1e-5) {
-          _clipVec.multiplyScalar(2.0 / denom);
-          pe[2] = _clipVec.x;
-          pe[6] = _clipVec.y;
-          pe[10] = _clipVec.z + 1.0;
-          pe[14] = _clipVec.w;
+      // Compute exact screen-space NDC bounds of the lake when all perimeter points are in front of the near plane
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      let allInFront = true;
+      let anyInFront = false;
+      const extRx = visLake.rx * 1.60;
+      const extRz = visLake.rz * 1.60;
+      for (let si = -1; si <= 1; si++) {
+        for (let sj = -1; sj <= 1; sj++) {
+          if (si === 0 && sj === 0) continue;
+          const lx = si * extRx;
+          const lz = sj * extRz;
+          _reflProjPt.set(
+            visLake.cx + lx * visLake.cosR - lz * visLake.sinR,
+            waterY,
+            visLake.cz + lx * visLake.sinR + lz * visLake.cosR
+          );
+          const viewZ = _reflProjPt.clone().applyMatrix4(camera.matrixWorldInverse).z;
+          if (viewZ >= -camera.near) {
+            allInFront = false;
+          } else {
+            anyInFront = true;
+            _reflProjPt.project(camera);
+            if (_reflProjPt.x < minX) minX = _reflProjPt.x;
+            if (_reflProjPt.x > maxX) maxX = _reflProjPt.x;
+            if (_reflProjPt.y < minY) minY = _reflProjPt.y;
+            if (_reflProjPt.y > maxY) maxY = _reflProjPt.y;
+          }
         }
       }
 
-      // Step 1c: Selective reflection render — skip lakes, tiny flora/cobbles, rain VFX & shadow-map rebuild (~<0.6ms!)
-      // Only skip shadowMap update once the shadow map has been initialized on frame 1 (prevents WebGL shadow sampler warning!)
-      const prevShadowAuto = r.shadowMap.autoUpdate;
-      if (shadowMapWarmed) r.shadowMap.autoUpdate = false;
-      skyDome.mesh.visible = false;
-      waterSys.setLakesVisible(false);
-      terrainSys.setReflectionMode(true);
-      weatherFX.setVisible(false);
+      if (!anyInFront || (allInFront && (maxX < -1.0 || minX > 1.0 || maxY < -1.0 || minY > 1.0))) {
+        if (waterSys) waterSys.updateLakeUniforms(null, null, 16.5, false);
+        lastReflRendered = false;
+      } else {
+        const rw = reflRT.width;
+        const rh = reflRT.height;
+        let sx = 0, sy = 0, sw = rw, sh = rh;
+        if (allInFront) {
+          const padNdc = 0.18;
+          const rMinX = clamp(minX - padNdc, -1.0, 1.0);
+          const rMaxX = clamp(maxX + padNdc, -1.0, 1.0);
+          const rMinY = clamp(-maxY - padNdc, -1.0, 1.0);
+          const rMaxY = clamp(-minY + padNdc, -1.0, 1.0);
+          sx = Math.max(0, Math.floor((rMinX * 0.5 + 0.5) * rw));
+          sy = Math.max(0, Math.floor((rMinY * 0.5 + 0.5) * rh));
+          const ex = Math.min(rw, Math.ceil((rMaxX * 0.5 + 0.5) * rw));
+          const ey = Math.min(rh, Math.ceil((rMaxY * 0.5 + 0.5) * rh));
+          sw = Math.max(1, ex - sx);
+          sh = Math.max(1, ey - sy);
+        }
 
-      r.autoClear = false;
-      r.render(scene, reflCam);
+        _camWorldPos.setFromMatrixPosition(camera.matrixWorld);
+        _camFwd.set(0, 0, -1).applyQuaternion(camera.quaternion);
+        _camTargetW.copy(_camWorldPos).add(_camFwd);
 
-      skyDome.mesh.visible = true;
-      waterSys.setLakesVisible(true);
-      terrainSys.setReflectionMode(false);
-      weatherFX.setVisible(true);
-      r.shadowMap.autoUpdate = prevShadowAuto;
-      shadowMapWarmed = true;
+        // Exact mirrored reflection camera across horizontal plane y = waterY (right-handed, zero inverted culling!)
+        reflCam.fov = camera.fov;
+        reflCam.aspect = camera.aspect;
+        reflCam.near = camera.near;
+        reflCam.far = camera.far;
+        reflCam.position.set(_camWorldPos.x, 2.0 * waterY - _camWorldPos.y, _camWorldPos.z);
+        _reflTargetW.set(_camTargetW.x, 2.0 * waterY - _camTargetW.y, _camTargetW.z);
+        reflCam.up.set(0, 1, 0);
+        reflCam.lookAt(_reflTargetW);
+        reflCam.updateMatrixWorld();
+        reflCam.updateProjectionMatrix();
 
-      waterSys.updateLakeUniforms(reflRT.texture, _reflMatrix, waterY, true);
-      lastReflRendered = true;
+        // Store non-oblique projection-view-bias matrix for exact pixel alignment in lake shader
+        _reflMatrix.copy(_BIAS_MAT).multiply(reflCam.projectionMatrix).multiply(reflCam.matrixWorldInverse);
+
+        // Step 1a: Clear full reflRT first, then scissor to lake reflection footprint & render Sky Dome with full far plane
+        r.setRenderTarget(reflRT);
+        r.setScissorTest(false);
+        r.autoClear = true;
+        r.clear(true, true, true);
+        if (allInFront) {
+          r.setScissorTest(true);
+          r.setScissor(sx, sy, sw, sh);
+        }
+        if (reflSkyMesh) {
+          reflSkyMesh.position.copy(reflCam.position);
+          r.render(reflSkyScene, reflCam);
+        }
+
+        // Tighten far plane for terrain/object reflection pass after sky dome is rendered
+        reflCam.far = Math.min(camera.far, Math.max(2600.0, visLake.boundR * 2.4 + 1800.0));
+        reflCam.updateProjectionMatrix();
+
+        // Step 1b: Apply Lengyel's oblique near-plane clip (y >= waterY - 0.14) so underwater terrain never blocks the mirror camera!
+        _reflPlane.set(_reflPlaneNorm, -waterY + 0.14);
+        _reflPlane.applyMatrix4(reflCam.matrixWorldInverse);
+        if (_reflPlane.constant < -0.02) {
+          _clipVec.set(_reflPlane.normal.x, _reflPlane.normal.y, _reflPlane.normal.z, _reflPlane.constant);
+          const pe = reflCam.projectionMatrix.elements;
+          _qVec.set(
+            (Math.sign(_clipVec.x) + pe[8]) / pe[0],
+            (Math.sign(_clipVec.y) + pe[9]) / pe[5],
+            -1.0,
+            (1.0 + pe[10]) / pe[14]
+          );
+          const denom = _clipVec.dot(_qVec);
+          if (Math.abs(denom) > 1e-5) {
+            _clipVec.multiplyScalar(2.0 / denom);
+            pe[2] = _clipVec.x;
+            pe[6] = _clipVec.y;
+            pe[10] = _clipVec.z + 1.0;
+            pe[14] = _clipVec.w;
+          }
+        }
+
+        // Step 1c: Selective low-LOD reflection render — skip lakes, clutter, distant boulders, rain VFX & shadow-map rebuild
+        const prevShadowAuto = r.shadowMap.autoUpdate;
+        if (shadowMapWarmed) r.shadowMap.autoUpdate = false;
+        skyDome.mesh.visible = false;
+        waterSys.setLakesVisible(false);
+        terrainSys.setReflectionMode(true);
+        weatherFX.setVisible(false);
+
+        r.autoClear = false;
+        r.render(scene, reflCam);
+
+        r.setScissorTest(false);
+        skyDome.mesh.visible = true;
+        waterSys.setLakesVisible(true);
+        terrainSys.setReflectionMode(false);
+        weatherFX.setVisible(true);
+        r.shadowMap.autoUpdate = prevShadowAuto;
+        shadowMapWarmed = true;
+
+        waterSys.updateLakeUniforms(reflRT.texture, _reflMatrix, waterY, true);
+        lastReflRendered = true;
+      }
     } else {
       if (waterSys) waterSys.updateLakeUniforms(null, null, 16.5, false);
       lastReflRendered = false;
@@ -956,7 +1020,7 @@ function applyRenderResolution() {
   const preset = RES_PRESETS[resPresetIdx];
   dpr = preset && preset.height > 0
     ? preset.height / Math.max(1, Math.min(w, h))
-    : Math.min(window.devicePixelRatio || 1, 1.25);
+    : Math.min(window.devicePixelRatio || 1, 1.0);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   renderer.setPixelRatio(dpr);
@@ -1155,7 +1219,8 @@ function animate() {
     titleShadowTick = (titleShadowTick + 1) & 3;
     renderer.shadowMap.autoUpdate = !shadowMapWarmed || titleShadowTick === 0;
   } else {
-    renderer.shadowMap.autoUpdate = true;
+    titleShadowTick = (titleShadowTick + 1) & 1;
+    renderer.shadowMap.autoUpdate = !shadowMapWarmed || titleShadowTick === 0;
     if (bikeSys.state.riding) {
       bikeSys.update(dt, input, porter, terrainSys, landmarkSys);
     } else {

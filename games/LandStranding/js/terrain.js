@@ -24,7 +24,7 @@ import { ATMO_UNIFORMS, ATMO_GLSL_PARS, enhanceMaterialWithAtmo } from './atmosp
 
 export const CHUNK_SIZE = 160;
 const GRID_RADIUS = 9; // 19 x 19 live chunks = 3040m x 3040m high-detail terrain before far horizon ring!
-const LOD_SEGS = [64, 40, 24, 14]; // Crisp foreground geometry with balanced mid/far tessellation
+const LOD_SEGS = [48, 28, 16, 10]; // Balanced foreground & mid/far tessellation
 const SKIRT_DROP = 18.0;
 const IS_MOBILE_DEVICE = typeof window !== 'undefined' && (
   /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '') ||
@@ -33,17 +33,17 @@ const IS_MOBILE_DEVICE = typeof window !== 'undefined' && (
 const MAX_BUILDS_PER_FRAME = IS_MOBILE_DEVICE ? 1 : 3;
 
 function getLodForRing(ringDist) {
-  if (ringDist <= 1) return 0; // 0..240m:   64x64 (2.5m grid)
-  if (ringDist <= 3) return 1; // 240..560m: 40x40 (4.0m grid)
-  if (ringDist <= 6) return 2; // 560..1040m: 24x24 (6.6m grid)
-  return 3;                    // 1040..1520m: 14x14 (11.4m grid)
+  if (ringDist <= 1) return 0; // 0..240m:   48x48
+  if (ringDist <= 3) return 1; // 240..560m: 28x28
+  if (ringDist <= 6) return 2; // 560..1040m: 16x16
+  return 3;                    // 1040..1520m: 10x10
 }
 
 function getDetailLodForRing(ringDist) {
   if (ringDist <= 1) return 0; // 0..240m: full foreground flora, grass, cobbles & boulders
-  if (ringDist <= 3) return 1; // 240..560m: mid-range lupin colonies, bushes, cushions & outcrops
-  if (ringDist <= 6) return 2; // 560..1040m: hero basalt outcrops & volcanic spires
-  return 3;                    // 1040..1520m: pure terrain mesh (aligned with geoLod -> zero extra rebuilds!)
+  if (ringDist <= 2) return 1; // 240..400m: mid-range lupin colonies, bushes, cushions & outcrops
+  if (ringDist <= 4) return 2; // 400..720m: hero basalt outcrops & volcanic spires
+  return 3;                    // 720..1520m: pure terrain mesh
 }
 
 /**
@@ -1248,7 +1248,10 @@ export function createTerrainSystem(texLib, scene) {
           float mossLod = clamp(log2(max(camDist, 16.0) / 16.0) * 0.42, 0.0, 3.0);
           vec4 mossSample;
           vec3 mossN;
-          if (mossLod < 1.0) {
+          if (uInReflection > 0.5) {
+            mossSample = texture2D(uMossMap, wp.xz * 0.078);
+            mossN = vec3(0.0, 0.0, 1.0);
+          } else if (mossLod < 1.0) {
             vec4 s0, s1; vec3 n0, n1;
             sampleNoTilePairGrad(uMossMap, uMossNorm, wp.xz * 0.34, wpXZ_dx * 0.34, wpXZ_dy * 0.34, s1, n1);
             float w0 = (1.0 - smoothstep(0.0, 1.0, mossLod)) * 0.44;
@@ -1313,7 +1316,10 @@ export function createTerrainSystem(texLib, scene) {
           if (screeRaw > 0.01 || pathRaw > 0.01) {
             vec3 screeN;
             float screeLod = clamp(log2(max(camDist, 18.0) / 18.0) * 0.45, 0.0, 2.0);
-            if (screeLod < 1.0) {
+            if (uInReflection > 0.5) {
+              screeSample = texture2D(uScreeMap, wp.xz * 0.115);
+              screeN = vec3(0.0, 0.0, 1.0);
+            } else if (screeLod < 1.0) {
               vec4 sc0, sc1; vec3 sn0, sn1;
               sampleNoTilePairGrad(uScreeMap, uScreeNorm, wp.xz * 0.48, wpXZ_dx * 0.48, wpXZ_dy * 0.48, sc0, sn0);
               float sw1 = smoothstep(0.15, 1.0, screeLod);
@@ -1363,7 +1369,10 @@ export function createTerrainSystem(texLib, scene) {
             float cliffLod = clamp(log2(max(camDist, 24.0) / 24.0) * 0.44, 0.0, 2.0);
             vec4 cliffMix;
             vec3 cliffTexNorm;
-            if (cliffLod < 1.0) {
+            if (uInReflection > 0.5) {
+              cliffMix = texture2D(uCliffMap, wpRock.xz * 0.028);
+              cliffTexNorm = vec3(0.0, 0.0, 1.0);
+            } else if (cliffLod < 1.0) {
               vec4 cNear, cMid; vec3 nNear, nMid;
               triplanarCliffPair(uCliffMap, uCliffNorm, wpRock, wpDx, wpDy, wn, 0.088, cNear, nNear);
               triplanarCliffPair(uCliffMap, uCliffNorm, wpRock + vec3(17.3, 4.1, -11.7), wpDx, wpDy, wn, 0.028, cMid, nMid);
@@ -2951,7 +2960,9 @@ export function createTerrainSystem(texLib, scene) {
     }
 
     const clutterGroup = new THREE.Group();
+    const rockGroup = new THREE.Group();
     group.add(clutterGroup);
+    group.add(rockGroup);
 
     const addInstanced = (geo, mat, mats, castShadow, colorsArr = null, targetParent = group) => {
       if (mats.length === 0) return;
@@ -2970,11 +2981,11 @@ export function createTerrainSystem(texLib, scene) {
       disposables.push(im);
     };
 
-    // Hero boulders & volcanic spires stay visible in lake reflections; small flora/cobbles go in clutterGroup (hidden in reflection pass!)
+    // Hero boulders & volcanic spires stay visible in close lake reflections; small flora/cobbles go in clutterGroup (hidden in reflection pass!)
     const rockCastShadow = lod <= 1;
-    addInstanced(boulderGeoA, boulderMat, boulderMatsA, rockCastShadow, boulderColorsA, group);
-    addInstanced(boulderGeoB, boulderMat, boulderMatsB, rockCastShadow, boulderColorsB, group);
-    addInstanced(spireGeo, boulderMat, spireMats, rockCastShadow, null, group);
+    addInstanced(boulderGeoA, boulderMat, boulderMatsA, rockCastShadow, boulderColorsA, rockGroup);
+    addInstanced(boulderGeoB, boulderMat, boulderMatsB, rockCastShadow, boulderColorsB, rockGroup);
+    addInstanced(spireGeo, boulderMat, spireMats, rockCastShadow, null, rockGroup);
     addInstanced(cobbleGeo, cobbleMat, cobbleMats, false, cobbleColors, clutterGroup);
     addInstanced(stoneClusterGeo, smallStoneMat, stoneMats, false, stoneColors, clutterGroup);
     addInstanced(cushionGeo, cushionMat, cushionMats, false, null, clutterGroup);
@@ -2983,7 +2994,7 @@ export function createTerrainSystem(texLib, scene) {
     addInstanced(bushGeo, bushMat, bushMats, false, null, clutterGroup);
     addInstanced(cottonGeo, cottonMat, cottonMats, false, null, clutterGroup);
 
-    return { disposables, colliders, clutterGroup };
+    return { disposables, colliders, clutterGroup, rockGroup };
   }
 
   function createChunk(cx, cz, geoLod, detailLod) {
@@ -2997,7 +3008,7 @@ export function createTerrainSystem(texLib, scene) {
     group.position.set(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE);
     group.add(mesh);
 
-    const { disposables, colliders, clutterGroup } = populateChunkDetails(cx, cz, detailLod, group);
+    const { disposables, colliders, clutterGroup, rockGroup } = populateChunkDetails(cx, cz, detailLod, group);
     root.add(group);
 
     return {
@@ -3008,6 +3019,7 @@ export function createTerrainSystem(texLib, scene) {
       detailLod,
       group,
       clutterGroup,
+      rockGroup,
       mesh,
       geo,
       disposables,
@@ -3119,9 +3131,11 @@ export function createTerrainSystem(texLib, scene) {
   }
 
   function setReflectionMode(enabled) {
+    ATMO_UNIFORMS.uInReflection.value = enabled ? 1.0 : 0.0;
     const showClutter = !enabled;
     for (const c of chunks.values()) {
       if (c.clutterGroup) c.clutterGroup.visible = showClutter;
+      if (c.rockGroup) c.rockGroup.visible = !enabled || c.detailLod === 0;
     }
   }
 

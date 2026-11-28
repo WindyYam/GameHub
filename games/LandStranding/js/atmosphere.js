@@ -114,6 +114,7 @@ export const ATMO_UNIFORMS = {
   uScanRadius: { value: -10.0 },
   uScanStrength: { value: 0.0 },
   uPlayerPos: { value: new THREE.Vector3(-7.5, 22, 12.8) },
+  uInReflection: { value: 0.0 },
   uTerrainShadowTex: { value: _terrainShadowTex },
   uTerrainShadowRect: { value: new THREE.Vector4(0, 0, 1.0 / SHADOW_MAP_HALF, 0.0) }
 };
@@ -142,6 +143,7 @@ uniform float uWindStrength;
 uniform vec3 uScanOrigin;
 uniform float uScanRadius;
 uniform float uScanStrength;
+uniform float uInReflection;
 uniform sampler2D uTerrainShadowTex;
 uniform vec4 uTerrainShadowRect;
 
@@ -250,13 +252,13 @@ vec3 applyIcelandAtmo(vec3 col, vec3 worldPos) {
     return mix(col, clearAir, clamp(baseAir * 1.18, 0.0, 0.72));
   }
 
-  // Optimized 5-step smooth C2 ray-marched flowing volumetric cloud-fog (~3x faster than 10-step, identical drifting billows!)
+  // Optimized 3-step smooth C2 ray-marched flowing volumetric cloud-fog
   float marchLen = min(dist, 1650.0);
   vec3 rayDir = toFrag / max(dist, 0.001);
   float cloudAccum = 0.0;
   float litAccum = 0.0;
-  float stepLen = marchLen * 0.20;
-  for (int i = 0; i < 5; i++) {
+  float stepLen = marchLen / 3.0;
+  for (int i = 0; i < 3; i++) {
     float t = (float(i) + 0.5) * stepLen;
     vec3 p = cameraPosition + rayDir * t;
     float dCloud = sampleFlowingCloudFog(p);
@@ -264,7 +266,7 @@ vec3 applyIcelandAtmo(vec3 col, vec3 worldPos) {
     cloudAccum += dCloud;
     litAccum += dCloud * hLit;
   }
-  float avgCloud = cloudAccum * 0.20;
+  float avgCloud = cloudAccum / 3.0;
   float avgLit = litAccum / max(cloudAccum, 0.001);
 
   // Dominant non-uniform flowing volumetric cloud-mist optical thickness!
@@ -731,20 +733,38 @@ export function createSkyDome() {
         float horizonBand = 1.0 - smoothstep(-0.02, 0.075, rd.y);
         sky = mix(sky, uSkyHorizon, horizonBand);
 
-        // Subtle ethereal inverted Death Stranding chiral rainbow arc high in misty overcast daytime sky
-        float bowVis = smoothstep(0.38, 0.85, uCloudCoverage) * (1.0 - uNightFactor);
-        if (bowVis > 0.02 && rd.y > 0.06 && rd.y < 0.44) {
-          vec3 bowCenter = normalize(vec3(0.25, 0.62, -0.74));
-          float ang = acos(clamp(dot(rd, bowCenter), -1.0, 1.0));
-          float bowT = (ang - 0.34) / 0.055;
-          float bowD = (bowT - 0.5) * 3.1;
-          float bowMask = exp(-(bowD * bowD)) * smoothstep(0.06, 0.16, rd.y) * (1.0 - smoothstep(0.22, 0.42, rd.y));
-          vec3 spectrum = vec3(
-            smoothstep(0.0, 0.45, bowT) * (1.0 - smoothstep(0.55, 0.95, bowT)),
-            smoothstep(0.18, 0.55, bowT) * (1.0 - smoothstep(0.65, 1.0, bowT)),
-            smoothstep(0.45, 0.88, bowT)
+        // Physically accurate antisolar primary (~42 deg) & subtle secondary (~51 deg) rainbow when sun & moisture align
+        float sunBowVis = smoothstep(0.01, 0.09, uSunDir.y) * (1.0 - smoothstep(0.58, 0.72, uSunDir.y));
+        float moistVis = smoothstep(0.10, 0.30, uRainWetness + uCloudCoverage * 0.45) * (1.0 - smoothstep(0.88, 0.99, uCloudDarkness));
+        float bowVis = sunBowVis * moistVis * (1.0 - uNightFactor);
+        if (bowVis > 0.02 && rd.y > 0.0) {
+          vec3 antiSun = normalize(-uSunDir);
+          float ang = acos(clamp(dot(rd, antiSun), -1.0, 1.0));
+          float horizFade = smoothstep(0.0, 0.055, rd.y);
+
+          // Primary bow (40.1 deg inner violet -> 42.5 deg outer red)
+          float bowT1 = (ang - 0.700) / 0.042;
+          float bowD1 = (bowT1 - 0.5) * 2.85;
+          float bowMask1 = exp(-(bowD1 * bowD1));
+          vec3 spec1 = vec3(
+            smoothstep(0.42, 0.85, bowT1) * (1.0 - smoothstep(0.88, 1.08, bowT1)),
+            smoothstep(0.20, 0.50, bowT1) * (1.0 - smoothstep(0.58, 0.88, bowT1)),
+            smoothstep(-0.04, 0.22, bowT1) * (1.0 - smoothstep(0.30, 0.58, bowT1))
           );
-          sky += spectrum * bowMask * bowVis * 0.13;
+          spec1 += vec3(0.22, 0.05, 0.32) * exp(-pow((bowT1 - 0.08) * 5.0, 2.0)); // Inner violet
+
+          // Faint secondary bow (50.5 deg outer red -> 53.5 deg inner violet, reversed order)
+          float bowT2 = 1.0 - (ang - 0.881) / 0.052;
+          float bowD2 = (bowT2 - 0.5) * 2.85;
+          float bowMask2 = exp(-(bowD2 * bowD2)) * 0.32;
+          vec3 spec2 = vec3(
+            smoothstep(0.42, 0.85, bowT2) * (1.0 - smoothstep(0.88, 1.08, bowT2)),
+            smoothstep(0.20, 0.50, bowT2) * (1.0 - smoothstep(0.58, 0.88, bowT2)),
+            smoothstep(-0.04, 0.22, bowT2) * (1.0 - smoothstep(0.30, 0.58, bowT2))
+          );
+
+          vec3 rainbowCol = (spec1 * bowMask1 + spec2 * bowMask2) * mix(vec3(1.0), uSunColor, 0.45);
+          sky += rainbowCol * bowVis * horizFade * 0.26;
         }
 
         // Apply the EXACT SAME flowing 3D volumetric atmospheric cloud-fog to the sky dome

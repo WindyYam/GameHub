@@ -1370,7 +1370,7 @@ export function sampleWorld(x, z, out = null) {
             if (bankF > 0.001) {
               const chanC = 1.0 - smoothstep(0, halfW * 0.84, _polyTmp.dist);
               const bedProf = mix(targetWaterY + 0.35, targetWaterY - 1.15, chanC);
-              h = mix(h, bedProf, bankF * 0.99);
+              h = mix(h, bedProf, bankF);
 
               const braid = smoothstep(0.54, 0.78, fbm2(x * 0.12 + 4.1, z * 0.09 - 2.3, 3, _seedInt + 433));
               const bar = braid * (1.0 - chanC * 0.55) * smoothstep(0.10, 0.85, _polyTmp.t);
