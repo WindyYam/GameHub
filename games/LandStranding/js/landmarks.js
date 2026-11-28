@@ -468,12 +468,12 @@ export function createLandmarkSystem(texLib, scene) {
           vec3 origin = (modelMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
         #endif
 
-        float rise = life * 16.5;
-        float driftDist = pow(life, 1.25) * (16.0 + uWindStrength * 14.0);
+        float rise = life * mix(16.5, 9.0, clamp(uWindStrength * 0.42, 0.0, 1.0));
+        float driftDist = pow(life, 1.15) * (6.0 + uWindStrength * 22.0);
         vec3 center = origin + vec3(
-          uWindDir.x * driftDist + sin(uTime * 0.6 + vSeed) * life * 1.4,
+          uWindDir.x * driftDist + sin(uTime * 0.6 + vSeed) * life * (1.0 + uWindStrength * 0.6),
           rise,
-          uWindDir.y * driftDist + cos(uTime * 0.5 + vSeed) * life * 1.4
+          uWindDir.y * driftDist + cos(uTime * 0.5 + vSeed) * life * (1.0 + uWindStrength * 0.6)
         );
 
         float sz = mix(1.4, 9.8, pow(life, 0.78)) * aSmokeSeed.z;
@@ -496,7 +496,7 @@ export function createLandmarkSystem(texLib, scene) {
         float r2 = dot(c, c);
         if (r2 >= 0.94) discard;
         float radial = pow(max(1.0 - r2 / 0.94, 0.0), 2.3);
-        float wisp = atmoFbm(vUv * 3.2 + vec2(vSeed, -uTime * 0.22));
+        float wisp = atmoFbm(vUv * 3.2 + vec2(vSeed - uWindTime * 0.08, -uTime * 0.22 - uWindTime * 0.10));
         float texA = texture2D(uMistTex, vUv).a;
         float fade = smoothstep(0.0, 0.14, vLife) * (1.0 - smoothstep(0.45, 1.0, vLife));
         float a = radial * mix(texA, wisp, 0.5) * fade * 0.34;

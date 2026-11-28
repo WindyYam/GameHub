@@ -5234,7 +5234,8 @@ function createEnvironmentController(scene, renderer, skyDome) {
     auroraPhaseIdx: 0,
     auroraWaveProfile: [0.80, 0.32, 0.60, 0.46],
     lightningFlash: 0.0,
-    lightningTimer: 8.0
+    lightningTimer: 3.5,
+    pendingStrike: 0.0
   };
 
   // Meteorologically reasonable Markov weather transition graph (no abrupt clear <-> storm jumps!)
@@ -5461,9 +5462,13 @@ function createEnvironmentController(scene, renderer, skyDome) {
     if (state.weather === 'storm') {
       state.lightningTimer -= dt;
       if (state.lightningTimer <= 0) {
-        state.lightningFlash = 0.85 + Math.random() * 0.45;
-        state.lightningTimer = 4.5 + Math.random() * 9.0;
+        const strength = 0.90 + Math.random() * 0.45;
+        state.lightningFlash = strength;
+        state.pendingStrike = strength;
+        state.lightningTimer = 4.0 + Math.random() * 7.5;
       }
+    } else {
+      state.lightningTimer = Math.min(state.lightningTimer, 2.5);
     }
     state.lightningFlash *= Math.exp(-dt * 9.0);
     ATMO_UNIFORMS.uLightning.value = state.lightningFlash;
@@ -5590,6 +5595,12 @@ function createEnvironmentController(scene, renderer, skyDome) {
     setAuroraMode,
     stepAuroraPhase,
     triggerAuroraBurst,
+    consumeLightningStrike() {
+      if (state.pendingStrike <= 0) return null;
+      const strength = state.pendingStrike;
+      state.pendingStrike = 0;
+      return { strength };
+    },
     update
   };
 }
@@ -5991,6 +6002,95 @@ function createWeatherFX(scene) {
   playerDropletMesh.renderOrder = 16;
   group.add(playerDropletMesh);
 
+  // 4. 3D Forked Cloud-to-Ground Lightning Bolt (pre-allocated LineSegments, 1 draw call only when striking!)
+  const MAX_BOLT_SEGS = 96;
+  const boltPos = new Float32Array(MAX_BOLT_SEGS * 2 * 3);
+  const boltGeo = new THREE.BufferGeometry();
+  boltGeo.setAttribute('position', new THREE.BufferAttribute(boltPos, 3));
+  boltGeo.setDrawRange(0, 0);
+  const boltMat = new THREE.LineBasicMaterial({
+    color: 0xd8ecff,
+    transparent: true,
+    opacity: 0.0,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    fog: false
+  });
+  const boltMesh = new THREE.LineSegments(boltGeo, boltMat);
+  boltMesh.frustumCulled = false;
+  boltMesh.visible = false;
+  boltMesh.renderOrder = 18;
+  group.add(boltMesh);
+
+  let boltAge = 99.0;
+  const BOLT_LIFE = 0.38;
+  const _camFwd = new THREE.Vector3();
+
+  function triggerLightning(camera, playerPos, strength = 1.0) {
+    camera.getWorldDirection(_camFwd);
+    const baseAng = Math.atan2(_camFwd.z, _camFwd.x);
+    const ang = baseAng + (Math.random() - 0.5) * 1.45;
+    const distM = 170 + Math.random() * 540;
+    const ax = playerPos ? playerPos.x : camera.position.x;
+    const az = playerPos ? playerPos.z : camera.position.z;
+    const tx = ax + Math.cos(ang) * distM;
+    const tz = az + Math.sin(ang) * distM;
+    const groundY = getTerrainHeight(tx, tz) - 2.0;
+    const topY = groundY + 260 + Math.random() * 110;
+
+    let vIdx = 0;
+    const pushSeg = (x0, y0, z0, x1, y1, z1) => {
+      if (vIdx + 6 > boltPos.length) return;
+      boltPos[vIdx++] = x0;
+      boltPos[vIdx++] = y0;
+      boltPos[vIdx++] = z0;
+      boltPos[vIdx++] = x1;
+      boltPos[vIdx++] = y1;
+      boltPos[vIdx++] = z1;
+    };
+
+    const mainSteps = 22;
+    let cx = tx + (Math.random() - 0.5) * 38;
+    let cy = topY;
+    let cz = tz + (Math.random() - 0.5) * 38;
+    for (let i = 1; i <= mainSteps; i++) {
+      const t = i / mainSteps;
+      const ny = topY + (groundY - topY) * t;
+      const jitter = (1.0 - t * 0.65) * 22.0;
+      const nx = (tx * t + cx * (1.0 - t)) + (Math.random() - 0.5) * jitter;
+      const nz = (tz * t + cz * (1.0 - t)) + (Math.random() - 0.5) * jitter;
+      pushSeg(cx, cy, cz, nx, ny, nz);
+
+      if (i > 3 && i < mainSteps - 3 && Math.random() < 0.28) {
+        let bx = nx;
+        let by = ny;
+        let bz = nz;
+        const bDirX = (Math.random() - 0.5) * 28.0;
+        const bDirZ = (Math.random() - 0.5) * 28.0;
+        const bSteps = 5 + Math.floor(Math.random() * 4);
+        for (let b = 0; b < bSteps; b++) {
+          const nbx = bx + bDirX * 0.45 + (Math.random() - 0.5) * 14.0;
+          const nby = by - (14.0 + Math.random() * 12.0);
+          const nbz = bz + bDirZ * 0.45 + (Math.random() - 0.5) * 14.0;
+          pushSeg(bx, by, bz, nbx, nby, nbz);
+          bx = nbx;
+          by = nby;
+          bz = nbz;
+        }
+      }
+      cx = nx;
+      cy = ny;
+      cz = nz;
+    }
+
+    boltGeo.attributes.position.needsUpdate = true;
+    boltGeo.setDrawRange(0, vIdx / 3);
+    boltAge = 0.0;
+    boltMesh.visible = true;
+    boltMat.opacity = Math.min(1.0, 0.85 * strength);
+    return distM;
+  }
+
   const _dummy = new THREE.Object3D();
   const _clearOut = { baseY: 0, clearFade: 1 };
 
@@ -6098,13 +6198,24 @@ function createWeatherFX(scene) {
 
     playerDropletMat.uniforms.uRainIntensity.value = rainIntensity;
     playerDropletMesh.visible = rainIntensity > 0.50 && !(shelter && shelter.inside);
+
+    if (boltMesh.visible) {
+      boltAge += safeDt;
+      if (boltAge >= BOLT_LIFE) {
+        boltMesh.visible = false;
+      } else {
+        const u = boltAge / BOLT_LIFE;
+        const flicker = u < 0.22 ? 1.0 : (u < 0.36 ? 0.25 : (u < 0.54 ? 0.92 : Math.max(0.0, 1.0 - (u - 0.54) / 0.46)));
+        boltMat.opacity = flicker;
+      }
+    }
   }
 
   function setVisible(v) {
     group.visible = v;
   }
 
-  return { update, setVisible };
+  return { update, setVisible, triggerLightning };
 }
 
 return { createWeatherFX };
@@ -10459,16 +10570,20 @@ function createWaterSystem(texLib, scene) {
           float sy = 1.0;
         #endif
 
-        // Gentle organic billowing drift (spray rises slightly; cliff mist drifts horizontally with wind)
+        // Wind-driven billowing drift & downwind plume shear along uWindDir scaled by uWindStrength
         float phase = uTime * aMistSeed.z + aMistSeed.x;
-        center.y += sin(phase) * mix(1.2, 2.2, vIsSpray);
-        center.x += cos(phase * 0.65 + aMistSeed.x) * mix(3.5, 1.8, vIsSpray) * (0.5 + uWindStrength * 0.5);
+        float windAmp = max(uWindStrength, 0.1);
+        center.y += sin(phase) * mix(1.1, 2.0, vIsSpray);
+        center.xz += uWindDir * (sin(phase * 0.70 + aMistSeed.x) * mix(2.8, 1.4, vIsSpray) + windAmp * 1.4);
 
         vec3 camRight = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
         vec3 camUp = vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]);
         // Bottom-anchor mist billboards (0..sy) with upright-biased axis so steam & spray NEVER stab below ground level!
         vec3 upAxis = normalize(mix(vec3(0.0, 1.0, 0.0), camUp, 0.32));
-        vec3 wp = center + camRight * (position.x * sx) + upAxis * ((position.y + 0.5) * sy);
+        float hFrac = position.y + 0.5;
+        vec3 wp = center + camRight * (position.x * sx) + upAxis * (hFrac * sy);
+        wp.xz += uWindDir * (hFrac * sy * (0.12 + windAmp * 0.45));
+        wp.y -= hFrac * sy * min(windAmp * 0.10, 0.28);
         vWorldPos = wp;
 
         float camDist = length(cameraPosition - wp);
@@ -10494,7 +10609,7 @@ function createWaterSystem(texLib, scene) {
         float radial = exp(-r2 * 2.9) * (1.0 - smoothstep(0.30, 0.95, r2)) * smoothstep(0.0, 0.36, vUv.y);
 
         // Domain-warped tattered wind-sheared cloud wisps (breaks up circular silhouette completely!)
-        vec2 flow = mix(vec2(-uTime * 0.045, 0.015), vec2(0.02, -uTime * 0.14), vIsSpray);
+        vec2 flow = mix(vec2(-uWindTime * 0.06, 0.015), vec2(uWindTime * 0.03, -uTime * 0.14 - uWindTime * 0.05), vIsSpray);
         vec2 uvWarp = vUv * vec2(1.4, 1.9) + vec2(vSeed * 0.37, vSeed * 0.19) + flow;
         float wX = atmoFbm(uvWarp * 1.4) - 0.5;
         float wY = atmoFbm(uvWarp * 1.4 + vec2(5.2, -3.1)) - 0.5;
@@ -12135,12 +12250,12 @@ function createLandmarkSystem(texLib, scene) {
           vec3 origin = (modelMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
         #endif
 
-        float rise = life * 16.5;
-        float driftDist = pow(life, 1.25) * (16.0 + uWindStrength * 14.0);
+        float rise = life * mix(16.5, 9.0, clamp(uWindStrength * 0.42, 0.0, 1.0));
+        float driftDist = pow(life, 1.15) * (6.0 + uWindStrength * 22.0);
         vec3 center = origin + vec3(
-          uWindDir.x * driftDist + sin(uTime * 0.6 + vSeed) * life * 1.4,
+          uWindDir.x * driftDist + sin(uTime * 0.6 + vSeed) * life * (1.0 + uWindStrength * 0.6),
           rise,
-          uWindDir.y * driftDist + cos(uTime * 0.5 + vSeed) * life * 1.4
+          uWindDir.y * driftDist + cos(uTime * 0.5 + vSeed) * life * (1.0 + uWindStrength * 0.6)
         );
 
         float sz = mix(1.4, 9.8, pow(life, 0.78)) * aSmokeSeed.z;
@@ -12163,7 +12278,7 @@ function createLandmarkSystem(texLib, scene) {
         float r2 = dot(c, c);
         if (r2 >= 0.94) discard;
         float radial = pow(max(1.0 - r2 / 0.94, 0.0), 2.3);
-        float wisp = atmoFbm(vUv * 3.2 + vec2(vSeed, -uTime * 0.22));
+        float wisp = atmoFbm(vUv * 3.2 + vec2(vSeed - uWindTime * 0.08, -uTime * 0.22 - uWindTime * 0.10));
         float texA = texture2D(uMistTex, vUv).a;
         float fade = smoothstep(0.0, 0.14, vLife) * (1.0 - smoothstep(0.45, 1.0, vLife));
         float a = radial * mix(texA, wisp, 0.5) * fade * 0.34;
@@ -18493,6 +18608,8 @@ function createAudioSystem() {
   let bikeGain = null;
   let bikeRumbleGain = null;
   let noiseBuf = null;
+  let thunderBus = null;
+  let thunderReverb = null;
   let muted = false;
   let started = false;
 
@@ -18545,6 +18662,44 @@ function createAudioSystem() {
     masterGain.connect(ctx.destination);
 
     noiseBuf = makeWhiteNoiseBuffer(ctx);
+
+    // Dedicated compressed thunder bus + 4.8s dark valley reverb impulse response
+    thunderBus = ctx.createDynamicsCompressor();
+    thunderBus.threshold.value = -10;
+    thunderBus.knee.value = 12;
+    thunderBus.ratio.value = 6;
+    thunderBus.attack.value = 0.005;
+    thunderBus.release.value = 0.35;
+    const thunderBusGain = ctx.createGain();
+    thunderBusGain.gain.value = 1.65;
+    thunderBus.connect(thunderBusGain);
+    thunderBusGain.connect(masterGain);
+
+    const irLen = Math.floor(ctx.sampleRate * 4.8);
+    const irBuf = ctx.createBuffer(2, irLen, ctx.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const chData = irBuf.getChannelData(ch);
+      let lp = 0;
+      for (let i = 0; i < irLen; i++) {
+        const tSec = i / ctx.sampleRate;
+        const env = Math.exp(-tSec * 0.72) * (1.0 - Math.exp(-tSec * 28.0));
+        // Add distinct mountain-wall echo reflections at ~0.35s, ~0.85s, ~1.55s
+        const echo =
+          1.0 +
+          0.45 * Math.exp(-Math.pow((tSec - 0.36) * 8.0, 2.0)) +
+          0.35 * Math.exp(-Math.pow((tSec - 0.88) * 5.0, 2.0)) +
+          0.25 * Math.exp(-Math.pow((tSec - 1.58) * 3.5, 2.0));
+        const white = Math.random() * 2 - 1;
+        lp = lp * 0.78 + white * 0.22;
+        chData[i] = lp * env * echo;
+      }
+    }
+    thunderReverb = ctx.createConvolver();
+    thunderReverb.buffer = irBuf;
+    const revWet = ctx.createGain();
+    revWet.gain.value = 1.45;
+    thunderReverb.connect(revWet);
+    revWet.connect(thunderBus);
 
     const wind = startLoopNode('bandpass', 320, 1.8);
     windFilter = wind.filter;
@@ -18747,6 +18902,106 @@ function createAudioSystem() {
     auroraGain.gain.setTargetAtTime(auroraStrength * 0.35, now, 0.5);
   }
 
+  function playThunder(distanceM = 350, intensity = 1.0) {
+    if (!started || !ctx || muted || !noiseBuf || !thunderBus) return;
+    if (ctx.state === 'suspended') ctx.resume();
+    const dist = clamp(distanceM, 60, 1200);
+    const distNorm = clamp((dist - 150) / 600, 0, 1); // 0 = close violent strike, 1 = distant rolling rumble
+    const delay = clamp(dist / 343.0, 0.06, 2.6);
+    const atten = clamp(1.22 - dist / 1250, 0.35, 1.15) * clamp(intensity, 0.6, 1.4);
+    const t0 = ctx.currentTime + delay;
+
+    // 1) Sharp initial thunderclap crack (bright & violent when close; air-absorbed & absent when far)
+    if (dist < 580) {
+      const closeFactor = 1.0 - dist / 580;
+      const crackCount = Math.random() < 0.42 ? 2 : 1;
+      for (let c = 0; c < crackCount; c++) {
+        const ct = t0 + c * (0.06 + Math.random() * 0.09);
+        const crackSrc = ctx.createBufferSource();
+        crackSrc.buffer = noiseBuf;
+        crackSrc.loop = true;
+        crackSrc.playbackRate.value = 0.85 + Math.random() * 0.35;
+        const crackFilter = ctx.createBiquadFilter();
+        crackFilter.type = 'bandpass';
+        const startHz = (1800 - distNorm * 1100) * (0.85 + Math.random() * 0.3);
+        crackFilter.frequency.setValueAtTime(Math.max(320, startHz), ct);
+        crackFilter.frequency.exponentialRampToValueAtTime(120 + Math.random() * 70, ct + 0.34);
+        crackFilter.Q.value = 0.65 + Math.random() * 0.35;
+        const crackGain = ctx.createGain();
+        const crackPeak = (2.8 * closeFactor * atten) * (c === 0 ? 1.0 : 0.62);
+        crackGain.gain.setValueAtTime(0.0001, ct);
+        crackGain.gain.linearRampToValueAtTime(crackPeak, ct + 0.008 + distNorm * 0.025);
+        crackGain.gain.exponentialRampToValueAtTime(0.0001, ct + 0.38 + Math.random() * 0.22);
+        crackSrc.connect(crackFilter);
+        crackFilter.connect(crackGain);
+        crackGain.connect(thunderBus);
+        if (thunderReverb) crackGain.connect(thunderReverb);
+        crackSrc.start(ct, Math.random() * 2.5);
+        crackSrc.stop(ct + 0.65);
+      }
+    }
+
+    // 2) Sub-bass shockwave (stronger & punchier on close strikes, softer & deeper on distant ones)
+    const subOsc = ctx.createOscillator();
+    subOsc.type = Math.random() < 0.5 ? 'triangle' : 'sine';
+    const subStartHz = (72 - distNorm * 22) * (0.88 + Math.random() * 0.24);
+    subOsc.frequency.setValueAtTime(subStartHz, t0);
+    subOsc.frequency.exponentialRampToValueAtTime(22 + Math.random() * 8, t0 + 1.8 + distNorm * 0.8);
+    const subGain = ctx.createGain();
+    subGain.gain.setValueAtTime(0.0001, t0);
+    subGain.gain.linearRampToValueAtTime((0.85 - distNorm * 0.40) * atten, t0 + 0.025 + distNorm * 0.09);
+    subGain.gain.exponentialRampToValueAtTime(0.0001, t0 + 2.0 + distNorm * 0.8);
+    subOsc.connect(subGain);
+    subGain.connect(thunderBus);
+    subOsc.start(t0);
+    subOsc.stop(t0 + 2.9);
+
+    // 3) Randomized, distance-shaped rolling valley thunder (close = crisp & punchy; far = deep, muffled & long-rolling)
+    const dur = 4.6 + distNorm * 2.4 + Math.random() * 1.8;
+    const rumbleSrc = ctx.createBufferSource();
+    rumbleSrc.buffer = noiseBuf;
+    rumbleSrc.loop = true;
+    rumbleSrc.playbackRate.value = 0.78 + Math.random() * 0.42;
+
+    const rumbleFilter = ctx.createBiquadFilter();
+    rumbleFilter.type = 'lowpass';
+    const startCut = (520 - distNorm * 340) * (0.85 + Math.random() * 0.30);
+    rumbleFilter.frequency.setValueAtTime(Math.max(130, startCut), t0);
+    rumbleFilter.frequency.exponentialRampToValueAtTime(42 + Math.random() * 18, t0 + dur);
+    rumbleFilter.Q.value = 0.70 + Math.random() * 0.45;
+
+    const attackTime = 0.03 + distNorm * 0.26;
+    const swell1T = 0.65 + Math.random() * 0.45;
+    const swell2T = swell1T + 0.7 + Math.random() * 0.6;
+    const swell3T = swell2T + 0.9 + Math.random() * 0.8;
+    const peak = 2.8 * atten;
+
+    const rumbleGain = ctx.createGain();
+    rumbleGain.gain.setValueAtTime(0.0001, t0);
+    rumbleGain.gain.linearRampToValueAtTime(peak, t0 + attackTime);
+    rumbleGain.gain.exponentialRampToValueAtTime(peak * (0.38 + Math.random() * 0.16), t0 + swell1T);
+    rumbleGain.gain.linearRampToValueAtTime(peak * (0.55 + Math.random() * 0.22), t0 + swell1T + 0.32);
+    rumbleGain.gain.exponentialRampToValueAtTime(peak * (0.24 + Math.random() * 0.12), t0 + swell2T);
+    rumbleGain.gain.linearRampToValueAtTime(peak * (0.28 + Math.random() * 0.18), t0 + swell2T + 0.42);
+    rumbleGain.gain.exponentialRampToValueAtTime(peak * 0.12, t0 + Math.min(dur - 0.4, swell3T));
+    rumbleGain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+
+    const dryGain = ctx.createGain();
+    dryGain.gain.value = 1.0 - distNorm * 0.45; // Close strikes are drier/punchier; distant strikes are wetter
+    rumbleSrc.connect(rumbleFilter);
+    rumbleFilter.connect(rumbleGain);
+    rumbleGain.connect(dryGain);
+    dryGain.connect(thunderBus);
+    if (thunderReverb) {
+      const wetSend = ctx.createGain();
+      wetSend.gain.value = 0.85 + distNorm * 0.75;
+      rumbleGain.connect(wetSend);
+      wetSend.connect(thunderReverb);
+    }
+    rumbleSrc.start(t0, Math.random() * 2.5);
+    rumbleSrc.stop(t0 + dur + 0.05);
+  }
+
   return {
     init,
     setMuted,
@@ -18755,6 +19010,7 @@ function createAudioSystem() {
     playFootstep,
     playOdradekChime,
     playPrintCompleteChime,
+    playThunder,
     setLaserPrintAudio,
     setBikeAudio,
     update
@@ -20397,6 +20653,11 @@ function animate() {
   const t2 = bOn ? performance.now() : 0;
 
   envCtrl.update(dt, porter.state.pos);
+  const strike = envCtrl.consumeLightningStrike();
+  if (strike) {
+    const distM = weatherFX.triggerLightning(camera, porter.state.pos, strike.strength);
+    audioSys.playThunder(distM, strike.strength);
+  }
   const shelter = landmarkSys.getNearestShelterBox(px, porter.state.pos.y, pz);
   weatherFX.update(camera, envCtrl.curWx.rainIntensity, porter.state.pos, dt, shelter);
   audioSys.update(

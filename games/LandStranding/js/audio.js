@@ -22,6 +22,8 @@ export function createAudioSystem() {
   let bikeGain = null;
   let bikeRumbleGain = null;
   let noiseBuf = null;
+  let thunderBus = null;
+  let thunderReverb = null;
   let muted = false;
   let started = false;
 
@@ -74,6 +76,44 @@ export function createAudioSystem() {
     masterGain.connect(ctx.destination);
 
     noiseBuf = makeWhiteNoiseBuffer(ctx);
+
+    // Dedicated compressed thunder bus + 4.8s dark valley reverb impulse response
+    thunderBus = ctx.createDynamicsCompressor();
+    thunderBus.threshold.value = -10;
+    thunderBus.knee.value = 12;
+    thunderBus.ratio.value = 6;
+    thunderBus.attack.value = 0.005;
+    thunderBus.release.value = 0.35;
+    const thunderBusGain = ctx.createGain();
+    thunderBusGain.gain.value = 1.65;
+    thunderBus.connect(thunderBusGain);
+    thunderBusGain.connect(masterGain);
+
+    const irLen = Math.floor(ctx.sampleRate * 4.8);
+    const irBuf = ctx.createBuffer(2, irLen, ctx.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const chData = irBuf.getChannelData(ch);
+      let lp = 0;
+      for (let i = 0; i < irLen; i++) {
+        const tSec = i / ctx.sampleRate;
+        const env = Math.exp(-tSec * 0.72) * (1.0 - Math.exp(-tSec * 28.0));
+        // Add distinct mountain-wall echo reflections at ~0.35s, ~0.85s, ~1.55s
+        const echo =
+          1.0 +
+          0.45 * Math.exp(-Math.pow((tSec - 0.36) * 8.0, 2.0)) +
+          0.35 * Math.exp(-Math.pow((tSec - 0.88) * 5.0, 2.0)) +
+          0.25 * Math.exp(-Math.pow((tSec - 1.58) * 3.5, 2.0));
+        const white = Math.random() * 2 - 1;
+        lp = lp * 0.78 + white * 0.22;
+        chData[i] = lp * env * echo;
+      }
+    }
+    thunderReverb = ctx.createConvolver();
+    thunderReverb.buffer = irBuf;
+    const revWet = ctx.createGain();
+    revWet.gain.value = 1.45;
+    thunderReverb.connect(revWet);
+    revWet.connect(thunderBus);
 
     const wind = startLoopNode('bandpass', 320, 1.8);
     windFilter = wind.filter;
@@ -276,6 +316,106 @@ export function createAudioSystem() {
     auroraGain.gain.setTargetAtTime(auroraStrength * 0.35, now, 0.5);
   }
 
+  function playThunder(distanceM = 350, intensity = 1.0) {
+    if (!started || !ctx || muted || !noiseBuf || !thunderBus) return;
+    if (ctx.state === 'suspended') ctx.resume();
+    const dist = clamp(distanceM, 60, 1200);
+    const distNorm = clamp((dist - 150) / 600, 0, 1); // 0 = close violent strike, 1 = distant rolling rumble
+    const delay = clamp(dist / 343.0, 0.06, 2.6);
+    const atten = clamp(1.22 - dist / 1250, 0.35, 1.15) * clamp(intensity, 0.6, 1.4);
+    const t0 = ctx.currentTime + delay;
+
+    // 1) Sharp initial thunderclap crack (bright & violent when close; air-absorbed & absent when far)
+    if (dist < 580) {
+      const closeFactor = 1.0 - dist / 580;
+      const crackCount = Math.random() < 0.42 ? 2 : 1;
+      for (let c = 0; c < crackCount; c++) {
+        const ct = t0 + c * (0.06 + Math.random() * 0.09);
+        const crackSrc = ctx.createBufferSource();
+        crackSrc.buffer = noiseBuf;
+        crackSrc.loop = true;
+        crackSrc.playbackRate.value = 0.85 + Math.random() * 0.35;
+        const crackFilter = ctx.createBiquadFilter();
+        crackFilter.type = 'bandpass';
+        const startHz = (1800 - distNorm * 1100) * (0.85 + Math.random() * 0.3);
+        crackFilter.frequency.setValueAtTime(Math.max(320, startHz), ct);
+        crackFilter.frequency.exponentialRampToValueAtTime(120 + Math.random() * 70, ct + 0.34);
+        crackFilter.Q.value = 0.65 + Math.random() * 0.35;
+        const crackGain = ctx.createGain();
+        const crackPeak = (2.8 * closeFactor * atten) * (c === 0 ? 1.0 : 0.62);
+        crackGain.gain.setValueAtTime(0.0001, ct);
+        crackGain.gain.linearRampToValueAtTime(crackPeak, ct + 0.008 + distNorm * 0.025);
+        crackGain.gain.exponentialRampToValueAtTime(0.0001, ct + 0.38 + Math.random() * 0.22);
+        crackSrc.connect(crackFilter);
+        crackFilter.connect(crackGain);
+        crackGain.connect(thunderBus);
+        if (thunderReverb) crackGain.connect(thunderReverb);
+        crackSrc.start(ct, Math.random() * 2.5);
+        crackSrc.stop(ct + 0.65);
+      }
+    }
+
+    // 2) Sub-bass shockwave (stronger & punchier on close strikes, softer & deeper on distant ones)
+    const subOsc = ctx.createOscillator();
+    subOsc.type = Math.random() < 0.5 ? 'triangle' : 'sine';
+    const subStartHz = (72 - distNorm * 22) * (0.88 + Math.random() * 0.24);
+    subOsc.frequency.setValueAtTime(subStartHz, t0);
+    subOsc.frequency.exponentialRampToValueAtTime(22 + Math.random() * 8, t0 + 1.8 + distNorm * 0.8);
+    const subGain = ctx.createGain();
+    subGain.gain.setValueAtTime(0.0001, t0);
+    subGain.gain.linearRampToValueAtTime((0.85 - distNorm * 0.40) * atten, t0 + 0.025 + distNorm * 0.09);
+    subGain.gain.exponentialRampToValueAtTime(0.0001, t0 + 2.0 + distNorm * 0.8);
+    subOsc.connect(subGain);
+    subGain.connect(thunderBus);
+    subOsc.start(t0);
+    subOsc.stop(t0 + 2.9);
+
+    // 3) Randomized, distance-shaped rolling valley thunder (close = crisp & punchy; far = deep, muffled & long-rolling)
+    const dur = 4.6 + distNorm * 2.4 + Math.random() * 1.8;
+    const rumbleSrc = ctx.createBufferSource();
+    rumbleSrc.buffer = noiseBuf;
+    rumbleSrc.loop = true;
+    rumbleSrc.playbackRate.value = 0.78 + Math.random() * 0.42;
+
+    const rumbleFilter = ctx.createBiquadFilter();
+    rumbleFilter.type = 'lowpass';
+    const startCut = (520 - distNorm * 340) * (0.85 + Math.random() * 0.30);
+    rumbleFilter.frequency.setValueAtTime(Math.max(130, startCut), t0);
+    rumbleFilter.frequency.exponentialRampToValueAtTime(42 + Math.random() * 18, t0 + dur);
+    rumbleFilter.Q.value = 0.70 + Math.random() * 0.45;
+
+    const attackTime = 0.03 + distNorm * 0.26;
+    const swell1T = 0.65 + Math.random() * 0.45;
+    const swell2T = swell1T + 0.7 + Math.random() * 0.6;
+    const swell3T = swell2T + 0.9 + Math.random() * 0.8;
+    const peak = 2.8 * atten;
+
+    const rumbleGain = ctx.createGain();
+    rumbleGain.gain.setValueAtTime(0.0001, t0);
+    rumbleGain.gain.linearRampToValueAtTime(peak, t0 + attackTime);
+    rumbleGain.gain.exponentialRampToValueAtTime(peak * (0.38 + Math.random() * 0.16), t0 + swell1T);
+    rumbleGain.gain.linearRampToValueAtTime(peak * (0.55 + Math.random() * 0.22), t0 + swell1T + 0.32);
+    rumbleGain.gain.exponentialRampToValueAtTime(peak * (0.24 + Math.random() * 0.12), t0 + swell2T);
+    rumbleGain.gain.linearRampToValueAtTime(peak * (0.28 + Math.random() * 0.18), t0 + swell2T + 0.42);
+    rumbleGain.gain.exponentialRampToValueAtTime(peak * 0.12, t0 + Math.min(dur - 0.4, swell3T));
+    rumbleGain.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+
+    const dryGain = ctx.createGain();
+    dryGain.gain.value = 1.0 - distNorm * 0.45; // Close strikes are drier/punchier; distant strikes are wetter
+    rumbleSrc.connect(rumbleFilter);
+    rumbleFilter.connect(rumbleGain);
+    rumbleGain.connect(dryGain);
+    dryGain.connect(thunderBus);
+    if (thunderReverb) {
+      const wetSend = ctx.createGain();
+      wetSend.gain.value = 0.85 + distNorm * 0.75;
+      rumbleGain.connect(wetSend);
+      wetSend.connect(thunderReverb);
+    }
+    rumbleSrc.start(t0, Math.random() * 2.5);
+    rumbleSrc.stop(t0 + dur + 0.05);
+  }
+
   return {
     init,
     setMuted,
@@ -284,6 +424,7 @@ export function createAudioSystem() {
     playFootstep,
     playOdradekChime,
     playPrintCompleteChime,
+    playThunder,
     setLaserPrintAudio,
     setBikeAudio,
     update

@@ -389,6 +389,95 @@ export function createWeatherFX(scene) {
   playerDropletMesh.renderOrder = 16;
   group.add(playerDropletMesh);
 
+  // 4. 3D Forked Cloud-to-Ground Lightning Bolt (pre-allocated LineSegments, 1 draw call only when striking!)
+  const MAX_BOLT_SEGS = 96;
+  const boltPos = new Float32Array(MAX_BOLT_SEGS * 2 * 3);
+  const boltGeo = new THREE.BufferGeometry();
+  boltGeo.setAttribute('position', new THREE.BufferAttribute(boltPos, 3));
+  boltGeo.setDrawRange(0, 0);
+  const boltMat = new THREE.LineBasicMaterial({
+    color: 0xd8ecff,
+    transparent: true,
+    opacity: 0.0,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    fog: false
+  });
+  const boltMesh = new THREE.LineSegments(boltGeo, boltMat);
+  boltMesh.frustumCulled = false;
+  boltMesh.visible = false;
+  boltMesh.renderOrder = 18;
+  group.add(boltMesh);
+
+  let boltAge = 99.0;
+  const BOLT_LIFE = 0.38;
+  const _camFwd = new THREE.Vector3();
+
+  function triggerLightning(camera, playerPos, strength = 1.0) {
+    camera.getWorldDirection(_camFwd);
+    const baseAng = Math.atan2(_camFwd.z, _camFwd.x);
+    const ang = baseAng + (Math.random() - 0.5) * 1.45;
+    const distM = 170 + Math.random() * 540;
+    const ax = playerPos ? playerPos.x : camera.position.x;
+    const az = playerPos ? playerPos.z : camera.position.z;
+    const tx = ax + Math.cos(ang) * distM;
+    const tz = az + Math.sin(ang) * distM;
+    const groundY = getTerrainHeight(tx, tz) - 2.0;
+    const topY = groundY + 260 + Math.random() * 110;
+
+    let vIdx = 0;
+    const pushSeg = (x0, y0, z0, x1, y1, z1) => {
+      if (vIdx + 6 > boltPos.length) return;
+      boltPos[vIdx++] = x0;
+      boltPos[vIdx++] = y0;
+      boltPos[vIdx++] = z0;
+      boltPos[vIdx++] = x1;
+      boltPos[vIdx++] = y1;
+      boltPos[vIdx++] = z1;
+    };
+
+    const mainSteps = 22;
+    let cx = tx + (Math.random() - 0.5) * 38;
+    let cy = topY;
+    let cz = tz + (Math.random() - 0.5) * 38;
+    for (let i = 1; i <= mainSteps; i++) {
+      const t = i / mainSteps;
+      const ny = topY + (groundY - topY) * t;
+      const jitter = (1.0 - t * 0.65) * 22.0;
+      const nx = (tx * t + cx * (1.0 - t)) + (Math.random() - 0.5) * jitter;
+      const nz = (tz * t + cz * (1.0 - t)) + (Math.random() - 0.5) * jitter;
+      pushSeg(cx, cy, cz, nx, ny, nz);
+
+      if (i > 3 && i < mainSteps - 3 && Math.random() < 0.28) {
+        let bx = nx;
+        let by = ny;
+        let bz = nz;
+        const bDirX = (Math.random() - 0.5) * 28.0;
+        const bDirZ = (Math.random() - 0.5) * 28.0;
+        const bSteps = 5 + Math.floor(Math.random() * 4);
+        for (let b = 0; b < bSteps; b++) {
+          const nbx = bx + bDirX * 0.45 + (Math.random() - 0.5) * 14.0;
+          const nby = by - (14.0 + Math.random() * 12.0);
+          const nbz = bz + bDirZ * 0.45 + (Math.random() - 0.5) * 14.0;
+          pushSeg(bx, by, bz, nbx, nby, nbz);
+          bx = nbx;
+          by = nby;
+          bz = nbz;
+        }
+      }
+      cx = nx;
+      cy = ny;
+      cz = nz;
+    }
+
+    boltGeo.attributes.position.needsUpdate = true;
+    boltGeo.setDrawRange(0, vIdx / 3);
+    boltAge = 0.0;
+    boltMesh.visible = true;
+    boltMat.opacity = Math.min(1.0, 0.85 * strength);
+    return distM;
+  }
+
   const _dummy = new THREE.Object3D();
   const _clearOut = { baseY: 0, clearFade: 1 };
 
@@ -496,11 +585,22 @@ export function createWeatherFX(scene) {
 
     playerDropletMat.uniforms.uRainIntensity.value = rainIntensity;
     playerDropletMesh.visible = rainIntensity > 0.50 && !(shelter && shelter.inside);
+
+    if (boltMesh.visible) {
+      boltAge += safeDt;
+      if (boltAge >= BOLT_LIFE) {
+        boltMesh.visible = false;
+      } else {
+        const u = boltAge / BOLT_LIFE;
+        const flicker = u < 0.22 ? 1.0 : (u < 0.36 ? 0.25 : (u < 0.54 ? 0.92 : Math.max(0.0, 1.0 - (u - 0.54) / 0.46)));
+        boltMat.opacity = flicker;
+      }
+    }
   }
 
   function setVisible(v) {
     group.visible = v;
   }
 
-  return { update, setVisible };
+  return { update, setVisible, triggerLightning };
 }

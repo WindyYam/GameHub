@@ -1326,7 +1326,8 @@ export function createEnvironmentController(scene, renderer, skyDome) {
     auroraPhaseIdx: 0,
     auroraWaveProfile: [0.80, 0.32, 0.60, 0.46],
     lightningFlash: 0.0,
-    lightningTimer: 8.0
+    lightningTimer: 3.5,
+    pendingStrike: 0.0
   };
 
   // Meteorologically reasonable Markov weather transition graph (no abrupt clear <-> storm jumps!)
@@ -1553,9 +1554,13 @@ export function createEnvironmentController(scene, renderer, skyDome) {
     if (state.weather === 'storm') {
       state.lightningTimer -= dt;
       if (state.lightningTimer <= 0) {
-        state.lightningFlash = 0.85 + Math.random() * 0.45;
-        state.lightningTimer = 4.5 + Math.random() * 9.0;
+        const strength = 0.90 + Math.random() * 0.45;
+        state.lightningFlash = strength;
+        state.pendingStrike = strength;
+        state.lightningTimer = 4.0 + Math.random() * 7.5;
       }
+    } else {
+      state.lightningTimer = Math.min(state.lightningTimer, 2.5);
     }
     state.lightningFlash *= Math.exp(-dt * 9.0);
     ATMO_UNIFORMS.uLightning.value = state.lightningFlash;
@@ -1682,6 +1687,12 @@ export function createEnvironmentController(scene, renderer, skyDome) {
     setAuroraMode,
     stepAuroraPhase,
     triggerAuroraBurst,
+    consumeLightningStrike() {
+      if (state.pendingStrike <= 0) return null;
+      const strength = state.pendingStrike;
+      state.pendingStrike = 0;
+      return { strength };
+    },
     update
   };
 }

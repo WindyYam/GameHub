@@ -939,16 +939,20 @@ export function createWaterSystem(texLib, scene) {
           float sy = 1.0;
         #endif
 
-        // Gentle organic billowing drift (spray rises slightly; cliff mist drifts horizontally with wind)
+        // Wind-driven billowing drift & downwind plume shear along uWindDir scaled by uWindStrength
         float phase = uTime * aMistSeed.z + aMistSeed.x;
-        center.y += sin(phase) * mix(1.2, 2.2, vIsSpray);
-        center.x += cos(phase * 0.65 + aMistSeed.x) * mix(3.5, 1.8, vIsSpray) * (0.5 + uWindStrength * 0.5);
+        float windAmp = max(uWindStrength, 0.1);
+        center.y += sin(phase) * mix(1.1, 2.0, vIsSpray);
+        center.xz += uWindDir * (sin(phase * 0.70 + aMistSeed.x) * mix(2.8, 1.4, vIsSpray) + windAmp * 1.4);
 
         vec3 camRight = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
         vec3 camUp = vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]);
         // Bottom-anchor mist billboards (0..sy) with upright-biased axis so steam & spray NEVER stab below ground level!
         vec3 upAxis = normalize(mix(vec3(0.0, 1.0, 0.0), camUp, 0.32));
-        vec3 wp = center + camRight * (position.x * sx) + upAxis * ((position.y + 0.5) * sy);
+        float hFrac = position.y + 0.5;
+        vec3 wp = center + camRight * (position.x * sx) + upAxis * (hFrac * sy);
+        wp.xz += uWindDir * (hFrac * sy * (0.12 + windAmp * 0.45));
+        wp.y -= hFrac * sy * min(windAmp * 0.10, 0.28);
         vWorldPos = wp;
 
         float camDist = length(cameraPosition - wp);
@@ -974,7 +978,7 @@ export function createWaterSystem(texLib, scene) {
         float radial = exp(-r2 * 2.9) * (1.0 - smoothstep(0.30, 0.95, r2)) * smoothstep(0.0, 0.36, vUv.y);
 
         // Domain-warped tattered wind-sheared cloud wisps (breaks up circular silhouette completely!)
-        vec2 flow = mix(vec2(-uTime * 0.045, 0.015), vec2(0.02, -uTime * 0.14), vIsSpray);
+        vec2 flow = mix(vec2(-uWindTime * 0.06, 0.015), vec2(uWindTime * 0.03, -uTime * 0.14 - uWindTime * 0.05), vIsSpray);
         vec2 uvWarp = vUv * vec2(1.4, 1.9) + vec2(vSeed * 0.37, vSeed * 0.19) + flow;
         float wX = atmoFbm(uvWarp * 1.4) - 0.5;
         float wY = atmoFbm(uvWarp * 1.4 + vec2(5.2, -3.1)) - 0.5;
