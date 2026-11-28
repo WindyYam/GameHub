@@ -36,11 +36,11 @@ export const WEATHER_PRESETS = {
     name: 'North Atlantic Gale',
     cloudCoverage: 0.99,
     cloudDarkness: 0.97,
-    fogDensity: 0.00235,
-    fogLowDensity: 0.00310,
+    fogDensity: 0.00245,
+    fogLowDensity: 0.00335,
     rainIntensity: 1.0,
     wetness: 1.0,
-    windStrength: 1.45,
+    windStrength: 2.25,
     sunGain: 0.30,
     ambientGain: 0.78
   },
@@ -110,6 +110,8 @@ export const ATMO_UNIFORMS = {
   uLightning: { value: 0.0 },
   uWindDir: { value: new THREE.Vector2(0.86, 0.51) },
   uWindStrength: { value: 0.55 },
+  uWindTime: { value: 0 },
+  uCloudFlowDist: { value: 0 },
   uScanOrigin: { value: new THREE.Vector3(0, 0, 0) },
   uScanRadius: { value: -10.0 },
   uScanStrength: { value: 0.0 },
@@ -140,6 +142,8 @@ uniform float uAuroraTime;
 uniform float uLightning;
 uniform vec2 uWindDir;
 uniform float uWindStrength;
+uniform float uWindTime;
+uniform float uCloudFlowDist;
 uniform vec3 uScanOrigin;
 uniform float uScanRadius;
 uniform float uScanStrength;
@@ -215,7 +219,7 @@ float atmoGNoise(vec2 p) {
 
 // Fast, smooth flowing 3D volumetric cloud-mist density at any world position (3 noise taps instead of 5 -> ~2x faster!)
 float sampleFlowingCloudFog(vec3 p) {
-  vec2 flowMacro = uWindDir * (uTime * (2.6 + uWindStrength * 3.8));
+  vec2 flowMacro = uWindDir * uCloudFlowDist;
   vec2 uvM = p.xz * 0.0022 - flowMacro * 0.0022;
   float wN = atmoGNoise(uvM * 1.35 + vec2(3.1, -5.2)) - 0.5;
   vec2 warp = vec2(wN, -wN * 0.85) * 0.90;
@@ -332,6 +336,7 @@ export function enhanceMaterialWithAtmo(mat, { cacheKey, windSway = 0.0, wetness
         uniform float uTime;
         uniform vec2 uWindDir;
         uniform float uWindStrength;
+        uniform float uWindTime;
         `
       )
       .replace(
@@ -351,7 +356,7 @@ export function enhanceMaterialWithAtmo(mat, { cacheKey, windSway = 0.0, wetness
           float gustFront = 0.54 + 0.46 * sin(uTime * 0.46 - dot(wOrigin, uWindDir) * 0.042);
           float longSurge = 0.72 + 0.28 * sin(uTime * 0.21 - dot(wOrigin, uWindDir) * 0.016 + 1.4);
           float sustained = (0.30 + 0.44 * gustFront * longSurge) * uWindStrength;
-          float flutter = sin(uTime * (2.0 + uWindStrength * 1.1) + instSeed) * (0.20 + 0.10 * gustFront);
+          float flutter = sin(uWindTime * 2.0 + instSeed) * (0.20 + 0.10 * gustFront);
           float bend = clamp(position.y, 0.0, 1.5) * ${windSway.toFixed(4)} * (sustained + flutter);
           transformed.x += bend * uWindDir.x;
           transformed.z += bend * uWindDir.y;
@@ -649,7 +654,7 @@ export function createSkyDome() {
 
         // Fast 4-step 3D Volumetric-Shaded Icelandic Storm Clouds (~6x faster, identical dramatic rolling storm billows!)
         if (rd.y > -0.02) {
-          vec2 drift = uWindDir * (uTime * 0.011);
+          vec2 drift = uWindDir * (uTime * 0.007 + uCloudFlowDist * 0.0024);
           vec2 sunStep = normalize(vec2(uSunDir.x + 0.55, uSunDir.z - 0.10)) * 0.24;
 
           float accumTrans = 1.0;
@@ -986,7 +991,7 @@ export function createEnvironmentController(scene, renderer, skyDome) {
 
     const targetWx = WEATHER_PRESETS[state.weather] || WEATHER_PRESETS.overcast;
     state.manualWeatherBlend = Math.max(0, state.manualWeatherBlend - dt);
-    const blendRate = state.manualWeatherBlend > 0 ? 1.8 : 0.42;
+    const blendRate = state.manualWeatherBlend > 0 ? 1.05 : 0.25;
     const blend = 1.0 - Math.exp(-dt * blendRate);
     for (const k of Object.keys(curWx)) {
       if (typeof curWx[k] === 'number') {
@@ -1112,6 +1117,10 @@ export function createEnvironmentController(scene, renderer, skyDome) {
     const tWind = ATMO_UNIFORMS.uTime.value;
     const stormBoost = smoothstep(0.75, 1.0, curWx.rainIntensity) * (0.14 + 0.20 * (0.5 + 0.5 * Math.sin(tWind * 0.32 + Math.sin(tWind * 0.14) * 1.4)));
     ATMO_UNIFORMS.uWindStrength.value = curWx.windStrength + stormBoost;
+    const windS = ATMO_UNIFORMS.uWindStrength.value;
+    const stormSurge = Math.max(0, windS - 1.0);
+    ATMO_UNIFORMS.uWindTime.value += dt * (0.85 + windS * 0.72 + stormSurge * 0.65);
+    ATMO_UNIFORMS.uCloudFlowDist.value += dt * (2.6 + windS * 4.6 + stormSurge * stormSurge * 8.5);
 
     // Directional key light: WARMER bright sunlight on clear days -> cool silver overcast -> amber dusk -> pale arctic moon
     _cA.setRGB(1.0, 0.92, 0.78); // Bright warm clear-day sun

@@ -2115,6 +2115,7 @@ export function createTerrainSystem(texLib, scene) {
         uniform float uTime;
         uniform vec2 uWindDir;
         uniform float uWindStrength;
+        uniform float uWindTime;
         `
       )
       .replace(
@@ -2143,7 +2144,7 @@ export function createTerrainSystem(texLib, scene) {
           float gustFront = 0.54 + 0.46 * sin(uTime * 0.46 - dot(wOrigin, uWindDir) * 0.042);
           float longSurge = 0.72 + 0.28 * sin(uTime * 0.21 - dot(wOrigin, uWindDir) * 0.016 + 1.4);
           float sustained = (0.30 + 0.44 * gustFront * longSurge) * uWindStrength;
-          float flutter = sin(uTime * (1.9 + uWindStrength * 1.0) + instSeed) * (0.18 + 0.10 * gustFront);
+          float flutter = sin(uWindTime * 1.9 + instSeed) * (0.18 + 0.10 * gustFront);
           float bend = clamp(position.y, 0.0, 1.2) * 0.26 * (sustained + flutter);
           transformed.x += bend * uWindDir.x;
           transformed.z += bend * uWindDir.y;

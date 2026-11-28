@@ -2955,6 +2955,38 @@ export function createLandmarkSystem(texLib, scene) {
     return out;
   }
 
+  const _shelterTmp = { cx: 0, cz: 0, roofY: 0, cosY: 1, sinY: 0, halfW: 0, halfL: 0, inside: false };
+  function getNearestShelterBox(x, y, z, maxDist = 28) {
+    let bestB = null;
+    let bestD = maxDist;
+    for (const cell of activeCells.values()) {
+      for (const b of cell.buildings) {
+        const d = Math.hypot(b.spec.x - x, b.spec.z - z);
+        if (d < bestD) {
+          bestD = d;
+          bestB = b;
+        }
+      }
+    }
+    if (!bestB) return null;
+    const hw = bestB.w * 0.52 * bestB.sc;
+    const hl = bestB.len * 0.52 * bestB.sc;
+    const roofY = bestB.floorWorldY + (bestB.h + bestB.roofH * 0.85) * bestB.sc;
+    const dx = x - bestB.spec.x;
+    const dz = z - bestB.spec.z;
+    const lx = dx * bestB.cosY - dz * bestB.sinY;
+    const lz = dx * bestB.sinY + dz * bestB.cosY;
+    _shelterTmp.cx = bestB.spec.x;
+    _shelterTmp.cz = bestB.spec.z;
+    _shelterTmp.roofY = roofY;
+    _shelterTmp.cosY = bestB.cosY;
+    _shelterTmp.sinY = bestB.sinY;
+    _shelterTmp.halfW = hw;
+    _shelterTmp.halfL = hl;
+    _shelterTmp.inside = Math.abs(lx) < hw && Math.abs(lz) < hl && y < roofY;
+    return _shelterTmp;
+  }
+
   function finishPrewarm() {
     if (prewarmGroup.parent) {
       scene.remove(prewarmGroup);
@@ -2969,6 +3001,7 @@ export function createLandmarkSystem(texLib, scene) {
     getNearestDoor,
     toggleNearestDoor,
     getFloorHeightAt,
+    getNearestShelterBox,
     clampCameraPos,
     finishPrewarm
   };

@@ -3869,11 +3869,11 @@ const WEATHER_PRESETS = {
     name: 'North Atlantic Gale',
     cloudCoverage: 0.99,
     cloudDarkness: 0.97,
-    fogDensity: 0.00235,
-    fogLowDensity: 0.00310,
+    fogDensity: 0.00245,
+    fogLowDensity: 0.00335,
     rainIntensity: 1.0,
     wetness: 1.0,
-    windStrength: 1.45,
+    windStrength: 2.25,
     sunGain: 0.30,
     ambientGain: 0.78
   },
@@ -3943,6 +3943,8 @@ const ATMO_UNIFORMS = {
   uLightning: { value: 0.0 },
   uWindDir: { value: new THREE.Vector2(0.86, 0.51) },
   uWindStrength: { value: 0.55 },
+  uWindTime: { value: 0 },
+  uCloudFlowDist: { value: 0 },
   uScanOrigin: { value: new THREE.Vector3(0, 0, 0) },
   uScanRadius: { value: -10.0 },
   uScanStrength: { value: 0.0 },
@@ -3973,6 +3975,8 @@ uniform float uAuroraTime;
 uniform float uLightning;
 uniform vec2 uWindDir;
 uniform float uWindStrength;
+uniform float uWindTime;
+uniform float uCloudFlowDist;
 uniform vec3 uScanOrigin;
 uniform float uScanRadius;
 uniform float uScanStrength;
@@ -4048,7 +4052,7 @@ float atmoGNoise(vec2 p) {
 
 // Fast, smooth flowing 3D volumetric cloud-mist density at any world position (3 noise taps instead of 5 -> ~2x faster!)
 float sampleFlowingCloudFog(vec3 p) {
-  vec2 flowMacro = uWindDir * (uTime * (2.6 + uWindStrength * 3.8));
+  vec2 flowMacro = uWindDir * uCloudFlowDist;
   vec2 uvM = p.xz * 0.0022 - flowMacro * 0.0022;
   float wN = atmoGNoise(uvM * 1.35 + vec2(3.1, -5.2)) - 0.5;
   vec2 warp = vec2(wN, -wN * 0.85) * 0.90;
@@ -4165,6 +4169,7 @@ function enhanceMaterialWithAtmo(mat, { cacheKey, windSway = 0.0, wetnessBoost =
         uniform float uTime;
         uniform vec2 uWindDir;
         uniform float uWindStrength;
+        uniform float uWindTime;
         `
       )
       .replace(
@@ -4184,7 +4189,7 @@ function enhanceMaterialWithAtmo(mat, { cacheKey, windSway = 0.0, wetnessBoost =
           float gustFront = 0.54 + 0.46 * sin(uTime * 0.46 - dot(wOrigin, uWindDir) * 0.042);
           float longSurge = 0.72 + 0.28 * sin(uTime * 0.21 - dot(wOrigin, uWindDir) * 0.016 + 1.4);
           float sustained = (0.30 + 0.44 * gustFront * longSurge) * uWindStrength;
-          float flutter = sin(uTime * (2.0 + uWindStrength * 1.1) + instSeed) * (0.20 + 0.10 * gustFront);
+          float flutter = sin(uWindTime * 2.0 + instSeed) * (0.20 + 0.10 * gustFront);
           float bend = clamp(position.y, 0.0, 1.5) * ${windSway.toFixed(4)} * (sustained + flutter);
           transformed.x += bend * uWindDir.x;
           transformed.z += bend * uWindDir.y;
@@ -4482,7 +4487,7 @@ function createSkyDome() {
 
         // Fast 4-step 3D Volumetric-Shaded Icelandic Storm Clouds (~6x faster, identical dramatic rolling storm billows!)
         if (rd.y > -0.02) {
-          vec2 drift = uWindDir * (uTime * 0.011);
+          vec2 drift = uWindDir * (uTime * 0.007 + uCloudFlowDist * 0.0024);
           vec2 sunStep = normalize(vec2(uSunDir.x + 0.55, uSunDir.z - 0.10)) * 0.24;
 
           float accumTrans = 1.0;
@@ -4819,7 +4824,7 @@ function createEnvironmentController(scene, renderer, skyDome) {
 
     const targetWx = WEATHER_PRESETS[state.weather] || WEATHER_PRESETS.overcast;
     state.manualWeatherBlend = Math.max(0, state.manualWeatherBlend - dt);
-    const blendRate = state.manualWeatherBlend > 0 ? 1.8 : 0.42;
+    const blendRate = state.manualWeatherBlend > 0 ? 1.05 : 0.25;
     const blend = 1.0 - Math.exp(-dt * blendRate);
     for (const k of Object.keys(curWx)) {
       if (typeof curWx[k] === 'number') {
@@ -4945,6 +4950,10 @@ function createEnvironmentController(scene, renderer, skyDome) {
     const tWind = ATMO_UNIFORMS.uTime.value;
     const stormBoost = smoothstep(0.75, 1.0, curWx.rainIntensity) * (0.14 + 0.20 * (0.5 + 0.5 * Math.sin(tWind * 0.32 + Math.sin(tWind * 0.14) * 1.4)));
     ATMO_UNIFORMS.uWindStrength.value = curWx.windStrength + stormBoost;
+    const windS = ATMO_UNIFORMS.uWindStrength.value;
+    const stormSurge = Math.max(0, windS - 1.0);
+    ATMO_UNIFORMS.uWindTime.value += dt * (0.85 + windS * 0.72 + stormSurge * 0.65);
+    ATMO_UNIFORMS.uCloudFlowDist.value += dt * (2.6 + windS * 4.6 + stormSurge * stormSurge * 8.5);
 
     // Directional key light: WARMER bright sunlight on clear days -> cool silver overcast -> amber dusk -> pale arctic moon
     _cA.setRGB(1.0, 0.92, 0.78); // Bright warm clear-day sun
@@ -5068,8 +5077,11 @@ function createWeatherFX(scene) {
       uRainIntensity: { value: 0.0 },
       uWindDir: ATMO_UNIFORMS.uWindDir,
       uWindStrength: ATMO_UNIFORMS.uWindStrength,
+      uWindTime: ATMO_UNIFORMS.uWindTime,
       uSunColor: ATMO_UNIFORMS.uSunColor,
-      uNightFactor: ATMO_UNIFORMS.uNightFactor
+      uNightFactor: ATMO_UNIFORMS.uNightFactor,
+      uShelterCenter: { value: new THREE.Vector4(0, 0, 0, 0) },
+      uShelterBounds: { value: new THREE.Vector4(1, 0, 1, 1) }
     },
     vertexShader: /* glsl */`
       attribute vec3 aOffset;
@@ -5079,6 +5091,9 @@ function createWeatherFX(scene) {
       uniform float uRainIntensity;
       uniform vec2 uWindDir;
       uniform float uWindStrength;
+      uniform float uWindTime;
+      uniform vec4 uShelterCenter;
+      uniform vec4 uShelterBounds;
       varying vec2 vUv;
       varying float vFade;
       varying float vDepthBlur;
@@ -5094,15 +5109,28 @@ function createWeatherFX(scene) {
           return;
         }
 
-        float fallSpeed = (22.0 + uWindStrength * 10.5) * aSeed.y;
         float t = uTime + aSeed.x;
+        float wt = uWindTime + aSeed.x;
 
         vec3 rel = aOffset;
-        rel.y = mod(aOffset.y - t * fallSpeed, ${BOX_H.toFixed(1)}) - 5.5;
-        rel.x = mod(aOffset.x + t * uWindDir.x * (3.5 + uWindStrength * 9.5) - uCamPos.x + ${(BOX_W * 0.5).toFixed(1)}, ${BOX_W.toFixed(1)}) - ${(BOX_W * 0.5).toFixed(1)};
-        rel.z = mod(aOffset.z + t * uWindDir.y * (3.5 + uWindStrength * 9.5) - uCamPos.z + ${(BOX_W * 0.5).toFixed(1)}, ${BOX_W.toFixed(1)}) - ${(BOX_W * 0.5).toFixed(1)};
+        rel.y = mod(aOffset.y - (t * 20.0 + wt * 8.5) * aSeed.y, ${BOX_H.toFixed(1)}) - 5.5;
+        rel.x = mod(aOffset.x + wt * uWindDir.x * 8.5 - uCamPos.x + ${(BOX_W * 0.5).toFixed(1)}, ${BOX_W.toFixed(1)}) - ${(BOX_W * 0.5).toFixed(1)};
+        rel.z = mod(aOffset.z + wt * uWindDir.y * 8.5 - uCamPos.z + ${(BOX_W * 0.5).toFixed(1)}, ${BOX_W.toFixed(1)}) - ${(BOX_W * 0.5).toFixed(1)};
 
         vec3 worldCenter = vec3(uCamPos.x + rel.x, uCamPos.y + rel.y, uCamPos.z + rel.z);
+
+        if (uShelterCenter.w > 0.5 && worldCenter.y < uShelterCenter.y) {
+          float sdx = worldCenter.x - uShelterCenter.x;
+          float sdz = worldCenter.z - uShelterCenter.z;
+          float slx = sdx * uShelterBounds.x - sdz * uShelterBounds.y;
+          float slz = sdx * uShelterBounds.y + sdz * uShelterBounds.x;
+          if (abs(slx) < uShelterBounds.z && abs(slz) < uShelterBounds.w) {
+            vFade = 0.0;
+            vDepthBlur = 0.0;
+            gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
+            return;
+          }
+        }
 
         vec3 toCamVec = vec3(uCamPos.x - worldCenter.x, 0.0, uCamPos.z - worldCenter.z);
         vec3 toCam = toCamVec / max(length(toCamVec), 0.001);
@@ -5120,7 +5148,7 @@ function createWeatherFX(scene) {
         float nearFade = smoothstep(2.2, 6.0, camDist);
         float farFade = 1.0 - smoothstep(12.0, 23.0, dist);
         vDepthBlur = clamp(smoothstep(10.0, 22.0, camDist), 0.0, 1.0);
-        vFade = farFade * nearFade * smoothstep(0.02, 0.40, uRainIntensity) * mix(1.0, 1.35, stormFactor);
+        vFade = farFade * nearFade * smoothstep(0.02, 0.40, uRainIntensity) * mix(1.0, 1.55, stormFactor);
 
         gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
       }
@@ -5159,7 +5187,7 @@ function createWeatherFX(scene) {
   // 2. Wave-After-Wave Flowing Volumetric Storm Cloud / Water-Stream Billboards!
   // 16 independent rolling gust waves x 10 overlapping ultra-soft cloud billboards per wave (160 puffs, 1 draw call!)
   // Bottom-anchored cleanly above 5-point local terrain footprint -> lush billowing clouds with ZERO low-poly shapes & ZERO hard cuts!
-  const WAVE_COUNT = 16;
+  const WAVE_COUNT = 28;
   const PUFFS_PER_WAVE = 10;
   const TOTAL_WAVE_PUFFS = WAVE_COUNT * PUFFS_PER_WAVE;
 
@@ -5175,11 +5203,11 @@ function createWeatherFX(scene) {
     for (let p = 0; p < PUFFS_PER_WAVE; p++) {
       const latFrac = (p / (PUFFS_PER_WAVE - 1)) - 0.5; // -0.5..+0.5 across the rolling wave front
       puffs.push({
-        latOff: latFrac * (22.0 + Math.random() * 14.0) + (Math.random() - 0.5) * 4.5,
+        latOff: latFrac * (26.0 + Math.random() * 14.0) + (Math.random() - 0.5) * 4.5,
         alongOff: -Math.abs(latFrac) * 6.0 + (Math.random() - 0.5) * 9.0,
-        yLift: 0.25 + Math.random() * 1.4,
-        w: 10.5 + Math.random() * 10.0,
-        h: 4.0 + Math.random() * 3.8,
+        yLift: 0.25 + Math.random() * 1.6,
+        w: 13.0 + Math.random() * 12.0,
+        h: 4.8 + Math.random() * 4.5,
         seed: Math.random() * 90.0,
         phaseOff: (Math.random() - 0.5) * 0.14
       });
@@ -5187,9 +5215,9 @@ function createWeatherFX(scene) {
     stormWaves.push({
       x: 0,
       z: 0,
-      speed: 7.2 + Math.random() * 4.4, // brisk rolling storm-cloud wave front
-      age: w / WAVE_COUNT,              // evenly staggered -> wave after wave continuously rolls over random ground spots!
-      life: 9.5 + Math.random() * 6.5,
+      speed: 10.5 + Math.random() * 6.5, // fast racing storm-cloud wave front
+      age: w / WAVE_COUNT,               // evenly staggered -> wave after wave continuously rolls over ground!
+      life: 5.5 + Math.random() * 4.0,
       init: false,
       puffs
     });
@@ -5201,7 +5229,9 @@ function createWeatherFX(scene) {
     side: THREE.DoubleSide,
     uniforms: {
       ...ATMO_UNIFORMS,
-      uRainIntensity: { value: 0.0 }
+      uRainIntensity: { value: 0.0 },
+      uShelterCenter: { value: new THREE.Vector4(0, 0, 0, 0) },
+      uShelterBounds: { value: new THREE.Vector4(1, 0, 1, 1) }
     },
     vertexShader: /* glsl */`
       attribute vec4 aWave;
@@ -5223,15 +5253,17 @@ function createWeatherFX(scene) {
         vWorldPos = wp;
 
         float d = length(center - cameraPosition);
-        float nearF = smoothstep(5.0, 15.0, d);
-        float farF = 1.0 - smoothstep(68.0, 112.0, d);
-        float stormGate = smoothstep(0.60, 0.98, uRainIntensity);
+        float nearF = smoothstep(3.0, 10.0, d);
+        float farF = 1.0 - smoothstep(55.0, 95.0, d);
+        float stormGate = smoothstep(0.55, 0.96, uRainIntensity);
         vFade = nearF * farF * aWave.y * stormGate;
 
         gl_Position = projectionMatrix * viewMatrix * vec4(wp, 1.0);
       }
     `,
     fragmentShader: /* glsl */`
+      uniform vec4 uShelterCenter;
+      uniform vec4 uShelterBounds;
       varying vec2 vUv;
       varying float vFade;
       varying float vSeed;
@@ -5240,6 +5272,13 @@ function createWeatherFX(scene) {
 
       void main() {
         if (vFade <= 0.002) discard;
+        if (uShelterCenter.w > 0.5 && vWorldPos.y < uShelterCenter.y) {
+          float sdx = vWorldPos.x - uShelterCenter.x;
+          float sdz = vWorldPos.z - uShelterCenter.z;
+          float slx = sdx * uShelterBounds.x - sdz * uShelterBounds.y;
+          float slz = sdx * uShelterBounds.y + sdz * uShelterBounds.x;
+          if (abs(slx) < uShelterBounds.z && abs(slz) < uShelterBounds.w) discard;
+        }
 
         // Ultra-soft Gaussian elliptical cloud silhouette + deep bottom feathering (zero quad or ground edges!)
         vec2 c = (vUv - 0.5) * 2.0;
@@ -5249,7 +5288,7 @@ function createWeatherFX(scene) {
         float baseSoft = smoothstep(0.0, 0.40, vUv.y);
 
         // Domain-warped flowing volumetric cloud billows + rapid wind-sheared mist wisps
-        vec2 streamFlow = vec2(-uTime * (0.45 + uWindStrength * 0.42), -uTime * 0.05);
+        vec2 streamFlow = vec2(-uWindTime * 1.15, -uTime * 0.08);
         vec2 q = vUv * vec2(1.65, 2.45) + vec2(vSeed, vSeed * 0.41);
         vec2 warp = vec2(
           atmoGNoise(q * 1.4 + streamFlow * 0.65) - 0.5,
@@ -5257,9 +5296,9 @@ function createWeatherFX(scene) {
         ) * 0.55;
         float cloudMacro = atmoFbm(q + warp + streamFlow * 0.90);
         float streamFine = atmoFbm(vUv * vec2(2.3, 5.8) + warp * 0.6 + streamFlow * 1.55 + vec2(vSeed * 0.3, 1.9));
-        float density = smoothstep(0.22, 0.78, cloudMacro * 0.60 + streamFine * 0.40);
+        float density = smoothstep(0.18, 0.74, cloudMacro * 0.60 + streamFine * 0.40);
 
-        float alpha = radial * baseSoft * density * vFade * 0.25;
+        float alpha = radial * baseSoft * density * vFade * 0.42;
         if (alpha < 0.004) discard;
 
         // Soft 3D cloud self-shading harmonized with storm sky luminance
@@ -5296,7 +5335,9 @@ function createWeatherFX(scene) {
     side: THREE.DoubleSide,
     uniforms: {
       ...ATMO_UNIFORMS,
-      uRainIntensity: { value: 0.0 }
+      uRainIntensity: { value: 0.0 },
+      uShelterCenter: { value: new THREE.Vector4(0, 0, 0, 0) },
+      uShelterBounds: { value: new THREE.Vector4(1, 0, 1, 1) }
     },
     vertexShader: /* glsl */`
       attribute vec4 aDrop;
@@ -5304,6 +5345,7 @@ function createWeatherFX(scene) {
       uniform vec3 uPlayerPos;
       uniform vec2 uWindDir;
       uniform float uWindStrength;
+      uniform float uWindTime;
       uniform float uRainIntensity;
       varying vec2 vUv;
       varying float vFade;
@@ -5311,8 +5353,7 @@ function createWeatherFX(scene) {
 
       void main() {
         vUv = uv;
-        float lifeSpeed = (1.85 + uWindStrength * 0.75) * aDrop.y;
-        float age = fract(uTime * lifeSpeed + aDrop.x);
+        float age = fract(uWindTime * 2.0 * aDrop.y + aDrop.x);
         float seed = aDrop.x * 73.1;
         vSeed = seed;
 
@@ -5404,7 +5445,7 @@ function createWeatherFX(scene) {
     return _clearOut;
   }
 
-  function update(camera, rainIntensity, playerPos, dt = 0.016) {
+  function update(camera, rainIntensity, playerPos, dt = 0.016, shelter = null) {
     const safeDt = Math.min(dt || 0.016, 0.05);
     const windX = ATMO_UNIFORMS.uWindDir.value.x;
     const windZ = ATMO_UNIFORMS.uWindDir.value.y;
@@ -5414,6 +5455,16 @@ function createWeatherFX(scene) {
 
     const ax = playerPos ? playerPos.x : camera.position.x;
     const az = playerPos ? playerPos.z : camera.position.z;
+
+    if (shelter) {
+      rainMat.uniforms.uShelterCenter.value.set(shelter.cx, shelter.roofY, shelter.cz, 1.0);
+      rainMat.uniforms.uShelterBounds.value.set(shelter.cosY, shelter.sinY, shelter.halfW, shelter.halfL);
+      waveMat.uniforms.uShelterCenter.value.set(shelter.cx, shelter.roofY, shelter.cz, 1.0);
+      waveMat.uniforms.uShelterBounds.value.set(shelter.cosY, shelter.sinY, shelter.halfW, shelter.halfL);
+    } else {
+      rainMat.uniforms.uShelterCenter.value.w = 0.0;
+      waveMat.uniforms.uShelterCenter.value.w = 0.0;
+    }
 
     rainMat.uniforms.uCamPos.value.copy(camera.position);
     rainMat.uniforms.uRainIntensity.value = rainIntensity;
@@ -5427,14 +5478,14 @@ function createWeatherFX(scene) {
       for (let w = 0; w < WAVE_COUNT; w++) {
         const wave = stormWaves[w];
         if (!wave.init) {
-          spawnRandomSpot(wave, ax, az, 12.0, 92.0, windX, windZ, false);
+          spawnRandomSpot(wave, ax, az, 6.0, 62.0, windX, windZ, false);
         } else {
-          const step = wave.speed * (0.58 + windStr * 0.62) * safeDt;
+          const step = wave.speed * (0.65 + windStr * 0.95) * safeDt;
           wave.x += windX * step;
           wave.z += windZ * step;
           wave.age += safeDt / wave.life;
-          if (wave.age >= 1.0 || Math.hypot(wave.x - ax, wave.z - az) > 108.0) {
-            spawnRandomSpot(wave, ax, az, 14.0, 86.0, windX, windZ, true);
+          if (wave.age >= 1.0 || Math.hypot(wave.x - ax, wave.z - az) > 84.0) {
+            spawnRandomSpot(wave, ax, az, 8.0, 62.0, windX, windZ, true);
           }
         }
 
@@ -5469,7 +5520,7 @@ function createWeatherFX(scene) {
     }
 
     playerDropletMat.uniforms.uRainIntensity.value = rainIntensity;
-    playerDropletMesh.visible = rainIntensity > 0.50;
+    playerDropletMesh.visible = rainIntensity > 0.50 && !(shelter && shelter.inside);
   }
 
   function setVisible(v) {
@@ -7599,6 +7650,7 @@ function createTerrainSystem(texLib, scene) {
         uniform float uTime;
         uniform vec2 uWindDir;
         uniform float uWindStrength;
+        uniform float uWindTime;
         `
       )
       .replace(
@@ -7627,7 +7679,7 @@ function createTerrainSystem(texLib, scene) {
           float gustFront = 0.54 + 0.46 * sin(uTime * 0.46 - dot(wOrigin, uWindDir) * 0.042);
           float longSurge = 0.72 + 0.28 * sin(uTime * 0.21 - dot(wOrigin, uWindDir) * 0.016 + 1.4);
           float sustained = (0.30 + 0.44 * gustFront * longSurge) * uWindStrength;
-          float flutter = sin(uTime * (1.9 + uWindStrength * 1.0) + instSeed) * (0.18 + 0.10 * gustFront);
+          float flutter = sin(uWindTime * 1.9 + instSeed) * (0.18 + 0.10 * gustFront);
           float bend = clamp(position.y, 0.0, 1.2) * 0.26 * (sustained + flutter);
           transformed.x += bend * uWindDir.x;
           transformed.z += bend * uWindDir.y;
@@ -10226,11 +10278,11 @@ function createWaterSystem(texLib, scene) {
         float fetchScale = smoothstep(0.15, 2.2, waterDepth) * clamp(vLakeScale / 180.0, 0.78, 1.32);
         float waveActivity = clamp((0.55 + uWindStrength * 0.70) * mix(0.42, 1.42, gustMask) * mix(0.55, 1.0, fetchScale), 0.32, 1.60);
 
-        float t = uTime;
-        float speedScale = 0.85 + uWindStrength * 0.65;
+        float t = uWindTime;
+        float speedScale = 1.0;
 
         // Pure non-repeating 4-octave analytical gradient noise ripples (ZERO stripes or tiling!)
-        vec3 msNoise = lakeMultiScaleNoise(vWorldPos.xz, wDir, wPerp, t * (0.85 + uWindStrength * 0.42), camDist);
+        vec3 msNoise = lakeMultiScaleNoise(vWorldPos.xz, wDir, wPerp, t, camDist);
 
         // Domain-warped, irrational-ratio rotated normal maps for extra crisp micro-detail (warping destroys ALL texture tiling!)
         vec2 uvWarp = vec2(
@@ -13711,6 +13763,38 @@ function createLandmarkSystem(texLib, scene) {
     return out;
   }
 
+  const _shelterTmp = { cx: 0, cz: 0, roofY: 0, cosY: 1, sinY: 0, halfW: 0, halfL: 0, inside: false };
+  function getNearestShelterBox(x, y, z, maxDist = 28) {
+    let bestB = null;
+    let bestD = maxDist;
+    for (const cell of activeCells.values()) {
+      for (const b of cell.buildings) {
+        const d = Math.hypot(b.spec.x - x, b.spec.z - z);
+        if (d < bestD) {
+          bestD = d;
+          bestB = b;
+        }
+      }
+    }
+    if (!bestB) return null;
+    const hw = bestB.w * 0.52 * bestB.sc;
+    const hl = bestB.len * 0.52 * bestB.sc;
+    const roofY = bestB.floorWorldY + (bestB.h + bestB.roofH * 0.85) * bestB.sc;
+    const dx = x - bestB.spec.x;
+    const dz = z - bestB.spec.z;
+    const lx = dx * bestB.cosY - dz * bestB.sinY;
+    const lz = dx * bestB.sinY + dz * bestB.cosY;
+    _shelterTmp.cx = bestB.spec.x;
+    _shelterTmp.cz = bestB.spec.z;
+    _shelterTmp.roofY = roofY;
+    _shelterTmp.cosY = bestB.cosY;
+    _shelterTmp.sinY = bestB.sinY;
+    _shelterTmp.halfW = hw;
+    _shelterTmp.halfL = hl;
+    _shelterTmp.inside = Math.abs(lx) < hw && Math.abs(lz) < hl && y < roofY;
+    return _shelterTmp;
+  }
+
   function finishPrewarm() {
     if (prewarmGroup.parent) {
       scene.remove(prewarmGroup);
@@ -13725,6 +13809,7 @@ function createLandmarkSystem(texLib, scene) {
     getNearestDoor,
     toggleNearestDoor,
     getFloorHeightAt,
+    getNearestShelterBox,
     clampCameraPos,
     finishPrewarm
   };
@@ -17884,8 +17969,8 @@ const msaaTarget = new THREE.WebGLRenderTarget(rtW, rtH, {
 // Lightweight planar mirror reflection RT (scales with active render resolution -> fast even at 240p!)
 function calcReflSize(w, h) {
   const aspect = w / Math.max(h, 1);
-  const rw = Math.min(384, Math.max(128, Math.round(w * 0.30)));
-  const rh = Math.max(72, Math.round(rw / Math.max(aspect, 0.5)));
+  const rw = Math.min(960, Math.max(256, Math.round(w * 0.60)));
+  const rh = Math.max(144, Math.round(rw / Math.max(aspect, 0.5)));
   return [rw, rh];
 }
 const [initReflW, initReflH] = calcReflSize(window.innerWidth, window.innerHeight);
@@ -19057,7 +19142,8 @@ function animate() {
   waterSys.update(px, pz);
   landmarkSys.update(px, pz, dt);
   envCtrl.update(dt, porter.state.pos);
-  weatherFX.update(camera, envCtrl.curWx.rainIntensity, porter.state.pos, dt);
+  const shelter = landmarkSys.getNearestShelterBox(px, porter.state.pos.y, pz);
+  weatherFX.update(camera, envCtrl.curWx.rainIntensity, porter.state.pos, dt, shelter);
   audioSys.update(
     porter.state.pos,
     waterSys.getWaterfallPositions(),

@@ -1588,11 +1588,11 @@ export function createWaterSystem(texLib, scene) {
         float fetchScale = smoothstep(0.15, 2.2, waterDepth) * clamp(vLakeScale / 180.0, 0.78, 1.32);
         float waveActivity = clamp((0.55 + uWindStrength * 0.70) * mix(0.42, 1.42, gustMask) * mix(0.55, 1.0, fetchScale), 0.32, 1.60);
 
-        float t = uTime;
-        float speedScale = 0.85 + uWindStrength * 0.65;
+        float t = uWindTime;
+        float speedScale = 1.0;
 
         // Pure non-repeating 4-octave analytical gradient noise ripples (ZERO stripes or tiling!)
-        vec3 msNoise = lakeMultiScaleNoise(vWorldPos.xz, wDir, wPerp, t * (0.85 + uWindStrength * 0.42), camDist);
+        vec3 msNoise = lakeMultiScaleNoise(vWorldPos.xz, wDir, wPerp, t, camDist);
 
         // Domain-warped, irrational-ratio rotated normal maps for extra crisp micro-detail (warping destroys ALL texture tiling!)
         vec2 uvWarp = vec2(

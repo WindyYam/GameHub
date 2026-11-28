@@ -64,8 +64,8 @@ const msaaTarget = new THREE.WebGLRenderTarget(rtW, rtH, {
 // Lightweight planar mirror reflection RT (scales with active render resolution -> fast even at 240p!)
 function calcReflSize(w, h) {
   const aspect = w / Math.max(h, 1);
-  const rw = Math.min(384, Math.max(128, Math.round(w * 0.30)));
-  const rh = Math.max(72, Math.round(rw / Math.max(aspect, 0.5)));
+  const rw = Math.min(960, Math.max(256, Math.round(w * 0.60)));
+  const rh = Math.max(144, Math.round(rw / Math.max(aspect, 0.5)));
   return [rw, rh];
 }
 const [initReflW, initReflH] = calcReflSize(window.innerWidth, window.innerHeight);
@@ -1237,7 +1237,8 @@ function animate() {
   waterSys.update(px, pz);
   landmarkSys.update(px, pz, dt);
   envCtrl.update(dt, porter.state.pos);
-  weatherFX.update(camera, envCtrl.curWx.rainIntensity, porter.state.pos, dt);
+  const shelter = landmarkSys.getNearestShelterBox(px, porter.state.pos.y, pz);
+  weatherFX.update(camera, envCtrl.curWx.rainIntensity, porter.state.pos, dt, shelter);
   audioSys.update(
     porter.state.pos,
     waterSys.getWaterfallPositions(),
