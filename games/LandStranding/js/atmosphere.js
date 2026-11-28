@@ -106,6 +106,8 @@ export const ATMO_UNIFORMS = {
   uNightFactor: { value: 0.0 },
   uAuroraStrength: { value: 0.0 },
   uAuroraTime: { value: 0.0 },
+  uAuroraProfile: { value: new THREE.Vector4(0.72, 0.34, 0.58, 0.46) },
+  uAuroraTint: { value: new THREE.Color(0.12, 0.92, 0.52) },
   uSiderealAngle: { value: 0.0 },
   uLightning: { value: 0.0 },
   uWindDir: { value: new THREE.Vector2(0.86, 0.51) },
@@ -139,6 +141,8 @@ uniform float uRainWetness;
 uniform float uNightFactor;
 uniform float uAuroraStrength;
 uniform float uAuroraTime;
+uniform vec4 uAuroraProfile;
+uniform vec3 uAuroraTint;
 uniform float uLightning;
 uniform vec2 uWindDir;
 uniform float uWindStrength;
@@ -252,7 +256,7 @@ vec3 applyIcelandAtmo(vec3 col, vec3 worldPos) {
 
   // Fast analytical clear-air path on crisp clear skies (skips volumetric raymarch completely!)
   if (uFogLowDensity < 0.00038 && uRainWetness < 0.12) {
-    vec3 clearAir = uFogColor * vec3(0.92, 0.97, 1.04) + vec3(0.012, 0.048, 0.036) * uAuroraStrength * uNightFactor;
+    vec3 clearAir = uFogColor * vec3(0.92, 0.97, 1.04) + uAuroraTint * 0.024 * uAuroraStrength * uNightFactor;
     return mix(col, clearAir, clamp(baseAir * 1.18, 0.0, 0.72));
   }
 
@@ -291,8 +295,8 @@ vec3 applyIcelandAtmo(vec3 col, vec3 worldPos) {
   float cloudMix = clamp(cloudFog / max(totalFog, 0.001), 0.0, 1.0);
   vec3 scatterCol = mix(airCol, cloudCol, cloudMix);
 
-  // Subtle emerald-teal mist tint when Aurora Borealis shines at night
-  scatterCol += vec3(0.012, 0.048, 0.036) * uAuroraStrength * uNightFactor;
+  // Subtle multi-hued mist tint matching live Aurora Borealis palette at night
+  scatterCol += uAuroraTint * 0.024 * uAuroraStrength * uNightFactor;
 
   return mix(col, scatterCol, totalFog);
 }
@@ -514,117 +518,489 @@ export function createSkyDome() {
         return rd * c + cross(NCP, rd) * s + NCP * dot(NCP, rd) * (1.0 - c);
       }
 
-      // Photorealistic Milky Way Galaxy (golden-silver star clouds, Great Rift dark dust lanes & subtle nebulae!)
+      // Isotropic 3D quintic celestial noise & rotated 4-octave FBM (zero 2D UV ribbon stretch, zero +/-PI seam!)
+      float galNoise3(vec3 p) {
+        vec3 i = floor(p);
+        vec3 f = fract(p);
+        vec3 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+        float n000 = hash31(i + vec3(0.0, 0.0, 0.0));
+        float n100 = hash31(i + vec3(1.0, 0.0, 0.0));
+        float n010 = hash31(i + vec3(0.0, 1.0, 0.0));
+        float n110 = hash31(i + vec3(1.0, 1.0, 0.0));
+        float n001 = hash31(i + vec3(0.0, 0.0, 1.0));
+        float n101 = hash31(i + vec3(1.0, 0.0, 1.0));
+        float n011 = hash31(i + vec3(0.0, 1.0, 1.0));
+        float n111 = hash31(i + vec3(1.0, 1.0, 1.0));
+        return mix(
+          mix(mix(n000, n100, u.x), mix(n010, n110, u.x), u.y),
+          mix(mix(n001, n101, u.x), mix(n011, n111, u.x), u.y),
+          u.z
+        );
+      }
+
+      float galFbm3(vec3 p) {
+        const mat3 m = mat3(
+           0.00,  0.80,  0.60,
+          -0.80,  0.36, -0.48,
+          -0.60, -0.48,  0.64
+        );
+        float v = 0.0;
+        float a = 0.5333;
+        for (int i = 0; i < 3; i++) {
+          v += a * galNoise3(p);
+          p = m * p * 2.11 + vec3(7.3, -4.9, 11.1);
+          a *= 0.5;
+        }
+        return v;
+      }
+
+      // Dense pinpoint galactic star-cloud layer (concentrated inside star clouds, occluded by foreground dust rifts)
+      vec3 galStarClusterLayer(vec3 celDir, float N, float densityMask, float coreWeight, float seed) {
+        vec3 p = celDir * N;
+        vec3 cell = floor(p);
+        float h = hash31(cell + seed);
+        float thresh = mix(0.997, 0.74, clamp(densityMask, 0.0, 1.0));
+        if (h < thresh) return vec3(0.0);
+        float r = (h - thresh) / max(1.0 - thresh, 0.001);
+        vec3 off = (vec3(hash31(cell + 1.3 + seed), hash31(cell + 2.7 + seed), hash31(cell + 4.1 + seed)) - 0.5) * 0.62;
+        float d = length(fract(p) - 0.5 - off);
+        float rad = mix(0.055, 0.145, r * r);
+        float core = 1.0 - smoothstep(0.0, rad, d);
+        if (core <= 0.001) return vec3(0.0);
+        float halo = exp(-d * d / (rad * rad * 4.2)) * r * 0.28;
+        float temp = fract(h * 73.9);
+        vec3 popI  = mix(vec3(0.64, 0.80, 1.0), vec3(0.96, 0.97, 1.0), smoothstep(0.0, 0.65, temp));
+        vec3 popII = mix(vec3(1.0, 0.89, 0.72), vec3(1.0, 0.70, 0.45), smoothstep(0.32, 1.0, temp));
+        vec3 col = mix(popI, popII, clamp(coreWeight * 0.72 + smoothstep(0.66, 1.0, temp) * 0.45, 0.0, 1.0));
+        float scint = 0.76 + 0.24 * sin(uTime * (1.5 + r * 3.4) + h * 150.0);
+        return col * (core * core + halo) * (0.35 + 1.45 * r * r) * scint;
+      }
+
+      // Astronomical Bortle-1 Milky Way: warm Sagittarius-Scutum Galactic Bulge, clumpy isotropic star clouds
+      // (Cygnus, Scutum, Cassiopeia), asymmetric fractal Beer-Lambert Great Rift & Pipe Nebula dust extinction
+      // with interstellar reddening, jewel-like H-II emission knots, and thousands of pinpoint cluster stars.
       vec3 renderMilkyWay(vec3 celDir, float elev) {
         if (uNightFactor < 0.08 || elev < -0.02) return vec3(0.0);
-        // Real Galactic Plane tilted ~62.9 deg to Celestial Equator so the band arches dynamically over Iceland!
-        vec3 galNorth = normalize(vec3(0.42, 0.45, 0.788));
-        vec3 galCore  = normalize(vec3(-0.76, -0.28, 0.585));
-        vec3 galEast = normalize(cross(galNorth, galCore));
+
+        // Galactic Core rises over SSE volcanic ridges around midnight while Cygnus & Cassiopeia arch high overhead
+        const vec3 galCore = vec3(0.43644, 0.26186, 0.86066);
+        const vec3 galCygn = vec3(-0.24000, 0.93000, -0.27839);
+        vec3 galNorth = normalize(cross(galCore, galCygn));
+        vec3 galEast  = cross(galNorth, galCore);
 
         float gLat = dot(celDir, galNorth);
-        float gLon = atan(dot(celDir, galEast), dot(celDir, galCore));
+        if (abs(gLat) > 0.58) return vec3(0.0);
 
-        float bandBroad = exp(-gLat * gLat * 14.0);
-        float bandCore  = exp(-gLat * gLat * 42.0);
-        if (bandBroad < 0.008) return vec3(0.0);
+        float coreCos = dot(celDir, galCore);
+        float eastCos = dot(celDir, galEast);
 
-        // Seamless 2D galactic coordinates for star clouds & dark dust rifts
-        vec2 gUv = vec2(gLon * 2.15, gLat * 7.2);
-        vec2 w = vec2(
-          cloudFbm(gUv * 0.75 + vec2(3.1, -1.7)) - 0.5,
-          cloudFbm(gUv * 0.75 + vec2(-4.3, 2.9)) - 0.5
-        );
-        float starCloud = cloudFbm(gUv * 1.45 + w * 1.1);
-        float fineDust  = cloudFbm(gUv * 3.8 - w * 0.8 + vec2(7.4, -2.2));
+        // 3D isotropic domain warp on the celestial sphere (zero longitudinal cloth-ribbon stretching!)
+        float wA = galFbm3(celDir * 2.35 + vec3(1.7, -2.3, 0.9)) - 0.5;
+        float wB = galFbm3(celDir * 2.35 + vec3(-3.1, 1.4, 2.8)) - 0.5;
+        vec3 w3 = vec3(wA, wB, (wA - wB) * 0.7);
 
-        // Iconic Great Rift dark dust lane splitting the Milky Way down the middle
-        float riftD = (gLat + (w.y * 0.14)) * 9.5;
-        float riftBand = exp(-(riftD * riftD));
-        float riftMask = smoothstep(0.32, 0.74, cloudFbm(gUv * 2.1 + vec2(11.2, -5.4) + w * 0.9)) * riftBand;
+        // Asymmetric Sagittarius Star Cloud & boxy central Bulge (brighter southern/eastern lobe like real Sagittarius!)
+        float bulgeLon = exp(-max(1.0 - coreCos, 0.0) * 8.8);
+        float bulgeAsym = gLat + 0.028 * bulgeLon - w3.z * 0.035;
+        float bulgeLat = exp(-bulgeAsym * bulgeAsym * 20.0);
+        float bulge = bulgeLon * bulgeLat;
+        float sagStarCloud = exp(-max(1.0 - coreCos, 0.0) * 20.0) * exp(-pow(gLat + 0.042, 2.0) * 75.0);
 
-        // Warm golden-amber Galactic Core bulge vs cool silvery-blue outer Milky Way arms
-        float coreBulge = pow(clamp(dot(celDir, galCore) * 0.5 + 0.5, 0.0, 1.0), 3.4);
-        vec3 outerArmCol = vec3(0.24, 0.34, 0.52);
-        vec3 coreGoldCol = vec3(0.72, 0.58, 0.40);
-        vec3 nebulaPink  = vec3(0.56, 0.24, 0.42);
+        // Distinct spiral-arm star-cloud condensations (Cygnus Star Cloud overhead, Scutum, Cassiopeia-Perseus)
+        float cygnusSpot = exp(-max(1.0 - dot(celDir, galCygn), 0.0) * 6.2);
+        float scutumSpot = exp(-pow(coreCos - 0.74, 2.0) * 13.0) * step(0.0, eastCos + 0.35);
+        float cassSpot   = exp(-max(1.0 - dot(celDir, normalize(vec3(-0.62, 0.66, -0.42))), 0.0) * 7.0);
+        float armPatchiness = smoothstep(0.22, 0.76, galFbm3(celDir * 1.85 + vec3(4.2, -1.1, 2.6)));
+        float armActivity = clamp(0.42 + 0.78 * armPatchiness + 0.72 * cygnusSpot + 0.55 * scutumSpot + 0.48 * cassSpot + 0.70 * bulgeLon, 0.0, 1.95);
 
-        float nebulaKnots = smoothstep(0.64, 0.86, fineDust) * bandCore * (0.4 + 0.6 * coreBulge);
-        vec3 galCol = mix(outerArmCol, coreGoldCol, coreBulge * 0.82);
-        galCol = mix(galCol, nebulaPink, nebulaKnots * 0.38);
+        // Irregular feathery latitude envelope with detached star-cloud spurs & bays (never a straight ribbon!)
+        float latPerturb = gLat + w3.x * 0.092 + (galNoise3(celDir * 6.2 + w3 * 1.4) - 0.5) * 0.042;
+        float diskSigma = mix(0.052, 0.148, clamp(bulgeLon * 0.68 + (armPatchiness + cygnusSpot * 0.4) * 0.38, 0.0, 1.0));
+        float diskOuter = exp(-(latPerturb * latPerturb) / (2.0 * diskSigma * diskSigma * 2.5));
+        float diskInner = exp(-(latPerturb * latPerturb) / (2.0 * diskSigma * diskSigma * 0.66));
+        if (diskOuter < 0.005 && bulge < 0.005) return vec3(0.0);
 
-        float lum = (bandBroad * (0.28 + 0.85 * starCloud) + bandCore * (0.45 + 0.75 * fineDust) * (0.65 + 0.85 * coreBulge));
-        lum *= (1.0 - riftMask * 0.76);
+        // Multi-scale isotropic star-cloud condensations & fine crystalline stellar granulation
+        float cMacro = galFbm3(celDir * 4.6 + w3 * 1.15);
+        float cClump = galFbm3(celDir * 11.4 - w3 * 0.80 + vec3(5.2, -3.4, 1.8));
+        float cKnots = galNoise3(celDir * 28.0 + w3 * 1.5);
+        float gran1  = galNoise3(celDir * 74.0);
+        float gran2  = galNoise3(celDir * 165.0);
 
-        // Dense fine unresolved galactic star shimmer sprinkled along the band
-        vec3 gp = celDir * 360.0;
-        vec3 gc = floor(gp);
-        float gh = hash31(gc);
-        float microStar = step(0.91, gh) * (1.0 - smoothstep(0.0, 0.28, length(fract(gp) - 0.5))) * bandCore * (1.0 - riftMask * 0.65);
+        float cloudBillow = smoothstep(0.24, 0.78, cMacro * 0.52 + cClump * 0.48);
+        float denseKnots  = pow(max(cClump * 0.52 + cKnots * 0.48, 0.0), 2.3);
+        float particulate = 0.64 + 0.44 * gran1 * gran1 + 0.38 * pow(gran2, 2.1);
 
-        float horizFade = smoothstep(-0.01, 0.16, elev);
-        float nightVis = smoothstep(0.14, 0.82, uNightFactor) * (1.0 - uCloudCoverage * 0.86);
-        return (galCol * lum * 0.34 + vec3(0.86, 0.91, 1.0) * microStar * 0.72) * horizFade * nightVis;
+        // Detached outer stellar spurs & star-cloud islands (Ophiuchus, Cepheus & Vela spurs)
+        float spurs = smoothstep(0.52, 0.82, cMacro * 0.62 + cKnots * 0.38) * diskOuter * 0.52;
+
+        float rawStarCloud = (diskInner * (0.28 + 1.02 * cloudBillow + 0.84 * denseKnots) * armActivity
+                           + spurs
+                           + bulge * (0.74 + 0.64 * cloudBillow)
+                           + sagStarCloud * 0.85) * particulate;
+
+        // Asymmetric fractal Beer-Lambert dark molecular dust rifts (Great Rift, Cygnus Rift, Pipe & Dark Horse)
+        float riftCenter = 0.022 - 0.035 * sin(eastCos * 3.4) + w3.y * 0.068 + (cMacro - 0.5) * 0.042;
+        float riftOffset = gLat - riftCenter;
+        float molDisk = exp(-(riftOffset * riftOffset) / (2.0 * 0.044 * 0.044));
+        float ridgeA = 1.0 - abs(galFbm3(celDir * 5.8 + w3 * 1.45 + vec3(8.4, -4.1, 3.3)) * 2.0 - 1.0);
+        float ridgeB = 1.0 - abs(galFbm3(celDir * 14.6 - w3 * 1.00 + vec3(-2.7, 6.8, -5.1)) * 2.0 - 1.0);
+        // Diagonal dark dust branches (Pipe Nebula / Northern Coalsack / Le Gentil 3)
+        float darkBranch = smoothstep(0.62, 0.85, galFbm3(celDir * 8.6 + w3 * 0.9 + vec3(-6.1, 2.3, 7.4)));
+        float dustZone = 0.48 + 0.78 * clamp(bulgeLon * 0.95 + cygnusSpot * 0.90 + scutumSpot * 0.65, 0.0, 1.25);
+
+        float tauDust = (pow(max(ridgeA, 0.0), 2.3) * 2.15 + pow(max(ridgeB, 0.0), 2.7) * 1.20) * molDisk * dustZone
+                      + darkBranch * exp(-pow(gLat - 0.035, 2.0) * 36.0) * 1.65
+                      + smoothstep(0.66, 0.90, cClump) * diskOuter * 0.40;
+        float dustTrans = exp(-tauDust);
+
+        // Realistic astronomical color: warm golden-ivory Population II core, silvery-milk Cygnus star clouds, cool blue outer OB arms
+        float coreWarmth = clamp(bulgeLon * 0.86 + sagStarCloud * 0.50, 0.0, 1.0);
+        vec3 spiralArmCol = mix(vec3(0.48, 0.62, 0.90), vec3(0.82, 0.87, 0.97), cloudBillow);
+        vec3 bulgeGoldCol = mix(vec3(0.96, 0.74, 0.48), vec3(1.00, 0.90, 0.74), smoothstep(0.25, 0.88, sagStarCloud + denseKnots * 0.55));
+        vec3 starCloudCol = mix(spiralArmCol, bulgeGoldCol, coreWarmth);
+
+        // Interstellar dust reddening along dark molecular cloud borders
+        float dustEdgeRedden = clamp(tauDust * 0.50, 0.0, 0.70) * (1.0 - dustTrans * 0.45);
+        starCloudCol *= mix(vec3(1.0), vec3(1.12, 0.73, 0.46), dustEdgeRedden);
+
+        // Compact jewel-like H-II emission nebulae (NGC 7000 North America in Cygnus, Lagoon M8, Heart & Soul)
+        float hAlphaKnot = smoothstep(0.73, 0.90, galNoise3(celDir * 19.5 + w3 * 1.2 + vec3(3.7, -8.2, 4.4)))
+                         * smoothstep(0.42, 0.76, cClump) * diskInner * dustTrans;
+        float obCluster  = smoothstep(0.75, 0.91, galNoise3(celDir * 24.0 - w3 * 1.1 + vec3(-5.5, 4.1, -2.9)))
+                         * (1.0 - coreWarmth * 0.60) * diskInner * dustTrans;
+
+        vec3 diffuseGal = starCloudCol * rawStarCloud * dustTrans * 0.152;
+        diffuseGal += vec3(0.95, 0.28, 0.48) * hAlphaKnot * (0.090 + 0.060 * coreWarmth);
+        diffuseGal += vec3(0.50, 0.74, 1.00) * obCluster * 0.080;
+
+        // Dense resolved + semi-resolved pinpoint stars & open clusters packed inside bright star clouds
+        float clusterMask = clamp((rawStarCloud * 0.66 + denseKnots * diskInner * 0.62) * mix(0.08, 1.0, dustTrans), 0.0, 1.0);
+        vec3 galStars = vec3(0.0);
+        if (clusterMask > 0.025) {
+          galStars += galStarClusterLayer(celDir, 310.0, clusterMask * 0.72, coreWarmth, 13.7) * 0.72;
+          galStars += galStarClusterLayer(celDir, 620.0, clusterMask * 0.90, coreWarmth, 37.3) * 0.58;
+          galStars += galStarClusterLayer(celDir, 1180.0, clusterMask, coreWarmth, 81.9) * 0.45;
+        }
+
+        float horizFade = smoothstep(-0.01, 0.15, elev);
+        float nightVis = smoothstep(0.14, 0.82, uNightFactor) * (1.0 - uCloudCoverage * 0.88);
+        return (diffuseGal + galStars) * horizFade * nightVis;
+      }
+
+      // One layer of procedural stars: cell density N, hash threshold, size range and brightness
+      vec3 starLayer(vec3 celDir, float N, float thresh, float sizeLo, float sizeHi, float bright, float seed) {
+        vec3 p = celDir * N;
+        vec3 cell = floor(p);
+        vec3 f = fract(p) - 0.5;
+        float h = hash31(cell + seed);
+        if (h < thresh) return vec3(0.0);
+        float r = (h - thresh) / (1.0 - thresh);
+        float size = mix(sizeLo, sizeHi, r * r);
+        vec3 off = (vec3(hash31(cell + 1.1 + seed), hash31(cell + 2.3 + seed), hash31(cell + 3.7 + seed)) - 0.5) * 0.3;
+        float d = length(f - off);
+        float core = 1.0 - smoothstep(0.0, size, d);
+        float halo = exp(-d * d / (size * size * 5.0)) * r * 0.35;
+        float twinkle = 0.62 + 0.38 * sin(uTime * (1.8 + r * 5.0) + h * 190.0 + sin(uTime * 0.7 + h * 40.0));
+        float temp = fract(h * 91.7);
+        vec3 tint = temp < 0.2 ? vec3(0.62, 0.78, 1.0) : (temp < 0.65 ? vec3(0.95, 0.96, 1.0) : (temp < 0.88 ? vec3(1.0, 0.92, 0.74) : vec3(1.0, 0.68, 0.48)));
+        float mag = bright * (0.35 + 1.4 * r);
+        return tint * (core * core + halo) * twinkle * mag;
       }
 
       vec3 renderStars(vec3 celDir, float elev) {
         if (uNightFactor < 0.08 || elev < 0.005) return vec3(0.0);
-        vec3 p = celDir * 220.0;
-        vec3 cell = floor(p);
-        vec3 f = fract(p) - 0.5;
-        float h = hash31(cell);
         vec3 acc = vec3(0.0);
-        if (h >= 0.962) {
-          float size = mix(0.10, 0.24, fract(h * 71.3));
-          float d = length(f - (vec3(hash31(cell + 1.1), hash31(cell + 2.3), hash31(cell + 3.7)) - 0.5) * 0.45);
-          float star = 1.0 - smoothstep(0.0, size, d);
-          float twinkle = 0.68 + 0.32 * sin(uTime * (2.2 + h * 5.0) + h * 90.0);
-          vec3 tint = mix(vec3(0.75, 0.86, 1.0), vec3(1.0, 0.90, 0.78), fract(h * 19.7));
-          acc += tint * star * star * twinkle * 1.55;
-        }
-        // Subtle crisp Polaris (North Star) anchored at Iceland's North Celestial Pole!
+        acc += starLayer(celDir, 95.0, 0.987, 0.05, 0.14, 1.5, 0.0);
+        acc += starLayer(celDir, 210.0, 0.986, 0.07, 0.17, 0.9, 17.0);
+        acc += starLayer(celDir, 440.0, 0.985, 0.10, 0.22, 0.6, 41.0);
+        acc += starLayer(celDir, 900.0, 0.992, 0.16, 0.30, 0.4, 73.0);
+
         const vec3 NCP = vec3(0.0, 0.89994, -0.43601);
         float polCos = max(dot(celDir, NCP), 0.0);
-        acc += vec3(0.96, 0.95, 0.88) * smoothstep(0.99992, 0.999995, polCos) * 2.2;
-        return acc * smoothstep(0.005, 0.14, elev) * smoothstep(0.10, 0.80, uNightFactor);
+        acc += vec3(0.96, 0.95, 0.88) * smoothstep(0.99992, 0.999995, polCos) * 2.6;
+
+        return acc * smoothstep(0.005, 0.12, elev) * smoothstep(0.10, 0.80, uNightFactor) * (1.0 - uCloudCoverage * 0.6);
       }
 
+      // Isometric 2D Kelvin-Helmholtz vortex twist in geomagnetic sheet coordinates
+      // Wraps auroral curtains into genuine 3D S-folds, horseshoe bends, and spiral surges without pinching width!
+      vec2 auroraSwirl(vec2 p, vec2 c, float invR2, float angle) {
+        vec2 d = p - c;
+        float w = exp(-dot(d, d) * invR2);
+        float a = angle * w;
+        float s = sin(a);
+        float co = cos(a);
+        return c + vec2(co * d.x - s * d.y, s * d.x + co * d.y);
+      }
+
+      float fastErf(float x) {
+        float s = x < 0.0 ? -1.0 : 1.0;
+        float ax = min(abs(x), 6.0);
+        float t = 1.0 / (1.0 + 0.3275911 * ax);
+        float poly = (((((1.0614054 * t - 1.4531520) * t) + 1.4214137) * t - 0.2844967) * t + 0.2548296) * t;
+        return s * (1.0 - poly * exp(-ax * ax));
+      }
+
+      // Analytical line-segment Gaussian sheet integral balanced for defined yet softly feathered auroral curtains
+      vec2 integrateCurtainSeg(float d0, float d1, float w, float du, float raySpan) {
+        float dd = d1 - d0;
+        float a = d0 / w;
+        float b = d1 / w;
+        float ba = b - a;
+        float ab = abs(ba);
+        float safeBa = ab > 1e-4 ? ba : (ba >= 0.0 ? 1e-4 : -1e-4);
+        float tSharp = clamp(-a / safeBa, 0.0, 1.0);
+        float tCross = mix(0.5, tSharp, smoothstep(0.20, 1.60, ab));
+        float dMinNorm = abs(a + ba * tCross);
+        if (dMinNorm > 3.9) return vec2(0.0, tCross);
+        float win = 1.0 - smoothstep(2.6, 3.9, dMinNorm);
+        float segInt = ab > 0.025
+          ? (0.8862269 * abs(fastErf(b) - fastErf(a)) / ab) * du
+          : exp(-0.25 * (a + b) * (a + b)) * du;
+        float normFactor = max(raySpan, 0.26) / (1.7724538 * w);
+        return vec2(min(segInt * normFactor, 0.72) * win, tCross);
+      }
+
+      // Shade one 3D auroral curtain with softly defined folds, gentle vertical ray shafts & restrained intensity
+      vec3 shadeAuroraCurtainHit(
+        float wInt, float u, float sx, vec2 magAzDir, float magAz, float t,
+        float foldDrive, float ionDrive, float crimsonDrive,
+        float cyanBias, float seed
+      ) {
+        if (wInt <= 0.002 || abs(sx) > 3.5) return vec3(0.0);
+
+        float segEnv = smoothstep(0.10, 0.58, gnoise(vec2(sx * 0.36 + seed, t * 0.018)) + 0.18) * exp(-sx * sx * 0.070);
+        if (segEnv <= 0.002) return vec3(0.0);
+
+        // Gently defined vertical magnetic-field ray shafts (readable curtain rays without harsh pinstripes)
+        float rBundle = gnoise(vec2(sx * 2.6 + seed, t * 0.10));
+        float rBroad  = gnoise(magAzDir * 8.5 + vec2(seed * 1.7 + t * 0.16, -t * 0.12));
+        float rSoft   = gnoise(magAzDir * 21.0 + vec2(-t * 0.28 + seed * 3.1, t * 0.22));
+
+        float rayness = smoothstep(0.18, 0.74, gnoise(vec2(sx * 0.62 - t * 0.022 + seed, 2.9)) + foldDrive * 0.16);
+        float softPillars = 0.24 + 1.32 * pow(smoothstep(0.18, 0.84, rBroad * 0.55 + rSoft * 0.45), 1.35);
+        float rays = mix(0.72 + 0.30 * rBundle, softPillars * (0.64 + 0.52 * rBundle), rayness * 0.84);
+
+        // Softly defined lower curtain base & smooth upper fade
+        float topU = mix(0.42, 0.95, clamp(rBundle * 0.70 + rBroad * 0.30, 0.0, 1.0) * (0.60 + 0.40 * max(crimsonDrive, cyanBias)));
+        float botSoft = smoothstep(0.006, 0.115, u);
+        float lowerWarmth = 1.0 + 0.58 * exp(-u * 13.0) * (0.45 + 0.55 * rays);
+        float greenBody = botSoft * lowerWarmth * exp(-u / max(topU * 0.48, 0.17)) * (1.0 - smoothstep(topU * 0.52, topU, u));
+
+        float crownStrength = crimsonDrive * crimsonDrive * 0.98 + cyanBias * 0.45;
+        float upperCrown = smoothstep(0.12, 0.44, u) * exp(-max(u - 0.36, 0.0) * (2.3 - 0.75 * crimsonDrive))
+                         * (0.44 + 0.68 * rBundle) * crownStrength;
+
+        // Soft N2/N2+ rose-violet lower border wash in active zones
+        float ionPatch = smoothstep(0.32, 0.76, gnoise(vec2(sx * 0.95 + t * 0.045 + seed * 2.0, 5.4))) * ionDrive;
+        float fringeMix = clamp(ionPatch * exp(-u * 12.5) * 1.05, 0.0, 0.78);
+
+        vec3 oxyChartreuse = vec3(0.40, 0.96, 0.35);
+        vec3 oxyEmerald    = vec3(0.09, 0.94, 0.44);
+        vec3 n2Turquoise   = vec3(0.09, 0.80, 0.90);
+        vec3 n2CobaltViolet= vec3(0.43, 0.25, 0.92);
+        vec3 n2MagentaWash = mix(vec3(0.90, 0.24, 0.64), vec3(0.60, 0.23, 0.94), cyanBias * 0.6);
+        vec3 oxyCrimson    = vec3(0.92, 0.12, 0.23);
+
+        vec3 mainCol = mix(oxyChartreuse, oxyEmerald, smoothstep(0.015, 0.14, u));
+        mainCol = mix(mainCol, n2Turquoise, clamp(cyanBias * 0.80 + ionDrive * 0.16, 0.0, 0.85) * smoothstep(0.03, 0.26, u));
+        mainCol = mix(mainCol, n2MagentaWash, fringeMix);
+
+        vec3 crownCol = mix(oxyCrimson, n2CobaltViolet, clamp(cyanBias * 0.88 - crimsonDrive * 0.55, 0.0, 1.0));
+        vec3 overlapGold = vec3(0.90, 0.65, 0.28) * (crimsonDrive * crimsonDrive * greenBody * upperCrown * 0.32);
+
+        vec3 totalEmission = mainCol * greenBody + crownCol * upperCrown + overlapGold;
+        return totalEmission * (wInt * segEnv * rays);
+      }
+
+      // Soft, large-scale atmospheric 3D Geomagnetic Aurora Borealis:
+      // Broad blurry draperies, gentle arcs, diffuse pulsating glows & soft coronal convergence at restrained night-sky intensity.
       vec3 renderAurora(vec3 rd) {
-        if (uAuroraStrength <= 0.005 || rd.y < -0.02) return vec3(0.0);
+        if (uAuroraStrength <= 0.004 || rd.y < -0.025) return vec3(0.0);
+
+        float foldDrive    = uAuroraProfile.x;
+        float coronaDrive  = uAuroraProfile.y;
+        float ionDrive     = uAuroraProfile.z;
+        float crimsonDrive = uAuroraProfile.w;
+        float cyanBias     = smoothstep(0.62, 0.95, ionDrive) * (1.0 - crimsonDrive * 0.65);
+
+        float skySector = smoothstep(0.86, -0.18, rd.z - rd.y * (0.80 + coronaDrive * 0.70));
+        if (skySector <= 0.002) return vec3(0.0);
+
         float t = uAuroraTime;
-        vec3 accum = vec3(0.0);
-        float horizFade = smoothstep(-0.02, 0.10, rd.y) * (1.0 - smoothstep(0.30, 0.96, rd.y));
-        if (horizFade <= 0.001) return vec3(0.0);
+        float el = max(rd.y, -0.02);
 
-        float dither = hash21(gl_FragCoord.xy + fract(t) * 37.0) / 28.0;
-        for (int i = 0; i < 28; i++) {
-          float fi = float(i) / 28.0 + dither;
-          float alt = 1.05 + fi * 1.55;
-          float rayLen = alt / max(rd.y + 0.16, 0.07);
-          vec2 p = rd.xz * rayLen;
+        const float H_BOT = 0.020;
+        float H_TOP = mix(0.054, 0.072, crimsonDrive);
+        float sBot = sqrt(max(el * el + 2.0 * H_BOT + H_BOT * H_BOT, 0.0001)) - el;
+        float sTop = sqrt(max(el * el + 2.0 * H_TOP + H_TOP * H_TOP, 0.0001)) - el;
+        vec3 pBot = rd * sBot;
+        vec3 pTop = rd * sTop;
 
-          float warp = gnoise(p * 0.55 + vec2(t * 0.04, -t * 0.03)) * 2.1;
-          float waveA = sin(p.x * 0.58 + p.y * 0.34 + t * 0.18 + warp);
-          float waveB = sin(p.x * 1.05 - p.y * 0.72 - t * 0.14 + warp * 1.3);
+        const vec2 bTilt = vec2(0.052, 0.242);
+        const vec3 magZen = vec3(0.05046, 0.96999, 0.23484);
+        const vec3 magEast = vec3(0.99869, -0.05116, 0.00000);
+        vec3 magNorth = cross(magZen, magEast);
+        vec2 magPlane = vec2(dot(rd, magEast), dot(rd, magNorth));
+        vec2 magAzDir = normalize(magPlane + vec2(1e-5, 0.0));
+        float magAz = atan(magAzDir.x, -magAzDir.y);
 
-          float ribbonA = exp(-waveA * waveA * 4.4);
-          float ribbonB = exp(-(waveB + 0.3) * (waveB + 0.3) * 5.2) * 0.72;
-          float curtain = max(ribbonA, ribbonB);
+        vec2 qBot = (pBot.xz - bTilt * (pBot.y - H_BOT)) * 10.5;
+        vec2 qTop = (pTop.xz - bTilt * (pTop.y - H_BOT)) * 10.5;
+        float raySpan = length(qTop - qBot);
 
-          float rays = 0.42 + 1.05 * pow(gnoise(vec2(p.x * 4.8 + p.y * 3.1 + t * 0.24, p.y * 1.5 - t * 0.12)), 1.7);
-          float macroPatch = smoothstep(0.16, 0.72, gnoise(p * 0.34 - vec2(t * 0.03, 0.0)));
-          float density = curtain * rays * macroPatch;
+        // Gentle, large-scale vortex folds & broad blurry sheet widths (4x-5x wider for atmospheric softness!)
+        float latBase = mix(-0.58, -0.10, coronaDrive);
+        vec2 vortA1 = vec2(-0.38 + 0.24 * sin(t * 0.038), latBase - 0.04 + 0.09 * cos(t * 0.031));
+        vec2 vortA2 = vec2( 0.42 + 0.24 * cos(t * 0.034), latBase - 0.10 + 0.10 * sin(t * 0.037));
+        vec2 vortB1 = vec2(-0.02 + 0.34 * sin(t * 0.043 + 1.4), latBase - 0.36 + 0.11 * cos(t * 0.039));
+        float twistA1 =  1.42 * foldDrive * (0.76 + 0.24 * sin(t * 0.065));
+        float twistA2 = -1.32 * foldDrive * (0.78 + 0.22 * cos(t * 0.058 + 1.1));
+        float twistB1 =  1.18 * (0.35 + 0.65 * foldDrive) * cos(t * 0.052 + 0.5);
 
-          vec3 emerald = vec3(0.08, 1.00, 0.42);
-          vec3 teal = vec3(0.06, 0.80, 0.88);
-          vec3 violet = vec3(0.68, 0.16, 0.92);
-          vec3 altCol = mix(emerald, teal, smoothstep(0.0, 0.44, fi));
-          altCol = mix(altCol, violet, smoothstep(0.40, 0.90, fi));
+        float widthA = mix(0.056, 0.038, foldDrive);
+        float widthB = 0.044;
+        float widthC = mix(0.078, 0.098, coronaDrive);
 
-          float vertWeight = smoothstep(0.0, 0.10, fi) * exp(-fi * 1.75) * (1.0 - fi * 0.30);
-          accum += altCol * density * vertWeight * 0.175;
+        vec2 P0 = qBot;
+        vec2 pA0 = auroraSwirl(auroraSwirl(P0, vortA1, 1.65, twistA1), vortA2, 1.75, twistA2);
+        float dA0 = pA0.y - (latBase - 0.10 * pA0.x * pA0.x + 0.16 * sin(pA0.x * 1.6 + t * 0.055) + 0.06 * sin(pA0.x * 3.4 - t * 0.09) * foldDrive);
+        vec2 pB0 = auroraSwirl(P0, vortB1, 1.85, twistB1);
+        float dB0 = pB0.y - ((latBase - 0.36) + 0.17 * pB0.x - 0.09 * pB0.x * pB0.x + 0.09 * sin(pB0.x * 2.5 - t * 0.09) * (0.35 + 0.65 * foldDrive));
+        vec2 zD0 = P0 - vec2(0.005, 0.053);
+        float azZ0 = atan(zD0.x, zD0.y - 0.0001);
+        float dCor0 = length(zD0) - (0.22 + 0.07 * sin(azZ0 * 3.0 + t * 0.07) + 0.04 * cos(azZ0 * 5.0 - t * 0.10));
+        float dArc0 = P0.y - (-1.16 - 0.09 * P0.x * P0.x + 0.10 * sin(P0.x * 1.4 - t * 0.04));
+
+        vec3 hitAFront = vec3(0.0);
+        vec3 hitABack  = vec3(0.0);
+        vec3 hitB      = vec3(0.0);
+        vec4 hitCor    = vec4(0.0);
+        vec3 hitArc    = vec3(0.0);
+
+        const int SEGS = 8;
+        float u0 = 0.0;
+        for (int i = 0; i < SEGS; i++) {
+          float fn = float(i + 1) / float(SEGS);
+          float u1 = fn * fn * 0.30 + fn * 0.70;
+          float du = u1 - u0;
+          vec2 P1 = mix(qBot, qTop, u1);
+
+          vec2 pA1 = auroraSwirl(auroraSwirl(P1, vortA1, 1.65, twistA1), vortA2, 1.75, twistA2);
+          float dA1 = pA1.y - (latBase - 0.10 * pA1.x * pA1.x + 0.16 * sin(pA1.x * 1.6 + t * 0.055) + 0.06 * sin(pA1.x * 3.4 - t * 0.09) * foldDrive);
+
+          vec2 pB1 = auroraSwirl(P1, vortB1, 1.85, twistB1);
+          float dB1 = pB1.y - ((latBase - 0.36) + 0.17 * pB1.x - 0.09 * pB1.x * pB1.x + 0.09 * sin(pB1.x * 2.5 - t * 0.09) * (0.35 + 0.65 * foldDrive));
+
+          vec2 zD1 = P1 - vec2(0.005, 0.053);
+          float azZ1 = atan(zD1.x, zD1.y - 0.0001);
+          float dCor1 = length(zD1) - (0.22 + 0.07 * sin(azZ1 * 3.0 + t * 0.07) + 0.04 * cos(azZ1 * 5.0 - t * 0.10));
+          float dArc1 = P1.y - (-1.16 - 0.09 * P1.x * P1.x + 0.10 * sin(P1.x * 1.4 - t * 0.04));
+
+          vec2 intA = integrateCurtainSeg(dA0, dA1, widthA, du, raySpan);
+          if (intA.x > 0.0) {
+            float uA = mix(u0, u1, intA.y);
+            float sxA = mix(pA0.x, pA1.x, intA.y);
+            float backSplit = smoothstep(-0.015, 0.015, dA1 - dA0);
+            hitAFront += vec3(1.0, uA, sxA) * (intA.x * (1.0 - backSplit));
+            hitABack  += vec3(1.0, uA, sxA) * (intA.x * backSplit);
+          }
+
+          vec2 intB = integrateCurtainSeg(dB0, dB1, widthB, du, raySpan);
+          if (intB.x > 0.0) {
+            hitB += vec3(1.0, mix(u0, u1, intB.y), mix(pB0.x, pB1.x, intB.y)) * intB.x;
+          }
+
+          if (coronaDrive > 0.18) {
+            vec2 intCor = integrateCurtainSeg(dCor0, dCor1, widthC, du, raySpan);
+            if (intCor.x > 0.0) {
+              vec2 zDC = mix(zD0, zD1, intCor.y);
+              hitCor += vec4(1.0, mix(u0, u1, intCor.y), zDC.x, zDC.y) * (intCor.x * smoothstep(0.18, 0.72, coronaDrive));
+            }
+          }
+
+          vec2 intArc = integrateCurtainSeg(dArc0, dArc1, 0.068, du, raySpan);
+          if (intArc.x > 0.0) {
+            hitArc += vec3(1.0, mix(u0, u1, intArc.y), mix(P0.x, P1.x, intArc.y)) * (intArc.x * (1.0 - coronaDrive * 0.45));
+          }
+
+          u0 = u1;
+          P0 = P1;
+          pA0 = pA1; dA0 = dA1;
+          pB0 = pB1; dB0 = dB1;
+          zD0 = zD1; dCor0 = dCor1;
+          dArc0 = dArc1;
         }
-        return accum * uAuroraStrength * horizFade;
+
+        vec3 accum = vec3(0.0);
+
+        // Restrained, ghostly curtain intensities with softly readable folds & ray structure
+        if (hitAFront.x > 0.002) {
+          float inv = 1.0 / hitAFront.x;
+          accum += shadeAuroraCurtainHit(hitAFront.x * 0.26, hitAFront.y * inv, hitAFront.z * inv, magAzDir, magAz, t, foldDrive, ionDrive * 0.85, crimsonDrive, cyanBias * 0.65, 1.7);
+        }
+        if (hitABack.x > 0.002) {
+          float inv = 1.0 / hitABack.x;
+          accum += shadeAuroraCurtainHit(hitABack.x * 0.23, hitABack.y * inv, hitABack.z * inv, magAzDir, magAz + 0.7, t, foldDrive, min(ionDrive * 1.05, 1.0), crimsonDrive, cyanBias * 0.65, 1.7);
+        }
+        if (hitB.x > 0.002) {
+          float inv = 1.0 / hitB.x;
+          accum += shadeAuroraCurtainHit(hitB.x * 0.21, hitB.y * inv, hitB.z * inv, magAzDir, magAz + 1.9, t, foldDrive, min(ionDrive * 1.15, 1.0), crimsonDrive * 0.9, min(cyanBias + ionDrive * 0.35, 1.0), -3.4);
+        }
+        if (hitArc.x > 0.002) {
+          float inv = 1.0 / hitArc.x;
+          accum += shadeAuroraCurtainHit(hitArc.x * 0.13, hitArc.y * inv, hitArc.z * inv, magAzDir, magAz - 1.1, t, foldDrive * 0.35, ionDrive * 0.30, crimsonDrive * 0.80, cyanBias * 0.5, 6.2);
+        }
+        if (hitCor.x > 0.002) {
+          float inv = 1.0 / hitCor.x;
+          float uC = hitCor.y * inv;
+          vec2 zMean = hitCor.zw * inv;
+          float cenFade = smoothstep(0.02, 0.13, length(zMean));
+          vec2 azU = normalize(zMean + vec2(1e-4, 0.0));
+          float nSpoke = gnoise(azU * 6.5 + vec2(t * 0.14, -t * 0.10)) * 0.56
+                       + gnoise(azU * 16.0 - vec2(t * 0.24, 2.1)) * 0.44;
+          float corSpokes = 0.26 + 1.35 * pow(smoothstep(0.20, 0.84, nSpoke), 1.35);
+          float vertCor = smoothstep(0.008, 0.13, uC) * (1.0 + 0.42 * exp(-uC * 12.0)) * exp(-uC / (0.44 + 0.24 * crimsonDrive));
+          float corIon = smoothstep(0.36, 0.78, gnoise(azU * 2.2 + vec2(t * 0.05, 1.3))) * ionDrive;
+          vec3 colCor = mix(vec3(0.10, 0.94, 0.46), vec3(0.86, 0.25, 0.68), corIon * exp(-uC * 11.0));
+          colCor = mix(colCor, mix(vec3(0.32, 0.50, 0.92), vec3(0.90, 0.12, 0.24), 0.35 + 0.65 * crimsonDrive), smoothstep(0.18, 0.56, uC));
+          accum += colCor * (hitCor.x * corSpokes * vertCor * cenFade * 0.22);
+        }
+
+        // Large-scale blurry diffuse auroral cloud veil & gently breathing patches across the ionosphere
+        vec2 pVeil = mix(qBot, qTop, 0.28);
+        float veilBroad = gnoise(pVeil * 0.68 + vec2(t * 0.014, -t * 0.011));
+        float veilMid   = gnoise(pVeil * 1.55 + vec2(-t * 0.020 + 2.4, t * 0.016));
+        float pulseWave = 0.62 + 0.38 * sin(t * 0.65 + veilBroad * 8.0);
+        float veilEnv   = exp(-pow((pVeil.y - (latBase - 0.18)) / 0.68, 2.0)) * exp(-pVeil.x * pVeil.x * 0.14);
+        float veilMask  = smoothstep(0.32, 0.82, veilBroad * 0.65 + veilMid * 0.35) * veilEnv * pulseWave;
+        vec3 veilCol    = mix(vec3(0.09, 0.86, 0.46), vec3(0.14, 0.68, 0.86), cyanBias * 0.65);
+        veilCol         = mix(veilCol, vec3(0.76, 0.20, 0.42), crimsonDrive * 0.32 * smoothstep(0.45, 0.85, veilMid));
+        accum += veilCol * veilMask * 0.048;
+
+        // Soft subauroral mauve glow (STEVE-inspired misty arch) during high ionization
+        float steveVis = smoothstep(0.68, 0.95, ionDrive) * (0.50 + 0.50 * sin(t * 0.045 + 0.8));
+        if (steveVis > 0.01) {
+          vec2 pSteve = mix(qBot, qTop, 0.34);
+          float dSteve = pSteve.y - (-0.04 - 0.05 * pSteve.x * pSteve.x + 0.04 * sin(pSteve.x * 1.7 - t * 0.05));
+          float steveArc = exp(-(dSteve * dSteve) / (0.042 * 0.042)) * exp(-pSteve.x * pSteve.x * 0.20);
+          accum += vec3(0.80, 0.58, 0.88) * (steveArc * 0.11 * steveVis);
+        }
+
+        // Faint low poleward airglow mist above distant mountain ridges
+        float airglow = smoothstep(-0.01, 0.12, el) * exp(-max(el, 0.0) * 4.2) * smoothstep(-0.1, 0.8, -rd.z);
+        accum += vec3(0.08, 0.74, 0.40) * airglow * 0.020;
+
+        // Gentle soft-knee ceiling so aurora stays restrained, atmospheric & translucent
+        float peak = max(accum.r, max(accum.g, accum.b));
+        if (peak > 0.001) {
+          float compressed = (peak * 0.96) / (1.0 + peak * 1.32);
+          accum *= compressed / peak;
+        }
+
+        float horizFade = smoothstep(-0.02, 0.08, rd.y);
+        return accum * uAuroraStrength * horizFade * skySector;
       }
 
       void main() {
@@ -647,7 +1023,7 @@ export function createSkyDome() {
         sky += renderStars(celDir, rd.y);
         float moonCos = max(dot(rd, uMoonDir), 0.0);
         float moonDisc = smoothstep(0.99945, 0.9998, moonCos) * uNightFactor;
-        float moonHalo = pow(moonCos, 24.0) * 0.22 * uNightFactor;
+        float moonHalo = (pow(moonCos, 38.0) * 0.17 + pow(moonCos, 9.0) * 0.022) * uNightFactor;
         sky += vec3(0.75, 0.86, 1.0) * (moonDisc * 2.5 + moonHalo) * (1.0 - uCloudCoverage * 0.72);
 
         vec3 aurora = renderAurora(rd);
@@ -896,6 +1272,16 @@ export function createEnvironmentController(scene, renderer, skyDome) {
     }
   }
 
+  // Signature real-world geomagnetic storm morphologies:
+  // [foldCurl, coronaExpansion, n2Ionization, crimsonCrown]
+  const AURORA_REGIMES = {
+    drapery: [0.88, 0.22, 0.34, 0.24], // Classic Icelandic 557.7nm emerald S-folded draperies with subtle rose fold-accents
+    corona:  [0.76, 0.96, 0.58, 0.52], // Substorm breakup sweeping overhead into a 360-deg magnetic-zenith Corona
+    crimson: [0.72, 0.44, 0.64, 1.00], // G4/G5 solar storm with towering 630nm scarlet pillars, gold overlap & magenta hems
+    glacial: [0.34, 0.32, 0.96, 0.16]  // Homogeneous & picket-fence arcs in 428nm cyan-turquoise, cobalt-violet & STEVE
+  };
+  const AURORA_REGIME_KEYS = ['drapery', 'corona', 'crimson', 'glacial'];
+
   const state = {
     timeOfDay: 13.4,
     timeSpeed: 60.0, // Default: 1 real second = 1 game minute (60 game seconds / real second!)
@@ -908,6 +1294,8 @@ export function createEnvironmentController(scene, renderer, skyDome) {
     auroraCooldown: 6.0,
     auroraWaveAge: 0.0,
     auroraWaveDuration: 28.0,
+    auroraPhaseIdx: 0,
+    auroraWaveProfile: [0.80, 0.32, 0.60, 0.46],
     lightningFlash: 0.0,
     lightningTimer: 8.0
   };
@@ -946,13 +1334,35 @@ export function createEnvironmentController(scene, renderer, skyDome) {
     }
   }
 
+  function pickRandomAuroraProfile() {
+    const baseKey = AURORA_REGIME_KEYS[Math.floor(Math.random() * AURORA_REGIME_KEYS.length)];
+    const b = AURORA_REGIMES[baseKey];
+    state.auroraWaveProfile = [
+      clamp(b[0] + (Math.random() - 0.5) * 0.24, 0.18, 1.0),
+      clamp(b[1] + (Math.random() - 0.5) * 0.28, 0.08, 1.0),
+      clamp(b[2] + (Math.random() - 0.5) * 0.24, 0.12, 1.0),
+      clamp(b[3] + (Math.random() - 0.5) * 0.26, 0.12, 1.0)
+    ];
+  }
+
   function setAuroraMode(mode) {
     state.auroraMode = mode;
-    if (mode === 'on') {
-      state.auroraWave = 1.0;
-    } else if (mode === 'off') {
+    if (mode === 'off') {
       state.auroraWave = 0.0;
+    } else if (mode !== 'auto') {
+      state.auroraWave = 1.0;
+      if (AURORA_REGIMES[mode]) {
+        const r = AURORA_REGIMES[mode];
+        ATMO_UNIFORMS.uAuroraProfile.value.set(r[0], r[1], r[2], r[3]);
+      }
     }
+  }
+
+  function stepAuroraPhase() {
+    state.auroraPhaseIdx = (state.auroraPhaseIdx + 1) % AURORA_REGIME_KEYS.length;
+    ATMO_UNIFORMS.uAuroraTime.value += 19.5;
+    const r = AURORA_REGIMES[AURORA_REGIME_KEYS[state.auroraPhaseIdx]];
+    ATMO_UNIFORMS.uAuroraProfile.value.set(r[0], r[1], r[2], r[3]);
   }
 
   function triggerAuroraBurst() {
@@ -960,6 +1370,7 @@ export function createEnvironmentController(scene, renderer, skyDome) {
     state.auroraWaveAge = 0.01;
     state.auroraWaveDuration = 42.0;
     state.auroraWave = 1.0;
+    pickRandomAuroraProfile();
   }
 
   function update(dt, playerPos) {
@@ -1025,7 +1436,8 @@ export function createEnvironmentController(scene, renderer, skyDome) {
     const twilightFactor = smoothstep(0.24, 0.04, sunElev) * (1.0 - smoothstep(-0.04, -0.22, sunElev));
     ATMO_UNIFORMS.uNightFactor.value = nightFactor;
 
-    if (state.auroraMode === 'on') {
+    const isFixedPreset = Boolean(AURORA_REGIMES[state.auroraMode]);
+    if (state.auroraMode === 'on' || isFixedPreset) {
       state.auroraWave = mix(state.auroraWave, 1.0, 1.0 - Math.exp(-dt * 2.5));
     } else if (state.auroraMode === 'off') {
       state.auroraWave = mix(state.auroraWave, 0.0, 1.0 - Math.exp(-dt * 2.5));
@@ -1046,6 +1458,7 @@ export function createEnvironmentController(scene, renderer, skyDome) {
             if (Math.random() < 0.72) {
               state.auroraWaveAge = 0.01;
               state.auroraWaveDuration = 28 + Math.random() * 24;
+              pickRandomAuroraProfile();
             } else {
               state.auroraCooldown = 14 + Math.random() * 18;
             }
@@ -1059,6 +1472,54 @@ export function createEnvironmentController(scene, renderer, skyDome) {
     const auroraIntensity = state.auroraWave * smoothstep(0.20, 0.75, nightFactor);
     ATMO_UNIFORMS.uAuroraStrength.value = auroraIntensity;
     ATMO_UNIFORMS.uAuroraTime.value += dt * (0.85 + curWx.windStrength * 0.4);
+
+    // Evolve geomagnetic storm shape & color profile smoothly across distinct real-world regimes
+    const tAur = ATMO_UNIFORMS.uAuroraTime.value;
+    let tgtFold = 0.78, tgtCorona = 0.34, tgtIon = 0.58, tgtCrimson = 0.46;
+    if (isFixedPreset) {
+      const r = AURORA_REGIMES[state.auroraMode];
+      tgtFold = clamp(r[0] + 0.08 * Math.sin(tAur * 0.07), 0.12, 1.0);
+      tgtCorona = clamp(r[1] + 0.07 * Math.cos(tAur * 0.05), 0.05, 1.0);
+      tgtIon = clamp(r[2] + 0.08 * Math.sin(tAur * 0.06 + 1.1), 0.08, 1.0);
+      tgtCrimson = clamp(r[3] + 0.08 * Math.cos(tAur * 0.055 + 2.0), 0.08, 1.0);
+    } else if (state.auroraMode === 'on') {
+      // Smooth continuous tour across all 4 geomagnetic morphologies (drapery -> corona -> crimson storm -> cyan-violet)
+      const cyc = ((tAur * 0.042 + state.auroraPhaseIdx) % 4.0 + 4.0) % 4.0;
+      const idx0 = Math.floor(cyc);
+      const idx1 = (idx0 + 1) % 4;
+      const f = smoothstep(0.15, 0.85, cyc - idx0);
+      const r0 = AURORA_REGIMES[AURORA_REGIME_KEYS[idx0]];
+      const r1 = AURORA_REGIMES[AURORA_REGIME_KEYS[idx1]];
+      tgtFold = mix(r0[0], r1[0], f);
+      tgtCorona = mix(r0[1], r1[1], f);
+      tgtIon = mix(r0[2], r1[2], f);
+      tgtCrimson = mix(r0[3], r1[3], f);
+    } else {
+      // Stochastic substorm lifecycle: quiet arc onset -> folded/coronal peak -> pulsating recovery
+      const subP = state.auroraWaveDuration > 0 ? clamp(state.auroraWaveAge / state.auroraWaveDuration, 0.0, 1.0) : 0.5;
+      const breakup = Math.sin(subP * Math.PI);
+      const wp = state.auroraWaveProfile;
+      tgtFold = mix(0.26, wp[0], breakup);
+      tgtCorona = wp[1] * Math.pow(breakup, 1.3);
+      tgtIon = mix(0.28, wp[2], breakup);
+      tgtCrimson = mix(0.20, wp[3], breakup);
+    }
+    const profLerp = 1.0 - Math.exp(-dt * 1.6);
+    const ap = ATMO_UNIFORMS.uAuroraProfile.value;
+    ap.set(
+      mix(ap.x, tgtFold, profLerp),
+      mix(ap.y, tgtCorona, profLerp),
+      mix(ap.z, tgtIon, profLerp),
+      mix(ap.w, tgtCrimson, profLerp)
+    );
+
+    // Couple ground bounce light, mist, and water tint to live spectroscopic aurora palette
+    _cA.setRGB(0.10, 0.92, 0.48); // 557.7nm oxygen emerald base
+    _cB.setRGB(0.18, 0.72, 0.94); // 427.8nm ionized cyan-violet shift
+    _cA.lerp(_cB, ap.z * 0.42);
+    _cB.setRGB(0.76, 0.24, 0.48); // 630nm crimson + N2 magenta storm shift
+    _cA.lerp(_cB, ap.w * 0.30);
+    ATMO_UNIFORMS.uAuroraTint.value.copy(_cA);
 
     if (state.weather === 'storm') {
       state.lightningTimer -= dt;
@@ -1156,14 +1617,15 @@ export function createEnvironmentController(scene, renderer, skyDome) {
     hemiLight.groundColor.copy(_hemiGnd);
     hemiLight.intensity = mix(1.12 * curWx.ambientGain, 0.30, nightFactor) + state.lightningFlash * 0.8;
 
-    auroraBounceLight.intensity = auroraIntensity * 0.42;
+    auroraBounceLight.color.copy(ATMO_UNIFORMS.uAuroraTint.value);
+    auroraBounceLight.intensity = auroraIntensity * 0.24;
 
     skyDome.mesh.position.copy(playerPos);
 
     updateTerrainShadowMap(playerPos, keyDir);
 
     // Throttled PMREM environment bake for PBR wet basalt & metal (only rebake when sky/weather state actually changes!)
-    const envKey = `${Math.round(state.timeOfDay * 6)}_${state.weather}_${Math.round(auroraIntensity * 4)}`;
+    const envKey = `${Math.round(state.timeOfDay * 6)}_${state.weather}_${Math.round(auroraIntensity * 4)}_${Math.round(ap.z * 2)}_${Math.round(ap.w * 2)}`;
     const now = ATMO_UNIFORMS.uTime.value;
     if (envKey !== lastEnvStateKey && (now - lastEnvUpdate > 2.5 || lastEnvStateKey === '')) {
       lastEnvUpdate = now;
@@ -1189,6 +1651,7 @@ export function createEnvironmentController(scene, renderer, skyDome) {
     setTimeOfDay,
     setWeather,
     setAuroraMode,
+    stepAuroraPhase,
     triggerAuroraBurst,
     update
   };

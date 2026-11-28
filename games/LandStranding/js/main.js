@@ -1048,8 +1048,18 @@ function refreshHudControls() {
   elLblTime.textContent = formatClock(envCtrl.state.timeOfDay);
   elBtnCycle.textContent = envCtrl.state.timeSpeed > 0 ? 'Cycling' : 'Paused';
   elBtnCycle.classList.toggle('active', envCtrl.state.timeSpeed > 0);
-  elBtnAurora.textContent = `Aurora: ${envCtrl.state.auroraMode.toUpperCase()}`;
-  elBtnAurora.classList.toggle('active', envCtrl.state.auroraMode === 'on');
+  const aurLabelMap = {
+    auto: 'AUTO',
+    on: 'DYNAMIC',
+    drapery: 'DRAPERY',
+    corona: 'CORONA',
+    crimson: 'CRIMSON',
+    glacial: 'CYAN-VIOLET',
+    off: 'OFF'
+  };
+  const am = envCtrl.state.auroraMode;
+  elBtnAurora.textContent = `Aurora: ${aurLabelMap[am] || am.toUpperCase()}`;
+  elBtnAurora.classList.toggle('active', am !== 'auto' && am !== 'off');
 
   document.querySelectorAll('#wx-btns button').forEach((b) => {
     b.classList.toggle('active', b.dataset.wxSet === envCtrl.state.weather);
@@ -1079,10 +1089,15 @@ elSlTime.addEventListener('input', (e) => {
 
 document.querySelectorAll('[data-time]').forEach((btn) => {
   btn.addEventListener('click', () => {
+    const wasAuroraOn = envCtrl.state.auroraMode !== 'auto' && envCtrl.state.auroraMode !== 'off';
     envCtrl.setTimeOfDay(parseFloat(btn.dataset.time));
     if (btn.dataset.wx) envCtrl.setWeather(btn.dataset.wx);
-    if (btn.dataset.aurora) envCtrl.setAuroraMode(btn.dataset.aurora);
-    else envCtrl.setAuroraMode('auto');
+    if (btn.dataset.aurora) {
+      if (wasAuroraOn) envCtrl.stepAuroraPhase();
+      envCtrl.setAuroraMode(btn.dataset.aurora);
+    } else {
+      envCtrl.setAuroraMode('auto');
+    }
     refreshHudControls();
   });
 });
@@ -1093,8 +1108,9 @@ elBtnCycle.addEventListener('click', () => {
 });
 
 elBtnAurora.addEventListener('click', () => {
-  const order = ['auto', 'on', 'off'];
-  const next = order[(order.indexOf(envCtrl.state.auroraMode) + 1) % order.length];
+  const order = ['auto', 'on', 'drapery', 'corona', 'crimson', 'glacial', 'off'];
+  const idx = order.indexOf(envCtrl.state.auroraMode);
+  const next = order[(idx + 1) % order.length];
   envCtrl.setAuroraMode(next);
   refreshHudControls();
 });
@@ -1414,9 +1430,12 @@ window.__LANDSTRANDING__ = {
     refreshHudControls();
     composer.render();
   },
-  setAurora(mode) {
+  setAurora(mode, timeOffsetSec = null) {
     envCtrl.setAuroraMode(mode);
-    envCtrl.update(0.016, porter.state.pos);
+    if (typeof timeOffsetSec === 'number') {
+      ATMO_UNIFORMS.uAuroraTime.value = timeOffsetSec;
+    }
+    for (let i = 0; i < 6; i++) envCtrl.update(0.35, porter.state.pos);
     refreshHudControls();
     composer.render();
   },
@@ -1548,7 +1567,9 @@ window.__LANDSTRANDING__ = {
       speed: porter.state.speed,
       timeOfDay: envCtrl.state.timeOfDay,
       weather: envCtrl.state.weather,
+      auroraMode: envCtrl.state.auroraMode,
       auroraStrength: ATMO_UNIFORMS.uAuroraStrength.value,
+      auroraProfile: ATMO_UNIFORMS.uAuroraProfile.value.toArray().map((v) => Number(v.toFixed(3))),
       nightFactor: ATMO_UNIFORMS.uNightFactor.value,
       calls: lastSceneCalls || renderer.info.render.calls,
       triangles: lastSceneTris || renderer.info.render.triangles,

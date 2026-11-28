@@ -710,7 +710,7 @@ export function createWaterSystem(texLib, scene) {
         vec3 skyZen = mix(dayZenith, uSkyZenith * 0.45, uNightFactor);
         vec3 skyHor = mix(uSkyHorizon * 0.54, uSkyHorizon * 0.38, uNightFactor);
         vec3 reflSky = mix(skyHor, skyZen, smoothstep(0.03, 0.48, max(reflDir.y, 0.0)));
-        reflSky += vec3(0.04, 0.34, 0.24) * uAuroraStrength * uNightFactor * 0.48;
+        reflSky += uAuroraTint * 0.20 * uAuroraStrength * uNightFactor * 0.45;
         // Pronounced flowing ripple luminance variation so water reads liquid & alive (never flat white!)
         float ripMod = 0.68 + 0.48 * clamp((nA.x + nB.y) * 1.65 + 0.5, 0.0, 1.0);
         reflSky *= ripMod;
@@ -1534,10 +1534,15 @@ export function createWaterSystem(texLib, scene) {
         sky = mix(sky, cloudCol, cDens * clamp(0.45 + uCloudCoverage * 0.52, 0.0, 0.92));
 
         if (uAuroraStrength > 0.01 && uNightFactor > 0.1) {
-          float aurWave = sin(rd.x * 4.2 + rd.z * 2.8 + uAuroraTime * 0.35 + atmoGNoise(rd.xz * 2.6) * 2.8);
-          float aurCurtain = exp(-aurWave * aurWave * 3.5) * smoothstep(0.02, 0.22, elev) * (1.0 - smoothstep(0.35, 0.90, elev));
-          vec3 aurCol = mix(vec3(0.08, 0.95, 0.44), vec3(0.18, 0.62, 0.92), smoothstep(0.08, 0.50, elev));
-          sky += aurCol * aurCurtain * uAuroraStrength * uNightFactor * 0.62;
+          float aurWarp = atmoGNoise(rd.xz * 2.4 + vec2(uAuroraTime * 0.04, -uAuroraTime * 0.03)) * 2.8;
+          float aurWaveA = sin(rd.x * 3.8 + rd.z * 2.6 + uAuroraTime * 0.28 + aurWarp);
+          float aurWaveB = sin(rd.x * 6.4 - rd.z * 3.4 - uAuroraTime * 0.22 + aurWarp * 1.2);
+          float aurCurtain = max(exp(-aurWaveA * aurWaveA * 4.5), exp(-aurWaveB * aurWaveB * 6.0) * 0.72)
+                           * smoothstep(0.02, 0.20, elev) * (1.0 - smoothstep(0.38, 0.92, elev));
+          vec3 aurLow = mix(vec3(0.10, 0.96, 0.46), vec3(0.88, 0.24, 0.72), uAuroraProfile.z * 0.45);
+          vec3 aurHigh = mix(vec3(0.14, 0.68, 0.94), vec3(0.92, 0.12, 0.26), uAuroraProfile.w * 0.72);
+          vec3 aurCol = mix(aurLow, aurHigh, smoothstep(0.10, 0.48, elev));
+          sky += aurCol * aurCurtain * uAuroraStrength * uNightFactor * 0.32;
         }
         return mix(sky, uSkyHorizon, 1.0 - smoothstep(0.0, 0.085, elev));
       }
@@ -1678,7 +1683,7 @@ export function createWaterSystem(texLib, scene) {
 
         float sunElevBoost = 0.62 + 0.66 * smoothstep(0.0, 0.52, max(uSunDir.y, 0.0));
         vec3 dayIrradiance = mix(vec3(0.62, 0.74, 0.84), uSunColor * 1.24, 0.50 + 0.36 * clearSkyFactor) * sunElevBoost * mix(0.68, 1.15, cloudShadow) * mix(0.65, 1.0, terrainShadow);
-        vec3 nightIrradiance = vec3(0.026, 0.052, 0.105) + vec3(0.018, 0.145, 0.115) * uAuroraStrength;
+        vec3 nightIrradiance = vec3(0.026, 0.052, 0.105) + uAuroraTint * 0.085 * uAuroraStrength;
         vec3 glacialLit = glacialBase * mix(dayIrradiance, nightIrradiance, uNightFactor);
 
         // Animated underwater sun caustics shimmering in clear glacial shallows
