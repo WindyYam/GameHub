@@ -897,9 +897,15 @@ export function createTerrainSystem(texLib, scene) {
         /* glsl */`
         #include <project_vertex>
         {
-          vec4 wp = modelMatrix * vec4(transformed, 1.0);
+          vec4 wp = vec4(transformed, 1.0);
+          vec3 wn = objectNormal;
+          #ifdef USE_BATCHING
+            wp = batchingMatrix * wp;
+            wn = mat3(batchingMatrix) * wn;
+          #endif
+          wp = modelMatrix * wp;
           vWPos = wp.xyz;
-          vWNorm = normalize(mat3(modelMatrix) * objectNormal);
+          vWNorm = normalize(mat3(modelMatrix) * wn);
           vSurf = aSurf;
           vHydro = aHydro;
           vCave = aCave;
@@ -1749,6 +1755,10 @@ export function createTerrainSystem(texLib, scene) {
           vRMossAllow = instanceColor.r;
           vColor.rgb = vec3(1.0);
         #endif
+        #ifdef USE_BATCHING_COLOR
+          vRMossAllow = getBatchingColor(getIndirectIndex(gl_DrawID)).r;
+          vColor.rgb = vec3(1.0);
+        #endif
         `
       )
       .replace(
@@ -1765,6 +1775,12 @@ export function createTerrainSystem(texLib, scene) {
             rwn = mat3(instanceMatrix) * rwn;
             instOrigin = (instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
             instUp = normalize(mat3(instanceMatrix) * vec3(0.0, 1.0, 0.0));
+          #endif
+          #ifdef USE_BATCHING
+            rwp = batchingMatrix * rwp;
+            rwn = mat3(batchingMatrix) * rwn;
+            instOrigin = (batchingMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+            instUp = normalize(mat3(batchingMatrix) * vec3(0.0, 1.0, 0.0));
           #endif
           vec3 instOriginW = (modelMatrix * vec4(instOrigin, 1.0)).xyz;
           vec3 instUpW = normalize(mat3(modelMatrix) * instUp);
@@ -1948,6 +1964,12 @@ export function createTerrainSystem(texLib, scene) {
               instOrigin = (instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
               instUp = normalize(mat3(instanceMatrix) * vec3(0.0, 1.0, 0.0));
             #endif
+            #ifdef USE_BATCHING
+              swp = batchingMatrix * swp;
+              swn = mat3(batchingMatrix) * swn;
+              instOrigin = (batchingMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+              instUp = normalize(mat3(batchingMatrix) * vec3(0.0, 1.0, 0.0));
+            #endif
             vec3 instOriginW = (modelMatrix * vec4(instOrigin, 1.0)).xyz;
             vec3 instUpW = normalize(mat3(modelMatrix) * instUp);
             swp = modelMatrix * swp;
@@ -2059,6 +2081,12 @@ export function createTerrainSystem(texLib, scene) {
             cwn = mat3(instanceMatrix) * cwn;
             instOrigin = (instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
             instUp = normalize(mat3(instanceMatrix) * vec3(0.0, 1.0, 0.0));
+          #endif
+          #ifdef USE_BATCHING
+            cwp = batchingMatrix * cwp;
+            cwn = mat3(batchingMatrix) * cwn;
+            instOrigin = (batchingMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+            instUp = normalize(mat3(batchingMatrix) * vec3(0.0, 1.0, 0.0));
           #endif
           vec3 instOriginW = (modelMatrix * vec4(instOrigin, 1.0)).xyz;
           vec3 instUpW = normalize(mat3(modelMatrix) * instUp);
@@ -2195,6 +2223,9 @@ export function createTerrainSystem(texLib, scene) {
           // Override default whole-mesh instanceColor multiply: ONLY tint flower petals (aPetalMask > 0.5)!
           vColor.rgb = color.rgb * mix(vec3(1.0), instanceColor.rgb, aPetalMask);
         #endif
+        #ifdef USE_BATCHING_COLOR
+          vColor.rgb = color.rgb * mix(vec3(1.0), getBatchingColor(getIndirectIndex(gl_DrawID)).rgb, aPetalMask);
+        #endif
         `
       )
       .replace(
@@ -2208,6 +2239,11 @@ export function createTerrainSystem(texLib, scene) {
             vec4 instCol = instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
             wOrigin = (modelMatrix * instCol).xz;
             instSeed += instCol.x * 0.37 + instCol.z * 0.41;
+          #endif
+          #ifdef USE_BATCHING
+            vec4 batchCol = batchingMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+            wOrigin = (modelMatrix * batchCol).xz;
+            instSeed += batchCol.x * 0.37 + batchCol.z * 0.41;
           #endif
           // Long-lasting directional wind gusts sweeping smoothly across lupin colonies + subtle flower-spike flutter
           float gustFront = 0.54 + 0.46 * sin(uTime * 0.46 - dot(wOrigin, uWindDir) * 0.042);
@@ -2231,6 +2267,10 @@ export function createTerrainSystem(texLib, scene) {
           #ifdef USE_INSTANCING
             lsWp = instanceMatrix * lsWp;
             lsWn = mat3(instanceMatrix) * lsWn;
+          #endif
+          #ifdef USE_BATCHING
+            lsWp = batchingMatrix * lsWp;
+            lsWn = mat3(batchingMatrix) * lsWn;
           #endif
           lsWp = modelMatrix * lsWp;
           vLsWorldPos = lsWp.xyz;
@@ -2315,6 +2355,51 @@ export function createTerrainSystem(texLib, scene) {
     new THREE.Color().setHex(0x786f62), // Warm weathered volcanic sandstone-taupe
     new THREE.Color().setHex(0x626e56)  // Mossy grey-olive fieldstone
   ];
+
+  // Unified BatchedMesh containers (reduces ~400+ chunk & prop draw calls down to ~10 while keeping per-object frustum culling!)
+  function makePropBatch(geos, mat, maxInst, castShadow, receiveShadow) {
+    const allHaveUv = geos.every((g) => Boolean(g.attributes.uv));
+    if (!allHaveUv) {
+      for (const g of geos) {
+        if (g.attributes.uv) g.deleteAttribute('uv');
+      }
+    }
+    let totalV = 0;
+    let totalI = 0;
+    for (const g of geos) {
+      totalV += g.attributes.position.count;
+      totalI += g.index ? g.index.count : g.attributes.position.count;
+    }
+    const bm = new THREE.BatchedMesh(maxInst, totalV + 64, totalI + 128, mat);
+    bm.perObjectFrustumCulled = true;
+    bm.sortObjects = false;
+    bm.frustumCulled = false;
+    bm.castShadow = castShadow;
+    bm.receiveShadow = receiveShadow;
+    const geoIds = geos.map((g) => bm.addGeometry(g));
+    root.add(bm);
+    return { bm, geoIds, maxInst, active: 0 };
+  }
+
+  const WHITE_COLOR = new THREE.Color(1, 1, 1);
+  const terrainBatch = new THREE.BatchedMesh(420, 300000, 1250000, terrainMat);
+  terrainBatch.perObjectFrustumCulled = true;
+  terrainBatch.sortObjects = false;
+  terrainBatch.frustumCulled = false;
+  terrainBatch.castShadow = false;
+  terrainBatch.receiveShadow = true;
+  root.add(terrainBatch);
+
+  const rockCastBatch = makePropBatch([boulderGeoA, boulderGeoB, spireGeo], boulderMat, 2600, true, true);
+  const rockNoCastBatch = makePropBatch([boulderGeoALod1, boulderGeoBLod1, spireGeo], boulderMat, 5200, false, true);
+  const cobbleBatch = makePropBatch([cobbleGeo], cobbleMat, 9500, false, true);
+  const stoneBatch = makePropBatch([stoneClusterGeo], smallStoneMat, 6500, false, true);
+  const cushionBatch = makePropBatch([cushionGeo], cushionMat, 8000, false, true);
+  const grassBatch = makePropBatch([grassGeo], grassMat, 14500, false, true);
+  const lupinBatch = makePropBatch([lupinGeo], lupinMat, 6500, false, true);
+  const bushBatch = makePropBatch([bushGeo], bushMat, 4500, false, true);
+  const cottonBatch = makePropBatch([cottonGeo], cottonMat, 3800, false, true);
+  const _batchWorldMat = new THREE.Matrix4();
 
   // Double-buffered Far Horizon continuous ring mesh (zero-hitch time-sliced background updates!)
   let farGeo = createFarHorizonRingGeo();
@@ -2449,10 +2534,9 @@ export function createTerrainSystem(texLib, scene) {
   };
 
   /** Build per-chunk boulders, cobbles, small volcanic stone clusters & lush Icelandic flora (now extending hero rock outcrops out to LOD2 / 720m!). */
-  function populateChunkDetails(cx, cz, lod, group) {
-    const disposables = [];
+  function populateChunkDetails(cx, cz, lod) {
     const colliders = [];
-    if (lod > 2) return { disposables, colliders };
+    if (lod > 2) return { colliders, batchedRefs: [] };
 
     const ox = cx * CHUNK_SIZE;
     const oz = cz * CHUNK_SIZE;
@@ -3031,66 +3115,64 @@ export function createTerrainSystem(texLib, scene) {
       }
     }
 
-    const clutterGroup = new THREE.Group();
-    const rockGroup = new THREE.Group();
-    group.add(clutterGroup);
-    group.add(rockGroup);
+    const batchedRefs = [];
+    const chunkOffX = cx * CHUNK_SIZE;
+    const chunkOffZ = cz * CHUNK_SIZE;
 
-    const addInstanced = (geo, mat, mats, castShadow, colorsArr = null, targetParent = group, receiveShadow = true) => {
+    const addBatched = (batchWrap, geoSlot, mats, colorsArr = null, defaultColor = null) => {
       if (mats.length === 0) return;
-      const im = new THREE.InstancedMesh(geo, mat, mats.length);
+      const { bm, geoIds, maxInst } = batchWrap;
+      const geoId = geoIds[geoSlot];
       for (let i = 0; i < mats.length; i++) {
-        im.setMatrixAt(i, mats[i]);
-        if (colorsArr) im.setColorAt(i, colorsArr[i]);
+        if (batchWrap.active >= maxInst) break;
+        const instId = bm.addInstance(geoId);
+        _batchWorldMat.copy(mats[i]);
+        _batchWorldMat.elements[12] += chunkOffX;
+        _batchWorldMat.elements[14] += chunkOffZ;
+        bm.setMatrixAt(instId, _batchWorldMat);
+        if (colorsArr) {
+          bm.setColorAt(instId, colorsArr[i]);
+        } else if (defaultColor) {
+          bm.setColorAt(instId, defaultColor);
+        }
+        batchWrap.active++;
+        batchedRefs.push({ batchWrap, instId });
       }
-      im.instanceMatrix.needsUpdate = true;
-      if (colorsArr && im.instanceColor) im.instanceColor.needsUpdate = true;
-      im.computeBoundingSphere();
-      im.frustumCulled = true;
-      im.castShadow = castShadow;
-      im.receiveShadow = receiveShadow;
-      im.updateMatrix();
-      im.matrixAutoUpdate = false;
-      targetParent.add(im);
-      disposables.push(im);
     };
 
-    // Hero boulders & volcanic spires stay visible in close lake reflections; small flora/cobbles go in clutterGroup (hidden in reflection pass!)
-    const rockCastShadow = lod === 0;
-    const rockReceiveShadow = lod <= 1;
-    addInstanced(lod === 0 ? boulderGeoA : boulderGeoALod1, boulderMat, boulderMatsA, rockCastShadow, boulderColorsA, rockGroup, rockReceiveShadow);
-    addInstanced(lod === 0 ? boulderGeoB : boulderGeoBLod1, boulderMat, boulderMatsB, rockCastShadow, boulderColorsB, rockGroup, rockReceiveShadow);
-    addInstanced(spireGeo, boulderMat, spireMats, rockCastShadow, null, rockGroup, rockReceiveShadow);
-    addInstanced(cobbleGeo, cobbleMat, cobbleMats, false, cobbleColors, clutterGroup, rockReceiveShadow);
-    addInstanced(stoneClusterGeo, smallStoneMat, stoneMats, false, stoneColors, clutterGroup, rockReceiveShadow);
-    addInstanced(cushionGeo, cushionMat, cushionMats, false, null, clutterGroup, rockReceiveShadow);
-    addInstanced(grassGeo, grassMat, grassMats, false, null, clutterGroup, true);
-    addInstanced(lupinGeo, lupinMat, lupinMats, false, lupinColors, clutterGroup, true);
-    addInstanced(bushGeo, bushMat, bushMats, false, null, clutterGroup, true);
-    addInstanced(cottonGeo, cottonMat, cottonMats, false, null, clutterGroup, true);
+    // Hero boulders & volcanic spires stay visible in close lake reflections; small flora/cobbles go in clutter batches (hidden in reflection pass!)
+    const rockBatch = lod === 0 ? rockCastBatch : rockNoCastBatch;
+    addBatched(rockBatch, 0, boulderMatsA, boulderColorsA, WHITE_COLOR);
+    addBatched(rockBatch, 1, boulderMatsB, boulderColorsB, WHITE_COLOR);
+    addBatched(rockBatch, 2, spireMats, null, WHITE_COLOR);
+    addBatched(cobbleBatch, 0, cobbleMats, cobbleColors);
+    addBatched(stoneBatch, 0, stoneMats, stoneColors);
+    addBatched(cushionBatch, 0, cushionMats);
+    addBatched(grassBatch, 0, grassMats);
+    addBatched(lupinBatch, 0, lupinMats, lupinColors, WHITE_COLOR);
+    addBatched(bushBatch, 0, bushMats);
+    addBatched(cottonBatch, 0, cottonMats);
 
-    return { disposables, colliders, clutterGroup, rockGroup };
+    return { colliders, batchedRefs };
   }
 
+  const _chunkMat = new THREE.Matrix4();
   function createChunk(cx, cz, geoLod, detailLod) {
     const segs = LOD_SEGS[geoLod];
     const geo = buildChunkGeometry(cx, cz, segs);
-    const mesh = new THREE.Mesh(geo, terrainMat);
-    mesh.castShadow = false;
-    mesh.receiveShadow = geoLod <= 1;
-    mesh.updateMatrix();
-    mesh.matrixAutoUpdate = false;
+    let terrainGeoId;
+    try {
+      terrainGeoId = terrainBatch.addGeometry(geo);
+    } catch {
+      terrainBatch.optimize();
+      terrainGeoId = terrainBatch.addGeometry(geo);
+    }
+    const terrainInstId = terrainBatch.addInstance(terrainGeoId);
+    _chunkMat.makeTranslation(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE);
+    terrainBatch.setMatrixAt(terrainInstId, _chunkMat);
+    geo.dispose();
 
-    const group = new THREE.Group();
-    group.position.set(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE);
-    group.add(mesh);
-
-    const { disposables, colliders, clutterGroup, rockGroup } = populateChunkDetails(cx, cz, detailLod, group);
-    group.updateMatrixWorld(true);
-    group.matrixAutoUpdate = false;
-    if (clutterGroup) clutterGroup.matrixAutoUpdate = false;
-    if (rockGroup) rockGroup.matrixAutoUpdate = false;
-    root.add(group);
+    const { colliders, batchedRefs } = populateChunkDetails(cx, cz, detailLod, null);
 
     return {
       key: `${cx},${cz}`,
@@ -3098,21 +3180,20 @@ export function createTerrainSystem(texLib, scene) {
       cz,
       geoLod,
       detailLod,
-      group,
-      clutterGroup,
-      rockGroup,
-      mesh,
-      geo,
-      disposables,
+      terrainGeoId,
+      terrainInstId,
+      batchedRefs,
       colliders
     };
   }
 
   function disposeChunk(chunk) {
-    root.remove(chunk.group);
-    chunk.geo.dispose();
-    for (const d of chunk.disposables) {
-      if (d.dispose) d.dispose();
+    terrainBatch.deleteInstance(chunk.terrainInstId);
+    terrainBatch.deleteGeometry(chunk.terrainGeoId);
+    for (let i = 0; i < chunk.batchedRefs.length; i++) {
+      const ref = chunk.batchedRefs[i];
+      ref.batchWrap.bm.deleteInstance(ref.instId);
+      ref.batchWrap.active--;
     }
   }
 
@@ -3123,6 +3204,7 @@ export function createTerrainSystem(texLib, scene) {
   function rebuildAll(centerX, centerZ) {
     for (const c of chunks.values()) disposeChunk(c);
     chunks.clear();
+    terrainBatch.optimize();
     lastFarCenterX = 1e9;
     lastFarCenterZ = 1e9;
     farJob = null;
@@ -3224,10 +3306,14 @@ export function createTerrainSystem(texLib, scene) {
   function setReflectionMode(enabled) {
     ATMO_UNIFORMS.uInReflection.value = enabled ? 1.0 : 0.0;
     const showClutter = !enabled;
-    for (const c of chunks.values()) {
-      if (c.clutterGroup) c.clutterGroup.visible = showClutter;
-      if (c.rockGroup) c.rockGroup.visible = !enabled || c.detailLod === 0;
-    }
+    rockNoCastBatch.bm.visible = showClutter;
+    cobbleBatch.bm.visible = showClutter;
+    stoneBatch.bm.visible = showClutter;
+    cushionBatch.bm.visible = showClutter;
+    grassBatch.bm.visible = showClutter;
+    lupinBatch.bm.visible = showClutter;
+    bushBatch.bm.visible = showClutter;
+    cottonBatch.bm.visible = showClutter;
   }
 
   return {

@@ -356,6 +356,11 @@ export function enhanceMaterialWithAtmo(mat, { cacheKey, windSway = 0.0, wetness
             wOrigin = (modelMatrix * instCol).xz;
             instSeed += instCol.x * 0.37 + instCol.z * 0.41;
           #endif
+          #ifdef USE_BATCHING
+            vec4 batchCol = batchingMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+            wOrigin = (modelMatrix * batchCol).xz;
+            instSeed += batchCol.x * 0.37 + batchCol.z * 0.41;
+          #endif
           // Sustained directional wind bend + long-lasting rolling gust waves (8-14s fronts!) + natural blade flutter
           float gustFront = 0.54 + 0.46 * sin(uTime * 0.46 - dot(wOrigin, uWindDir) * 0.042);
           float longSurge = 0.72 + 0.28 * sin(uTime * 0.21 - dot(wOrigin, uWindDir) * 0.016 + 1.4);
@@ -378,6 +383,10 @@ export function enhanceMaterialWithAtmo(mat, { cacheKey, windSway = 0.0, wetness
           #ifdef USE_INSTANCING
             lsWp = instanceMatrix * lsWp;
             lsWn = mat3(instanceMatrix) * lsWn;
+          #endif
+          #ifdef USE_BATCHING
+            lsWp = batchingMatrix * lsWp;
+            lsWn = mat3(batchingMatrix) * lsWn;
           #endif
           lsWp = modelMatrix * lsWp;
           vLsWorldPos = lsWp.xyz;
