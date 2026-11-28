@@ -117,8 +117,8 @@ const planarLakePass = {
   render(r, writeBuffer, readBuffer) {
     camera.updateMatrixWorld();
 
-    // Step 1: Frustum-check visible lakes — skip planar reflection pass completely when no lake is in view (0.0ms!)
-    const visLake = waterSys ? waterSys.getBestVisibleLake(camera) : null;
+    // Step 1: Frustum-check visible lakes — skip planar reflection pass completely when disabled or no lake is in view (0.0ms!)
+    const visLake = qualityState.reflections && waterSys ? waterSys.getBestVisibleLake(camera) : null;
     if (visLake && camera.position.y > visLake.waterY + 0.15) {
       const waterY = visLake.waterY;
 
@@ -908,11 +908,16 @@ container.addEventListener(
 const elHud = document.getElementById('hud');
 const elTelemetry = document.getElementById('telemetry');
 const elPanel = document.getElementById('env-panel');
+const elQualityPanel = document.getElementById('quality-panel');
 const elSlTime = document.getElementById('sl-time');
 const elLblTime = document.getElementById('lbl-time');
 const elBtnCycle = document.getElementById('btn-cycle');
 const elBtnAurora = document.getElementById('btn-aurora');
-const elBtnRes = document.getElementById('btn-res');
+const elBtnQuality = document.getElementById('btn-quality');
+const elBtnQBloom = document.getElementById('btn-q-bloom');
+const elBtnQMsaa = document.getElementById('btn-q-msaa');
+const elBtnQRefl = document.getElementById('btn-q-refl');
+const elBtnQShadow = document.getElementById('btn-q-shadow');
 const elBtnAudio = document.getElementById('btn-audio');
 const elBtnPrintBike = document.getElementById('btn-print-bike');
 const elBikeBanner = document.getElementById('bike-banner');
@@ -1015,6 +1020,98 @@ const RES_PRESETS = [
 ];
 let resPresetIdx = 0;
 
+const qualityState = {
+  preset: IS_MOBILE_PRIMARY ? 'balanced' : 'high',
+  bloom: !IS_MOBILE_PRIMARY,
+  msaa: !IS_MOBILE_PRIMARY,
+  reflections: true,
+  shadow: IS_MOBILE_PRIMARY ? 'med' : 'high' // 'high' (1024) | 'med' (512) | 'off'
+};
+
+function applyQualitySettings() {
+  bloomPass.enabled = qualityState.bloom;
+
+  const targetSamples = qualityState.msaa ? 2 : 0;
+  if (msaaTarget.samples !== targetSamples) {
+    msaaTarget.samples = targetSamples;
+    msaaTarget.dispose();
+  }
+
+  if (envCtrl.sunLight) {
+    const shOff = qualityState.shadow === 'off';
+    envCtrl.sunLight.castShadow = !shOff;
+    renderer.shadowMap.enabled = !shOff;
+    if (!shOff && envCtrl.sunLight.shadow) {
+      const sz = qualityState.shadow === 'high' ? 1024 : 512;
+      if (envCtrl.sunLight.shadow.mapSize.x !== sz) {
+        envCtrl.sunLight.shadow.mapSize.set(sz, sz);
+        if (envCtrl.sunLight.shadow.map) {
+          envCtrl.sunLight.shadow.map.dispose();
+          envCtrl.sunLight.shadow.map = null;
+        }
+      }
+    }
+    shadowMapWarmed = false;
+  }
+
+  applyRenderResolution();
+  refreshQualityControls();
+}
+
+function applyQualityPreset(name) {
+  qualityState.preset = name;
+  if (name === 'high') {
+    resPresetIdx = 0; // Auto
+    qualityState.bloom = true;
+    qualityState.msaa = !IS_MOBILE_PRIMARY;
+    qualityState.reflections = true;
+    qualityState.shadow = 'high';
+  } else if (name === 'balanced') {
+    resPresetIdx = 0; // Auto (540p cap on mobile)
+    qualityState.bloom = !IS_MOBILE_PRIMARY;
+    qualityState.msaa = false;
+    qualityState.reflections = true;
+    qualityState.shadow = 'med';
+  } else if (name === 'performance') {
+    resPresetIdx = IS_MOBILE_PRIMARY ? 2 : 3; // 360p mobile / 480p desktop
+    qualityState.bloom = false;
+    qualityState.msaa = false;
+    qualityState.reflections = false;
+    qualityState.shadow = 'off';
+  }
+  applyQualitySettings();
+}
+
+function refreshQualityControls() {
+  const presetLabelMap = { high: 'High', balanced: 'Balanced', performance: 'Perf', custom: 'Custom' };
+  if (elBtnQuality) {
+    elBtnQuality.textContent = `Quality: ${presetLabelMap[qualityState.preset] || 'Custom'}`;
+  }
+  document.querySelectorAll('#quality-preset-btns button').forEach((b) => {
+    b.classList.toggle('active', b.dataset.qpreset === qualityState.preset);
+  });
+  document.querySelectorAll('#res-btns button').forEach((b) => {
+    b.classList.toggle('active', Number(b.dataset.res) === resPresetIdx);
+  });
+  if (elBtnQBloom) {
+    elBtnQBloom.textContent = `Bloom: ${qualityState.bloom ? 'On' : 'Off'}`;
+    elBtnQBloom.classList.toggle('active', qualityState.bloom);
+  }
+  if (elBtnQMsaa) {
+    elBtnQMsaa.textContent = `MSAA: ${qualityState.msaa ? '2x' : 'Off'}`;
+    elBtnQMsaa.classList.toggle('active', qualityState.msaa);
+  }
+  if (elBtnQRefl) {
+    elBtnQRefl.textContent = `Refl: ${qualityState.reflections ? 'On' : 'Off'}`;
+    elBtnQRefl.classList.toggle('active', qualityState.reflections);
+  }
+  if (elBtnQShadow) {
+    const shMap = { high: 'High', med: 'Med', off: 'Off' };
+    elBtnQShadow.textContent = `Shadow: ${shMap[qualityState.shadow] || 'High'}`;
+    elBtnQShadow.classList.toggle('active', qualityState.shadow !== 'off');
+  }
+}
+
 function applyRenderResolution() {
   const w = window.innerWidth;
   const h = Math.max(1, window.innerHeight);
@@ -1036,9 +1133,6 @@ function applyRenderResolution() {
     Math.max(1, Math.floor(h * dpr * 0.35))
   );
   resolvePass.uniforms.uAspect.value = w / h;
-  if (elBtnRes) {
-    elBtnRes.textContent = `Res: ${RES_PRESETS[resPresetIdx].label}`;
-  }
 }
 
 function formatClock(hours) {
@@ -1072,13 +1166,61 @@ function refreshHudControls() {
 
 document.getElementById('btn-env').addEventListener('click', () => {
   elPanel.classList.toggle('collapsed');
+  if (elQualityPanel && !elPanel.classList.contains('collapsed')) {
+    elQualityPanel.classList.add('collapsed');
+  }
 });
-if (elBtnRes) {
-  elBtnRes.addEventListener('click', () => {
-    resPresetIdx = (resPresetIdx + 1) % RES_PRESETS.length;
-    applyRenderResolution();
+if (elBtnQuality && elQualityPanel) {
+  elBtnQuality.addEventListener('click', () => {
+    elQualityPanel.classList.toggle('collapsed');
+    if (!elQualityPanel.classList.contains('collapsed')) {
+      elPanel.classList.add('collapsed');
+    }
   });
 }
+document.querySelectorAll('#quality-preset-btns button').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    applyQualityPreset(btn.dataset.qpreset);
+  });
+});
+document.querySelectorAll('#res-btns button').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    resPresetIdx = Number(btn.dataset.res) || 0;
+    qualityState.preset = 'custom';
+    applyRenderResolution();
+    refreshQualityControls();
+  });
+});
+if (elBtnQBloom) {
+  elBtnQBloom.addEventListener('click', () => {
+    qualityState.bloom = !qualityState.bloom;
+    qualityState.preset = 'custom';
+    applyQualitySettings();
+  });
+}
+if (elBtnQMsaa) {
+  elBtnQMsaa.addEventListener('click', () => {
+    qualityState.msaa = !qualityState.msaa;
+    qualityState.preset = 'custom';
+    applyQualitySettings();
+  });
+}
+if (elBtnQRefl) {
+  elBtnQRefl.addEventListener('click', () => {
+    qualityState.reflections = !qualityState.reflections;
+    qualityState.preset = 'custom';
+    applyQualitySettings();
+  });
+}
+if (elBtnQShadow) {
+  elBtnQShadow.addEventListener('click', () => {
+    const order = ['high', 'med', 'off'];
+    qualityState.shadow = order[(order.indexOf(qualityState.shadow) + 1) % order.length];
+    qualityState.preset = 'custom';
+    applyQualitySettings();
+  });
+}
+refreshQualityControls();
 document.getElementById('btn-hide-hud').addEventListener('click', () => elHud.classList.toggle('hidden'));
 elBtnAudio.addEventListener('click', () => {
   ensureAudioStarted();

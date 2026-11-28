@@ -269,7 +269,7 @@ export function createWeatherFX(scene) {
         float density = smoothstep(0.18, 0.74, cloudMacro * 0.60 + streamFine * 0.40);
 
         float alpha = radial * baseSoft * density * vFade * 0.42;
-        if (alpha < 0.004) discard;
+        if (alpha < 0.01) discard;
 
         // Soft 3D cloud self-shading harmonized with storm sky luminance
         float topLit = smoothstep(0.14, 0.88, vUv.y + (cloudMacro - 0.5) * 0.34);

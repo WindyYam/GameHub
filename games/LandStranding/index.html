@@ -705,9 +705,40 @@ body.touch-active .hud-bottom-left {
       <div class="toolbar">
         <button id="btn-print-bike" type="button">3D Print Bike (B)</button>
         <button id="btn-env" type="button">Env Controls</button>
-        <button id="btn-res" type="button">Res: Auto</button>
+        <button id="btn-quality" type="button">Quality</button>
         <button id="btn-audio" type="button">Audio: Off</button>
         <button id="btn-hide-hud" type="button">Hide HUD (H)</button>
+      </div>
+      <div class="hud-panel collapsed" id="quality-panel">
+        <div class="row">
+          <label>Quality Preset</label>
+          <div class="btn-group" id="quality-preset-btns">
+            <button type="button" data-qpreset="high">High</button>
+            <button type="button" data-qpreset="balanced">Balanced</button>
+            <button type="button" data-qpreset="performance">Performance</button>
+          </div>
+        </div>
+        <div class="row">
+          <label>Resolution</label>
+          <div class="btn-group" id="res-btns">
+            <button type="button" class="active" data-res="0">Auto</button>
+            <button type="button" data-res="1">240p</button>
+            <button type="button" data-res="2">360p</button>
+            <button type="button" data-res="3">480p</button>
+            <button type="button" data-res="4">720p</button>
+            <button type="button" data-res="5">1080p</button>
+            <button type="button" data-res="6">2K</button>
+          </div>
+        </div>
+        <div class="row">
+          <label>Effects</label>
+          <div class="btn-group">
+            <button id="btn-q-bloom" type="button">Bloom: On</button>
+            <button id="btn-q-msaa" type="button">MSAA: 2x</button>
+            <button id="btn-q-refl" type="button">Refl: On</button>
+            <button id="btn-q-shadow" type="button">Shadow: High</button>
+          </div>
+        </div>
       </div>
       <div class="hud-panel collapsed" id="env-panel">
         <div class="row">
@@ -4850,18 +4881,11 @@ function createSkyDome() {
         float sunDisc = smoothstep(0.9993, 0.99985, sunCos) * (1.0 - smoothstep(0.45, 0.92, uCloudCoverage));
         sky += uSunColor * (sunScatter * (1.0 - uCloudCoverage * 0.48) + sunDisc * (4.2 + clearSunBoost * 2.0)) * (1.0 - uNightFactor * 0.92);
 
-        // Night Milky Way Galaxy & rotating Icelandic starfield (rotates around Polaris 64.15 deg N; Aurora stays Earth-fixed!)
-        vec3 celDir = toIcelandCelestial(rd);
-        sky += renderMilkyWay(celDir, rd.y);
-        sky += renderStars(celDir, rd.y);
-        float moonCos = max(dot(rd, uMoonDir), 0.0);
-        float moonDisc = smoothstep(0.99945, 0.9998, moonCos) * uNightFactor;
-        float moonHalo = (pow(moonCos, 38.0) * 0.17 + pow(moonCos, 9.0) * 0.022) * uNightFactor;
-        sky += vec3(0.75, 0.86, 1.0) * (moonDisc * 2.5 + moonHalo) * (1.0 - uCloudCoverage * 0.72);
-
         vec3 aurora = renderAurora(rd);
 
         // Fast 4-step 3D Volumetric-Shaded Icelandic Storm Clouds (~6x faster, identical dramatic rolling storm billows!)
+        float totalAlpha = 0.0;
+        vec3 finalCloud = vec3(0.0);
         if (rd.y > -0.02) {
           vec2 drift = uWindDir * (uTime * 0.007 + uCloudFlowDist * 0.0024);
           vec2 sunStep = normalize(vec2(uSunDir.x + 0.55, uSunDir.z - 0.10)) * 0.24;
@@ -4934,9 +4958,22 @@ function createSkyDome() {
             }
           }
 
-          float totalAlpha = clamp((1.0 - accumTrans) * smoothstep(-0.02, 0.055, rd.y), 0.0, 0.98);
-          vec3 finalCloud = accumLight / max(1.0 - accumTrans, 0.001);
+          totalAlpha = clamp((1.0 - accumTrans) * smoothstep(-0.02, 0.055, rd.y), 0.0, 0.98);
+          finalCloud = accumLight / max(1.0 - accumTrans, 0.001);
+        }
 
+        // Night Milky Way Galaxy & rotating Icelandic starfield (skipped when occluded by opaque storm clouds!)
+        if (uNightFactor >= 0.08 && totalAlpha < 0.95) {
+          vec3 celDir = toIcelandCelestial(rd);
+          vec3 nightSky = renderMilkyWay(celDir, rd.y) + renderStars(celDir, rd.y);
+          float moonCos = max(dot(rd, uMoonDir), 0.0);
+          float moonDisc = smoothstep(0.99945, 0.9998, moonCos) * uNightFactor;
+          float moonHalo = (pow(moonCos, 38.0) * 0.17 + pow(moonCos, 9.0) * 0.022) * uNightFactor;
+          nightSky += vec3(0.75, 0.86, 1.0) * (moonDisc * 2.5 + moonHalo) * (1.0 - uCloudCoverage * 0.72);
+          sky += nightSky;
+        }
+
+        if (rd.y > -0.02) {
           sky += aurora * (1.0 - totalAlpha * 0.72);
           sky = mix(sky, finalCloud, totalAlpha);
         } else {
@@ -5767,7 +5804,7 @@ function createWeatherFX(scene) {
         float density = smoothstep(0.18, 0.74, cloudMacro * 0.60 + streamFine * 0.40);
 
         float alpha = radial * baseSoft * density * vFade * 0.42;
-        if (alpha < 0.004) discard;
+        if (alpha < 0.01) discard;
 
         // Soft 3D cloud self-shading harmonized with storm sky luminance
         float topLit = smoothstep(0.14, 0.88, vUv.y + (cloudMacro - 0.5) * 0.34);
@@ -8291,7 +8328,9 @@ function createTerrainSystem(texLib, scene) {
 
   // Reusable lightweight sculpted basalt crags, spires & Icelandic botanical geometries (100% smooth welded normals!)
   const boulderGeoA = createNaturalBasaltRockGeo(11, 2, 0.74);
+  const boulderGeoALod1 = createNaturalBasaltRockGeo(11, 1, 0.74);
   const boulderGeoB = createJaggedLavaCragGeo(37);
+  const boulderGeoBLod1 = createNaturalBasaltRockGeo(37, 1, 0.82);
   const spireGeo = createVolcanicSpireGeo(83);
   const cobbleGeo = createFacetedCobbleGeo(67);
   const stoneClusterGeo = createSmallStoneClusterGeo();
@@ -9040,7 +9079,7 @@ function createTerrainSystem(texLib, scene) {
     group.add(clutterGroup);
     group.add(rockGroup);
 
-    const addInstanced = (geo, mat, mats, castShadow, colorsArr = null, targetParent = group) => {
+    const addInstanced = (geo, mat, mats, castShadow, colorsArr = null, targetParent = group, receiveShadow = true) => {
       if (mats.length === 0) return;
       const im = new THREE.InstancedMesh(geo, mat, mats.length);
       for (let i = 0; i < mats.length; i++) {
@@ -9052,23 +9091,26 @@ function createTerrainSystem(texLib, scene) {
       im.computeBoundingSphere();
       im.frustumCulled = true;
       im.castShadow = castShadow;
-      im.receiveShadow = true;
+      im.receiveShadow = receiveShadow;
+      im.updateMatrix();
+      im.matrixAutoUpdate = false;
       targetParent.add(im);
       disposables.push(im);
     };
 
     // Hero boulders & volcanic spires stay visible in close lake reflections; small flora/cobbles go in clutterGroup (hidden in reflection pass!)
-    const rockCastShadow = lod <= 1;
-    addInstanced(boulderGeoA, boulderMat, boulderMatsA, rockCastShadow, boulderColorsA, rockGroup);
-    addInstanced(boulderGeoB, boulderMat, boulderMatsB, rockCastShadow, boulderColorsB, rockGroup);
-    addInstanced(spireGeo, boulderMat, spireMats, rockCastShadow, null, rockGroup);
-    addInstanced(cobbleGeo, cobbleMat, cobbleMats, false, cobbleColors, clutterGroup);
-    addInstanced(stoneClusterGeo, smallStoneMat, stoneMats, false, stoneColors, clutterGroup);
-    addInstanced(cushionGeo, cushionMat, cushionMats, false, null, clutterGroup);
-    addInstanced(grassGeo, grassMat, grassMats, false, null, clutterGroup);
-    addInstanced(lupinGeo, lupinMat, lupinMats, false, lupinColors, clutterGroup);
-    addInstanced(bushGeo, bushMat, bushMats, false, null, clutterGroup);
-    addInstanced(cottonGeo, cottonMat, cottonMats, false, null, clutterGroup);
+    const rockCastShadow = lod === 0;
+    const rockReceiveShadow = lod <= 1;
+    addInstanced(lod === 0 ? boulderGeoA : boulderGeoALod1, boulderMat, boulderMatsA, rockCastShadow, boulderColorsA, rockGroup, rockReceiveShadow);
+    addInstanced(lod === 0 ? boulderGeoB : boulderGeoBLod1, boulderMat, boulderMatsB, rockCastShadow, boulderColorsB, rockGroup, rockReceiveShadow);
+    addInstanced(spireGeo, boulderMat, spireMats, rockCastShadow, null, rockGroup, rockReceiveShadow);
+    addInstanced(cobbleGeo, cobbleMat, cobbleMats, false, cobbleColors, clutterGroup, rockReceiveShadow);
+    addInstanced(stoneClusterGeo, smallStoneMat, stoneMats, false, stoneColors, clutterGroup, rockReceiveShadow);
+    addInstanced(cushionGeo, cushionMat, cushionMats, false, null, clutterGroup, rockReceiveShadow);
+    addInstanced(grassGeo, grassMat, grassMats, false, null, clutterGroup, true);
+    addInstanced(lupinGeo, lupinMat, lupinMats, false, lupinColors, clutterGroup, true);
+    addInstanced(bushGeo, bushMat, bushMats, false, null, clutterGroup, true);
+    addInstanced(cottonGeo, cottonMat, cottonMats, false, null, clutterGroup, true);
 
     return { disposables, colliders, clutterGroup, rockGroup };
   }
@@ -9078,13 +9120,19 @@ function createTerrainSystem(texLib, scene) {
     const geo = buildChunkGeometry(cx, cz, segs);
     const mesh = new THREE.Mesh(geo, terrainMat);
     mesh.castShadow = false;
-    mesh.receiveShadow = true;
+    mesh.receiveShadow = geoLod <= 1;
+    mesh.updateMatrix();
+    mesh.matrixAutoUpdate = false;
 
     const group = new THREE.Group();
     group.position.set(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE);
     group.add(mesh);
 
     const { disposables, colliders, clutterGroup, rockGroup } = populateChunkDetails(cx, cz, detailLod, group);
+    group.updateMatrixWorld(true);
+    group.matrixAutoUpdate = false;
+    if (clutterGroup) clutterGroup.matrixAutoUpdate = false;
+    if (rockGroup) rockGroup.matrixAutoUpdate = false;
     root.add(group);
 
     return {
@@ -10858,10 +10906,10 @@ function createWaterSystem(texLib, scene) {
 
         vec3 nSwell = texture2D(uNormalA, vWorldPos.xz * 0.015 + uvWarp * 0.45 - windDriftA * 0.032).xyz * 2.0 - 1.0;
         vec3 nWaveA = texture2D(uNormalA, R_A * vWorldPos.xz * 0.053 + uvWarp - windDriftA * 0.095).xyz * 2.0 - 1.0;
-        vec3 nWaveB = texture2D(uNormalB, R_B * vWorldPos.xz * 0.131 - uvWarp * 0.85 - windDriftB * 0.135).xyz * 2.0 - 1.0;
-        vec3 nMicro = texture2D(uNormalB, R_C * vWorldPos.xz * 0.317 + uvWarp * 0.65 - windDriftC * 0.21).xyz * 2.0 - 1.0;
+        vec3 nWaveB = camDist < 220.0 ? (texture2D(uNormalB, R_B * vWorldPos.xz * 0.131 - uvWarp * 0.85 - windDriftB * 0.135).xyz * 2.0 - 1.0) : vec3(0.0, 0.0, 1.0);
+        vec3 nMicro = camDist < 160.0 ? (texture2D(uNormalB, R_C * vWorldPos.xz * 0.317 + uvWarp * 0.65 - windDriftC * 0.21).xyz * 2.0 - 1.0) : vec3(0.0, 0.0, 1.0);
 
-        vec2 rainN = camDist < 58.0 ? lakeRainRipples(vWorldPos.xz, t, smoothstep(0.45, 0.98, uRainWetness) * (1.0 - camDist / 58.0)) : vec2(0.0);
+        vec2 rainN = camDist < 45.0 ? lakeRainRipples(vWorldPos.xz, t, smoothstep(0.45, 0.98, uRainWetness) * (1.0 - camDist / 45.0)) : vec2(0.0);
         vec2 playerN = camDist < 65.0 ? lakePlayerRipples(vWorldPos, t) : vec2(0.0);
 
         vec2 texGrad = (nSwell.xy * 0.38 * (0.42 + 0.58 * farDetail)
@@ -10927,7 +10975,7 @@ function createWaterSystem(texLib, scene) {
         vec3 glacialLit = glacialBase * mix(dayIrradiance, nightIrradiance, uNightFactor);
 
         // Animated underwater sun caustics shimmering in clear glacial shallows
-        if (waterDepth < 4.8 && dayFactor > 0.05 && camDist < 160.0 && terrainShadow > 0.02) {
+        if (waterDepth < 4.5 && dayFactor > 0.05 && camDist < 120.0 && terrainShadow > 0.02) {
           vec2 caustPos = vWorldPos.xz - uSunDir.xz * (waterDepth * 0.65);
           float caust = lakeCaustic(caustPos, uTime);
           float caustFade = smoothstep(0.08, 0.55, waterDepth) * (1.0 - smoothstep(1.4, 4.6, waterDepth)) * (1.0 - smoothstep(55.0, 155.0, camDist)) * terrainShadow;
@@ -11296,9 +11344,13 @@ function createWaterSystem(texLib, scene) {
             const caveMesh = new THREE.Mesh(caveGeo, caveRockMat);
             caveMesh.receiveShadow = true;
             segGroup.add(caveMesh);
+            caveMesh.matrixAutoUpdate = false;
             disposables.push(caveGeo);
           }
 
+          segGroup.updateMatrixWorld(true);
+          segGroup.matrixAutoUpdate = false;
+          mesh.matrixAutoUpdate = false;
           root.add(segGroup);
           activeTrunkSegs.set(key, { group: segGroup, disposables });
         }
@@ -11324,6 +11376,8 @@ function createWaterSystem(texLib, scene) {
           const mesh = new THREE.Mesh(geo, glacialLakeMat);
           mesh.frustumCulled = true;
           mesh.renderOrder = 3;
+          mesh.updateMatrix();
+          mesh.matrixAutoUpdate = false;
           lakeGroup.add(mesh);
           activeLakes.set(lake.id, { lake, mesh, geo });
         }
@@ -18577,8 +18631,8 @@ const planarLakePass = {
   render(r, writeBuffer, readBuffer) {
     camera.updateMatrixWorld();
 
-    // Step 1: Frustum-check visible lakes — skip planar reflection pass completely when no lake is in view (0.0ms!)
-    const visLake = waterSys ? waterSys.getBestVisibleLake(camera) : null;
+    // Step 1: Frustum-check visible lakes — skip planar reflection pass completely when disabled or no lake is in view (0.0ms!)
+    const visLake = qualityState.reflections && waterSys ? waterSys.getBestVisibleLake(camera) : null;
     if (visLake && camera.position.y > visLake.waterY + 0.15) {
       const waterY = visLake.waterY;
 
@@ -19368,11 +19422,16 @@ container.addEventListener(
 const elHud = document.getElementById('hud');
 const elTelemetry = document.getElementById('telemetry');
 const elPanel = document.getElementById('env-panel');
+const elQualityPanel = document.getElementById('quality-panel');
 const elSlTime = document.getElementById('sl-time');
 const elLblTime = document.getElementById('lbl-time');
 const elBtnCycle = document.getElementById('btn-cycle');
 const elBtnAurora = document.getElementById('btn-aurora');
-const elBtnRes = document.getElementById('btn-res');
+const elBtnQuality = document.getElementById('btn-quality');
+const elBtnQBloom = document.getElementById('btn-q-bloom');
+const elBtnQMsaa = document.getElementById('btn-q-msaa');
+const elBtnQRefl = document.getElementById('btn-q-refl');
+const elBtnQShadow = document.getElementById('btn-q-shadow');
 const elBtnAudio = document.getElementById('btn-audio');
 const elBtnPrintBike = document.getElementById('btn-print-bike');
 const elBikeBanner = document.getElementById('bike-banner');
@@ -19475,6 +19534,98 @@ const RES_PRESETS = [
 ];
 let resPresetIdx = 0;
 
+const qualityState = {
+  preset: IS_MOBILE_PRIMARY ? 'balanced' : 'high',
+  bloom: !IS_MOBILE_PRIMARY,
+  msaa: !IS_MOBILE_PRIMARY,
+  reflections: true,
+  shadow: IS_MOBILE_PRIMARY ? 'med' : 'high' // 'high' (1024) | 'med' (512) | 'off'
+};
+
+function applyQualitySettings() {
+  bloomPass.enabled = qualityState.bloom;
+
+  const targetSamples = qualityState.msaa ? 2 : 0;
+  if (msaaTarget.samples !== targetSamples) {
+    msaaTarget.samples = targetSamples;
+    msaaTarget.dispose();
+  }
+
+  if (envCtrl.sunLight) {
+    const shOff = qualityState.shadow === 'off';
+    envCtrl.sunLight.castShadow = !shOff;
+    renderer.shadowMap.enabled = !shOff;
+    if (!shOff && envCtrl.sunLight.shadow) {
+      const sz = qualityState.shadow === 'high' ? 1024 : 512;
+      if (envCtrl.sunLight.shadow.mapSize.x !== sz) {
+        envCtrl.sunLight.shadow.mapSize.set(sz, sz);
+        if (envCtrl.sunLight.shadow.map) {
+          envCtrl.sunLight.shadow.map.dispose();
+          envCtrl.sunLight.shadow.map = null;
+        }
+      }
+    }
+    shadowMapWarmed = false;
+  }
+
+  applyRenderResolution();
+  refreshQualityControls();
+}
+
+function applyQualityPreset(name) {
+  qualityState.preset = name;
+  if (name === 'high') {
+    resPresetIdx = 0; // Auto
+    qualityState.bloom = true;
+    qualityState.msaa = !IS_MOBILE_PRIMARY;
+    qualityState.reflections = true;
+    qualityState.shadow = 'high';
+  } else if (name === 'balanced') {
+    resPresetIdx = 0; // Auto (540p cap on mobile)
+    qualityState.bloom = !IS_MOBILE_PRIMARY;
+    qualityState.msaa = false;
+    qualityState.reflections = true;
+    qualityState.shadow = 'med';
+  } else if (name === 'performance') {
+    resPresetIdx = IS_MOBILE_PRIMARY ? 2 : 3; // 360p mobile / 480p desktop
+    qualityState.bloom = false;
+    qualityState.msaa = false;
+    qualityState.reflections = false;
+    qualityState.shadow = 'off';
+  }
+  applyQualitySettings();
+}
+
+function refreshQualityControls() {
+  const presetLabelMap = { high: 'High', balanced: 'Balanced', performance: 'Perf', custom: 'Custom' };
+  if (elBtnQuality) {
+    elBtnQuality.textContent = `Quality: ${presetLabelMap[qualityState.preset] || 'Custom'}`;
+  }
+  document.querySelectorAll('#quality-preset-btns button').forEach((b) => {
+    b.classList.toggle('active', b.dataset.qpreset === qualityState.preset);
+  });
+  document.querySelectorAll('#res-btns button').forEach((b) => {
+    b.classList.toggle('active', Number(b.dataset.res) === resPresetIdx);
+  });
+  if (elBtnQBloom) {
+    elBtnQBloom.textContent = `Bloom: ${qualityState.bloom ? 'On' : 'Off'}`;
+    elBtnQBloom.classList.toggle('active', qualityState.bloom);
+  }
+  if (elBtnQMsaa) {
+    elBtnQMsaa.textContent = `MSAA: ${qualityState.msaa ? '2x' : 'Off'}`;
+    elBtnQMsaa.classList.toggle('active', qualityState.msaa);
+  }
+  if (elBtnQRefl) {
+    elBtnQRefl.textContent = `Refl: ${qualityState.reflections ? 'On' : 'Off'}`;
+    elBtnQRefl.classList.toggle('active', qualityState.reflections);
+  }
+  if (elBtnQShadow) {
+    const shMap = { high: 'High', med: 'Med', off: 'Off' };
+    elBtnQShadow.textContent = `Shadow: ${shMap[qualityState.shadow] || 'High'}`;
+    elBtnQShadow.classList.toggle('active', qualityState.shadow !== 'off');
+  }
+}
+
 function applyRenderResolution() {
   const w = window.innerWidth;
   const h = Math.max(1, window.innerHeight);
@@ -19496,9 +19647,6 @@ function applyRenderResolution() {
     Math.max(1, Math.floor(h * dpr * 0.35))
   );
   resolvePass.uniforms.uAspect.value = w / h;
-  if (elBtnRes) {
-    elBtnRes.textContent = `Res: ${RES_PRESETS[resPresetIdx].label}`;
-  }
 }
 
 function formatClock(hours) {
@@ -19532,13 +19680,61 @@ function refreshHudControls() {
 
 document.getElementById('btn-env').addEventListener('click', () => {
   elPanel.classList.toggle('collapsed');
+  if (elQualityPanel && !elPanel.classList.contains('collapsed')) {
+    elQualityPanel.classList.add('collapsed');
+  }
 });
-if (elBtnRes) {
-  elBtnRes.addEventListener('click', () => {
-    resPresetIdx = (resPresetIdx + 1) % RES_PRESETS.length;
-    applyRenderResolution();
+if (elBtnQuality && elQualityPanel) {
+  elBtnQuality.addEventListener('click', () => {
+    elQualityPanel.classList.toggle('collapsed');
+    if (!elQualityPanel.classList.contains('collapsed')) {
+      elPanel.classList.add('collapsed');
+    }
   });
 }
+document.querySelectorAll('#quality-preset-btns button').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    applyQualityPreset(btn.dataset.qpreset);
+  });
+});
+document.querySelectorAll('#res-btns button').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    resPresetIdx = Number(btn.dataset.res) || 0;
+    qualityState.preset = 'custom';
+    applyRenderResolution();
+    refreshQualityControls();
+  });
+});
+if (elBtnQBloom) {
+  elBtnQBloom.addEventListener('click', () => {
+    qualityState.bloom = !qualityState.bloom;
+    qualityState.preset = 'custom';
+    applyQualitySettings();
+  });
+}
+if (elBtnQMsaa) {
+  elBtnQMsaa.addEventListener('click', () => {
+    qualityState.msaa = !qualityState.msaa;
+    qualityState.preset = 'custom';
+    applyQualitySettings();
+  });
+}
+if (elBtnQRefl) {
+  elBtnQRefl.addEventListener('click', () => {
+    qualityState.reflections = !qualityState.reflections;
+    qualityState.preset = 'custom';
+    applyQualitySettings();
+  });
+}
+if (elBtnQShadow) {
+  elBtnQShadow.addEventListener('click', () => {
+    const order = ['high', 'med', 'off'];
+    qualityState.shadow = order[(order.indexOf(qualityState.shadow) + 1) % order.length];
+    qualityState.preset = 'custom';
+    applyQualitySettings();
+  });
+}
+refreshQualityControls();
 document.getElementById('btn-hide-hud').addEventListener('click', () => elHud.classList.toggle('hidden'));
 elBtnAudio.addEventListener('click', () => {
   ensureAudioStarted();

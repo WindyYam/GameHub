@@ -154,9 +154,40 @@ def build():
       <div class="toolbar">
         <button id="btn-print-bike" type="button">3D Print Bike (B)</button>
         <button id="btn-env" type="button">Env Controls</button>
-        <button id="btn-res" type="button">Res: Auto</button>
+        <button id="btn-quality" type="button">Quality</button>
         <button id="btn-audio" type="button">Audio: Off</button>
         <button id="btn-hide-hud" type="button">Hide HUD (H)</button>
+      </div>
+      <div class="hud-panel collapsed" id="quality-panel">
+        <div class="row">
+          <label>Quality Preset</label>
+          <div class="btn-group" id="quality-preset-btns">
+            <button type="button" data-qpreset="high">High</button>
+            <button type="button" data-qpreset="balanced">Balanced</button>
+            <button type="button" data-qpreset="performance">Performance</button>
+          </div>
+        </div>
+        <div class="row">
+          <label>Resolution</label>
+          <div class="btn-group" id="res-btns">
+            <button type="button" class="active" data-res="0">Auto</button>
+            <button type="button" data-res="1">240p</button>
+            <button type="button" data-res="2">360p</button>
+            <button type="button" data-res="3">480p</button>
+            <button type="button" data-res="4">720p</button>
+            <button type="button" data-res="5">1080p</button>
+            <button type="button" data-res="6">2K</button>
+          </div>
+        </div>
+        <div class="row">
+          <label>Effects</label>
+          <div class="btn-group">
+            <button id="btn-q-bloom" type="button">Bloom: On</button>
+            <button id="btn-q-msaa" type="button">MSAA: 2x</button>
+            <button id="btn-q-refl" type="button">Refl: On</button>
+            <button id="btn-q-shadow" type="button">Shadow: High</button>
+          </div>
+        </div>
       </div>
       <div class="hud-panel collapsed" id="env-panel">
         <div class="row">

@@ -2285,7 +2285,9 @@ export function createTerrainSystem(texLib, scene) {
 
   // Reusable lightweight sculpted basalt crags, spires & Icelandic botanical geometries (100% smooth welded normals!)
   const boulderGeoA = createNaturalBasaltRockGeo(11, 2, 0.74);
+  const boulderGeoALod1 = createNaturalBasaltRockGeo(11, 1, 0.74);
   const boulderGeoB = createJaggedLavaCragGeo(37);
+  const boulderGeoBLod1 = createNaturalBasaltRockGeo(37, 1, 0.82);
   const spireGeo = createVolcanicSpireGeo(83);
   const cobbleGeo = createFacetedCobbleGeo(67);
   const stoneClusterGeo = createSmallStoneClusterGeo();
@@ -3034,7 +3036,7 @@ export function createTerrainSystem(texLib, scene) {
     group.add(clutterGroup);
     group.add(rockGroup);
 
-    const addInstanced = (geo, mat, mats, castShadow, colorsArr = null, targetParent = group) => {
+    const addInstanced = (geo, mat, mats, castShadow, colorsArr = null, targetParent = group, receiveShadow = true) => {
       if (mats.length === 0) return;
       const im = new THREE.InstancedMesh(geo, mat, mats.length);
       for (let i = 0; i < mats.length; i++) {
@@ -3046,23 +3048,26 @@ export function createTerrainSystem(texLib, scene) {
       im.computeBoundingSphere();
       im.frustumCulled = true;
       im.castShadow = castShadow;
-      im.receiveShadow = true;
+      im.receiveShadow = receiveShadow;
+      im.updateMatrix();
+      im.matrixAutoUpdate = false;
       targetParent.add(im);
       disposables.push(im);
     };
 
     // Hero boulders & volcanic spires stay visible in close lake reflections; small flora/cobbles go in clutterGroup (hidden in reflection pass!)
-    const rockCastShadow = lod <= 1;
-    addInstanced(boulderGeoA, boulderMat, boulderMatsA, rockCastShadow, boulderColorsA, rockGroup);
-    addInstanced(boulderGeoB, boulderMat, boulderMatsB, rockCastShadow, boulderColorsB, rockGroup);
-    addInstanced(spireGeo, boulderMat, spireMats, rockCastShadow, null, rockGroup);
-    addInstanced(cobbleGeo, cobbleMat, cobbleMats, false, cobbleColors, clutterGroup);
-    addInstanced(stoneClusterGeo, smallStoneMat, stoneMats, false, stoneColors, clutterGroup);
-    addInstanced(cushionGeo, cushionMat, cushionMats, false, null, clutterGroup);
-    addInstanced(grassGeo, grassMat, grassMats, false, null, clutterGroup);
-    addInstanced(lupinGeo, lupinMat, lupinMats, false, lupinColors, clutterGroup);
-    addInstanced(bushGeo, bushMat, bushMats, false, null, clutterGroup);
-    addInstanced(cottonGeo, cottonMat, cottonMats, false, null, clutterGroup);
+    const rockCastShadow = lod === 0;
+    const rockReceiveShadow = lod <= 1;
+    addInstanced(lod === 0 ? boulderGeoA : boulderGeoALod1, boulderMat, boulderMatsA, rockCastShadow, boulderColorsA, rockGroup, rockReceiveShadow);
+    addInstanced(lod === 0 ? boulderGeoB : boulderGeoBLod1, boulderMat, boulderMatsB, rockCastShadow, boulderColorsB, rockGroup, rockReceiveShadow);
+    addInstanced(spireGeo, boulderMat, spireMats, rockCastShadow, null, rockGroup, rockReceiveShadow);
+    addInstanced(cobbleGeo, cobbleMat, cobbleMats, false, cobbleColors, clutterGroup, rockReceiveShadow);
+    addInstanced(stoneClusterGeo, smallStoneMat, stoneMats, false, stoneColors, clutterGroup, rockReceiveShadow);
+    addInstanced(cushionGeo, cushionMat, cushionMats, false, null, clutterGroup, rockReceiveShadow);
+    addInstanced(grassGeo, grassMat, grassMats, false, null, clutterGroup, true);
+    addInstanced(lupinGeo, lupinMat, lupinMats, false, lupinColors, clutterGroup, true);
+    addInstanced(bushGeo, bushMat, bushMats, false, null, clutterGroup, true);
+    addInstanced(cottonGeo, cottonMat, cottonMats, false, null, clutterGroup, true);
 
     return { disposables, colliders, clutterGroup, rockGroup };
   }
@@ -3072,13 +3077,19 @@ export function createTerrainSystem(texLib, scene) {
     const geo = buildChunkGeometry(cx, cz, segs);
     const mesh = new THREE.Mesh(geo, terrainMat);
     mesh.castShadow = false;
-    mesh.receiveShadow = true;
+    mesh.receiveShadow = geoLod <= 1;
+    mesh.updateMatrix();
+    mesh.matrixAutoUpdate = false;
 
     const group = new THREE.Group();
     group.position.set(cx * CHUNK_SIZE, 0, cz * CHUNK_SIZE);
     group.add(mesh);
 
     const { disposables, colliders, clutterGroup, rockGroup } = populateChunkDetails(cx, cz, detailLod, group);
+    group.updateMatrixWorld(true);
+    group.matrixAutoUpdate = false;
+    if (clutterGroup) clutterGroup.matrixAutoUpdate = false;
+    if (rockGroup) rockGroup.matrixAutoUpdate = false;
     root.add(group);
 
     return {

@@ -1618,10 +1618,10 @@ export function createWaterSystem(texLib, scene) {
 
         vec3 nSwell = texture2D(uNormalA, vWorldPos.xz * 0.015 + uvWarp * 0.45 - windDriftA * 0.032).xyz * 2.0 - 1.0;
         vec3 nWaveA = texture2D(uNormalA, R_A * vWorldPos.xz * 0.053 + uvWarp - windDriftA * 0.095).xyz * 2.0 - 1.0;
-        vec3 nWaveB = texture2D(uNormalB, R_B * vWorldPos.xz * 0.131 - uvWarp * 0.85 - windDriftB * 0.135).xyz * 2.0 - 1.0;
-        vec3 nMicro = texture2D(uNormalB, R_C * vWorldPos.xz * 0.317 + uvWarp * 0.65 - windDriftC * 0.21).xyz * 2.0 - 1.0;
+        vec3 nWaveB = camDist < 220.0 ? (texture2D(uNormalB, R_B * vWorldPos.xz * 0.131 - uvWarp * 0.85 - windDriftB * 0.135).xyz * 2.0 - 1.0) : vec3(0.0, 0.0, 1.0);
+        vec3 nMicro = camDist < 160.0 ? (texture2D(uNormalB, R_C * vWorldPos.xz * 0.317 + uvWarp * 0.65 - windDriftC * 0.21).xyz * 2.0 - 1.0) : vec3(0.0, 0.0, 1.0);
 
-        vec2 rainN = camDist < 58.0 ? lakeRainRipples(vWorldPos.xz, t, smoothstep(0.45, 0.98, uRainWetness) * (1.0 - camDist / 58.0)) : vec2(0.0);
+        vec2 rainN = camDist < 45.0 ? lakeRainRipples(vWorldPos.xz, t, smoothstep(0.45, 0.98, uRainWetness) * (1.0 - camDist / 45.0)) : vec2(0.0);
         vec2 playerN = camDist < 65.0 ? lakePlayerRipples(vWorldPos, t) : vec2(0.0);
 
         vec2 texGrad = (nSwell.xy * 0.38 * (0.42 + 0.58 * farDetail)
@@ -1687,7 +1687,7 @@ export function createWaterSystem(texLib, scene) {
         vec3 glacialLit = glacialBase * mix(dayIrradiance, nightIrradiance, uNightFactor);
 
         // Animated underwater sun caustics shimmering in clear glacial shallows
-        if (waterDepth < 4.8 && dayFactor > 0.05 && camDist < 160.0 && terrainShadow > 0.02) {
+        if (waterDepth < 4.5 && dayFactor > 0.05 && camDist < 120.0 && terrainShadow > 0.02) {
           vec2 caustPos = vWorldPos.xz - uSunDir.xz * (waterDepth * 0.65);
           float caust = lakeCaustic(caustPos, uTime);
           float caustFade = smoothstep(0.08, 0.55, waterDepth) * (1.0 - smoothstep(1.4, 4.6, waterDepth)) * (1.0 - smoothstep(55.0, 155.0, camDist)) * terrainShadow;
@@ -2056,9 +2056,13 @@ export function createWaterSystem(texLib, scene) {
             const caveMesh = new THREE.Mesh(caveGeo, caveRockMat);
             caveMesh.receiveShadow = true;
             segGroup.add(caveMesh);
+            caveMesh.matrixAutoUpdate = false;
             disposables.push(caveGeo);
           }
 
+          segGroup.updateMatrixWorld(true);
+          segGroup.matrixAutoUpdate = false;
+          mesh.matrixAutoUpdate = false;
           root.add(segGroup);
           activeTrunkSegs.set(key, { group: segGroup, disposables });
         }
@@ -2084,6 +2088,8 @@ export function createWaterSystem(texLib, scene) {
           const mesh = new THREE.Mesh(geo, glacialLakeMat);
           mesh.frustumCulled = true;
           mesh.renderOrder = 3;
+          mesh.updateMatrix();
+          mesh.matrixAutoUpdate = false;
           lakeGroup.add(mesh);
           activeLakes.set(lake.id, { lake, mesh, geo });
         }

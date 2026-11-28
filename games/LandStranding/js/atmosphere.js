@@ -1017,18 +1017,11 @@ export function createSkyDome() {
         float sunDisc = smoothstep(0.9993, 0.99985, sunCos) * (1.0 - smoothstep(0.45, 0.92, uCloudCoverage));
         sky += uSunColor * (sunScatter * (1.0 - uCloudCoverage * 0.48) + sunDisc * (4.2 + clearSunBoost * 2.0)) * (1.0 - uNightFactor * 0.92);
 
-        // Night Milky Way Galaxy & rotating Icelandic starfield (rotates around Polaris 64.15 deg N; Aurora stays Earth-fixed!)
-        vec3 celDir = toIcelandCelestial(rd);
-        sky += renderMilkyWay(celDir, rd.y);
-        sky += renderStars(celDir, rd.y);
-        float moonCos = max(dot(rd, uMoonDir), 0.0);
-        float moonDisc = smoothstep(0.99945, 0.9998, moonCos) * uNightFactor;
-        float moonHalo = (pow(moonCos, 38.0) * 0.17 + pow(moonCos, 9.0) * 0.022) * uNightFactor;
-        sky += vec3(0.75, 0.86, 1.0) * (moonDisc * 2.5 + moonHalo) * (1.0 - uCloudCoverage * 0.72);
-
         vec3 aurora = renderAurora(rd);
 
         // Fast 4-step 3D Volumetric-Shaded Icelandic Storm Clouds (~6x faster, identical dramatic rolling storm billows!)
+        float totalAlpha = 0.0;
+        vec3 finalCloud = vec3(0.0);
         if (rd.y > -0.02) {
           vec2 drift = uWindDir * (uTime * 0.007 + uCloudFlowDist * 0.0024);
           vec2 sunStep = normalize(vec2(uSunDir.x + 0.55, uSunDir.z - 0.10)) * 0.24;
@@ -1101,9 +1094,22 @@ export function createSkyDome() {
             }
           }
 
-          float totalAlpha = clamp((1.0 - accumTrans) * smoothstep(-0.02, 0.055, rd.y), 0.0, 0.98);
-          vec3 finalCloud = accumLight / max(1.0 - accumTrans, 0.001);
+          totalAlpha = clamp((1.0 - accumTrans) * smoothstep(-0.02, 0.055, rd.y), 0.0, 0.98);
+          finalCloud = accumLight / max(1.0 - accumTrans, 0.001);
+        }
 
+        // Night Milky Way Galaxy & rotating Icelandic starfield (skipped when occluded by opaque storm clouds!)
+        if (uNightFactor >= 0.08 && totalAlpha < 0.95) {
+          vec3 celDir = toIcelandCelestial(rd);
+          vec3 nightSky = renderMilkyWay(celDir, rd.y) + renderStars(celDir, rd.y);
+          float moonCos = max(dot(rd, uMoonDir), 0.0);
+          float moonDisc = smoothstep(0.99945, 0.9998, moonCos) * uNightFactor;
+          float moonHalo = (pow(moonCos, 38.0) * 0.17 + pow(moonCos, 9.0) * 0.022) * uNightFactor;
+          nightSky += vec3(0.75, 0.86, 1.0) * (moonDisc * 2.5 + moonHalo) * (1.0 - uCloudCoverage * 0.72);
+          sky += nightSky;
+        }
+
+        if (rd.y > -0.02) {
           sky += aurora * (1.0 - totalAlpha * 0.72);
           sky = mix(sky, finalCloud, totalAlpha);
         } else {
