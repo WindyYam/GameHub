@@ -430,6 +430,8 @@ export function createLandmarkSystem(texLib, scene) {
         vec3 col = mix(dayGlass, warmHearth, duskGlow);
         col = applyIcelandAtmo(col, vWPos);
         gl_FragColor = vec4(col, 1.0);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `
   });
@@ -502,6 +504,8 @@ export function createLandmarkSystem(texLib, scene) {
         vec3 col = mix(vec3(0.76, 0.80, 0.84) * uSunColor, vec3(0.06, 0.08, 0.11), uNightFactor * 0.88);
         col = applyIcelandAtmo(col, vWorldPos);
         gl_FragColor = vec4(col, a);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `
   });

@@ -182,7 +182,7 @@ function enhanceBikePrintMaterial(mat, printUniforms) {
         `
       )
       .replace(
-        '#include <dithering_fragment>',
+        '#include <tonemapping_fragment>',
         /* glsl */`
         if (uPrintActive > 0.5) {
           float distBelow = uPrintCutY - lsBikeH;
@@ -197,7 +197,7 @@ function enhanceBikePrintMaterial(mat, printUniforms) {
           sinterCol += vec3(1.15, 1.55, 1.80) * (hotCore * 1.45 + laserSpot * 2.1);
           gl_FragColor.rgb += sinterCol;
         }
-        #include <dithering_fragment>
+        #include <tonemapping_fragment>
         `
       );
   };
@@ -241,6 +241,8 @@ function createHologramShellMaterial(printUniforms) {
         float alpha = uHoloOpacity * (0.15 + nearPlane * 0.55) * pulse;
         vec3 col = mix(vec3(0.14, 0.85, 1.15), vec3(0.75, 1.55, 1.85), nearPlane);
         gl_FragColor = vec4(col, alpha);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `
   });
@@ -875,6 +877,8 @@ export function createMotorcycleSystem(scene, audioSys) {
         vec3 col = vDustColor * mix(dayTint, nightTint, uNightFactor);
         col = applyIcelandAtmo(col, vWorldPos);
         gl_FragColor = vec4(col, alpha);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `
   });

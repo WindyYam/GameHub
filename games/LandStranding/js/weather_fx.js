@@ -139,6 +139,8 @@ export function createWeatherFX(scene) {
         if (alpha < 0.004) discard;
         vec3 col = mix(vec3(0.74, 0.80, 0.85) * uSunColor, vec3(0.30, 0.42, 0.56), uNightFactor * 0.80);
         gl_FragColor = vec4(col, alpha);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `
   });
@@ -274,6 +276,8 @@ export function createWeatherFX(scene) {
         vec3 col = mix(darkBelly, brightCrest, topLit);
         col = applyIcelandAtmo(col, vWorldPos);
         gl_FragColor = vec4(col, alpha);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `
   });
@@ -374,6 +378,8 @@ export function createWeatherFX(scene) {
         if (alpha < 0.006) discard;
         vec3 col = mix(mix(uFogLowColor * 1.15, vec3(0.80, 0.85, 0.90) * uSunColor, 0.42), vec3(0.14, 0.22, 0.32), uNightFactor * 0.82);
         gl_FragColor = vec4(col, alpha);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `
   });

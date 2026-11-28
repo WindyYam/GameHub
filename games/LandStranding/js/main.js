@@ -193,6 +193,8 @@ const planarLakePass = {
         _reflMatrix.copy(_BIAS_MAT).multiply(reflCam.projectionMatrix).multiply(reflCam.matrixWorldInverse);
 
         // Step 1a: Clear full reflRT first, then scissor to lake reflection footprint & render Sky Dome with full far plane
+        const prevToneMapping = r.toneMapping;
+        r.toneMapping = THREE.NoToneMapping;
         r.setRenderTarget(reflRT);
         r.setScissorTest(false);
         r.autoClear = true;
@@ -249,6 +251,7 @@ const planarLakePass = {
         terrainSys.setReflectionMode(false);
         weatherFX.setVisible(true);
         r.shadowMap.autoUpdate = prevShadowAuto;
+        r.toneMapping = prevToneMapping;
         shadowMapWarmed = true;
 
         waterSys.updateLakeUniforms(reflRT.texture, _reflMatrix, waterY, true);
@@ -273,7 +276,7 @@ function renderSceneFrame() {
   if (!qualityState.bloom && !qualityState.msaa) {
     // Direct-to-screen fast path: skips HalfFloatType offscreen FBO + resolvePass (huge Mali/mobile bandwidth win!)
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = mix(1.06, 1.38, ATMO_UNIFORMS.uNightFactor.value) * 0.92;
+    renderer.toneMappingExposure = mix(1.06, 1.38, ATMO_UNIFORMS.uNightFactor.value);
     planarLakePass.renderToScreen = true;
     planarLakePass.render(renderer, null, null);
     planarLakePass.renderToScreen = false;

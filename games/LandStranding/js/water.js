@@ -755,6 +755,8 @@ export function createWaterSystem(texLib, scene) {
         float bankAlpha = smoothstep(0.0, 0.32, depthClean);
         float alpha = bankAlpha * clamp(vLakeFade, 0.0, 1.0) * mix(0.84, 0.98, clamp(foam + fresnel * 0.5, 0.0, 1.0));
         gl_FragColor = vec4(col, alpha);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `
   });
@@ -848,6 +850,8 @@ export function createWaterSystem(texLib, scene) {
 
         col = applyIcelandAtmo(col, vWorldPos);
         gl_FragColor = vec4(col, alpha);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `
   });
@@ -891,6 +895,8 @@ export function createWaterSystem(texLib, scene) {
         vec3 col = mix(vec3(0.84, 0.89, 0.93) * uSunColor, poolNight, uNightFactor);
         col = applyIcelandAtmo(col, vWorldPos);
         gl_FragColor = vec4(col, clamp(ring * 0.88, 0.0, 0.92));
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `
   });
@@ -990,6 +996,8 @@ export function createWaterSystem(texLib, scene) {
         vec3 mistLit = mix(mistDay, mistNight, uNightFactor);
         mistLit = applyIcelandAtmo(mistLit, vWorldPos);
         gl_FragColor = vec4(mistLit, clamp(a, 0.0, 0.52));
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `
   });
@@ -1090,6 +1098,8 @@ export function createWaterSystem(texLib, scene) {
         col = applyIcelandAtmo(col, vWorldPos);
         float alpha = (1.0 - smoothstep(0.76, 0.96, d)) * 0.92;
         gl_FragColor = vec4(col, alpha);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `
   });
@@ -1190,14 +1200,14 @@ export function createWaterSystem(texLib, scene) {
         `
       )
       .replace(
-        '#include <dithering_fragment>',
+        '#include <tonemapping_fragment>',
         /* glsl */`
         gl_FragColor.rgb += sampleOdradekScan(vCWorldPos, cFinalNorm);
         vec3 caveAtmo = applyIcelandAtmo(gl_FragColor.rgb, vCWorldPos);
         // Attenuate bright distance sky-fog washout inside deep cave recesses so cave mouths stay dark & dramatic even from 400m away!
         float deepRecess = smoothstep(1.5, 18.0, vPortalDist);
         gl_FragColor.rgb = mix(caveAtmo, mix(gl_FragColor.rgb, caveAtmo * 0.30, 0.48), deepRecess * 0.80);
-        #include <dithering_fragment>
+        #include <tonemapping_fragment>
         `
       );
   };
@@ -1816,6 +1826,8 @@ export function createWaterSystem(texLib, scene) {
         float splashEdgeMask = smoothstep(0.0, 0.045, splashDepth);
         float alpha = clamp(max(baseWaterAlpha, shoreSplashAlpha * splashEdgeMask), 0.0, 0.985);
         gl_FragColor = vec4(col, alpha);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `
   });

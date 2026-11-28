@@ -4333,11 +4333,11 @@ function enhanceMaterialWithAtmo(mat, { cacheKey, windSway = 0.0, wetnessBoost =
         `
       )
       .replace(
-        '#include <dithering_fragment>',
+        '#include <tonemapping_fragment>',
         /* glsl */`
         gl_FragColor.rgb += sampleOdradekScan(vLsWorldPos, normalize(vLsWorldNorm));
         gl_FragColor.rgb = applyIcelandAtmo(gl_FragColor.rgb, vLsWorldPos);
-        #include <dithering_fragment>
+        #include <tonemapping_fragment>
         `
       );
   };
@@ -5089,6 +5089,8 @@ function createSkyDome() {
         }
 
         gl_FragColor = vec4(sky, 1.0);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `
   });
@@ -5731,6 +5733,8 @@ function createWeatherFX(scene) {
         if (alpha < 0.004) discard;
         vec3 col = mix(vec3(0.74, 0.80, 0.85) * uSunColor, vec3(0.30, 0.42, 0.56), uNightFactor * 0.80);
         gl_FragColor = vec4(col, alpha);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `
   });
@@ -5866,6 +5870,8 @@ function createWeatherFX(scene) {
         vec3 col = mix(darkBelly, brightCrest, topLit);
         col = applyIcelandAtmo(col, vWorldPos);
         gl_FragColor = vec4(col, alpha);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `
   });
@@ -5966,6 +5972,8 @@ function createWeatherFX(scene) {
         if (alpha < 0.006) discard;
         vec3 col = mix(mix(uFogLowColor * 1.15, vec3(0.80, 0.85, 0.90) * uSunColor, 0.42), vec3(0.14, 0.22, 0.32), uNightFactor * 0.82);
         gl_FragColor = vec4(col, alpha);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `
   });
@@ -7799,11 +7807,11 @@ function createTerrainSystem(texLib, scene) {
         `
       )
       .replace(
-        '#include <dithering_fragment>',
+        '#include <tonemapping_fragment>',
         /* glsl */`
         gl_FragColor.rgb += sampleOdradekScan(vWPos, lsWorldNorm);
         gl_FragColor.rgb = applyIcelandAtmo(gl_FragColor.rgb, vWPos);
-        #include <dithering_fragment>
+        #include <tonemapping_fragment>
         `
       );
   };
@@ -8058,11 +8066,11 @@ function createTerrainSystem(texLib, scene) {
         `
       )
       .replace(
-        '#include <dithering_fragment>',
+        '#include <tonemapping_fragment>',
         /* glsl */`
         gl_FragColor.rgb += sampleOdradekScan(vRWorldPos, rFinalNorm);
         gl_FragColor.rgb = applyIcelandAtmo(gl_FragColor.rgb, vRWorldPos);
-        #include <dithering_fragment>
+        #include <tonemapping_fragment>
         `
       );
   };
@@ -8172,11 +8180,11 @@ function createTerrainSystem(texLib, scene) {
           `
         )
         .replace(
-          '#include <dithering_fragment>',
+          '#include <tonemapping_fragment>',
           /* glsl */`
           gl_FragColor.rgb += sampleOdradekScan(vSWorldPos, sFinalNorm);
           gl_FragColor.rgb = applyIcelandAtmo(gl_FragColor.rgb, vSWorldPos);
-          #include <dithering_fragment>
+          #include <tonemapping_fragment>
           `
         );
     };
@@ -8303,11 +8311,11 @@ function createTerrainSystem(texLib, scene) {
         `
       )
       .replace(
-        '#include <dithering_fragment>',
+        '#include <tonemapping_fragment>',
         /* glsl */`
         gl_FragColor.rgb += sampleOdradekScan(vCWorldPos, cWorldN);
         gl_FragColor.rgb = applyIcelandAtmo(gl_FragColor.rgb, vCWorldPos);
-        #include <dithering_fragment>
+        #include <tonemapping_fragment>
         `
       );
   };
@@ -8428,11 +8436,11 @@ function createTerrainSystem(texLib, scene) {
         `
       )
       .replace(
-        '#include <dithering_fragment>',
+        '#include <tonemapping_fragment>',
         /* glsl */`
         gl_FragColor.rgb += sampleOdradekScan(vLsWorldPos, normalize(vLsWorldNorm));
         gl_FragColor.rgb = applyIcelandAtmo(gl_FragColor.rgb, vLsWorldPos);
-        #include <dithering_fragment>
+        #include <tonemapping_fragment>
         `
       );
   };
@@ -10251,6 +10259,8 @@ function createWaterSystem(texLib, scene) {
         float bankAlpha = smoothstep(0.0, 0.32, depthClean);
         float alpha = bankAlpha * clamp(vLakeFade, 0.0, 1.0) * mix(0.84, 0.98, clamp(foam + fresnel * 0.5, 0.0, 1.0));
         gl_FragColor = vec4(col, alpha);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `
   });
@@ -10344,6 +10354,8 @@ function createWaterSystem(texLib, scene) {
 
         col = applyIcelandAtmo(col, vWorldPos);
         gl_FragColor = vec4(col, alpha);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `
   });
@@ -10387,6 +10399,8 @@ function createWaterSystem(texLib, scene) {
         vec3 col = mix(vec3(0.84, 0.89, 0.93) * uSunColor, poolNight, uNightFactor);
         col = applyIcelandAtmo(col, vWorldPos);
         gl_FragColor = vec4(col, clamp(ring * 0.88, 0.0, 0.92));
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `
   });
@@ -10486,6 +10500,8 @@ function createWaterSystem(texLib, scene) {
         vec3 mistLit = mix(mistDay, mistNight, uNightFactor);
         mistLit = applyIcelandAtmo(mistLit, vWorldPos);
         gl_FragColor = vec4(mistLit, clamp(a, 0.0, 0.52));
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `
   });
@@ -10586,6 +10602,8 @@ function createWaterSystem(texLib, scene) {
         col = applyIcelandAtmo(col, vWorldPos);
         float alpha = (1.0 - smoothstep(0.76, 0.96, d)) * 0.92;
         gl_FragColor = vec4(col, alpha);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `
   });
@@ -10686,14 +10704,14 @@ function createWaterSystem(texLib, scene) {
         `
       )
       .replace(
-        '#include <dithering_fragment>',
+        '#include <tonemapping_fragment>',
         /* glsl */`
         gl_FragColor.rgb += sampleOdradekScan(vCWorldPos, cFinalNorm);
         vec3 caveAtmo = applyIcelandAtmo(gl_FragColor.rgb, vCWorldPos);
         // Attenuate bright distance sky-fog washout inside deep cave recesses so cave mouths stay dark & dramatic even from 400m away!
         float deepRecess = smoothstep(1.5, 18.0, vPortalDist);
         gl_FragColor.rgb = mix(caveAtmo, mix(gl_FragColor.rgb, caveAtmo * 0.30, 0.48), deepRecess * 0.80);
-        #include <dithering_fragment>
+        #include <tonemapping_fragment>
         `
       );
   };
@@ -11312,6 +11330,8 @@ function createWaterSystem(texLib, scene) {
         float splashEdgeMask = smoothstep(0.0, 0.045, splashDepth);
         float alpha = clamp(max(baseWaterAlpha, shoreSplashAlpha * splashEdgeMask), 0.0, 0.985);
         gl_FragColor = vec4(col, alpha);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `
   });
@@ -12061,6 +12081,8 @@ function createLandmarkSystem(texLib, scene) {
         vec3 col = mix(dayGlass, warmHearth, duskGlow);
         col = applyIcelandAtmo(col, vWPos);
         gl_FragColor = vec4(col, 1.0);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `
   });
@@ -12133,6 +12155,8 @@ function createLandmarkSystem(texLib, scene) {
         vec3 col = mix(vec3(0.76, 0.80, 0.84) * uSunColor, vec3(0.06, 0.08, 0.11), uNightFactor * 0.88);
         col = applyIcelandAtmo(col, vWorldPos);
         gl_FragColor = vec4(col, a);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `
   });
@@ -16674,7 +16698,7 @@ function enhanceBikePrintMaterial(mat, printUniforms) {
         `
       )
       .replace(
-        '#include <dithering_fragment>',
+        '#include <tonemapping_fragment>',
         /* glsl */`
         if (uPrintActive > 0.5) {
           float distBelow = uPrintCutY - lsBikeH;
@@ -16689,7 +16713,7 @@ function enhanceBikePrintMaterial(mat, printUniforms) {
           sinterCol += vec3(1.15, 1.55, 1.80) * (hotCore * 1.45 + laserSpot * 2.1);
           gl_FragColor.rgb += sinterCol;
         }
-        #include <dithering_fragment>
+        #include <tonemapping_fragment>
         `
       );
   };
@@ -16733,6 +16757,8 @@ function createHologramShellMaterial(printUniforms) {
         float alpha = uHoloOpacity * (0.15 + nearPlane * 0.55) * pulse;
         vec3 col = mix(vec3(0.14, 0.85, 1.15), vec3(0.75, 1.55, 1.85), nearPlane);
         gl_FragColor = vec4(col, alpha);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `
   });
@@ -17367,6 +17393,8 @@ function createMotorcycleSystem(scene, audioSys) {
         vec3 col = vDustColor * mix(dayTint, nightTint, uNightFactor);
         col = applyIcelandAtmo(col, vWorldPos);
         gl_FragColor = vec4(col, alpha);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `
   });
@@ -18921,6 +18949,8 @@ const planarLakePass = {
         _reflMatrix.copy(_BIAS_MAT).multiply(reflCam.projectionMatrix).multiply(reflCam.matrixWorldInverse);
 
         // Step 1a: Clear full reflRT first, then scissor to lake reflection footprint & render Sky Dome with full far plane
+        const prevToneMapping = r.toneMapping;
+        r.toneMapping = THREE.NoToneMapping;
         r.setRenderTarget(reflRT);
         r.setScissorTest(false);
         r.autoClear = true;
@@ -18977,6 +19007,7 @@ const planarLakePass = {
         terrainSys.setReflectionMode(false);
         weatherFX.setVisible(true);
         r.shadowMap.autoUpdate = prevShadowAuto;
+        r.toneMapping = prevToneMapping;
         shadowMapWarmed = true;
 
         waterSys.updateLakeUniforms(reflRT.texture, _reflMatrix, waterY, true);
@@ -19001,7 +19032,7 @@ function renderSceneFrame() {
   if (!qualityState.bloom && !qualityState.msaa) {
     // Direct-to-screen fast path: skips HalfFloatType offscreen FBO + resolvePass (huge Mali/mobile bandwidth win!)
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = mix(1.06, 1.38, ATMO_UNIFORMS.uNightFactor.value) * 0.92;
+    renderer.toneMappingExposure = mix(1.06, 1.38, ATMO_UNIFORMS.uNightFactor.value);
     planarLakePass.renderToScreen = true;
     planarLakePass.render(renderer, null, null);
     planarLakePass.renderToScreen = false;

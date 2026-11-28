@@ -425,11 +425,11 @@ export function enhanceMaterialWithAtmo(mat, { cacheKey, windSway = 0.0, wetness
         `
       )
       .replace(
-        '#include <dithering_fragment>',
+        '#include <tonemapping_fragment>',
         /* glsl */`
         gl_FragColor.rgb += sampleOdradekScan(vLsWorldPos, normalize(vLsWorldNorm));
         gl_FragColor.rgb = applyIcelandAtmo(gl_FragColor.rgb, vLsWorldPos);
-        #include <dithering_fragment>
+        #include <tonemapping_fragment>
         `
       );
   };
@@ -1181,6 +1181,8 @@ export function createSkyDome() {
         }
 
         gl_FragColor = vec4(sky, 1.0);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }
     `
   });
