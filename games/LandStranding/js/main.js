@@ -918,6 +918,9 @@ const elBtnQBloom = document.getElementById('btn-q-bloom');
 const elBtnQMsaa = document.getElementById('btn-q-msaa');
 const elBtnQRefl = document.getElementById('btn-q-refl');
 const elBtnQShadow = document.getElementById('btn-q-shadow');
+const elBtnQBench = document.getElementById('btn-q-bench');
+const elBtnQBenchCopy = document.getElementById('btn-q-bench-copy');
+const elBenchOutput = document.getElementById('bench-output');
 const elBtnAudio = document.getElementById('btn-audio');
 const elBtnPrintBike = document.getElementById('btn-print-bike');
 const elBikeBanner = document.getElementById('bike-banner');
@@ -1232,6 +1235,115 @@ if (elBtnQShadow) {
     applyQualitySettings();
   });
 }
+
+const benchState = {
+  active: false,
+  startMs: 0,
+  durationMs: 3500,
+  frameDts: [],
+  simMs: [],
+  streamMs: [],
+  envMs: [],
+  renderCpuMs: [],
+  totalCpuMs: [],
+  callsSum: 0,
+  trisSum: 0,
+  reflFrames: 0
+};
+
+function getGpuRendererName() {
+  try {
+    const gl = renderer.getContext();
+    const dbg = gl && gl.getExtension('WEBGL_debug_renderer_info');
+    return dbg ? gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) : 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+function finishInGameBenchmark() {
+  benchState.active = false;
+  const n = benchState.frameDts.length;
+  if (elBtnQBench) {
+    elBtnQBench.textContent = 'Run Benchmark';
+    elBtnQBench.classList.remove('active');
+  }
+  if (!n || !elBenchOutput) return;
+
+  const sorted = [...benchState.frameDts].sort((a, b) => a - b);
+  const avg = (arr) => arr.reduce((a, b) => a + b, 0) / Math.max(1, arr.length);
+  const avgDt = avg(benchState.frameDts);
+  const p50 = sorted[Math.floor(n * 0.50)];
+  const p95 = sorted[Math.floor(n * 0.95)];
+  const maxDt = sorted[n - 1];
+  const stut33 = benchState.frameDts.filter((x) => x > 33.4).length;
+  const stut50 = benchState.frameDts.filter((x) => x > 50.0).length;
+  const c = renderer.domElement;
+  const mem = renderer.info.memory || {};
+  const avgCalls = Math.round(benchState.callsSum / n);
+  const avgTris = Math.round(benchState.trisSum / n);
+
+  const report = [
+    `FPS: ${(1000 / avgDt).toFixed(1)} avg | ${(1000 / p95).toFixed(1)} p95 (${n} frames)`,
+    `Frame ms: ${avgDt.toFixed(1)} avg | ${p50.toFixed(1)} p50 | ${p95.toFixed(1)} p95 | ${maxDt.toFixed(1)} max`,
+    `Stutters: ${stut33} (>33ms) | ${stut50} (>50ms)`,
+    `CPU ms/f: sim=${avg(benchState.simMs).toFixed(2)} stream=${avg(benchState.streamMs).toFixed(2)} env=${avg(benchState.envMs).toFixed(2)} render=${avg(benchState.renderCpuMs).toFixed(2)} total=${avg(benchState.totalCpuMs).toFixed(2)}`,
+    `Scene: calls=${avgCalls} tris=${avgTris.toLocaleString()} refl=${benchState.reflFrames}/${n}`,
+    `Mem: geo=${mem.geometries || 0} tex=${mem.textures || 0} prog=${renderer.info.programs ? renderer.info.programs.length : 0}`,
+    `Quality: ${qualityState.preset} res=${RES_PRESETS[resPresetIdx].label} bloom=${qualityState.bloom} msaa=${qualityState.msaa} refl=${qualityState.reflections} shadow=${qualityState.shadow}`,
+    `Viewport: ${window.innerWidth}x${window.innerHeight} canvas=${c.width}x${c.height} dpr=${dpr.toFixed(2)} mobile=${IS_MOBILE_PRIMARY}`,
+    `Env: wx=${envCtrl.state.weather} time=${formatClock(envCtrl.state.timeOfDay)} pos=${Math.round(porter.state.pos.x)},${Math.round(porter.state.pos.z)}`,
+    `GPU: ${getGpuRendererName()}`,
+    `UA: ${navigator.userAgent}`
+  ].join('\n');
+
+  elBenchOutput.textContent = report;
+  elBenchOutput.classList.remove('hidden');
+  if (elBtnQBenchCopy) elBtnQBenchCopy.classList.remove('hidden');
+}
+
+if (elBtnQBench) {
+  elBtnQBench.addEventListener('click', () => {
+    if (benchState.active) return;
+    benchState.active = true;
+    benchState.startMs = performance.now();
+    benchState.frameDts.length = 0;
+    benchState.simMs.length = 0;
+    benchState.streamMs.length = 0;
+    benchState.envMs.length = 0;
+    benchState.renderCpuMs.length = 0;
+    benchState.totalCpuMs.length = 0;
+    benchState.callsSum = 0;
+    benchState.trisSum = 0;
+    benchState.reflFrames = 0;
+    elBtnQBench.textContent = 'Running...';
+    elBtnQBench.classList.add('active');
+    if (elBenchOutput) {
+      elBenchOutput.textContent = 'Sampling 3.5s...';
+      elBenchOutput.classList.remove('hidden');
+    }
+    if (elBtnQBenchCopy) elBtnQBenchCopy.classList.add('hidden');
+  });
+}
+
+if (elBtnQBenchCopy) {
+  elBtnQBenchCopy.addEventListener('click', async () => {
+    if (!elBenchOutput || !elBenchOutput.textContent) return;
+    try {
+      await navigator.clipboard.writeText(elBenchOutput.textContent);
+      elBtnQBenchCopy.textContent = 'Copied!';
+      setTimeout(() => {
+        elBtnQBenchCopy.textContent = 'Copy';
+      }, 1500);
+    } catch {
+      const range = document.createRange();
+      range.selectNodeContents(elBenchOutput);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+  });
+}
 refreshQualityControls();
 document.getElementById('btn-hide-hud').addEventListener('click', () => elHud.classList.toggle('hidden'));
 elBtnAudio.addEventListener('click', () => {
@@ -1386,8 +1498,11 @@ refreshHudControls();
 function animate() {
   requestAnimationFrame(animate);
   const nowMs = performance.now();
-  const dt = Math.min((nowMs - lastTimeMs) / 1000, 0.05);
+  const rawDtMs = nowMs - lastTimeMs;
+  const dt = Math.min(rawDtMs / 1000, 0.05);
   lastTimeMs = nowMs;
+  const bOn = benchState.active;
+  const t0 = bOn ? performance.now() : 0;
 
   if (gameState === 'title') {
     // Slowly pan around the porter on the live title/loading screen (~100m away, 50m high, looking horizontally)
@@ -1421,10 +1536,13 @@ function animate() {
 
   const px = porter.state.pos.x;
   const pz = porter.state.pos.z;
+  const t1 = bOn ? performance.now() : 0;
 
   terrainSys.update(px, pz, false);
   waterSys.update(px, pz);
   landmarkSys.update(px, pz, dt);
+  const t2 = bOn ? performance.now() : 0;
+
   envCtrl.update(dt, porter.state.pos);
   const shelter = landmarkSys.getNearestShelterBox(px, porter.state.pos.y, pz);
   weatherFX.update(camera, envCtrl.curWx.rainIntensity, porter.state.pos, dt, shelter);
@@ -1435,6 +1553,7 @@ function animate() {
     envCtrl.curWx.rainIntensity,
     ATMO_UNIFORMS.uAuroraStrength.value
   );
+  const t3 = bOn ? performance.now() : 0;
 
   if (gameState === 'title') {
     updateTitleCamera(camState.yaw);
@@ -1585,7 +1704,23 @@ function animate() {
   }
 
   // Capture main scene render stats inside lakeScenePass
+  const t4 = bOn ? performance.now() : 0;
   composer.render();
+  if (bOn) {
+    const t5 = performance.now();
+    benchState.frameDts.push(rawDtMs);
+    benchState.simMs.push(t1 - t0);
+    benchState.streamMs.push(t2 - t1);
+    benchState.envMs.push(t3 - t2);
+    benchState.renderCpuMs.push(t5 - t4);
+    benchState.totalCpuMs.push(t5 - t0);
+    benchState.callsSum += lastSceneCalls || renderer.info.render.calls;
+    benchState.trisSum += lastSceneTris || renderer.info.render.triangles;
+    if (lastReflRendered) benchState.reflFrames++;
+    if (t5 - benchState.startMs >= benchState.durationMs) {
+      finishInGameBenchmark();
+    }
+  }
 }
 const _camLakeTmp = { lake: null, shoreMeters: -9999, bedDepth: 0, waterY: 16, shoreGrade: 60, isletBoost: 0 };
 bootWorld();

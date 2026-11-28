@@ -130,6 +130,29 @@ canvas {
   display: none;
 }
 
+.bench-output {
+  margin-top: 6px;
+  padding: 8px;
+  border-radius: 6px;
+  background: rgba(6, 10, 14, 0.78);
+  border: 1px solid rgba(165, 195, 210, 0.22);
+  color: #cfe4f0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 10px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+  -webkit-user-select: text;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.bench-output.hidden,
+.hud-panel .hidden {
+  display: none;
+}
+
 .row {
   display: flex;
   align-items: center;

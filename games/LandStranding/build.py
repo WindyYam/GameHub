@@ -188,6 +188,14 @@ def build():
             <button id="btn-q-shadow" type="button">Shadow: High</button>
           </div>
         </div>
+        <div class="row">
+          <label>Benchmark</label>
+          <div class="btn-group">
+            <button id="btn-q-bench" type="button">Run Benchmark</button>
+            <button id="btn-q-bench-copy" type="button" class="hidden">Copy</button>
+          </div>
+          <pre id="bench-output" class="bench-output hidden"></pre>
+        </div>
       </div>
       <div class="hud-panel collapsed" id="env-panel">
         <div class="row">
