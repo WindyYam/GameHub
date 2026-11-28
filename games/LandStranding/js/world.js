@@ -847,36 +847,54 @@ export function getCellFeatures(cx, cz) {
     }
 
     if (!isWetInLake(vx, vz, 46.0)) {
-    const houseCount = 6 + Math.floor(h7 * 3); // 6..8 traditional Icelandic turf cottages, barns & black kirkja church
+    const houseCount = 13 + Math.floor(h7 * 5); // 13..17 varied Icelandic buildings + church
     const buildings = [];
     const baseYaw = Math.atan2(nx, nz); // Oriented organically relative to valley & escarpment
 
-    // Iconic Black-Timber Icelandic Church (Búðakirkja style) standing prominently on village eastern edge
-    if (!isWetInLake(vx + tx * 25.0 + nx * 6.0, vz + tz * 25.0 + nz * 6.0, 15.0)) {
+    // Iconic Black-Timber Icelandic Church (Búðakirkja style) standing prominently on village eastern rise
+    if (!isWetInLake(vx + tx * 34.0 + nx * 12.0, vz + tz * 34.0 + nz * 12.0, 15.0)) {
       buildings.push({
         kind: 'church',
-        x: vx + tx * 25.0 + nx * 6.0,
-        z: vz + tz * 25.0 + nz * 6.0,
+        x: vx + tx * 34.0 + nx * 12.0,
+        z: vz + tz * 34.0 + nz * 12.0,
         yaw: baseYaw + Math.PI * 0.5 + (h1 - 0.5) * 0.35,
         radius: 10.5
       });
     }
 
-    // Organic Icelandic hamlet cluster: mostly low-slung mossy turf farmhouses + 2-3 weathered silver-timber barns
+    // Extended village main lane + intersecting cross-lane meeting at the central well plaza
     const villageLanePts = [
-      { x: vx - tx * 38 - nx * 16, z: vz - tz * 38 - nz * 16 },
-      { x: vx - tx * 12 - nx * 6,  z: vz - tz * 12 - nz * 6 },
-      { x: vx + tx * 10 - nx * 2,  z: vz + tz * 10 - nz * 2 },
-      { x: vx + tx * 26 + nx * 1,  z: vz + tz * 26 + nz * 1 }
+      { x: vx - tx * 64 - nx * 18, z: vz - tz * 64 - nz * 18 },
+      { x: vx - tx * 30 - nx * 7,  z: vz - tz * 30 - nz * 7 },
+      { x: vx - tx * 2  - nx * 2,  z: vz - tz * 2  - nz * 2 },
+      { x: vx + tx * 28 + nx * 2,  z: vz + tz * 28 + nz * 2 },
+      { x: vx + tx * 62 + nx * 8,  z: vz + tz * 62 + nz * 8 }
+    ];
+    const crossLanePts = [
+      { x: vx - tx * 6 - nx * 28, z: vz - tz * 6 - nz * 28 },
+      { x: vx - tx * 2 - nx * 2,  z: vz - tz * 2 - nz * 2 },
+      { x: vx + tx * 4 + nx * 36, z: vz + tz * 4 + nz * 36 }
     ];
 
+    // Central stone well near the lane intersection plaza
+    const wellX = vx - tx * 7.5 - nx * 8.5;
+    const wellZ = vz - tz * 7.5 - nz * 8.5;
+    const well = (!isWetInLake(wellX, wellZ, 12.0) && riverDistAt(wellX, wellZ) >= 20)
+      ? { x: wellX, z: wellZ, yaw: baseYaw + (h2 - 0.5) * 0.6 }
+      : null;
+
     for (let b = 0; b < houseCount; b++) {
-      // Arrange turf houses along gentle arc behind the lane, timber barns slightly forward by the paddock!
-      const isFrontBarn = b < 2;
-      const along = ((b / Math.max(houseCount - 1, 1)) - 0.5) * 58.0 + (hash2i(cx * 17 + b, cz, _seedInt + 401) - 0.5) * 8.0;
-      const depth = isFrontBarn
-        ? -14.5 - hash2i(b, cz * 19, _seedInt + 419) * 11.0
-        : 5.5 + hash2i(cx, b * 23, _seedInt + 421) * 20.0;
+      // Distribute buildings organically along both sides of the main lane and cross-lane
+      const isFrontRow = b % 3 === 0;
+      const isCrossWing = b >= houseCount - 3;
+      const along = isCrossWing
+        ? ((b - (houseCount - 2)) * 16.0 + (hash2i(cx * 17 + b, cz, _seedInt + 401) - 0.5) * 8.0)
+        : (((b / Math.max(houseCount - 1, 1)) - 0.5) * 116.0 + (hash2i(cx * 17 + b, cz, _seedInt + 401) - 0.5) * 10.0);
+      const depth = isCrossWing
+        ? (22.0 + hash2i(b, cz * 19, _seedInt + 419) * 18.0)
+        : (isFrontRow
+          ? (-18.0 - hash2i(b, cz * 19, _seedInt + 419) * 16.0)
+          : (9.0 + hash2i(cx, b * 23, _seedInt + 421) * 26.0));
       const bx = vx + tx * along + nx * depth;
       const bz = vz + tz * along + nz * depth;
 
@@ -887,44 +905,66 @@ export function getCellFeatures(cx, cz) {
           break;
         }
       }
+      if (well && Math.hypot(well.x - bx, well.z - bz) < 11.5) overlap = true;
       if (overlap || riverDistAt(bx, bz) < 22 || isWetInLake(bx, bz, 15.0)) continue;
 
       const styleR = hash2i(cx + b * 7, cz + b * 13, _seedInt + 439);
-      const kind = isFrontBarn ? 'weathered_barn' : (styleR < 0.78 ? 'turf_cottage' : 'weathered_barn');
+      let kind;
+      if (isFrontRow && b < 4) {
+        kind = styleR < 0.5 ? 'weathered_barn' : 'storehouse';
+      } else if (styleR < 0.34) {
+        kind = 'turf_cottage';
+      } else if (styleR < 0.64) {
+        kind = 'nordic_house';
+      } else if (styleR < 0.80) {
+        kind = 'weathered_barn';
+      } else if (styleR < 0.91) {
+        kind = 'smithy';
+      } else {
+        kind = 'storehouse';
+      }
+
       const roofStyle = hash2i(b, cx * 19 + cz * 23, _seedInt + 467);
-      // Orient cottages & barns naturally toward the open valley/lane (baseYaw + PI) with organic variation
+      const paintIdx = Math.floor(hash2i(b * 11, cx + cz * 7, _seedInt + 479) * 4) % 4;
+      const faceYaw = isFrontRow ? baseYaw : baseYaw + Math.PI;
       buildings.push({
         kind,
         x: bx,
         z: bz,
-        yaw: baseYaw + Math.PI + (isFrontBarn ? (b === 0 ? 0.22 : -0.18) : (hash2i(b, cx, _seedInt + 491) - 0.5) * 0.55),
-        scale: 0.96 + hash2i(cz, b, _seedInt + 509) * 0.18,
+        yaw: faceYaw + (hash2i(b, cx, _seedInt + 491) - 0.5) * 0.52,
+        scale: 0.95 + hash2i(cz, b, _seedInt + 509) * 0.20,
         roofStyle,
-        hasSmoke: kind === 'turf_cottage' && b < 4,
-        radius: 7.8
+        paintIdx,
+        hasSmoke: (kind === 'turf_cottage' || kind === 'nordic_house' || kind === 'smithy') && b < 9,
+        radius: kind === 'nordic_house' ? 8.6 : 7.8
       });
     }
 
-    // Subtle rustic dark-iron yard lanterns (quiet in daylight, warm glow at dusk/night)
+    // Subtle rustic dark-iron yard lanterns along main lane, cross-lane & well plaza
     const lamps = [];
-    for (let l = 0; l < 3; l++) {
+    for (let l = 0; l < villageLanePts.length; l++) {
       const pt = villageLanePts[l];
       if (!isWetInLake(pt.x + nx * 3.8, pt.z + nz * 3.8, 10.0)) {
         lamps.push({ x: pt.x + nx * 3.8, z: pt.z + nz * 3.8 });
       }
+    }
+    if (!isWetInLake(crossLanePts[2].x - tx * 3.2, crossLanePts[2].z - tz * 3.2, 10.0)) {
+      lamps.push({ x: crossLanePts[2].x - tx * 3.2, z: crossLanePts[2].z - tz * 3.2 });
     }
 
     if (buildings.length > 0) {
       village = {
         x: vx,
         z: vz,
-        radius: 44.0,
+        radius: 78.0,
         yaw: baseYaw,
         tx,
         tz,
         nx,
         nz,
+        well,
         lanePts: villageLanePts,
+        crossLanePts,
         buildings,
         lamps
       };
@@ -1285,8 +1325,8 @@ export function sampleWorld(x, z, out = null) {
       // Also paint organic worn gravel/earth farmyard lanes & doorway aprons around village buildings!
       if (f.village) {
         const vd = Math.hypot(x - f.village.x, z - f.village.z);
-        if (vd < 110) {
-          const wPad = 1.0 - smootherstep(26, 106, vd);
+        if (vd < 155) {
+          const wPad = 1.0 - smootherstep(45, 150, vd);
           const vBase = sampleMacroHeight(f.village.x, f.village.z);
           // Retain gentle natural meadow micro-undulation instead of a rigid flat tabletop
           const meadowRoll = (fbm2(x * 0.035, z * 0.035, 2, _seedInt + 731) - 0.5) * 1.4;
@@ -1295,12 +1335,18 @@ export function sampleWorld(x, z, out = null) {
             padTargetY = vBase + meadowRoll * (1.0 - wPad * 0.6);
           }
 
-          // Worn village gravel lane weaving past barns & church
+          // Worn village gravel lane & cross-lane weaving past houses, well & church
           if (f.village.lanePts && f.village.lanePts.length >= 2) {
             distToPolyline2D(x, z, f.village.lanePts, _polyTmp);
             const laneWarp = (fbm2(x * 0.16, z * 0.16, 2, _seedInt + 751) - 0.5) * 2.2;
             const laneM = 1.0 - smoothstep(1.8, 4.4, Math.abs(_polyTmp.dist + laneWarp * 0.5));
             pathMask = Math.max(pathMask, laneM * 0.92);
+          }
+          if (f.village.crossLanePts && f.village.crossLanePts.length >= 2) {
+            distToPolyline2D(x, z, f.village.crossLanePts, _polyTmp);
+            const laneWarp = (fbm2(x * 0.16, z * 0.16, 2, _seedInt + 757) - 0.5) * 1.8;
+            const laneM = 1.0 - smoothstep(1.6, 3.8, Math.abs(_polyTmp.dist + laneWarp * 0.5));
+            pathMask = Math.max(pathMask, laneM * 0.88);
           }
 
           // Worn earthy gravel farmyard aprons right around building foundations & doorways

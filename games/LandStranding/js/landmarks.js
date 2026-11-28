@@ -14,7 +14,7 @@
  */
 import * as THREE from 'three';
 import { hash2i } from './noise.js';
-import { CELL_SIZE, getCellFeatures, getTerrainHeight } from './world.js';
+import { CELL_SIZE, getCellFeatures, getTerrainHeight, getTerrainNormal } from './world.js';
 import { ATMO_UNIFORMS, ATMO_GLSL_PARS, enhanceMaterialWithAtmo } from './atmosphere.js';
 
 /** Build a thick pitched gable roof shell (sloped eaves + ridge cap beam). */
@@ -249,6 +249,41 @@ export function createLandmarkSystem(texLib, scene) {
     roughness: 0.72,
     metalness: 0.02
   }, 'ls_trim_white_v3', 0.45);
+
+  const nordicPaintMats = [
+    makeMat({
+      color: 0x9c382c, // Falu red
+      map: texLib.weatheredWood.map,
+      normalMap: texLib.weatheredWood.normalMap,
+      normalScale: new THREE.Vector2(1.0, 1.0),
+      roughness: 0.74,
+      metalness: 0.02
+    }, 'ls_nordic_red_v1', 0.55),
+    makeMat({
+      color: 0xb8853a, // Warm Nordic ochre
+      map: texLib.weatheredWood.map,
+      normalMap: texLib.weatheredWood.normalMap,
+      normalScale: new THREE.Vector2(1.0, 1.0),
+      roughness: 0.74,
+      metalness: 0.02
+    }, 'ls_nordic_ochre_v1', 0.55),
+    makeMat({
+      color: 0x425b74, // Slate fjord blue
+      map: texLib.weatheredWood.map,
+      normalMap: texLib.weatheredWood.normalMap,
+      normalScale: new THREE.Vector2(1.0, 1.0),
+      roughness: 0.74,
+      metalness: 0.02
+    }, 'ls_nordic_blue_v1', 0.55),
+    makeMat({
+      color: 0x5c7258, // Sage lichen green
+      map: texLib.weatheredWood.map,
+      normalMap: texLib.weatheredWood.normalMap,
+      normalScale: new THREE.Vector2(1.0, 1.0),
+      roughness: 0.74,
+      metalness: 0.02
+    }, 'ls_nordic_sage_v1', 0.55)
+  ];
 
   const doorRedMat = makeMat({
     color: 0x98342a,
@@ -1123,6 +1158,533 @@ export function createLandmarkSystem(texLib, scene) {
     return grp;
   }
 
+  /** 3b. Two-Story Painted Nordic Timber House (walkable interior, pivoting door, corrugated-iron gable roof & porch) */
+  function buildNordicHouse(spec, smokeOrigins, colliders, buildingsList, doorsList) {
+    const grp = new THREE.Group();
+    const gy = getTerrainHeight(spec.x, spec.z);
+    const sc = spec.scale || 1.0;
+    const cosY = Math.cos(spec.yaw);
+    const sinY = Math.sin(spec.yaw);
+    grp.position.set(spec.x, gy - 0.35, spec.z);
+    grp.rotation.y = spec.yaw;
+    grp.scale.setScalar(sc);
+
+    const w = 6.6;
+    const h = 4.2;
+    const len = 8.4;
+    const roofH = 2.6;
+    const wt = 0.28;
+    const baseY = 0.95;
+    const doorX = 0;
+    const doorW = 1.15;
+    const doorH = 2.25;
+    const wallMat = nordicPaintMats[(spec.paintIdx || 0) % nordicPaintMats.length];
+    const roofMat = spec.roofStyle > 0.5 ? roofCharcoalMat : roofZincMat;
+
+    const frontLocalZ = len * 0.5;
+    const doorWorldX = spec.x + (doorX * cosY + frontLocalZ * sinY) * sc;
+    const doorWorldZ = spec.z + (-doorX * sinY + frontLocalZ * cosY) * sc;
+    const doorState = {
+      id: `nordic_${Math.round(spec.x)}_${Math.round(spec.z)}`,
+      label: 'Nordic House',
+      worldX: doorWorldX,
+      worldY: (gy - 0.35) + (baseY + 1.1) * sc,
+      worldZ: doorWorldZ,
+      isOpen: false,
+      openProgress: 0,
+      isDouble: false,
+      leftPivot: null,
+      rightPivot: null,
+      swingAngle: -1.65
+    };
+    doorsList.push(doorState);
+
+    const plinth = new THREE.Mesh(new THREE.BoxGeometry(w + 0.5, 1.90, len + 0.5), dryStoneMat);
+    plinth.position.y = baseY - 0.95;
+    plinth.castShadow = true;
+    plinth.receiveShadow = true;
+    grp.add(plinth);
+
+    addHollowWallShell(grp, colliders, spec, {
+      w, h, len, wt, baseY,
+      doorX, doorW, doorH, sc,
+      sideMat: wallMat,
+      backMat: wallMat,
+      frontMat: wallMat,
+      doorState
+    });
+
+    const roofY = baseY + h;
+    const gableGeo = createGableEndGeo(w, roofH);
+    for (const gz of [len * 0.5, -len * 0.5]) {
+      const g = new THREE.Mesh(gableGeo, wallMat);
+      g.position.set(0, roofY, gz);
+      if (gz < 0) g.rotation.y = Math.PI;
+      g.castShadow = true;
+      g.receiveShadow = true;
+      grp.add(g);
+    }
+
+    const slopeLen = Math.hypot(w * 0.5 + 0.55, roofH + 0.18);
+    const slopeAng = Math.atan2(roofH, w * 0.5);
+    for (const side of [-1, 1]) {
+      const slope = new THREE.Mesh(new THREE.BoxGeometry(slopeLen, 0.14, len + 0.75), roofMat);
+      slope.position.set(side * (w * 0.25 + 0.16), roofY + roofH * 0.5 - 0.02, 0);
+      slope.rotation.z = -side * slopeAng;
+      slope.castShadow = true;
+      slope.receiveShadow = true;
+      grp.add(slope);
+    }
+
+    // Crisp white corner trim boards
+    for (const sx of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        const trim = new THREE.Mesh(new THREE.BoxGeometry(0.16, h + 0.1, 0.16), trimWhiteMat);
+        trim.position.set(sx * (w * 0.5 + 0.02), baseY + h * 0.5, sz * (len * 0.5 + 0.02));
+        grp.add(trim);
+      }
+    }
+
+    // Front porch hood, stone steps, door jambs & dynamic pivoting door
+    const porchRoof = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.14, 1.5), roofMat);
+    porchRoof.position.set(0, baseY + 2.48, len * 0.5 + 0.65);
+    porchRoof.rotation.x = 0.22;
+    porchRoof.castShadow = true;
+    grp.add(porchRoof);
+    for (const px of [-1.02, 1.02]) {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.14, 2.38, 0.14), trimWhiteMat);
+      post.position.set(px, baseY + 1.19, len * 0.5 + 1.28);
+      post.castShadow = true;
+      grp.add(post);
+    }
+    for (const sx of [doorX - doorW * 0.5 - 0.06, doorX + doorW * 0.5 + 0.06]) {
+      const jamb = new THREE.Mesh(new THREE.BoxGeometry(0.12, doorH + 0.08, 0.34), trimWhiteMat);
+      jamb.position.set(sx, baseY + doorH * 0.5, len * 0.5 - 0.08);
+      grp.add(jamb);
+    }
+    const step = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.45, 1.3), dryStoneMat);
+    step.position.set(0, baseY - 0.22, len * 0.5 + 0.72);
+    step.receiveShadow = true;
+    grp.add(step);
+
+    const doorMount = new THREE.Group();
+    doorMount.userData.keepDynamic = true;
+    doorMount.position.set(doorX - doorW * 0.5, baseY, len * 0.5 - 0.14);
+    grp.add(doorMount);
+    const doorPivot = new THREE.Group();
+    const doorLeaf = new THREE.Mesh(new THREE.BoxGeometry(doorW - 0.04, doorH - 0.04, 0.09), tarredChurchMat);
+    doorLeaf.position.set((doorW - 0.04) * 0.5, (doorH - 0.04) * 0.5, 0);
+    doorLeaf.castShadow = true;
+    doorPivot.add(doorLeaf);
+    const doorLatch = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.14, 0.14), brassHardwareMat);
+    doorLatch.position.set(doorW - 0.18, 1.0, 0);
+    doorPivot.add(doorLatch);
+    doorMount.add(doorPivot);
+    doorState.leftPivot = doorPivot;
+
+    // Two-story white-muntin windows
+    for (const wz of [-2.4, 0.0, 2.4]) {
+      for (const side of [-1, 1]) {
+        const w1 = createNordicWindow(0.88, 1.05, trimWhiteMat, windowGlassMat, 2);
+        w1.position.set(side * (w * 0.5 + 0.05), baseY + 1.35, wz);
+        w1.rotation.y = side * Math.PI * 0.5;
+        grp.add(w1);
+
+        const w2 = createNordicWindow(0.82, 0.92, trimWhiteMat, windowGlassMat, 2);
+        w2.position.set(side * (w * 0.5 + 0.05), baseY + 3.15, wz);
+        w2.rotation.y = side * Math.PI * 0.5;
+        grp.add(w2);
+      }
+    }
+    for (const fx of [-1.9, 1.9]) {
+      const fw = createNordicWindow(0.88, 1.05, trimWhiteMat, windowGlassMat, 2);
+      fw.position.set(fx, baseY + 1.35, len * 0.5 + 0.05);
+      grp.add(fw);
+    }
+    const gableWin = createNordicWindow(0.86, 0.95, trimWhiteMat, windowGlassMat, 2);
+    gableWin.position.set(0, roofY + 1.05, len * 0.5 + 0.05);
+    grp.add(gableWin);
+
+    // Stone chimney + optional hearth smoke
+    const chim = new THREE.Mesh(new THREE.BoxGeometry(0.75, 2.1, 0.75), dryStoneMat);
+    chim.position.set(-1.3, roofY + roofH * 0.55, -1.6);
+    chim.castShadow = true;
+    grp.add(chim);
+    if (spec.hasSmoke) {
+      const lx = -1.3 * sc;
+      const lz = -1.6 * sc;
+      smokeOrigins.push({
+        x: spec.x + lx * cosY + lz * sinY,
+        y: gy - 0.35 + (roofY + roofH * 0.55 + 1.1) * sc,
+        z: spec.z - lx * sinY + lz * cosY
+      });
+    }
+
+    buildingsList.push({
+      kind: 'nordic_house',
+      spec, gy, w, h, len, roofH, wt, sc, cosY, sinY,
+      floorWorldY: gy - 0.35 + baseY * sc,
+      door: doorState,
+      interiorBuilt: false,
+      interiorGroup: null,
+      interiorDisposables: [],
+      interiorLights: [],
+      interiorColliders: []
+    });
+    return grp;
+  }
+
+  /** 3c. Volcanic Stone Smithy & Forge Workshop (walkable interior, pivoting door, forge chimney & anvil) */
+  function buildSmithyWorkshop(spec, smokeOrigins, colliders, buildingsList, doorsList) {
+    const grp = new THREE.Group();
+    const gy = getTerrainHeight(spec.x, spec.z);
+    const sc = spec.scale || 1.0;
+    const cosY = Math.cos(spec.yaw);
+    const sinY = Math.sin(spec.yaw);
+    grp.position.set(spec.x, gy - 0.35, spec.z);
+    grp.rotation.y = spec.yaw;
+    grp.scale.setScalar(sc);
+
+    const w = 6.2;
+    const h = 2.9;
+    const len = 5.4;
+    const roofH = 1.9;
+    const wt = 0.34;
+    const baseY = 0.95;
+    const doorX = 0;
+    const doorW = 1.25;
+    const doorH = 2.15;
+
+    const frontLocalZ = len * 0.5;
+    const doorWorldX = spec.x + (doorX * cosY + frontLocalZ * sinY) * sc;
+    const doorWorldZ = spec.z + (-doorX * sinY + frontLocalZ * cosY) * sc;
+    const doorState = {
+      id: `smithy_${Math.round(spec.x)}_${Math.round(spec.z)}`,
+      label: 'Smithy',
+      worldX: doorWorldX,
+      worldY: (gy - 0.35) + (baseY + 1.1) * sc,
+      worldZ: doorWorldZ,
+      isOpen: false,
+      openProgress: 0,
+      isDouble: false,
+      leftPivot: null,
+      rightPivot: null,
+      swingAngle: -1.65
+    };
+    doorsList.push(doorState);
+
+    const stoneFloor = new THREE.Mesh(new THREE.BoxGeometry(w + 0.5, 1.90, len + 0.5), dryStoneMat);
+    stoneFloor.position.y = baseY - 0.95;
+    stoneFloor.receiveShadow = true;
+    grp.add(stoneFloor);
+
+    addHollowWallShell(grp, colliders, spec, {
+      w, h, len, wt, baseY,
+      doorX, doorW, doorH, sc,
+      sideMat: dryStoneMat,
+      backMat: dryStoneMat,
+      frontMat: dryStoneMat,
+      doorState
+    });
+
+    const roofY = baseY + h;
+    const gableGeo = createGableEndGeo(w, roofH);
+    for (const gz of [len * 0.5, -len * 0.5]) {
+      const g = new THREE.Mesh(gableGeo, darkWeatheredTimberMat);
+      g.position.set(0, roofY, gz);
+      if (gz < 0) g.rotation.y = Math.PI;
+      grp.add(g);
+    }
+    const slopeLen = Math.hypot(w * 0.5 + 0.5, roofH + 0.15);
+    const slopeAng = Math.atan2(roofH, w * 0.5);
+    for (const side of [-1, 1]) {
+      const slope = new THREE.Mesh(new THREE.BoxGeometry(slopeLen, 0.16, len + 0.7), roofCharcoalMat);
+      slope.position.set(side * (w * 0.25 + 0.14), roofY + roofH * 0.5, 0);
+      slope.rotation.z = -side * slopeAng;
+      slope.castShadow = true;
+      slope.receiveShadow = true;
+      grp.add(slope);
+    }
+
+    // Tall stone forge chimney
+    const forgeChim = new THREE.Mesh(new THREE.BoxGeometry(1.1, 2.8, 1.1), dryStoneMat);
+    forgeChim.position.set(1.6, roofY + 0.9, -1.2);
+    forgeChim.castShadow = true;
+    grp.add(forgeChim);
+    if (spec.hasSmoke) {
+      const lx = 1.6 * sc;
+      const lz = -1.2 * sc;
+      smokeOrigins.push({
+        x: spec.x + lx * cosY + lz * sinY,
+        y: gy - 0.35 + (roofY + 2.35) * sc,
+        z: spec.z - lx * sinY + lz * cosY
+      });
+    }
+
+    // Open timber lean-to forge porch + anvil on stump + quench trough + pivoting door
+    const awning = new THREE.Mesh(new THREE.BoxGeometry(w - 0.4, 0.12, 2.2), weatheredBarnMat);
+    awning.position.set(0, baseY + 2.35, len * 0.5 + 1.05);
+    awning.rotation.x = 0.24;
+    awning.castShadow = true;
+    grp.add(awning);
+    for (const px of [-2.4, 2.4]) {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.18, 2.2, 0.18), darkWeatheredTimberMat);
+      post.position.set(px, baseY + 1.05, len * 0.5 + 1.95);
+      post.castShadow = true;
+      grp.add(post);
+    }
+    const stump = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 0.65, 8), darkWeatheredTimberMat);
+    stump.position.set(-1.35, baseY + 0.32, len * 0.5 + 1.15);
+    grp.add(stump);
+    const anvil = new THREE.Mesh(new THREE.BoxGeometry(0.56, 0.24, 0.28), darkSteelMat);
+    anvil.position.set(-1.35, baseY + 0.76, len * 0.5 + 1.15);
+    grp.add(anvil);
+    const trough = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.42, 0.55), darkWeatheredTimberMat);
+    trough.position.set(1.45, baseY + 0.21, len * 0.5 + 1.05);
+    grp.add(trough);
+
+    const doorMount = new THREE.Group();
+    doorMount.userData.keepDynamic = true;
+    doorMount.position.set(doorX - doorW * 0.5, baseY, len * 0.5 - 0.18);
+    grp.add(doorMount);
+    const doorPivot = new THREE.Group();
+    const doorLeaf = new THREE.Mesh(new THREE.BoxGeometry(doorW - 0.04, doorH - 0.04, 0.09), tarredChurchMat);
+    doorLeaf.position.set((doorW - 0.04) * 0.5, (doorH - 0.04) * 0.5, 0);
+    doorLeaf.castShadow = true;
+    doorPivot.add(doorLeaf);
+    const doorLatch = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.14, 0.14), brassHardwareMat);
+    doorLatch.position.set(doorW - 0.18, 1.0, 0);
+    doorPivot.add(doorLatch);
+    doorMount.add(doorPivot);
+    doorState.leftPivot = doorPivot;
+
+    buildingsList.push({
+      kind: 'smithy',
+      spec, gy, w, h, len, roofH, wt, sc, cosY, sinY,
+      floorWorldY: gy - 0.35 + baseY * sc,
+      door: doorState,
+      interiorBuilt: false,
+      interiorGroup: null,
+      interiorDisposables: [],
+      interiorLights: [],
+      interiorColliders: []
+    });
+    return grp;
+  }
+
+  /** 3d. Compact Tarred-Wood & Turf Storehouse / Drying Shed (walkable interior, pivoting door & wooden crates) */
+  function buildStorehouseShed(spec, colliders, buildingsList, doorsList) {
+    const grp = new THREE.Group();
+    const gy = getTerrainHeight(spec.x, spec.z);
+    const sc = spec.scale || 1.0;
+    const cosY = Math.cos(spec.yaw);
+    const sinY = Math.sin(spec.yaw);
+    grp.position.set(spec.x, gy - 0.35, spec.z);
+    grp.rotation.y = spec.yaw;
+    grp.scale.setScalar(sc);
+
+    const w = 4.8;
+    const h = 2.3;
+    const len = 4.2;
+    const roofH = 1.65;
+    const wt = 0.24;
+    const baseY = 0.95;
+    const doorX = 0;
+    const doorW = 1.25;
+    const doorH = 1.95;
+
+    const frontLocalZ = len * 0.5;
+    const doorWorldX = spec.x + (doorX * cosY + frontLocalZ * sinY) * sc;
+    const doorWorldZ = spec.z + (-doorX * sinY + frontLocalZ * cosY) * sc;
+    const doorState = {
+      id: `shed_${Math.round(spec.x)}_${Math.round(spec.z)}`,
+      label: 'Storehouse',
+      worldX: doorWorldX,
+      worldY: (gy - 0.35) + (baseY + 1.0) * sc,
+      worldZ: doorWorldZ,
+      isOpen: false,
+      openProgress: 0,
+      isDouble: false,
+      leftPivot: null,
+      rightPivot: null,
+      swingAngle: -1.65
+    };
+    doorsList.push(doorState);
+
+    const plinth = new THREE.Mesh(new THREE.BoxGeometry(w + 0.3, 1.90, len + 0.3), dryStoneMat);
+    plinth.position.y = baseY - 0.95;
+    grp.add(plinth);
+
+    addHollowWallShell(grp, colliders, spec, {
+      w, h, len, wt, baseY,
+      doorX, doorW, doorH, sc,
+      sideMat: tarredChurchMat,
+      backMat: tarredChurchMat,
+      frontMat: tarredChurchMat,
+      doorState
+    });
+
+    const roofY = baseY + h;
+    const gableGeo = createGableEndGeo(w, roofH);
+    for (const gz of [len * 0.5, -len * 0.5]) {
+      const g = new THREE.Mesh(gableGeo, tarredChurchMat);
+      g.position.set(0, roofY, gz);
+      if (gz < 0) g.rotation.y = Math.PI;
+      grp.add(g);
+    }
+    const slopeLen = Math.hypot(w * 0.5 + 0.45, roofH + 0.15);
+    const slopeAng = Math.atan2(roofH, w * 0.5);
+    for (const side of [-1, 1]) {
+      const slope = new THREE.Mesh(new THREE.BoxGeometry(slopeLen, 0.28, len + 0.6), turfRoofMat);
+      slope.position.set(side * (w * 0.25 + 0.12), roofY + roofH * 0.5 + 0.04, 0);
+      slope.rotation.z = -side * slopeAng;
+      slope.castShadow = true;
+      slope.receiveShadow = true;
+      grp.add(slope);
+    }
+
+    const doorMount = new THREE.Group();
+    doorMount.userData.keepDynamic = true;
+    doorMount.position.set(doorX - doorW * 0.5, baseY, len * 0.5 - 0.14);
+    grp.add(doorMount);
+    const doorPivot = new THREE.Group();
+    const doorLeaf = new THREE.Mesh(new THREE.BoxGeometry(doorW - 0.04, doorH - 0.04, 0.09), weatheredBarnMat);
+    doorLeaf.position.set((doorW - 0.04) * 0.5, (doorH - 0.04) * 0.5, 0);
+    doorLeaf.castShadow = true;
+    doorPivot.add(doorLeaf);
+    const doorLatch = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.14, 0.14), brassHardwareMat);
+    doorLatch.position.set(doorW - 0.18, 0.95, 0);
+    doorPivot.add(doorLatch);
+    doorMount.add(doorPivot);
+    doorState.leftPivot = doorPivot;
+
+    for (const [cxOff, czOff, sz] of [[-1.6, len * 0.5 + 0.55, 0.62], [-1.0, len * 0.5 + 0.52, 0.48], [1.5, len * 0.5 + 0.50, 0.55]]) {
+      const crate = new THREE.Mesh(new THREE.BoxGeometry(sz, sz, sz), weatheredBarnMat);
+      crate.position.set(cxOff, baseY + sz * 0.5 - 0.08, czOff);
+      crate.castShadow = true;
+      grp.add(crate);
+    }
+
+    buildingsList.push({
+      kind: 'storehouse',
+      spec, gy, w, h, len, roofH, wt, sc, cosY, sinY,
+      floorWorldY: gy - 0.35 + baseY * sc,
+      door: doorState,
+      interiorBuilt: false,
+      interiorGroup: null,
+      interiorDisposables: [],
+      interiorLights: [],
+      interiorColliders: []
+    });
+    return grp;
+  }
+
+  /** 3e. Dry-Stacked Volcanic Stone Village Well with timber canopy & windlass bucket */
+  function buildStoneWell(well, colliders) {
+    const grp = new THREE.Group();
+    const gy = getTerrainHeight(well.x, well.z);
+    grp.position.set(well.x, gy - 0.12, well.z);
+    grp.rotation.y = well.yaw || 0;
+
+    // Circular stacked basalt stone wall + 12 coping stones
+    const wall = new THREE.Mesh(new THREE.CylinderGeometry(1.28, 1.42, 0.95, 14), dryStoneMat);
+    wall.position.y = 0.48;
+    wall.castShadow = true;
+    wall.receiveShadow = true;
+    grp.add(wall);
+
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * Math.PI * 2;
+      const cap = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.16, 0.44), dryStoneMat);
+      cap.position.set(Math.cos(a) * 1.18, 0.98, Math.sin(a) * 1.18);
+      cap.rotation.y = -a;
+      cap.castShadow = true;
+      grp.add(cap);
+    }
+
+    const waterDisc = new THREE.Mesh(new THREE.CylinderGeometry(1.02, 1.02, 0.06, 12), windowGlassMat);
+    waterDisc.position.y = 0.58;
+    grp.add(waterDisc);
+
+    // Timber uprights, windlass axle, hanging bucket & pitched canopy
+    for (const sx of [-1.18, 1.18]) {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.16, 1.85, 0.16), darkWeatheredTimberMat);
+      post.position.set(sx, 1.72, 0);
+      post.castShadow = true;
+      grp.add(post);
+    }
+    const axle = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 2.25, 8), weatheredBarnMat);
+    axle.rotation.z = Math.PI * 0.5;
+    axle.position.y = 1.78;
+    grp.add(axle);
+
+    const rope = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.65, 5), weatheredBarnMat);
+    rope.position.set(0, 1.45, 0);
+    grp.add(rope);
+    const bucket = new THREE.Mesh(new THREE.CylinderGeometry(0.20, 0.16, 0.34, 8), darkWeatheredTimberMat);
+    bucket.position.set(0, 1.08, 0);
+    grp.add(bucket);
+
+    for (const side of [-1, 1]) {
+      const roof = new THREE.Mesh(new THREE.BoxGeometry(1.75, 0.12, 1.65), roofCharcoalMat);
+      roof.position.set(0, 2.86, side * 0.56);
+      roof.rotation.x = side * 0.58;
+      roof.castShadow = true;
+      grp.add(roof);
+    }
+
+    colliders.push({ x: well.x, z: well.z, r: 1.65 });
+    return grp;
+  }
+
+  /** 3f. Hand-laid Weathered Basalt Flagstone Path along village lanes & well plaza */
+  function buildStonePath(pts, grp, seedOff = 0) {
+    if (!pts || pts.length < 2) return;
+    const stoneGeo = new THREE.CylinderGeometry(0.62, 0.70, 0.12, 6);
+    const up = new THREE.Vector3(0, 1, 0);
+    const n = new THREE.Vector3();
+    const q = new THREE.Quaternion();
+    const yq = new THREE.Quaternion();
+
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i];
+      const b = pts[i + 1];
+      const dx = b.x - a.x;
+      const dz = b.z - a.z;
+      const segLen = Math.hypot(dx, dz);
+      const tx = dx / (segLen || 1);
+      const tz = dz / (segLen || 1);
+      const nx = -tz;
+      const nz = tx;
+      const steps = Math.max(4, Math.floor(segLen / 1.55));
+      for (let s = 0; s <= steps; s++) {
+        const f = s / steps;
+        const bx = a.x + dx * f;
+        const bz = a.z + dz * f;
+        // Two staggered flagstones across the lane width
+        for (const laneSide of [-0.72, 0.72]) {
+          const hA = hash2i(i * 37 + s, laneSide > 0 ? 1 : 2, 613 + seedOff);
+          const hB = hash2i(s, i * 19 + (laneSide > 0 ? 3 : 4), 631 + seedOff);
+          if (hA < 0.16) continue; // natural organic gaps
+          const px = bx + nx * (laneSide + (hA - 0.5) * 0.55) + tx * (hB - 0.5) * 0.45;
+          const pz = bz + nz * (laneSide + (hA - 0.5) * 0.55) + tz * (hB - 0.5) * 0.45;
+          const py = getTerrainHeight(px, pz);
+          getTerrainNormal(px, pz, n, 0.8);
+          q.setFromUnitVectors(up, n);
+          yq.setFromAxisAngle(up, hB * Math.PI * 2);
+          q.multiply(yq);
+
+          const stone = new THREE.Mesh(stoneGeo, dryStoneMat);
+          stone.position.set(px, py + 0.01, pz);
+          stone.quaternion.copy(q);
+          stone.scale.set(0.78 + hA * 0.55, 1.0, 0.72 + hB * 0.55);
+          stone.receiveShadow = true;
+          grp.add(stone);
+        }
+      }
+    }
+  }
+
   /** Build complete photorealistic Icelandic village hamlet with crooked paddock fences, stone walls & hearth smoke. */
   function buildIcelandicVillage(village, colliders, disposables, buildingsList, doorsList) {
     const grp = new THREE.Group();
@@ -1131,7 +1693,18 @@ export function createLandmarkSystem(texLib, scene) {
     for (const b of village.buildings) {
       if (b.kind === 'church') grp.add(buildIcelandicChurch(b, colliders, buildingsList, doorsList));
       else if (b.kind === 'turf_cottage') grp.add(buildTurfCottage(b, smokeOrigins, colliders, buildingsList, doorsList));
+      else if (b.kind === 'nordic_house') grp.add(buildNordicHouse(b, smokeOrigins, colliders, buildingsList, doorsList));
+      else if (b.kind === 'smithy') grp.add(buildSmithyWorkshop(b, smokeOrigins, colliders, buildingsList, doorsList));
+      else if (b.kind === 'storehouse') grp.add(buildStorehouseShed(b, colliders, buildingsList, doorsList));
       else grp.add(buildWeatheredBarn(b, colliders, buildingsList, doorsList));
+    }
+
+    if (village.well) {
+      grp.add(buildStoneWell(village.well, colliders));
+    }
+    buildStonePath(village.lanePts, grp, 0);
+    if (village.crossLanePts) {
+      buildStonePath(village.crossLanePts, grp, 97);
     }
 
     // Animated drifting translucent chimney woodsmoke plumes (iconic visual signature from reference!)
@@ -1262,8 +1835,8 @@ export function createLandmarkSystem(texLib, scene) {
       grp.add(post);
     }
 
-    // Grazing Icelandic Sheep Flock scattered peacefully in the paddock & green valley meadow (matching reference!)
-    const sheepCount = 12;
+    // Grazing Icelandic Sheep Flock scattered peacefully in the paddock & green valley meadow
+    const sheepCount = 16;
     for (let s = 0; s < sheepCount; s++) {
       const inPaddock = s < 5;
       const along = inPaddock
@@ -1955,6 +2528,172 @@ export function createLandmarkSystem(texLib, scene) {
     b.interiorLightColor = 0xffb45a;
   }
 
+  function buildNordicHouseInterior(b, rawInt, intCols) {
+    const { w, h, len, wt, spec, sc } = b;
+    const baseY = 0.95;
+    const innerW = w - wt * 2;
+    const innerLen = len - wt * 2;
+
+    const floor = new THREE.Mesh(new THREE.BoxGeometry(innerW, 0.06, innerLen), floorTimberMat);
+    floor.position.set(0, baseY + 0.02, 0);
+    floor.receiveShadow = true;
+    rawInt.add(floor);
+
+    const intGableGeo = createGableEndGeo(innerW, b.roofH);
+    const igBack = new THREE.Mesh(intGableGeo, interiorTimberMat);
+    igBack.position.set(0, baseY + h, -innerLen * 0.5 + 0.02);
+    rawInt.add(igBack);
+    const igFront = new THREE.Mesh(intGableGeo, interiorTimberMat);
+    igFront.position.set(0, baseY + h, innerLen * 0.5 - 0.02);
+    igFront.rotation.y = Math.PI;
+    rawInt.add(igFront);
+
+    const rug = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.02, 3.8), aisleRunnerMat);
+    rug.position.set(0.2, baseY + 0.06, 0.8);
+    rug.receiveShadow = true;
+    rawInt.add(rug);
+
+    // Upper loft floor & ladder
+    const loft = new THREE.Mesh(new THREE.BoxGeometry(innerW, 0.14, innerLen * 0.42), interiorTimberMat);
+    loft.position.set(0, baseY + 2.45, -innerLen * 0.28);
+    rawInt.add(loft);
+    for (const lx of [-0.26, 0.26]) {
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.06, 2.75, 0.06), interiorTimberMat);
+      rail.position.set(-1.9 + lx, baseY + 1.32, -innerLen * 0.06 + 0.35);
+      rail.rotation.x = -0.28;
+      rawInt.add(rail);
+    }
+
+    // Stone fireplace & embers
+    const hX = -1.3;
+    const hZ = -1.6;
+    const hearth = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.7, 1.1), dryStoneMat);
+    hearth.position.set(hX, baseY + 0.85, hZ);
+    rawInt.add(hearth);
+    const embers = new THREE.Mesh(new THREE.BoxGeometry(0.75, 0.16, 0.55), emberGlowMat);
+    embers.position.set(hX, baseY + 0.28, hZ + 0.1);
+    rawInt.add(embers);
+    intCols.push(addBoxCollider([], spec, hX, hZ, 0.80, 0.60, sc, { isInterior: true }));
+
+    // Dining table, chairs & glowing table lantern
+    const tX = 1.1;
+    const tZ = 0.9;
+    const tableTop = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.08, 2.1), interiorTimberMat);
+    tableTop.position.set(tX, baseY + 0.78, tZ);
+    rawInt.add(tableTop);
+    for (const lx of [-0.45, 0.45]) {
+      for (const lz of [-0.82, 0.82]) {
+        const leg = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.76, 0.08), interiorTimberMat);
+        leg.position.set(tX + lx, baseY + 0.38, tZ + lz);
+        rawInt.add(leg);
+      }
+    }
+    const lantern = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.10, 0.22, 6), candleGlowMat);
+    lantern.position.set(tX, baseY + 0.93, tZ);
+    rawInt.add(lantern);
+    intCols.push(addBoxCollider([], spec, tX, tZ, 0.95, 1.05, sc, { isInterior: true }));
+
+    // Bed along rear right wall
+    const bedFrame = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.52, 2.05), interiorTimberMat);
+    bedFrame.position.set(innerW * 0.5 - 0.75, baseY + 0.26, -2.5);
+    rawInt.add(bedFrame);
+    const blanket = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.12, 1.9), woolBlanketMat);
+    blanket.position.set(innerW * 0.5 - 0.75, baseY + 0.56, -2.5);
+    rawInt.add(blanket);
+    intCols.push(addBoxCollider([], spec, innerW * 0.5 - 0.75, -2.5, 0.68, 1.05, sc, { isInterior: true }));
+
+    b.interiorLightLocal = new THREE.Vector3(0.2, baseY + 1.85, 0.4);
+    b.interiorLightBase = 4.6;
+    b.interiorLightColor = 0xffa852;
+  }
+
+  function buildSmithyInterior(b, rawInt, intCols) {
+    const { w, h, len, wt, spec, sc } = b;
+    const baseY = 0.95;
+    const innerW = w - wt * 2;
+    const innerLen = len - wt * 2;
+
+    const floor = new THREE.Mesh(new THREE.BoxGeometry(innerW, 0.06, innerLen), dryStoneMat);
+    floor.position.set(0, baseY + 0.02, 0);
+    floor.receiveShadow = true;
+    rawInt.add(floor);
+
+    const intGableGeo = createGableEndGeo(innerW, b.roofH);
+    const igBack = new THREE.Mesh(intGableGeo, interiorTimberMat);
+    igBack.position.set(0, baseY + h, -innerLen * 0.5 + 0.02);
+    rawInt.add(igBack);
+    const igFront = new THREE.Mesh(intGableGeo, interiorTimberMat);
+    igFront.position.set(0, baseY + h, innerLen * 0.5 - 0.02);
+    igFront.rotation.y = Math.PI;
+    rawInt.add(igFront);
+
+    // Stone forge hearth + glowing coals
+    const fX = 1.45;
+    const fZ = -1.1;
+    const forge = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.3, 1.3), dryStoneMat);
+    forge.position.set(fX, baseY + 0.65, fZ);
+    rawInt.add(forge);
+    const coals = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.20, 0.8), emberGlowMat);
+    coals.position.set(fX, baseY + 1.34, fZ);
+    rawInt.add(coals);
+    intCols.push(addBoxCollider([], spec, fX, fZ, 0.80, 0.70, sc, { isInterior: true }));
+
+    // Workbench & crates along left wall
+    const bench = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.88, 2.4), interiorTimberMat);
+    bench.position.set(-innerW * 0.5 + 0.55, baseY + 0.44, -0.4);
+    rawInt.add(bench);
+    intCols.push(addBoxCollider([], spec, -innerW * 0.5 + 0.55, -0.4, 0.52, 1.25, sc, { isInterior: true }));
+
+    const lantern = new THREE.Mesh(new THREE.SphereGeometry(0.10, 6, 4), candleGlowMat);
+    lantern.position.set(0, baseY + h - 0.45, 0.3);
+    rawInt.add(lantern);
+
+    b.interiorLightLocal = new THREE.Vector3(1.0, baseY + 1.45, -0.8);
+    b.interiorLightBase = 5.0;
+    b.interiorLightColor = 0xff7b32;
+  }
+
+  function buildStorehouseInterior(b, rawInt, intCols) {
+    const { w, h, len, wt, spec, sc } = b;
+    const baseY = 0.95;
+    const innerW = w - wt * 2;
+    const innerLen = len - wt * 2;
+
+    const floor = new THREE.Mesh(new THREE.BoxGeometry(innerW, 0.06, innerLen), floorTimberMat);
+    floor.position.set(0, baseY + 0.02, 0);
+    floor.receiveShadow = true;
+    rawInt.add(floor);
+
+    const intGableGeo = createGableEndGeo(innerW, b.roofH);
+    const igBack = new THREE.Mesh(intGableGeo, interiorTimberMat);
+    igBack.position.set(0, baseY + h, -innerLen * 0.5 + 0.02);
+    rawInt.add(igBack);
+    const igFront = new THREE.Mesh(intGableGeo, interiorTimberMat);
+    igFront.position.set(0, baseY + h, innerLen * 0.5 - 0.02);
+    igFront.rotation.y = Math.PI;
+    rawInt.add(igFront);
+
+    // Stacked supply crates & hay bales
+    for (const [cx, cz, sz] of [[-1.3, -1.1, 0.82], [-1.3, -0.1, 0.72], [1.2, -1.0, 0.88]]) {
+      const crate = new THREE.Mesh(new THREE.BoxGeometry(sz, sz, sz), interiorTimberMat);
+      crate.position.set(cx, baseY + sz * 0.5, cz);
+      rawInt.add(crate);
+      intCols.push(addBoxCollider([], spec, cx, cz, sz * 0.52, sz * 0.52, sc, { isInterior: true }));
+    }
+    const hay = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.8, 1.0), hayStrawMat);
+    hay.position.set(1.2, baseY + 0.4, 0.2);
+    rawInt.add(hay);
+    intCols.push(addBoxCollider([], spec, 1.2, 0.2, 0.58, 0.52, sc, { isInterior: true }));
+
+    const lantern = new THREE.Mesh(new THREE.SphereGeometry(0.09, 6, 4), candleGlowMat);
+    lantern.position.set(0, baseY + h - 0.45, 0.2);
+    rawInt.add(lantern);
+
+    b.interiorLightLocal = new THREE.Vector3(0, baseY + h - 0.55, 0.2);
+    b.interiorLightBase = 3.5;
+    b.interiorLightColor = 0xffb45a;
+  }
+
   function ensureBuildingInterior(b, cell) {
     if (b.interiorBuilt) return;
     b.interiorBuilt = true;
@@ -1966,6 +2705,9 @@ export function createLandmarkSystem(texLib, scene) {
     const intCols = [];
     if (b.kind === 'church') buildChurchInterior(b, rawInt, intCols);
     else if (b.kind === 'turf_cottage') buildTurfCottageInterior(b, rawInt, intCols);
+    else if (b.kind === 'nordic_house') buildNordicHouseInterior(b, rawInt, intCols);
+    else if (b.kind === 'smithy') buildSmithyInterior(b, rawInt, intCols);
+    else if (b.kind === 'storehouse') buildStorehouseInterior(b, rawInt, intCols);
     else buildBarnInterior(b, rawInt, intCols);
 
     const batched = batchStaticCellGroup(rawInt, b.interiorDisposables);
